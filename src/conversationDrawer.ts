@@ -6,21 +6,46 @@ function readCharacters() {
   } catch { return [] }
 }
 
+function findButton(text: string, root: ParentNode = document) {
+  return Array.from(root.querySelectorAll<HTMLButtonElement>('button')).find((button) => button.textContent?.includes(text))
+}
+
 export function closeConversationDrawer() {
   document.querySelector('[data-conversation-drawer]')?.remove()
   document.documentElement.classList.remove('conversation-drawer-open')
 }
 
+async function returnToRoot(target: 'api' | 'characters' | 'more') {
+  closeConversationDrawer()
+  if (document.querySelector('.chat-page')) {
+    document.querySelector<HTMLButtonElement>('.chat-identity')?.click()
+    await sleep(100)
+  }
+  if (findButton('角色卡主体与开场白')) {
+    document.querySelector<HTMLButtonElement>('.page-header .icon-button')?.click()
+    await sleep(100)
+  }
+  if (target === 'characters') return
+  const nav = Array.from(document.querySelectorAll<HTMLButtonElement>('.bottom-nav button')).find((button) => button.textContent?.includes('更多'))
+  nav?.click()
+  await sleep(100)
+  if (target === 'api') findButton('API 连接', document)?.click()
+}
+
 async function openCharacter(name: string) {
   closeConversationDrawer()
-  document.querySelector<HTMLButtonElement>('.chat-identity')?.click()
-  await sleep(90)
-  document.querySelector<HTMLButtonElement>('.page-header .icon-button')?.click()
-  await sleep(90)
+  if (document.querySelector('.chat-page')) {
+    document.querySelector<HTMLButtonElement>('.chat-identity')?.click()
+    await sleep(100)
+  }
+  if (findButton('角色卡主体与开场白')) {
+    document.querySelector<HTMLButtonElement>('.page-header .icon-button')?.click()
+    await sleep(100)
+  }
   const card = Array.from(document.querySelectorAll<HTMLButtonElement>('.character-card')).find((button) => button.textContent?.includes(name))
   card?.click()
-  await sleep(90)
-  Array.from(document.querySelectorAll<HTMLButtonElement>('button')).find((button) => button.textContent?.includes('继续共演'))?.click()
+  await sleep(100)
+  findButton('继续共演')?.click()
 }
 
 function openConversationDrawer() {
@@ -38,6 +63,11 @@ function openConversationDrawer() {
     <header><div><strong>惟境</strong><small>WEIWEI ROLE</small></div><button class="conversation-close">×</button></header>
     <div class="conversation-title"><strong>全部聊天</strong><span>⌄</span></div>
     <div class="conversation-list">${rows || '<p>还没有角色</p>'}</div>
+    <nav class="conversation-bottom">
+      <button data-conversation-target="api"><span>⌑</span><small>API连接</small></button>
+      <button data-conversation-target="characters"><span>♙</span><small>角色</small></button>
+      <button data-conversation-target="more"><span>•••</span><small>更多</small></button>
+    </nav>
   </aside>`
   document.body.append(root)
   document.documentElement.classList.add('conversation-drawer-open')
@@ -45,6 +75,7 @@ function openConversationDrawer() {
   root.querySelector('.conversation-backdrop')?.addEventListener('click', closeConversationDrawer)
   root.querySelector('.conversation-close')?.addEventListener('click', closeConversationDrawer)
   root.querySelectorAll<HTMLElement>('[data-conversation-name]').forEach((button) => button.addEventListener('click', () => openCharacter(decodeURIComponent(button.dataset.conversationName || ''))))
+  root.querySelectorAll<HTMLElement>('[data-conversation-target]').forEach((button) => button.addEventListener('click', () => returnToRoot(button.dataset.conversationTarget as 'api' | 'characters' | 'more')))
 }
 
 export function installConversationDrawer() {
