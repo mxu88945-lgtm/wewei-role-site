@@ -6,6 +6,8 @@ import './pwa-fix.css'
 import './memory.css'
 import './character-card.css'
 import './import-flow.css'
+import './chatDrawer.css'
+import { installChatDrawer } from './chatDrawer'
 
 const APP_SCOPE = '/wewei-role-site/'
 let isReloading = false
@@ -92,6 +94,7 @@ if ('serviceWorker' in navigator) {
 
 const observer = new MutationObserver(mountUpdateCard)
 observer.observe(document.documentElement, { childList: true, subtree: true })
+installChatDrawer()
 
 ReactDOM.createRoot(document.getElementById('root')!).render(
   <React.StrictMode>
