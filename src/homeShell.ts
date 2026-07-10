@@ -18,24 +18,25 @@ function mountHomeShell() {
   const canvas = title?.closest<HTMLElement>('.phone-canvas')
   const stack = canvas?.querySelector<HTMLElement>('.content-stack')
   if (!canvas || !stack || stack.querySelector('[data-home-portal]')) return
+
   canvas.classList.add('home-portal-page')
   const feature = stack.querySelector<HTMLElement>('.feature-card')
   const recent = stack.querySelector<HTMLElement>('section')
   if (feature) feature.hidden = true
   if (recent) recent.hidden = true
+
   const portal = document.createElement('section')
   portal.dataset.homePortal = 'true'
   portal.className = 'home-portal'
   portal.innerHTML = `
     <div class="home-portal-heading"><span class="home-script">Eden</span><h2>欢迎回到惟境</h2><p>选择一个入口，继续今天的共演。</p></div>
-    <div class="home-portal-grid">
+    <div class="home-portal-grid home-portal-grid-two">
       <button data-home-route="chat"><span>•••</span><strong>聊天</strong><small>CHAT</small></button>
-      <button data-home-route="characters"><span>♙</span><strong>角色库</strong><small>CHARACTERS</small></button>
       <button data-home-route="settings"><span>⚙</span><strong>设置</strong><small>SETTINGS</small></button>
     </div>`
   stack.prepend(portal)
-  portal.querySelector('[data-home-route="chat"]')?.addEventListener('click', () => stack.querySelector<HTMLElement>('.feature-card')?.querySelector<HTMLButtonElement>('.primary-button')?.click())
-  portal.querySelector('[data-home-route="characters"]')?.addEventListener('click', () => clickBottomNav('角色'))
+
+  portal.querySelector('[data-home-route="chat"]')?.addEventListener('click', () => feature?.querySelector<HTMLButtonElement>('.primary-button')?.click())
   portal.querySelector('[data-home-route="settings"]')?.addEventListener('click', openSettings)
 }
 
