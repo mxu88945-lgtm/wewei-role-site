@@ -1,0 +1,22 @@
+{
+  "name": "惟境",
+  "short_name": "惟境",
+  "description": "角色、世界与长期记忆的共演空间",
+  "start_url": "/wewei-role-site/",
+  "scope": "/wewei-role-site/",
+  "display": "standalone",
+  "background_color": "#f7f5fb",
+  "theme_color": "#b98af4",
+  "icons": [
+    {
+      "src": "icon-192.png",
+      "sizes": "192x192",
+      "type": "image/png"
+    },
+    {
+      "src": "icon-512.png",
+      "sizes": "512x512",
+      "type": "image/png"
+    }
+  ]
+}
