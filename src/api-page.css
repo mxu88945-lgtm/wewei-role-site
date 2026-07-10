@@ -1,0 +1,225 @@
+.api-page {
+  height: 100dvh;
+  min-height: 0;
+  display: grid;
+  grid-template-rows: auto minmax(0, 1fr) auto;
+  margin: calc(-1 * max(20px, env(safe-area-inset-top))) -20px calc(-1 * (104px + env(safe-area-inset-bottom)));
+  padding: max(20px, env(safe-area-inset-top)) 20px 0;
+  overflow: hidden;
+  background: rgba(250, 249, 251, .98);
+}
+
+.api-page-header {
+  flex: 0 0 auto;
+  margin-bottom: 8px;
+}
+
+.api-page-scroll {
+  min-height: 0;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  -webkit-overflow-scrolling: touch;
+  padding: 8px 0 24px;
+}
+
+.api-page-footer {
+  position: relative;
+  z-index: 3;
+  padding: 12px 0 calc(12px + env(safe-area-inset-bottom));
+  background: linear-gradient(180deg, rgba(250,249,251,0), rgba(250,249,251,.96) 24%, rgba(250,249,251,1));
+}
+
+.api-model-field {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 10px;
+  align-items: stretch;
+}
+
+.api-model-field > button {
+  min-width: 96px;
+  border: 0;
+  border-radius: 18px;
+  padding: 0 16px;
+  color: white;
+  background: linear-gradient(135deg, #8150e7, #ce7fc4);
+  font-weight: 800;
+  box-shadow: 0 10px 24px rgba(67, 39, 107, .12);
+}
+
+.api-model-field > button:disabled {
+  opacity: .55;
+}
+
+.api-model-message {
+  margin-top: 2px;
+  color: #8c78a6;
+  font-size: 11px;
+  font-weight: 600;
+  line-height: 1.45;
+}
+
+.api-model-message.error {
+  color: #a65365;
+}
+
+.api-model-picker-layer {
+  position: fixed;
+  inset: 0;
+  z-index: 10020;
+  display: grid;
+  align-items: end;
+}
+
+.api-model-picker-backdrop {
+  position: absolute;
+  inset: 0;
+  border: 0;
+  background: rgba(27, 22, 31, .46);
+  backdrop-filter: blur(4px);
+}
+
+.api-model-picker {
+  position: relative;
+  width: min(100%, 520px);
+  max-height: min(76dvh, 680px);
+  margin: 0 auto;
+  padding: 18px 18px calc(18px + env(safe-area-inset-bottom));
+  display: grid;
+  grid-template-rows: auto auto minmax(0, 1fr);
+  gap: 14px;
+  border-radius: 30px 30px 0 0;
+  background: #f9f8fa;
+  box-shadow: 0 -24px 70px rgba(30, 22, 35, .22);
+}
+
+.api-model-picker > header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+}
+
+.api-model-picker > header small,
+.api-model-picker > header strong {
+  display: block;
+}
+
+.api-model-picker > header small {
+  color: #9d95a1;
+  font-size: 11px;
+}
+
+.api-model-picker > header strong {
+  margin-top: 4px;
+  font-size: 18px;
+}
+
+.api-model-picker > header button {
+  width: 40px;
+  height: 40px;
+  border: 0;
+  border-radius: 14px;
+  color: #756d79;
+  background: #ece9ee;
+  font-size: 24px;
+}
+
+.api-model-search {
+  width: 100%;
+  border: 1px solid rgba(71,55,80,.08);
+  outline: none;
+  border-radius: 17px;
+  padding: 14px 15px;
+  color: #2e2931;
+  background: #efedf0;
+}
+
+.api-model-search:focus {
+  border-color: #aa83de;
+  box-shadow: 0 0 0 4px rgba(158, 108, 211, .1);
+}
+
+.api-model-list {
+  min-height: 0;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  -webkit-overflow-scrolling: touch;
+  border-radius: 22px;
+  background: #efedf0;
+}
+
+.api-model-list > button {
+  width: 100%;
+  min-height: 68px;
+  border: 0;
+  padding: 12px 16px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 14px;
+  color: inherit;
+  background: transparent;
+  text-align: left;
+}
+
+.api-model-list > button + button {
+  border-top: 1px solid rgba(75,61,83,.055);
+}
+
+.api-model-list > button.active {
+  color: #7747cf;
+  background: #e9e1f4;
+}
+
+.api-model-list strong,
+.api-model-list small {
+  display: block;
+}
+
+.api-model-list strong {
+  overflow-wrap: anywhere;
+  font-size: 13px;
+}
+
+.api-model-list small {
+  margin-top: 4px;
+  color: #9a929e;
+  font-size: 10px;
+}
+
+.api-model-list i {
+  flex: 0 0 auto;
+  color: #9e91ac;
+  font-style: normal;
+  font-size: 20px;
+}
+
+.api-model-empty {
+  padding: 30px 18px;
+  color: #98909c;
+  text-align: center;
+  font-size: 13px;
+}
+
+@media (max-width: 390px) {
+  .api-model-field {
+    grid-template-columns: 1fr;
+  }
+
+  .api-model-field > button {
+    min-height: 48px;
+  }
+}
+
+@media (min-width: 700px) {
+  .api-page {
+    height: calc(100dvh - 56px);
+    border-radius: 38px;
+  }
+
+  .api-model-picker {
+    border-radius: 30px;
+    margin-bottom: 28px;
+  }
+}
