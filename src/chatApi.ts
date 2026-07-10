@@ -1,6 +1,11 @@
 export type ApiConfig = { baseUrl: string; apiKey: string; modelName: string }
 export type ChatApiMessage = { role: 'system' | 'user' | 'assistant'; content: string }
 
+export type ApiModel = {
+  id: string
+  ownedBy?: string
+}
+
 type CompletionOptions = {
   api: ApiConfig
   messages: ChatApiMessage[]
@@ -25,13 +30,35 @@ async function readError(response: Response) {
   }
 }
 
-export async function testApiConnection(api: ApiConfig, signal?: AbortSignal) {
-  if (!api.baseUrl.trim() || !api.apiKey.trim() || !api.modelName.trim()) throw new Error('请先完整填写 Base URL、API Key 和模型名称')
+export async function fetchApiModels(api: Pick<ApiConfig, 'baseUrl' | 'apiKey'>, signal?: AbortSignal): Promise<ApiModel[]> {
+  if (!api.baseUrl.trim() || !api.apiKey.trim()) throw new Error('请先填写 Base URL 和 API Key')
   const response = await fetch(endpoint(api.baseUrl, 'models'), {
     headers: { Authorization: `Bearer ${api.apiKey}` },
     signal,
   })
   if (!response.ok) throw new Error(await readError(response))
+
+  const payload = await response.json()
+  const rawModels = Array.isArray(payload?.data) ? payload.data : Array.isArray(payload?.models) ? payload.models : []
+  const models = rawModels
+    .map((item: unknown) => {
+      if (typeof item === 'string') return { id: item }
+      if (!item || typeof item !== 'object') return null
+      const model = item as { id?: unknown; name?: unknown; owned_by?: unknown; ownedBy?: unknown }
+      const id = typeof model.id === 'string' ? model.id : typeof model.name === 'string' ? model.name : ''
+      if (!id) return null
+      const ownedBy = typeof model.owned_by === 'string' ? model.owned_by : typeof model.ownedBy === 'string' ? model.ownedBy : undefined
+      return { id, ownedBy }
+    })
+    .filter((item: ApiModel | null): item is ApiModel => Boolean(item))
+
+  const unique = new Map(models.map((model) => [model.id, model]))
+  return [...unique.values()].sort((a, b) => a.id.localeCompare(b.id))
+}
+
+export async function testApiConnection(api: ApiConfig, signal?: AbortSignal) {
+  if (!api.modelName.trim()) throw new Error('请先选择或填写模型名称')
+  await fetchApiModels(api, signal)
   return true
 }
 
