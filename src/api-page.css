@@ -3,7 +3,9 @@
   min-height: 0;
   display: grid;
   grid-template-rows: auto minmax(0, 1fr) auto;
-  margin: calc(-1 * max(20px, env(safe-area-inset-top))) -20px calc(-1 * (104px + env(safe-area-inset-bottom)));
+  margin-top: calc(0px - max(20px, env(safe-area-inset-top)));
+  margin-inline: -20px;
+  margin-bottom: calc(-104px - env(safe-area-inset-bottom));
   padding: max(20px, env(safe-area-inset-top)) 20px 0;
   overflow: hidden;
   background: rgba(250, 249, 251, .98);
