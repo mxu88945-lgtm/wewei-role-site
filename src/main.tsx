@@ -7,8 +7,10 @@ import './memory.css'
 import './character-card.css'
 import './import-flow.css'
 import './chatDrawer.css'
+import './conversationDrawer.css'
 import './homeShell.css'
 import { installChatDrawer } from './chatDrawer'
+import { installConversationDrawer } from './conversationDrawer'
 import { installHomeShell } from './homeShell'
 
 const APP_SCOPE = '/wewei-role-site/'
@@ -97,6 +99,7 @@ if ('serviceWorker' in navigator) {
 const observer = new MutationObserver(mountUpdateCard)
 observer.observe(document.documentElement, { childList: true, subtree: true })
 installChatDrawer()
+installConversationDrawer()
 installHomeShell()
 
 ReactDOM.createRoot(document.getElementById('root')!).render(
