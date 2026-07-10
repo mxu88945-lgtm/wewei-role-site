@@ -12,6 +12,7 @@ import './homeShell.css'
 import { installChatDrawer } from './chatDrawer'
 import { installConversationDrawer } from './conversationDrawer'
 import { installHomeShell } from './homeShell'
+import { installNavigationFix } from './navigationFix'
 
 const APP_SCOPE = '/wewei-role-site/'
 let isReloading = false
@@ -101,6 +102,7 @@ observer.observe(document.documentElement, { childList: true, subtree: true })
 installChatDrawer()
 installConversationDrawer()
 installHomeShell()
+installNavigationFix()
 
 ReactDOM.createRoot(document.getElementById('root')!).render(
   <React.StrictMode>
