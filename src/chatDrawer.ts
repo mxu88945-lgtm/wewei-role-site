@@ -47,7 +47,7 @@ async function openMorePage() {
 
 async function navigate(route: DrawerRoute) {
   closeChatDrawer()
-  sessionStorage.setItem('weijing.returnToChat', '1')
+  sessionStorage.setItem('weijing.drawerReturn', '1')
   if (route === 'character-detail') {
     await leaveChatForCharacter()
     return
@@ -87,7 +87,7 @@ export function closeChatDrawer() {
   document.documentElement.classList.remove('chat-drawer-open')
 }
 
-function openChatDrawer() {
+export function openChatDrawer() {
   closeChatDrawer()
   const name = document.querySelector('.chat-identity strong')?.textContent || '当前角色'
   const subtitle = document.querySelector('.chat-identity small')?.textContent || '沉浸共演中'
