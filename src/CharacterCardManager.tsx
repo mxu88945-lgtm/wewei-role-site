@@ -1,7 +1,7 @@
 import { useState } from 'react'
 import type { Character, RegexScript, WorldBookEntry } from './characterCard'
 
-type Section = 'overview' | 'greetings' | 'worldbook' | 'regex'
+export type CharacterCardSection = 'overview' | 'greetings' | 'worldbook' | 'regex'
 
 function nextEntryId(entries: WorldBookEntry[]) {
   return Math.max(-1, ...entries.map((entry) => Number(entry.id) || 0)) + 1
@@ -42,8 +42,8 @@ function blankRegex(): RegexScript {
   }
 }
 
-export default function CharacterCardManager({ character, onChange, onBack }: { character: Character; onChange: (next: Character) => void; onBack: () => void }) {
-  const [section, setSection] = useState<Section>('overview')
+export default function CharacterCardManager({ character, onChange, onBack, initialSection = 'overview' }: { character: Character; onChange: (next: Character) => void; onBack: () => void; initialSection?: CharacterCardSection }) {
+  const [section, setSection] = useState<CharacterCardSection>(initialSection)
   const [expandedWorld, setExpandedWorld] = useState<number | null>(null)
   const [expandedRegex, setExpandedRegex] = useState<string | null>(null)
   const entries = character.characterBook?.entries || []

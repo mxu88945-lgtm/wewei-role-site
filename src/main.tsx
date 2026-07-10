@@ -5,6 +5,7 @@ import './index.css'
 import './pwa-fix.css'
 import './memory.css'
 import './character-card.css'
+import './import-flow.css'
 
 const APP_SCOPE = '/wewei-role-site/'
 let isReloading = false
