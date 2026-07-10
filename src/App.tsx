@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
+import ApiSettingsPage from './ApiSettingsPage'
 import CharacterCardManager from './CharacterCardManager'
 import { GreetingPicker, ImportPreview } from './ImportFlow'
 import MessageContent from './MessageContent'
@@ -462,7 +463,7 @@ function App() {
 
     {page === 'more' && <><BackHeader title="设置" onBack={goBack} /><section className="settings-stack">{[[['API 连接', 'api'], ['用户身份', 'identity']], [['模型设置', 'model'], ['全局预设', 'preset'], ['全局世界书', 'worldbook'], ['长记忆', 'memory']], [['应用设置', 'settings']]].map((group, index) => <div className="settings-group" key={index}>{group.map(([label, target]) => <button key={label} onClick={() => navigate(target as Page)}><span>{label}</span><span>›</span></button>)}</div>)}</section></>}
 
-    {page === 'api' && <><BackHeader title="API 连接" onBack={goBack} action={<button className="text-button" onClick={() => write('weijing.api', api)}>保存</button>} /><section className="content-stack form-stack"><div className={`api-status ${connection === 'error' ? 'error' : ''}`}><span className={connection === 'ok' ? 'ok' : connection === 'error' ? 'error' : ''}></span><div><strong>{connection === 'testing' ? '正在测试连接' : connection === 'ok' ? '连接正常' : connection === 'error' ? '连接失败' : '尚未测试连接'}</strong><small>{connectionMessage}</small></div></div><label>Base URL<input value={api.baseUrl} onChange={(e) => { setApi({ ...api, baseUrl: e.target.value }); setConnection('idle'); setConnectionMessage('配置已修改，请重新测试') }} /></label><label>API Key<input type="password" value={api.apiKey} onChange={(e) => { setApi({ ...api, apiKey: e.target.value }); setConnection('idle'); setConnectionMessage('配置已修改，请重新测试') }} /></label><label>模型名称<input value={api.modelName} onChange={(e) => { setApi({ ...api, modelName: e.target.value }); setConnection('idle'); setConnectionMessage('配置已修改，请重新测试') }} /></label><div className="privacy-note">聊天 API 和记忆总结 API 相互独立，配置仅保存在当前设备。</div><button className="primary-button full" onClick={testConnection} disabled={connection === 'testing'}>{connection === 'testing' ? '正在连接…' : '真实测试连接'}</button></section></>}
+    {page === 'api' && <ApiSettingsPage api={api} connection={connection} connectionMessage={connectionMessage} onApiChange={setApi} onConnectionReset={() => { setConnection('idle'); setConnectionMessage('配置已修改，请重新测试') }} onBack={goBack} onSave={() => write('weijing.api', api)} onTest={testConnection} />}
 
     {page === 'identity' && <EditablePage title="用户身份" value={identity.description} name={identity.name} onName={(name) => setIdentity({ ...identity, name })} onChange={(description) => setIdentity({ ...identity, description })} onBack={goBack} />}
     {page === 'worldbook' && <EditablePage title="世界书" value={worldbook} onChange={setWorldbook} onBack={goBack} />}
