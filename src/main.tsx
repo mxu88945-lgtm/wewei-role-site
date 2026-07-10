@@ -7,6 +7,7 @@ import './memory.css'
 import './character-card.css'
 import './import-flow.css'
 import './navigation-shell.css'
+import './api-page.css'
 
 const APP_SCOPE = '/wewei-role-site/'
 
