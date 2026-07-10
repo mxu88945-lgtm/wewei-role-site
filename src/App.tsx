@@ -1,8 +1,10 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
 import CharacterCardManager from './CharacterCardManager'
+import { GreetingPicker, ImportPreview } from './ImportFlow'
+import MessageContent from './MessageContent'
 import { createBlankCharacter, importCharacterCard, normalizeStoredCharacter, type Character } from './characterCard'
 
-type Page = 'home' | 'characters' | 'create' | 'character-detail' | 'card-data' | 'chat' | 'more' | 'api' | 'model' | 'settings' | 'identity' | 'worldbook' | 'preset' | 'memory' | 'memory-api' | 'memory-list'
+type Page = 'home' | 'characters' | 'create' | 'import-preview' | 'character-detail' | 'card-data' | 'card-worldbook' | 'card-regex' | 'greeting-picker' | 'chat' | 'more' | 'api' | 'model' | 'settings' | 'identity' | 'worldbook' | 'preset' | 'memory' | 'memory-api' | 'memory-list'
 type Message = { id: number; role: 'user' | 'assistant'; text: string }
 type SessionMap = Record<string, Message[]>
 type ApiConfig = { baseUrl: string; apiKey: string; modelName: string }
@@ -70,6 +72,7 @@ function App() {
   const [memoryState, setMemoryState] = useState<'idle' | 'summarizing' | 'ok' | 'error'>('idle')
   const [importState, setImportState] = useState<'idle' | 'reading' | 'error'>('idle')
   const [importError, setImportError] = useState('')
+  const [pendingImport, setPendingImport] = useState<Character | null>(null)
   const fileInputRef = useRef<HTMLInputElement>(null)
 
   const activeCharacter = characters.find((item) => item.id === activeId) || characters[0] || demoCharacter
@@ -89,7 +92,7 @@ function App() {
   useEffect(() => { write('weijing.temperature', temperature); write('weijing.topP', topP); write('weijing.memoryLength', memoryLength); write('weijing.maxTokens', maxTokens); write('weijing.streaming', streaming) }, [temperature, topP, memoryLength, maxTokens, streaming])
 
   const pageTitle = useMemo(() => page === 'home' ? '惟境' : page === 'characters' ? '角色' : '', [page])
-  const goBack = () => setPage(['api', 'model', 'settings', 'identity', 'worldbook', 'preset', 'memory'].includes(page) ? 'more' : ['memory-api', 'memory-list'].includes(page) ? 'memory' : page === 'chat' || page === 'card-data' ? 'character-detail' : page === 'character-detail' || page === 'create' ? 'characters' : 'home')
+  const goBack = () => setPage(['api', 'model', 'settings', 'identity', 'worldbook', 'preset', 'memory'].includes(page) ? 'more' : ['memory-api', 'memory-list'].includes(page) ? 'memory' : page === 'chat' || ['card-data', 'card-worldbook', 'card-regex', 'greeting-picker'].includes(page) ? 'character-detail' : page === 'character-detail' || page === 'create' || page === 'import-preview' ? 'characters' : 'home')
 
   const updateMemoryConfig = (patch: Partial<MemoryConfig>) => setMemoryConfigs((current) => ({ ...current, [activeCharacter.id]: { ...(current[activeCharacter.id] || defaultMemoryConfig()), ...patch } }))
   const updateMemoryApi = (patch: Partial<ApiConfig>) => updateMemoryConfig({ api: { ...currentMemoryConfig.api, ...patch } })
@@ -111,13 +114,13 @@ function App() {
     setPage('character-detail')
   }
 
-  const addImportedCharacter = (character: Character) => {
+  const addImportedCharacter = (character: Character, nextPage: Page = 'character-detail') => {
     setCharacters((current) => [...current.filter((item) => item.id !== character.id), character])
     setSessions((current) => ({ ...current, [character.id]: [{ id: Date.now(), role: 'assistant', text: character.greeting }] }))
     setMemoryConfigs((current) => ({ ...current, [character.id]: defaultMemoryConfig() }))
     setMemoryEntries((current) => ({ ...current, [character.id]: [] }))
     setActiveId(character.id)
-    setPage('character-detail')
+    setPage(nextPage)
   }
 
   const handleCharacterFile = async (file?: File) => {
@@ -125,7 +128,8 @@ function App() {
     setImportState('reading')
     setImportError('')
     try {
-      addImportedCharacter(await importCharacterCard(file))
+      setPendingImport(await importCharacterCard(file))
+      setPage('import-preview')
       setImportState('idle')
     } catch (error) {
       setImportState('error')
@@ -136,7 +140,11 @@ function App() {
   }
 
   const updateActiveCharacter = (next: Character) => setCharacters((current) => current.map((item) => item.id === next.id ? next : item))
-  const newSession = () => { setSessions((current) => ({ ...current, [activeCharacter.id]: [{ id: Date.now(), role: 'assistant', text: activeCharacter.greeting }] })); setPage('chat') }
+  const newSession = () => setPage('greeting-picker')
+  const beginWithGreeting = (greeting: string) => {
+    setSessions((current) => ({ ...current, [activeCharacter.id]: [{ id: Date.now(), role: 'assistant', text: greeting }] }))
+    setPage('chat')
+  }
 
   const summarizeMemory = async (sourceMessages = messages) => {
     const config = currentMemoryConfig
@@ -196,13 +204,23 @@ function App() {
 
     {page === 'create' && <><BackHeader title="新建角色" onBack={goBack} action={<button className="text-button" onClick={createCharacter}>保存</button>} /><section className="content-stack form-stack"><button className="drop-zone compact" onClick={() => fileInputRef.current?.click()}><span className="drop-plus">＋</span><strong>{importState === 'reading' ? '正在读取角色卡…' : '导入 PNG 角色卡'}</strong><small>自动解析头像、开场白、世界书和正则</small></button>{importState === 'error' && <div className="import-notice error">{importError}</div>}<div className="form-divider"><span>或者手动创建</span></div><label>角色名称<input value={newCharacter.name} onChange={(e) => setNewCharacter({ ...newCharacter, name: e.target.value })} placeholder="例如：霍烬" /></label><label>一句话简介<input value={newCharacter.tagline} onChange={(e) => setNewCharacter({ ...newCharacter, tagline: e.target.value })} /></label><label>角色设定<textarea rows={7} value={newCharacter.description} onChange={(e) => setNewCharacter({ ...newCharacter, description: e.target.value })} /></label><label>开场白<textarea rows={4} value={newCharacter.greeting} onChange={(e) => setNewCharacter({ ...newCharacter, greeting: e.target.value })} /></label><label>标签<input value={newCharacter.tags} onChange={(e) => setNewCharacter({ ...newCharacter, tags: e.target.value })} placeholder="慢热，守护，剧情向" /></label><button className="primary-button full" onClick={createCharacter}>创建并保存</button></section></>}
 
-    {page === 'character-detail' && <><BackHeader title={activeCharacter.name} onBack={goBack} /><section className="detail-stack"><div className="character-hero"><CharacterPortrait item={activeCharacter} large /><div><p className="eyebrow">{activeCharacter.cardSpecVersion ? `CHARACTER CARD ${activeCharacter.cardSpecVersion}` : 'CHARACTER'}</p><h2>{activeCharacter.name}</h2><p>{activeCharacter.tagline}</p></div></div><div className="detail-card"><h3>角色简介</h3><p>{activeCharacter.description || '还没有填写角色简介。'}</p><div className="chips left">{activeCharacter.tags.map((tag) => <span key={tag}>{tag}</span>)}</div></div><button className="data-summary-card" onClick={() => setPage('card-data')}><div><strong>角色卡元数据</strong><small>{activeCharacter.alternateGreetings.length + 1} 个开场 · {activeCharacter.characterBook?.entries.length || 0} 条世界书 · {activeCharacter.regexScripts.length} 条正则</small></div><span>›</span></button><div className="detail-card"><h3>长期记忆</h3><p>这个角色拥有独立记忆库，目前保存 {currentMemories.length} 条记忆。</p><button className="inline-link" onClick={() => setPage('memory')}>管理记忆与总结模型 ›</button></div><div className="detail-card"><h3>开场白</h3><blockquote>{activeCharacter.greeting}</blockquote></div><div className="detail-actions"><button className="primary-button full" onClick={() => setPage('chat')}>继续共演</button><button className="secondary-button" onClick={newSession}>新建对话</button></div></section></>}
+    {page === 'import-preview' && pendingImport && <ImportPreview character={pendingImport} onCancel={() => { setPendingImport(null); setPage('characters') }} onConfirm={({ includeBook, includeRegex }) => {
+      const character = { ...pendingImport, characterBook: includeBook ? pendingImport.characterBook : undefined, regexScripts: includeRegex ? pendingImport.regexScripts : [] }
+      setPendingImport(null)
+      addImportedCharacter(character, 'greeting-picker')
+    }} />}
+
+    {page === 'character-detail' && <><BackHeader title={activeCharacter.name} onBack={goBack} /><section className="detail-stack"><div className="character-hero"><CharacterPortrait item={activeCharacter} large /><div><p className="eyebrow">{activeCharacter.cardSpecVersion ? `CHARACTER CARD ${activeCharacter.cardSpecVersion}` : 'CHARACTER'}</p><h2>{activeCharacter.name}</h2><p>{activeCharacter.tagline}</p></div></div><div className="detail-card"><h3>角色简介</h3><p>{activeCharacter.description || '还没有填写角色简介。'}</p><div className="chips left">{activeCharacter.tags.map((tag) => <span key={tag}>{tag}</span>)}</div></div><button className="data-summary-card" onClick={() => setPage('card-data')}><div><strong>角色卡主体与开场白</strong><small>{activeCharacter.alternateGreetings.length + 1} 个开场 · Card {activeCharacter.cardSpecVersion || '本地'}</small></div><span>›</span></button><button className="data-summary-card compact" onClick={() => setPage('card-worldbook')}><div><strong>角色世界书</strong><small>{activeCharacter.characterBook?.entries.length || 0} 条 · 可编辑、启停和调整插入位置</small></div><span>›</span></button><button className="data-summary-card compact" onClick={() => setPage('card-regex')}><div><strong>角色正则与美化</strong><small>{activeCharacter.regexScripts.length} 条 · {activeCharacter.regexScripts.filter((script) => !script.disabled).length} 条启用</small></div><span>›</span></button><div className="detail-card"><h3>长期记忆</h3><p>这个角色拥有独立记忆库，目前保存 {currentMemories.length} 条记忆。</p><button className="inline-link" onClick={() => setPage('memory')}>管理记忆与总结模型 ›</button></div><div className="detail-card"><h3>开场白</h3><blockquote>{activeCharacter.greeting}</blockquote></div><div className="detail-actions"><button className="primary-button full" onClick={() => setPage('chat')}>继续共演</button><button className="secondary-button" onClick={newSession}>选择开场并新建对话</button></div></section></>}
 
     {page === 'card-data' && <CharacterCardManager character={activeCharacter} onChange={updateActiveCharacter} onBack={goBack} />}
+    {page === 'card-worldbook' && <CharacterCardManager character={activeCharacter} onChange={updateActiveCharacter} onBack={goBack} initialSection="worldbook" />}
+    {page === 'card-regex' && <CharacterCardManager character={activeCharacter} onChange={updateActiveCharacter} onBack={goBack} initialSection="regex" />}
 
-    {page === 'chat' && <section className="chat-page"><header className="chat-header"><button className="icon-button" onClick={goBack}>‹</button><button className="chat-identity" onClick={() => setPage('character-detail')}>{activeCharacter.avatar ? <img src={activeCharacter.avatar} alt="" /> : <span>{activeCharacter.name.slice(-1)}</span>}<div><strong>{activeCharacter.name}</strong><small>{identity.name} · 沉浸共演中</small></div></button><button className="more-button" onClick={() => setPage('memory')}>•••</button></header><div className="scene-banner"><span>✦</span><p>{(activeCharacter.characterBook?.name || worldbook).slice(0, 24)}</p></div><div className="message-list">{messages.map((message) => <div key={message.id} className={`message-row ${message.role}`}><div className="message-bubble">{message.text}</div></div>)}</div><div className="composer"><button className="composer-plus">＋</button><textarea rows={1} value={draft} onChange={(e) => setDraft(e.target.value)} onKeyDown={(e) => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); sendMessage() } }} placeholder="写下你的回应……" /><button className="send-button" onClick={sendMessage}>↑</button></div></section>}
+    {page === 'greeting-picker' && <GreetingPicker character={activeCharacter} userName={identity.name} onCancel={goBack} onConfirm={beginWithGreeting} />}
 
-    {page === 'more' && <><BackHeader title="更多" onBack={() => setPage('home')} /><section className="settings-stack">{[[['API 连接', 'api'], ['用户身份', 'identity']], [['模型设置', 'model'], ['预设', 'preset'], ['世界书', 'worldbook'], ['长记忆', 'memory']], [['设置', 'settings']]].map((group, index) => <div className="settings-group" key={index}>{group.map(([label, target]) => <button key={label} onClick={() => setPage(target as Page)}><span>{label}</span><span>›</span></button>)}</div>)}</section></>}
+    {page === 'chat' && <section className="chat-page"><header className="chat-header"><button className="icon-button" onClick={goBack}>‹</button><button className="chat-identity" onClick={() => setPage('character-detail')}>{activeCharacter.avatar ? <img src={activeCharacter.avatar} alt="" /> : <span>{activeCharacter.name.slice(-1)}</span>}<div><strong>{activeCharacter.name}</strong><small>{identity.name} · 沉浸共演中</small></div></button><button className="more-button" onClick={() => setPage('card-data')}>•••</button></header><button className="scene-banner" onClick={() => setPage('card-worldbook')}><span>✦</span><p>{(activeCharacter.characterBook?.name || worldbook).slice(0, 24)} · {activeCharacter.characterBook?.entries.length || 0} 条</p></button><div className="message-list">{messages.map((message) => <div key={message.id} className={`message-row ${message.role}`}><div className="message-bubble"><MessageContent text={message.text} role={message.role} character={activeCharacter} userName={identity.name} /></div></div>)}</div><div className="composer"><button className="composer-plus">＋</button><textarea rows={1} value={draft} onChange={(e) => setDraft(e.target.value)} onKeyDown={(e) => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); sendMessage() } }} placeholder="写下你的回应……" /><button className="send-button" onClick={sendMessage}>↑</button></div></section>}
+
+    {page === 'more' && <><BackHeader title="更多" onBack={() => setPage('home')} /><section className="settings-stack">{[[['API 连接', 'api'], ['用户身份', 'identity']], [['模型设置', 'model'], ['全局预设', 'preset'], ['全局世界书', 'worldbook'], ['长记忆', 'memory']], [['设置', 'settings']]].map((group, index) => <div className="settings-group" key={index}>{group.map(([label, target]) => <button key={label} onClick={() => setPage(target as Page)}><span>{label}</span><span>›</span></button>)}</div>)}</section></>}
 
     {page === 'api' && <><BackHeader title="API 连接" onBack={goBack} action={<button className="text-button" onClick={() => write('weijing.api', api)}>保存</button>} /><section className="content-stack form-stack"><div className="api-status"><span className={connection === 'ok' ? 'ok' : ''}></span><div><strong>{connection === 'ok' ? '连接正常' : '尚未测试连接'}</strong><small>聊天模型 · OpenAI 兼容接口</small></div></div><label>Base URL<input value={api.baseUrl} onChange={(e) => setApi({ ...api, baseUrl: e.target.value })} /></label><label>API Key<input type="password" value={api.apiKey} onChange={(e) => setApi({ ...api, apiKey: e.target.value })} /></label><label>模型名称<input value={api.modelName} onChange={(e) => setApi({ ...api, modelName: e.target.value })} /></label><div className="privacy-note">聊天 API 和记忆总结 API 相互独立，配置仅保存在当前设备。</div><button className="primary-button full" onClick={() => { setConnection('testing'); setTimeout(() => setConnection('ok'), 700) }}>{connection === 'testing' ? '测试中…' : '测试连接'}</button></section></>}
 
