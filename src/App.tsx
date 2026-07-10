@@ -3,6 +3,8 @@ import CharacterCardManager from './CharacterCardManager'
 import { GreetingPicker, ImportPreview } from './ImportFlow'
 import MessageContent from './MessageContent'
 import { createBlankCharacter, importCharacterCard, normalizeStoredCharacter, type Character } from './characterCard'
+import { completeChat, testApiConnection, type ApiConfig } from './chatApi'
+import { buildChatPrompt } from './promptBuilder'
 
 type Page = 'home' | 'characters' | 'create' | 'import-preview' | 'character-detail' | 'card-data' | 'card-worldbook' | 'card-regex' | 'greeting-picker' | 'chat' | 'more' | 'api' | 'model' | 'settings' | 'identity' | 'worldbook' | 'preset' | 'memory' | 'memory-api' | 'memory-list'
 type Message = { id: number; role: 'user' | 'assistant'; text: string }
@@ -17,7 +19,6 @@ type Conversation = {
   updatedAt: number
 }
 type LegacySessionMap = Record<string, Message[]>
-type ApiConfig = { baseUrl: string; apiKey: string; modelName: string }
 type MemoryEntry = { id: string; createdAt: number; title: string; content: string; sourceCount: number }
 type MemoryConfig = {
   api: ApiConfig
@@ -104,7 +105,10 @@ function App() {
   const [worldbook, setWorldbook] = useState(() => read('weijing.worldbook', 'A 国旧世家与现代都市并存。剧情缓慢推进，不替用户角色做决定。'))
   const [preset, setPreset] = useState(() => read('weijing.preset', '克制、细腻、慢热；每轮携带微量剧情进展。'))
   const [api, setApi] = useState<ApiConfig>(() => read('weijing.api', { baseUrl: 'https://api.openai.com/v1', apiKey: '', modelName: 'gpt-4.1-mini' }))
-  const [connection, setConnection] = useState<'idle' | 'testing' | 'ok'>('idle')
+  const [connection, setConnection] = useState<'idle' | 'testing' | 'ok' | 'error'>('idle')
+  const [connectionMessage, setConnectionMessage] = useState('尚未测试连接')
+  const [chatError, setChatError] = useState('')
+  const [generatingIds, setGeneratingIds] = useState<string[]>([])
   const [temperature, setTemperature] = useState(() => read('weijing.temperature', 0.95))
   const [topP, setTopP] = useState(() => read('weijing.topP', 0.9))
   const [memoryLength, setMemoryLength] = useState(() => read('weijing.memoryLength', 47))
@@ -117,6 +121,7 @@ function App() {
   const [importError, setImportError] = useState('')
   const [pendingImport, setPendingImport] = useState<Character | null>(null)
   const fileInputRef = useRef<HTMLInputElement>(null)
+  const generationControllers = useRef(new Map<string, AbortController>())
 
   const activeCharacter = characters.find((item) => item.id === activeId) || characters[0] || demoCharacter
   const activeConversation = conversations.find((item) => item.id === activeConversationId && item.characterId === activeCharacter.id)
@@ -136,6 +141,7 @@ function App() {
   useEffect(() => write('weijing.memoryConfigs', memoryConfigs), [memoryConfigs])
   useEffect(() => write('weijing.memoryEntries', memoryEntries), [memoryEntries])
   useEffect(() => { write('weijing.temperature', temperature); write('weijing.topP', topP); write('weijing.memoryLength', memoryLength); write('weijing.maxTokens', maxTokens); write('weijing.streaming', streaming) }, [temperature, topP, memoryLength, maxTokens, streaming])
+  useEffect(() => () => generationControllers.current.forEach((controller) => controller.abort()), [])
 
   const pageTitle = useMemo(() => page === 'home' ? '惟境' : page === 'characters' ? '角色' : '', [page])
   const navigate = (target: Page, reopenDrawer?: Drawer) => {
@@ -160,6 +166,12 @@ function App() {
     setPage(previous.page)
     setDrawer(previous.reopenDrawer || null)
     setConversationMenuId(null)
+  }
+
+  const abortConversation = (conversationId: string) => {
+    generationControllers.current.get(conversationId)?.abort()
+    generationControllers.current.delete(conversationId)
+    setGeneratingIds((current) => current.filter((id) => id !== conversationId))
   }
 
   const updateMemoryConfig = (patch: Partial<MemoryConfig>) => setMemoryConfigs((current) => ({ ...current, [activeCharacter.id]: { ...(current[activeCharacter.id] || defaultMemoryConfig()), ...patch } }))
@@ -247,6 +259,7 @@ function App() {
   }
 
   const restartConversation = (conversation: Conversation) => {
+    abortConversation(conversation.id)
     const character = characters.find((item) => item.id === conversation.characterId) || demoCharacter
     setConversations((current) => current.map((item) => item.id === conversation.id ? { ...item, messages: [{ id: Date.now(), role: 'assistant', text: character.greeting }], updatedAt: Date.now() } : item))
     setActiveId(character.id)
@@ -268,6 +281,7 @@ function App() {
 
   const deleteConversation = (conversation: Conversation) => {
     if (!window.confirm(`删除“${conversation.title}”？此操作只删除这段对话。`)) return
+    abortConversation(conversation.id)
     const remaining = conversations.filter((item) => item.id !== conversation.id)
     setConversations(remaining)
     setConversationMenuId(null)
@@ -317,32 +331,103 @@ function App() {
     }
   }
 
-  const sendMessage = () => {
+  const sendMessage = async () => {
     const text = draft.trim(); if (!text) return
+    if (!api.baseUrl.trim() || !api.apiKey.trim() || !api.modelName.trim()) {
+      setChatError('请先在 API 连接中填写 Base URL、API Key 和模型名称。')
+      return
+    }
+
     let conversation = activeConversation
     if (!conversation) {
       conversation = createConversation(activeCharacter)
       setActiveConversationId(conversation.id)
-      setConversations((current) => [...current, conversation!])
     }
     const conversationId = conversation.id
+    if (generationControllers.current.has(conversationId)) return
+
+    const capturedCharacter = activeCharacter
+    const capturedMemoryConfig = memoryConfigs[capturedCharacter.id] || defaultMemoryConfig()
+    const capturedMemories = memoryEntries[capturedCharacter.id] || []
     const userMessage = { id: Date.now(), role: 'user' as const, text }
+    const assistantMessage = { id: Date.now() + 1, role: 'assistant' as const, text: '正在回应…' }
     const nextMessages = [...messages, userMessage]
-    setConversations((current) => current.map((item) => item.id === conversationId ? { ...item, messages: nextMessages, updatedAt: Date.now() } : item))
+    const pendingMessages = [...nextMessages, assistantMessage]
+    setConversations((current) => {
+      const exists = current.some((item) => item.id === conversationId)
+      if (!exists) return [...current, { ...conversation!, messages: pendingMessages, updatedAt: Date.now() }]
+      return current.map((item) => item.id === conversationId ? { ...item, messages: pendingMessages, updatedAt: Date.now() } : item)
+    })
     setDraft('')
-    window.setTimeout(() => {
-      const assistantMessage = { id: Date.now() + 1, role: 'assistant' as const, text: '我听着。慢慢说，不急。' }
-      const completed = [...nextMessages, assistantMessage]
-      setConversations((current) => current.map((item) => item.id === conversationId ? { ...item, messages: completed, updatedAt: Date.now() } : item))
-      const config = memoryConfigs[activeCharacter.id] || defaultMemoryConfig()
-      if (config.autoEvery > 0 && completed.length - config.lastSummarizedCount >= config.autoEvery && config.api.apiKey) summarizeMemory(completed)
-    }, 420)
+    setChatError('')
+
+    const controller = new AbortController()
+    generationControllers.current.set(conversationId, controller)
+    setGeneratingIds((current) => [...current.filter((id) => id !== conversationId), conversationId])
+    let output = ''
+
+    try {
+      const promptMessages = buildChatPrompt({
+        character: capturedCharacter,
+        user: identity,
+        messages: nextMessages,
+        preset,
+        globalWorldbook: worldbook,
+        memory: { entries: capturedMemories, injectPosition: capturedMemoryConfig.injectPosition, injectPrompt: capturedMemoryConfig.injectPrompt },
+        memoryLength,
+      })
+      await completeChat({
+        api,
+        messages: promptMessages,
+        temperature,
+        topP,
+        maxTokens,
+        streaming,
+        signal: controller.signal,
+        onDelta: (delta) => {
+          output += delta
+          setConversations((current) => current.map((item) => item.id === conversationId ? { ...item, messages: item.messages.map((message) => message.id === assistantMessage.id ? { ...message, text: output } : message), updatedAt: Date.now() } : item))
+        },
+      })
+      if (!output.trim()) throw new Error('模型没有返回内容')
+
+      const completed = [...nextMessages, { ...assistantMessage, text: output }]
+      if (capturedMemoryConfig.autoEvery > 0 && completed.length - capturedMemoryConfig.lastSummarizedCount >= capturedMemoryConfig.autoEvery && capturedMemoryConfig.api.apiKey) summarizeMemory(completed)
+    } catch (error) {
+      if (controller.signal.aborted) {
+        setConversations((current) => current.map((item) => item.id === conversationId ? { ...item, messages: item.messages.map((message) => message.id === assistantMessage.id ? { ...message, text: output || '已停止生成。' } : message) } : item))
+      } else {
+        const message = error instanceof Error ? error.message : '聊天请求失败'
+        setChatError(message)
+        setConversations((current) => current.map((item) => item.id === conversationId ? { ...item, messages: item.messages.map((entry) => entry.id === assistantMessage.id ? { ...entry, text: `请求失败：${message}` } : entry) } : item))
+      }
+    } finally {
+      if (generationControllers.current.get(conversationId) === controller) {
+        generationControllers.current.delete(conversationId)
+        setGeneratingIds((current) => current.filter((id) => id !== conversationId))
+      }
+    }
+  }
+
+  const testConnection = async () => {
+    setConnection('testing')
+    setConnectionMessage('正在请求模型列表…')
+    try {
+      await testApiConnection(api)
+      setConnection('ok')
+      setConnectionMessage('连接正常，密钥与地址可用')
+      setChatError('')
+    } catch (error) {
+      setConnection('error')
+      setConnectionMessage(error instanceof Error ? error.message : '连接测试失败')
+    }
   }
 
   const CharacterPortrait = ({ item, large = false }: { item: Character; large?: boolean }) => <div className={large ? 'hero-portrait' : 'character-art'}>{item.avatar ? <img src={item.avatar} alt="" /> : <><span>{item.name.slice(-1)}</span><i>✦</i></>}</div>
   const CharacterCard = ({ item }: { item: Character }) => <button className="character-card" onClick={() => openCharacter(item.id)}><CharacterPortrait item={item} /><div className="character-copy"><div className="character-title"><strong>{item.name}</strong><span>{item.id === activeId ? '最近共演' : item.cardSpecVersion ? `Card ${item.cardSpecVersion}` : '角色卡'}</span></div><p>{item.tagline}</p><small>“{item.greeting}”</small></div><span className="chevron">›</span></button>
   const sortedConversations = conversations.slice().sort((a, b) => b.updatedAt - a.updatedAt)
   const menuConversation = conversations.find((item) => item.id === conversationMenuId)
+  const isGenerating = Boolean(activeConversation && generatingIds.includes(activeConversation.id))
 
   return <div className="app-shell"><main className={`phone-canvas ${page === 'chat' ? 'chat-canvas' : ''}`}>
     <input ref={fileInputRef} className="hidden-file-input" type="file" accept="image/png,.png" onChange={(event) => handleCharacterFile(event.target.files?.[0])} />
@@ -373,11 +458,11 @@ function App() {
 
     {page === 'greeting-picker' && <GreetingPicker character={activeCharacter} userName={identity.name} onCancel={goBack} onConfirm={beginWithGreeting} />}
 
-    {page === 'chat' && <section className="chat-page"><header className="chat-header"><button className="icon-button drawer-trigger" aria-label="打开对话列表" onClick={() => setDrawer('left')}>☰</button><button className="chat-identity" onClick={() => navigate('character-detail')}>{activeCharacter.avatar ? <img src={activeCharacter.avatar} alt="" /> : <span>{activeCharacter.name.slice(-1)}</span>}<div><strong>{activeCharacter.name}</strong><small>{activeConversation?.title || `${identity.name} · 沉浸共演中`}</small></div></button><button className="more-button" aria-label="打开聊天设置" onClick={() => setDrawer('right')}>•••</button></header><button className="scene-banner" onClick={() => navigate('card-worldbook')}><span>✦</span><p>{(activeCharacter.characterBook?.name || worldbook).slice(0, 24)} · {activeCharacter.characterBook?.entries.length || 0} 条</p></button><div className="message-list">{messages.map((message) => <div key={message.id} className={`message-row ${message.role}`}><div className="message-bubble"><MessageContent text={message.text} role={message.role} character={activeCharacter} userName={identity.name} /></div></div>)}</div><div className="composer"><button className="composer-plus">＋</button><textarea rows={1} value={draft} onChange={(e) => setDraft(e.target.value)} onKeyDown={(e) => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); sendMessage() } }} placeholder="写下你的回应……" /><button className="send-button" onClick={sendMessage}>↑</button></div></section>}
+    {page === 'chat' && <section className="chat-page"><header className="chat-header"><button className="icon-button drawer-trigger" aria-label="打开对话列表" onClick={() => setDrawer('left')}>☰</button><button className="chat-identity" onClick={() => navigate('character-detail')}>{activeCharacter.avatar ? <img src={activeCharacter.avatar} alt="" /> : <span>{activeCharacter.name.slice(-1)}</span>}<div><strong>{activeCharacter.name}</strong><small>{isGenerating ? '正在回应…' : activeConversation?.title || `${identity.name} · 沉浸共演中`}</small></div></button><button className="more-button" aria-label="打开聊天设置" onClick={() => setDrawer('right')}>•••</button></header><button className="scene-banner" onClick={() => navigate('card-worldbook')}><span>✦</span><p>{(activeCharacter.characterBook?.name || worldbook).slice(0, 24)} · {activeCharacter.characterBook?.entries.length || 0} 条</p></button>{chatError && <button className="chat-error" onClick={() => navigate('api')}><span>连接提示</span>{chatError}<i>前往 API 设置 ›</i></button>}<div className="message-list">{messages.map((message) => <div key={message.id} className={`message-row ${message.role}`}><div className="message-bubble"><MessageContent text={message.text} role={message.role} character={activeCharacter} userName={identity.name} /></div></div>)}</div><div className="composer"><button className="composer-plus">＋</button><textarea rows={1} value={draft} onChange={(e) => setDraft(e.target.value)} onKeyDown={(e) => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); if (!isGenerating) sendMessage() } }} placeholder={isGenerating ? '可以先写下一条，停止后再发送' : '写下你的回应……'} /><button className={`send-button ${isGenerating ? 'stop' : ''}`} aria-label={isGenerating ? '停止生成' : '发送'} onClick={() => isGenerating && activeConversation ? abortConversation(activeConversation.id) : sendMessage()}>{isGenerating ? '■' : '↑'}</button></div></section>}
 
     {page === 'more' && <><BackHeader title="设置" onBack={goBack} /><section className="settings-stack">{[[['API 连接', 'api'], ['用户身份', 'identity']], [['模型设置', 'model'], ['全局预设', 'preset'], ['全局世界书', 'worldbook'], ['长记忆', 'memory']], [['应用设置', 'settings']]].map((group, index) => <div className="settings-group" key={index}>{group.map(([label, target]) => <button key={label} onClick={() => navigate(target as Page)}><span>{label}</span><span>›</span></button>)}</div>)}</section></>}
 
-    {page === 'api' && <><BackHeader title="API 连接" onBack={goBack} action={<button className="text-button" onClick={() => write('weijing.api', api)}>保存</button>} /><section className="content-stack form-stack"><div className="api-status"><span className={connection === 'ok' ? 'ok' : ''}></span><div><strong>{connection === 'ok' ? '连接正常' : '尚未测试连接'}</strong><small>聊天模型 · OpenAI 兼容接口</small></div></div><label>Base URL<input value={api.baseUrl} onChange={(e) => setApi({ ...api, baseUrl: e.target.value })} /></label><label>API Key<input type="password" value={api.apiKey} onChange={(e) => setApi({ ...api, apiKey: e.target.value })} /></label><label>模型名称<input value={api.modelName} onChange={(e) => setApi({ ...api, modelName: e.target.value })} /></label><div className="privacy-note">聊天 API 和记忆总结 API 相互独立，配置仅保存在当前设备。</div><button className="primary-button full" onClick={() => { setConnection('testing'); setTimeout(() => setConnection('ok'), 700) }}>{connection === 'testing' ? '测试中…' : '测试连接'}</button></section></>}
+    {page === 'api' && <><BackHeader title="API 连接" onBack={goBack} action={<button className="text-button" onClick={() => write('weijing.api', api)}>保存</button>} /><section className="content-stack form-stack"><div className={`api-status ${connection === 'error' ? 'error' : ''}`}><span className={connection === 'ok' ? 'ok' : connection === 'error' ? 'error' : ''}></span><div><strong>{connection === 'testing' ? '正在测试连接' : connection === 'ok' ? '连接正常' : connection === 'error' ? '连接失败' : '尚未测试连接'}</strong><small>{connectionMessage}</small></div></div><label>Base URL<input value={api.baseUrl} onChange={(e) => { setApi({ ...api, baseUrl: e.target.value }); setConnection('idle'); setConnectionMessage('配置已修改，请重新测试') }} /></label><label>API Key<input type="password" value={api.apiKey} onChange={(e) => { setApi({ ...api, apiKey: e.target.value }); setConnection('idle'); setConnectionMessage('配置已修改，请重新测试') }} /></label><label>模型名称<input value={api.modelName} onChange={(e) => { setApi({ ...api, modelName: e.target.value }); setConnection('idle'); setConnectionMessage('配置已修改，请重新测试') }} /></label><div className="privacy-note">聊天 API 和记忆总结 API 相互独立，配置仅保存在当前设备。</div><button className="primary-button full" onClick={testConnection} disabled={connection === 'testing'}>{connection === 'testing' ? '正在连接…' : '真实测试连接'}</button></section></>}
 
     {page === 'identity' && <EditablePage title="用户身份" value={identity.description} name={identity.name} onName={(name) => setIdentity({ ...identity, name })} onChange={(description) => setIdentity({ ...identity, description })} onBack={goBack} />}
     {page === 'worldbook' && <EditablePage title="世界书" value={worldbook} onChange={setWorldbook} onBack={goBack} />}
