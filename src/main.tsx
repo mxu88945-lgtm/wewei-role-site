@@ -7,6 +7,7 @@ import './memory.css'
 import './character-card.css'
 import './import-flow.css'
 import './chatDrawer.css'
+import './character-dashboard.css'
 import { installChatDrawer } from './chatDrawer'
 
 const APP_SCOPE = '/wewei-role-site/'
