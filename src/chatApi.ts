@@ -38,22 +38,29 @@ export async function fetchApiModels(api: Pick<ApiConfig, 'baseUrl' | 'apiKey'>,
   })
   if (!response.ok) throw new Error(await readError(response))
 
-  const payload = await response.json()
-  const rawModels = Array.isArray(payload?.data) ? payload.data : Array.isArray(payload?.models) ? payload.models : []
-  const models = rawModels
-    .map((item: unknown) => {
-      if (typeof item === 'string') return { id: item }
-      if (!item || typeof item !== 'object') return null
-      const model = item as { id?: unknown; name?: unknown; owned_by?: unknown; ownedBy?: unknown }
-      const id = typeof model.id === 'string' ? model.id : typeof model.name === 'string' ? model.name : ''
-      if (!id) return null
-      const ownedBy = typeof model.owned_by === 'string' ? model.owned_by : typeof model.ownedBy === 'string' ? model.ownedBy : undefined
-      return { id, ownedBy }
-    })
-    .filter((item: ApiModel | null): item is ApiModel => Boolean(item))
+  const payload: unknown = await response.json()
+  const source = payload && typeof payload === 'object' ? payload as { data?: unknown; models?: unknown } : {}
+  const rawModels: unknown[] = Array.isArray(source.data) ? source.data : Array.isArray(source.models) ? source.models : []
+  const models: ApiModel[] = []
 
-  const unique = new Map(models.map((model) => [model.id, model]))
-  return [...unique.values()].sort((a, b) => a.id.localeCompare(b.id))
+  for (const item of rawModels) {
+    if (typeof item === 'string') {
+      models.push({ id: item })
+      continue
+    }
+    if (!item || typeof item !== 'object') continue
+
+    const model = item as { id?: unknown; name?: unknown; owned_by?: unknown; ownedBy?: unknown }
+    const id = typeof model.id === 'string' ? model.id : typeof model.name === 'string' ? model.name : ''
+    if (!id) continue
+
+    const ownedBy = typeof model.owned_by === 'string' ? model.owned_by : typeof model.ownedBy === 'string' ? model.ownedBy : undefined
+    models.push(ownedBy ? { id, ownedBy } : { id })
+  }
+
+  const unique = new Map<string, ApiModel>()
+  for (const model of models) unique.set(model.id, model)
+  return Array.from(unique.values()).sort((a, b) => a.id.localeCompare(b.id))
 }
 
 export async function testApiConnection(api: ApiConfig, signal?: AbortSignal) {
