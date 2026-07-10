@@ -6,7 +6,17 @@ import { createBlankCharacter, importCharacterCard, normalizeStoredCharacter, ty
 
 type Page = 'home' | 'characters' | 'create' | 'import-preview' | 'character-detail' | 'card-data' | 'card-worldbook' | 'card-regex' | 'greeting-picker' | 'chat' | 'more' | 'api' | 'model' | 'settings' | 'identity' | 'worldbook' | 'preset' | 'memory' | 'memory-api' | 'memory-list'
 type Message = { id: number; role: 'user' | 'assistant'; text: string }
-type SessionMap = Record<string, Message[]>
+type Drawer = 'left' | 'right'
+type HistoryEntry = { page: Page; reopenDrawer?: Drawer }
+type Conversation = {
+  id: string
+  characterId: string
+  title: string
+  messages: Message[]
+  createdAt: number
+  updatedAt: number
+}
+type LegacySessionMap = Record<string, Message[]>
 type ApiConfig = { baseUrl: string; apiKey: string; modelName: string }
 type MemoryEntry = { id: string; createdAt: number; title: string; content: string; sourceCount: number }
 type MemoryConfig = {
@@ -46,15 +56,48 @@ const read = <T,>(key: string, fallback: T): T => {
 }
 const write = (key: string, value: unknown) => localStorage.setItem(key, JSON.stringify(value))
 
+const createConversation = (character: Character, greeting = character.greeting, title?: string): Conversation => ({
+  id: `${character.id}-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
+  characterId: character.id,
+  title: title || `与${character.name}的对话`,
+  messages: [{ id: Date.now(), role: 'assistant', text: greeting }],
+  createdAt: Date.now(),
+  updatedAt: Date.now(),
+})
+
+const loadConversations = (characters: Character[]): Conversation[] => {
+  const stored = read<Conversation[]>('weijing.conversations', [])
+  if (Array.isArray(stored) && stored.length) return stored
+
+  const legacy = read<LegacySessionMap>('weijing.sessions', {})
+  const migrated = Object.entries(legacy).map(([characterId, messages], index) => {
+    const character = characters.find((item) => item.id === characterId) || demoCharacter
+    const timestamp = Date.now() - index
+    return {
+      id: `${characterId}-migrated-${timestamp}`,
+      characterId,
+      title: `与${character.name}的对话`,
+      messages: Array.isArray(messages) && messages.length ? messages : [{ id: timestamp, role: 'assistant' as const, text: character.greeting }],
+      createdAt: timestamp,
+      updatedAt: timestamp,
+    }
+  })
+  return migrated.length ? migrated : [createConversation(characters[0] || demoCharacter)]
+}
+
 function BackHeader({ title, onBack, action }: { title: string; onBack: () => void; action?: React.ReactNode }) {
   return <header className="page-header"><button className="icon-button" onClick={onBack}>‹</button><h1>{title}</h1><div className="header-action">{action}</div></header>
 }
 
 function App() {
   const [page, setPage] = useState<Page>('home')
+  const [history, setHistory] = useState<HistoryEntry[]>([])
+  const [drawer, setDrawer] = useState<Drawer | null>(null)
+  const [conversationMenuId, setConversationMenuId] = useState<string | null>(null)
   const [characters, setCharacters] = useState<Character[]>(() => read<Partial<Character>[]>('weijing.characters', [demoCharacter]).map(normalizeStoredCharacter))
   const [activeId, setActiveId] = useState(() => read('weijing.activeCharacter', demoCharacter.id))
-  const [sessions, setSessions] = useState<SessionMap>(() => read('weijing.sessions', { [demoCharacter.id]: [{ id: 1, role: 'assistant', text: demoCharacter.greeting }] }))
+  const [conversations, setConversations] = useState<Conversation[]>(() => loadConversations(read<Partial<Character>[]>('weijing.characters', [demoCharacter]).map(normalizeStoredCharacter)))
+  const [activeConversationId, setActiveConversationId] = useState(() => read('weijing.activeConversation', ''))
   const [draft, setDraft] = useState('')
   const [newCharacter, setNewCharacter] = useState({ name: '', tagline: '', description: '', greeting: '', tags: '' })
   const [identity, setIdentity] = useState(() => read('weijing.identity', { name: '周惟惟', description: '由用户亲自决定言行、心理与关键选择。' }))
@@ -76,13 +119,16 @@ function App() {
   const fileInputRef = useRef<HTMLInputElement>(null)
 
   const activeCharacter = characters.find((item) => item.id === activeId) || characters[0] || demoCharacter
-  const messages = sessions[activeCharacter.id] || [{ id: 1, role: 'assistant' as const, text: activeCharacter.greeting }]
+  const activeConversation = conversations.find((item) => item.id === activeConversationId && item.characterId === activeCharacter.id)
+    || conversations.filter((item) => item.characterId === activeCharacter.id).sort((a, b) => b.updatedAt - a.updatedAt)[0]
+  const messages = activeConversation?.messages || [{ id: 1, role: 'assistant' as const, text: activeCharacter.greeting }]
   const currentMemoryConfig = memoryConfigs[activeCharacter.id] || defaultMemoryConfig()
   const currentMemories = memoryEntries[activeCharacter.id] || []
 
   useEffect(() => write('weijing.characters', characters), [characters])
   useEffect(() => write('weijing.activeCharacter', activeId), [activeId])
-  useEffect(() => write('weijing.sessions', sessions), [sessions])
+  useEffect(() => write('weijing.conversations', conversations), [conversations])
+  useEffect(() => write('weijing.activeConversation', activeConversation?.id || ''), [activeConversation?.id])
   useEffect(() => write('weijing.identity', identity), [identity])
   useEffect(() => write('weijing.worldbook', worldbook), [worldbook])
   useEffect(() => write('weijing.preset', preset), [preset])
@@ -92,7 +138,29 @@ function App() {
   useEffect(() => { write('weijing.temperature', temperature); write('weijing.topP', topP); write('weijing.memoryLength', memoryLength); write('weijing.maxTokens', maxTokens); write('weijing.streaming', streaming) }, [temperature, topP, memoryLength, maxTokens, streaming])
 
   const pageTitle = useMemo(() => page === 'home' ? '惟境' : page === 'characters' ? '角色' : '', [page])
-  const goBack = () => setPage(['api', 'model', 'settings', 'identity', 'worldbook', 'preset', 'memory'].includes(page) ? 'more' : ['memory-api', 'memory-list'].includes(page) ? 'memory' : page === 'chat' || ['card-data', 'card-worldbook', 'card-regex', 'greeting-picker'].includes(page) ? 'character-detail' : page === 'character-detail' || page === 'create' || page === 'import-preview' ? 'characters' : 'home')
+  const navigate = (target: Page, reopenDrawer?: Drawer) => {
+    setHistory((current) => [...current, { page, reopenDrawer }])
+    setDrawer(null)
+    setConversationMenuId(null)
+    setPage(target)
+  }
+  const replacePage = (target: Page) => {
+    setDrawer(null)
+    setConversationMenuId(null)
+    setPage(target)
+  }
+  const goHome = () => {
+    setHistory([])
+    replacePage('home')
+  }
+  const goBack = () => {
+    const previous = history[history.length - 1]
+    if (!previous) { goHome(); return }
+    setHistory((current) => current.slice(0, -1))
+    setPage(previous.page)
+    setDrawer(previous.reopenDrawer || null)
+    setConversationMenuId(null)
+  }
 
   const updateMemoryConfig = (patch: Partial<MemoryConfig>) => setMemoryConfigs((current) => ({ ...current, [activeCharacter.id]: { ...(current[activeCharacter.id] || defaultMemoryConfig()), ...patch } }))
   const updateMemoryApi = (patch: Partial<ApiConfig>) => updateMemoryConfig({ api: { ...currentMemoryConfig.api, ...patch } })
@@ -100,27 +168,31 @@ function App() {
     setActiveId(id)
     setMemoryConfigs((current) => current[id] ? current : { ...current, [id]: defaultMemoryConfig() })
     setMemoryEntries((current) => current[id] ? current : { ...current, [id]: [] })
-    setPage('character-detail')
+    navigate('character-detail')
   }
   const createCharacter = () => {
     if (!newCharacter.name.trim()) return
     const character = createBlankCharacter(newCharacter)
+    const conversation = createConversation(character)
     setCharacters((current) => [...current, character])
-    setSessions((current) => ({ ...current, [character.id]: [{ id: Date.now(), role: 'assistant', text: character.greeting }] }))
+    setConversations((current) => [...current, conversation])
+    setActiveConversationId(conversation.id)
     setMemoryConfigs((current) => ({ ...current, [character.id]: defaultMemoryConfig() }))
     setMemoryEntries((current) => ({ ...current, [character.id]: [] }))
     setActiveId(character.id)
     setNewCharacter({ name: '', tagline: '', description: '', greeting: '', tags: '' })
-    setPage('character-detail')
+    replacePage('character-detail')
   }
 
   const addImportedCharacter = (character: Character, nextPage: Page = 'character-detail') => {
+    const conversation = createConversation(character)
     setCharacters((current) => [...current.filter((item) => item.id !== character.id), character])
-    setSessions((current) => ({ ...current, [character.id]: [{ id: Date.now(), role: 'assistant', text: character.greeting }] }))
+    setConversations((current) => [...current, conversation])
+    setActiveConversationId(conversation.id)
     setMemoryConfigs((current) => ({ ...current, [character.id]: defaultMemoryConfig() }))
     setMemoryEntries((current) => ({ ...current, [character.id]: [] }))
     setActiveId(character.id)
-    setPage(nextPage)
+    replacePage(nextPage)
   }
 
   const handleCharacterFile = async (file?: File) => {
@@ -129,7 +201,7 @@ function App() {
     setImportError('')
     try {
       setPendingImport(await importCharacterCard(file))
-      setPage('import-preview')
+      navigate('import-preview')
       setImportState('idle')
     } catch (error) {
       setImportState('error')
@@ -140,10 +212,75 @@ function App() {
   }
 
   const updateActiveCharacter = (next: Character) => setCharacters((current) => current.map((item) => item.id === next.id ? next : item))
-  const newSession = () => setPage('greeting-picker')
+  const newSession = () => navigate('greeting-picker')
   const beginWithGreeting = (greeting: string) => {
-    setSessions((current) => ({ ...current, [activeCharacter.id]: [{ id: Date.now(), role: 'assistant', text: greeting }] }))
-    setPage('chat')
+    const conversation = createConversation(activeCharacter, greeting)
+    setConversations((current) => [...current, conversation])
+    setActiveConversationId(conversation.id)
+    replacePage('chat')
+  }
+
+  const continueConversation = (character = activeCharacter) => {
+    let conversation = conversations.filter((item) => item.characterId === character.id).sort((a, b) => b.updatedAt - a.updatedAt)[0]
+    if (!conversation) {
+      conversation = createConversation(character)
+      setConversations((current) => [...current, conversation!])
+    }
+    setActiveId(character.id)
+    setActiveConversationId(conversation.id)
+    navigate('chat')
+  }
+
+  const openConversation = (conversation: Conversation) => {
+    setActiveConversationId(conversation.id)
+    setActiveId(conversation.characterId)
+    setDrawer(null)
+    setConversationMenuId(null)
+    if (page !== 'chat') navigate('chat')
+  }
+
+  const renameConversation = (conversation: Conversation) => {
+    const title = window.prompt('给这段对话重新命名', conversation.title)?.trim()
+    if (!title) return
+    setConversations((current) => current.map((item) => item.id === conversation.id ? { ...item, title, updatedAt: Date.now() } : item))
+    setConversationMenuId(null)
+  }
+
+  const restartConversation = (conversation: Conversation) => {
+    const character = characters.find((item) => item.id === conversation.characterId) || demoCharacter
+    setConversations((current) => current.map((item) => item.id === conversation.id ? { ...item, messages: [{ id: Date.now(), role: 'assistant', text: character.greeting }], updatedAt: Date.now() } : item))
+    setActiveId(character.id)
+    setActiveConversationId(conversation.id)
+    setConversationMenuId(null)
+    setDrawer(null)
+    replacePage('chat')
+  }
+
+  const cloneConversation = (conversation: Conversation) => {
+    const copy: Conversation = { ...conversation, id: `${conversation.characterId}-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`, title: `${conversation.title} · 副本`, messages: conversation.messages.map((message) => ({ ...message })), createdAt: Date.now(), updatedAt: Date.now() }
+    setConversations((current) => [...current, copy])
+    setActiveId(copy.characterId)
+    setActiveConversationId(copy.id)
+    setConversationMenuId(null)
+    setDrawer(null)
+    replacePage('chat')
+  }
+
+  const deleteConversation = (conversation: Conversation) => {
+    if (!window.confirm(`删除“${conversation.title}”？此操作只删除这段对话。`)) return
+    const remaining = conversations.filter((item) => item.id !== conversation.id)
+    setConversations(remaining)
+    setConversationMenuId(null)
+    if (activeConversation?.id === conversation.id) {
+      const next = remaining.slice().sort((a, b) => b.updatedAt - a.updatedAt)[0]
+      if (next) {
+        setActiveId(next.characterId)
+        setActiveConversationId(next.id)
+      } else {
+        setActiveConversationId('')
+        goHome()
+      }
+    }
   }
 
   const summarizeMemory = async (sourceMessages = messages) => {
@@ -182,14 +319,21 @@ function App() {
 
   const sendMessage = () => {
     const text = draft.trim(); if (!text) return
+    let conversation = activeConversation
+    if (!conversation) {
+      conversation = createConversation(activeCharacter)
+      setActiveConversationId(conversation.id)
+      setConversations((current) => [...current, conversation!])
+    }
+    const conversationId = conversation.id
     const userMessage = { id: Date.now(), role: 'user' as const, text }
     const nextMessages = [...messages, userMessage]
-    setSessions((current) => ({ ...current, [activeCharacter.id]: nextMessages }))
+    setConversations((current) => current.map((item) => item.id === conversationId ? { ...item, messages: nextMessages, updatedAt: Date.now() } : item))
     setDraft('')
     window.setTimeout(() => {
       const assistantMessage = { id: Date.now() + 1, role: 'assistant' as const, text: '我听着。慢慢说，不急。' }
       const completed = [...nextMessages, assistantMessage]
-      setSessions((current) => ({ ...current, [activeCharacter.id]: completed }))
+      setConversations((current) => current.map((item) => item.id === conversationId ? { ...item, messages: completed, updatedAt: Date.now() } : item))
       const config = memoryConfigs[activeCharacter.id] || defaultMemoryConfig()
       if (config.autoEvery > 0 && completed.length - config.lastSummarizedCount >= config.autoEvery && config.api.apiKey) summarizeMemory(completed)
     }, 420)
@@ -197,20 +341,31 @@ function App() {
 
   const CharacterPortrait = ({ item, large = false }: { item: Character; large?: boolean }) => <div className={large ? 'hero-portrait' : 'character-art'}>{item.avatar ? <img src={item.avatar} alt="" /> : <><span>{item.name.slice(-1)}</span><i>✦</i></>}</div>
   const CharacterCard = ({ item }: { item: Character }) => <button className="character-card" onClick={() => openCharacter(item.id)}><CharacterPortrait item={item} /><div className="character-copy"><div className="character-title"><strong>{item.name}</strong><span>{item.id === activeId ? '最近共演' : item.cardSpecVersion ? `Card ${item.cardSpecVersion}` : '角色卡'}</span></div><p>{item.tagline}</p><small>“{item.greeting}”</small></div><span className="chevron">›</span></button>
+  const sortedConversations = conversations.slice().sort((a, b) => b.updatedAt - a.updatedAt)
+  const menuConversation = conversations.find((item) => item.id === conversationMenuId)
 
   return <div className="app-shell"><main className={`phone-canvas ${page === 'chat' ? 'chat-canvas' : ''}`}>
     <input ref={fileInputRef} className="hidden-file-input" type="file" accept="image/png,.png" onChange={(event) => handleCharacterFile(event.target.files?.[0])} />
-    {(page === 'home' || page === 'characters') && <><header className="hero-header"><div><p className="eyebrow">WeiWei Role</p><h1>{pageTitle}</h1><p className="hero-copy">把角色、世界与长期记忆，收进一个安静的共演空间。</p></div><button className="avatar-button" onClick={() => setPage('identity')}>惟</button></header>{page === 'home' ? <section className="content-stack"><div className="feature-card"><div><span className="feature-badge">继续共演</span><h2>{activeCharacter.name}</h2><p>{activeCharacter.greeting}</p></div><button className="primary-button" onClick={() => setPage('chat')}>回到对话</button></div><section><div className="section-heading"><h2>最近角色</h2><button onClick={() => setPage('characters')}>查看全部</button></div><CharacterCard item={activeCharacter} /></section></section> : <section className="content-stack"><div className="section-heading"><div><h2>角色库</h2><p>支持 Tavern PNG · Card V2/V3</p></div><div className="library-actions"><button onClick={() => fileInputRef.current?.click()}>导入</button><button onClick={() => setPage('create')}>＋ 新建</button></div></div>{importState === 'reading' && <div className="import-notice">正在解析角色卡、世界书与正则…</div>}{importState === 'error' && <div className="import-notice error">{importError}</div>}{characters.map((item) => <CharacterCard key={item.id} item={item} />)}</section>}</>}
+    {page === 'home' && <section className="home-dashboard">
+      <header className="home-heading"><p className="eyebrow">WeiWei Role</p><h1>{pageTitle}</h1><p>选择今天要进入的空间。</p></header>
+      <div className="home-entrances">
+        <button onClick={() => continueConversation()}><span className="home-icon">✦</span><strong>聊天</strong><small>{activeConversation ? `继续「${activeConversation.title}」` : '开始一段新的共演'}</small><i>›</i></button>
+        <button onClick={() => navigate('characters')}><span className="home-icon">◉</span><strong>角色库</strong><small>导入、创建与管理角色</small><i>›</i></button>
+        <button onClick={() => navigate('more')}><span className="home-icon">⌘</span><strong>设置</strong><small>API、模型、身份与应用</small><i>›</i></button>
+      </div>
+    </section>}
+
+    {page === 'characters' && <><BackHeader title="角色库" onBack={goBack} action={<button className="text-button" onClick={() => fileInputRef.current?.click()}>导入</button>} /><section className="content-stack"><div className="section-heading"><div><h2>全部角色</h2><p>支持 Tavern PNG · Card V2/V3</p></div><div className="library-actions"><button onClick={() => navigate('create')}>＋ 新建</button></div></div>{importState === 'reading' && <div className="import-notice">正在解析角色卡、世界书与正则…</div>}{importState === 'error' && <div className="import-notice error">{importError}</div>}{characters.map((item) => <CharacterCard key={item.id} item={item} />)}</section></>}
 
     {page === 'create' && <><BackHeader title="新建角色" onBack={goBack} action={<button className="text-button" onClick={createCharacter}>保存</button>} /><section className="content-stack form-stack"><button className="drop-zone compact" onClick={() => fileInputRef.current?.click()}><span className="drop-plus">＋</span><strong>{importState === 'reading' ? '正在读取角色卡…' : '导入 PNG 角色卡'}</strong><small>自动解析头像、开场白、世界书和正则</small></button>{importState === 'error' && <div className="import-notice error">{importError}</div>}<div className="form-divider"><span>或者手动创建</span></div><label>角色名称<input value={newCharacter.name} onChange={(e) => setNewCharacter({ ...newCharacter, name: e.target.value })} placeholder="例如：霍烬" /></label><label>一句话简介<input value={newCharacter.tagline} onChange={(e) => setNewCharacter({ ...newCharacter, tagline: e.target.value })} /></label><label>角色设定<textarea rows={7} value={newCharacter.description} onChange={(e) => setNewCharacter({ ...newCharacter, description: e.target.value })} /></label><label>开场白<textarea rows={4} value={newCharacter.greeting} onChange={(e) => setNewCharacter({ ...newCharacter, greeting: e.target.value })} /></label><label>标签<input value={newCharacter.tags} onChange={(e) => setNewCharacter({ ...newCharacter, tags: e.target.value })} placeholder="慢热，守护，剧情向" /></label><button className="primary-button full" onClick={createCharacter}>创建并保存</button></section></>}
 
-    {page === 'import-preview' && pendingImport && <ImportPreview character={pendingImport} onCancel={() => { setPendingImport(null); setPage('characters') }} onConfirm={({ includeBook, includeRegex }) => {
+    {page === 'import-preview' && pendingImport && <ImportPreview character={pendingImport} onCancel={() => { setPendingImport(null); goBack() }} onConfirm={({ includeBook, includeRegex }) => {
       const character = { ...pendingImport, characterBook: includeBook ? pendingImport.characterBook : undefined, regexScripts: includeRegex ? pendingImport.regexScripts : [] }
       setPendingImport(null)
       addImportedCharacter(character, 'greeting-picker')
     }} />}
 
-    {page === 'character-detail' && <><BackHeader title={activeCharacter.name} onBack={goBack} /><section className="detail-stack"><div className="character-hero"><CharacterPortrait item={activeCharacter} large /><div><p className="eyebrow">{activeCharacter.cardSpecVersion ? `CHARACTER CARD ${activeCharacter.cardSpecVersion}` : 'CHARACTER'}</p><h2>{activeCharacter.name}</h2><p>{activeCharacter.tagline}</p></div></div><div className="detail-card"><h3>角色简介</h3><p>{activeCharacter.description || '还没有填写角色简介。'}</p><div className="chips left">{activeCharacter.tags.map((tag) => <span key={tag}>{tag}</span>)}</div></div><button className="data-summary-card" onClick={() => setPage('card-data')}><div><strong>角色卡主体与开场白</strong><small>{activeCharacter.alternateGreetings.length + 1} 个开场 · Card {activeCharacter.cardSpecVersion || '本地'}</small></div><span>›</span></button><button className="data-summary-card compact" onClick={() => setPage('card-worldbook')}><div><strong>角色世界书</strong><small>{activeCharacter.characterBook?.entries.length || 0} 条 · 可编辑、启停和调整插入位置</small></div><span>›</span></button><button className="data-summary-card compact" onClick={() => setPage('card-regex')}><div><strong>角色正则与美化</strong><small>{activeCharacter.regexScripts.length} 条 · {activeCharacter.regexScripts.filter((script) => !script.disabled).length} 条启用</small></div><span>›</span></button><div className="detail-card"><h3>长期记忆</h3><p>这个角色拥有独立记忆库，目前保存 {currentMemories.length} 条记忆。</p><button className="inline-link" onClick={() => setPage('memory')}>管理记忆与总结模型 ›</button></div><div className="detail-card"><h3>开场白</h3><blockquote>{activeCharacter.greeting}</blockquote></div><div className="detail-actions"><button className="primary-button full" onClick={() => setPage('chat')}>继续共演</button><button className="secondary-button" onClick={newSession}>选择开场并新建对话</button></div></section></>}
+    {page === 'character-detail' && <><BackHeader title={activeCharacter.name} onBack={goBack} /><section className="detail-stack"><div className="character-hero"><CharacterPortrait item={activeCharacter} large /><div><p className="eyebrow">{activeCharacter.cardSpecVersion ? `CHARACTER CARD ${activeCharacter.cardSpecVersion}` : 'CHARACTER'}</p><h2>{activeCharacter.name}</h2><p>{activeCharacter.tagline}</p></div></div><div className="detail-card"><h3>角色简介</h3><p>{activeCharacter.description || '还没有填写角色简介。'}</p><div className="chips left">{activeCharacter.tags.map((tag) => <span key={tag}>{tag}</span>)}</div></div><button className="data-summary-card" onClick={() => navigate('card-data')}><div><strong>角色卡主体与开场白</strong><small>{activeCharacter.alternateGreetings.length + 1} 个开场 · Card {activeCharacter.cardSpecVersion || '本地'}</small></div><span>›</span></button><button className="data-summary-card compact" onClick={() => navigate('card-worldbook')}><div><strong>角色世界书</strong><small>{activeCharacter.characterBook?.entries.length || 0} 条 · 可编辑、启停和调整插入位置</small></div><span>›</span></button><button className="data-summary-card compact" onClick={() => navigate('card-regex')}><div><strong>角色正则与美化</strong><small>{activeCharacter.regexScripts.length} 条 · {activeCharacter.regexScripts.filter((script) => !script.disabled).length} 条启用</small></div><span>›</span></button><div className="detail-card"><h3>长期记忆</h3><p>这个角色拥有独立记忆库，目前保存 {currentMemories.length} 条记忆。</p><button className="inline-link" onClick={() => navigate('memory')}>管理记忆与总结模型 ›</button></div><div className="detail-card"><h3>开场白</h3><blockquote>{activeCharacter.greeting}</blockquote></div><div className="detail-actions"><button className="primary-button full" onClick={() => continueConversation()}>继续共演</button><button className="secondary-button" onClick={newSession}>选择开场并新建对话</button></div></section></>}
 
     {page === 'card-data' && <CharacterCardManager character={activeCharacter} onChange={updateActiveCharacter} onBack={goBack} />}
     {page === 'card-worldbook' && <CharacterCardManager character={activeCharacter} onChange={updateActiveCharacter} onBack={goBack} initialSection="worldbook" />}
@@ -218,9 +373,9 @@ function App() {
 
     {page === 'greeting-picker' && <GreetingPicker character={activeCharacter} userName={identity.name} onCancel={goBack} onConfirm={beginWithGreeting} />}
 
-    {page === 'chat' && <section className="chat-page"><header className="chat-header"><button className="icon-button" onClick={goBack}>‹</button><button className="chat-identity" onClick={() => setPage('character-detail')}>{activeCharacter.avatar ? <img src={activeCharacter.avatar} alt="" /> : <span>{activeCharacter.name.slice(-1)}</span>}<div><strong>{activeCharacter.name}</strong><small>{identity.name} · 沉浸共演中</small></div></button><button className="more-button" onClick={() => setPage('card-data')}>•••</button></header><button className="scene-banner" onClick={() => setPage('card-worldbook')}><span>✦</span><p>{(activeCharacter.characterBook?.name || worldbook).slice(0, 24)} · {activeCharacter.characterBook?.entries.length || 0} 条</p></button><div className="message-list">{messages.map((message) => <div key={message.id} className={`message-row ${message.role}`}><div className="message-bubble"><MessageContent text={message.text} role={message.role} character={activeCharacter} userName={identity.name} /></div></div>)}</div><div className="composer"><button className="composer-plus">＋</button><textarea rows={1} value={draft} onChange={(e) => setDraft(e.target.value)} onKeyDown={(e) => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); sendMessage() } }} placeholder="写下你的回应……" /><button className="send-button" onClick={sendMessage}>↑</button></div></section>}
+    {page === 'chat' && <section className="chat-page"><header className="chat-header"><button className="icon-button drawer-trigger" aria-label="打开对话列表" onClick={() => setDrawer('left')}>☰</button><button className="chat-identity" onClick={() => navigate('character-detail')}>{activeCharacter.avatar ? <img src={activeCharacter.avatar} alt="" /> : <span>{activeCharacter.name.slice(-1)}</span>}<div><strong>{activeCharacter.name}</strong><small>{activeConversation?.title || `${identity.name} · 沉浸共演中`}</small></div></button><button className="more-button" aria-label="打开聊天设置" onClick={() => setDrawer('right')}>•••</button></header><button className="scene-banner" onClick={() => navigate('card-worldbook')}><span>✦</span><p>{(activeCharacter.characterBook?.name || worldbook).slice(0, 24)} · {activeCharacter.characterBook?.entries.length || 0} 条</p></button><div className="message-list">{messages.map((message) => <div key={message.id} className={`message-row ${message.role}`}><div className="message-bubble"><MessageContent text={message.text} role={message.role} character={activeCharacter} userName={identity.name} /></div></div>)}</div><div className="composer"><button className="composer-plus">＋</button><textarea rows={1} value={draft} onChange={(e) => setDraft(e.target.value)} onKeyDown={(e) => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); sendMessage() } }} placeholder="写下你的回应……" /><button className="send-button" onClick={sendMessage}>↑</button></div></section>}
 
-    {page === 'more' && <><BackHeader title="更多" onBack={() => setPage('home')} /><section className="settings-stack">{[[['API 连接', 'api'], ['用户身份', 'identity']], [['模型设置', 'model'], ['全局预设', 'preset'], ['全局世界书', 'worldbook'], ['长记忆', 'memory']], [['设置', 'settings']]].map((group, index) => <div className="settings-group" key={index}>{group.map(([label, target]) => <button key={label} onClick={() => setPage(target as Page)}><span>{label}</span><span>›</span></button>)}</div>)}</section></>}
+    {page === 'more' && <><BackHeader title="设置" onBack={goBack} /><section className="settings-stack">{[[['API 连接', 'api'], ['用户身份', 'identity']], [['模型设置', 'model'], ['全局预设', 'preset'], ['全局世界书', 'worldbook'], ['长记忆', 'memory']], [['应用设置', 'settings']]].map((group, index) => <div className="settings-group" key={index}>{group.map(([label, target]) => <button key={label} onClick={() => navigate(target as Page)}><span>{label}</span><span>›</span></button>)}</div>)}</section></>}
 
     {page === 'api' && <><BackHeader title="API 连接" onBack={goBack} action={<button className="text-button" onClick={() => write('weijing.api', api)}>保存</button>} /><section className="content-stack form-stack"><div className="api-status"><span className={connection === 'ok' ? 'ok' : ''}></span><div><strong>{connection === 'ok' ? '连接正常' : '尚未测试连接'}</strong><small>聊天模型 · OpenAI 兼容接口</small></div></div><label>Base URL<input value={api.baseUrl} onChange={(e) => setApi({ ...api, baseUrl: e.target.value })} /></label><label>API Key<input type="password" value={api.apiKey} onChange={(e) => setApi({ ...api, apiKey: e.target.value })} /></label><label>模型名称<input value={api.modelName} onChange={(e) => setApi({ ...api, modelName: e.target.value })} /></label><div className="privacy-note">聊天 API 和记忆总结 API 相互独立，配置仅保存在当前设备。</div><button className="primary-button full" onClick={() => { setConnection('testing'); setTimeout(() => setConnection('ok'), 700) }}>{connection === 'testing' ? '测试中…' : '测试连接'}</button></section></>}
 
@@ -228,17 +383,81 @@ function App() {
     {page === 'worldbook' && <EditablePage title="世界书" value={worldbook} onChange={setWorldbook} onBack={goBack} />}
     {page === 'preset' && <EditablePage title="预设" value={preset} onChange={setPreset} onBack={goBack} />}
 
-    {page === 'memory' && <><BackHeader title={`${activeCharacter.name} · 长记忆`} onBack={goBack} action={<button className="soft-button" onClick={() => updateMemoryConfig({ ...defaultMemoryConfig(), api: currentMemoryConfig.api })}>恢复默认</button>} /><section className="settings-stack memory-settings"><div className="memory-character-banner"><div className="character-art"><span>{activeCharacter.name.slice(-1)}</span><i>✦</i></div><div><strong>独立记忆库</strong><small>仅属于 {activeCharacter.name}，不会与其他角色混用</small></div></div><button className="memory-api-row" onClick={() => setPage('memory-api')}><div><strong>总结专用 API</strong><small>{currentMemoryConfig.api.modelName || '未设置模型'}</small></div><span>›</span></button><div className="settings-group range-group"><RangeRow label="自动总结" hint={`每 ${currentMemoryConfig.autoEvery} 条消息总结一次，0 为禁用`} value={currentMemoryConfig.autoEvery} min={0} max={200} step={10} onChange={(value) => updateMemoryConfig({ autoEvery: value })} /><RangeRow label="记忆上限" hint={`最多保留 ${currentMemoryConfig.maxEntries} 条长期记忆`} value={currentMemoryConfig.maxEntries} min={100} max={3000} step={100} onChange={(value) => updateMemoryConfig({ maxEntries: value })} /></div><label className="memory-text-card"><strong>记忆总结提示词</strong><textarea rows={10} value={currentMemoryConfig.summaryPrompt} onChange={(e) => updateMemoryConfig({ summaryPrompt: e.target.value })} /><small>发送给记忆模型，用于生成长期记忆。</small></label><label className="memory-select-card"><strong>记忆注入位置</strong><select value={currentMemoryConfig.injectPosition} onChange={(e) => updateMemoryConfig({ injectPosition: e.target.value })}><option value="none">不注入</option><option value="before-main-prompt">↑ Main Prompt</option><option value="after-main-prompt">↓ Main Prompt</option><option value="before-chat-history">↑ Chat History</option><option value="after-chat-history">↓ Chat History</option><option value="depth-system">@Depth · system</option><option value="depth-user">@Depth · user</option><option value="depth-assistant">@Depth · assistant</option></select></label><label className="memory-text-card"><strong>记忆注入提示词</strong><textarea rows={6} value={currentMemoryConfig.injectPrompt} onChange={(e) => updateMemoryConfig({ injectPrompt: e.target.value })} /><small>使用 {'{{memories}}'} 作为记忆内容占位符。</small></label><div className="memory-actions"><button className="primary-button full" onClick={() => summarizeMemory()} disabled={memoryState === 'summarizing'}>{memoryState === 'summarizing' ? '正在总结…' : memoryState === 'error' ? '配置不完整或总结失败，重试' : '立即总结当前对话'}</button><button className="secondary-button" onClick={() => setPage('memory-list')}>查看与管理记忆（{currentMemories.length}）</button></div></section></>}
+    {page === 'memory' && <><BackHeader title={`${activeCharacter.name} · 长记忆`} onBack={goBack} action={<button className="soft-button" onClick={() => updateMemoryConfig({ ...defaultMemoryConfig(), api: currentMemoryConfig.api })}>恢复默认</button>} /><section className="settings-stack memory-settings"><div className="memory-character-banner"><div className="character-art"><span>{activeCharacter.name.slice(-1)}</span><i>✦</i></div><div><strong>独立记忆库</strong><small>仅属于 {activeCharacter.name}，不会与其他角色混用</small></div></div><button className="memory-api-row" onClick={() => navigate('memory-api')}><div><strong>总结专用 API</strong><small>{currentMemoryConfig.api.modelName || '未设置模型'}</small></div><span>›</span></button><div className="settings-group range-group"><RangeRow label="自动总结" hint={`每 ${currentMemoryConfig.autoEvery} 条消息总结一次，0 为禁用`} value={currentMemoryConfig.autoEvery} min={0} max={200} step={10} onChange={(value) => updateMemoryConfig({ autoEvery: value })} /><RangeRow label="记忆上限" hint={`最多保留 ${currentMemoryConfig.maxEntries} 条长期记忆`} value={currentMemoryConfig.maxEntries} min={100} max={3000} step={100} onChange={(value) => updateMemoryConfig({ maxEntries: value })} /></div><label className="memory-text-card"><strong>记忆总结提示词</strong><textarea rows={10} value={currentMemoryConfig.summaryPrompt} onChange={(e) => updateMemoryConfig({ summaryPrompt: e.target.value })} /><small>发送给记忆模型，用于生成长期记忆。</small></label><label className="memory-select-card"><strong>记忆注入位置</strong><select value={currentMemoryConfig.injectPosition} onChange={(e) => updateMemoryConfig({ injectPosition: e.target.value })}><option value="none">不注入</option><option value="before-main-prompt">↑ Main Prompt</option><option value="after-main-prompt">↓ Main Prompt</option><option value="before-chat-history">↑ Chat History</option><option value="after-chat-history">↓ Chat History</option><option value="depth-system">@Depth · system</option><option value="depth-user">@Depth · user</option><option value="depth-assistant">@Depth · assistant</option></select></label><label className="memory-text-card"><strong>记忆注入提示词</strong><textarea rows={6} value={currentMemoryConfig.injectPrompt} onChange={(e) => updateMemoryConfig({ injectPrompt: e.target.value })} /><small>使用 {'{{memories}}'} 作为记忆内容占位符。</small></label><div className="memory-actions"><button className="primary-button full" onClick={() => summarizeMemory()} disabled={memoryState === 'summarizing'}>{memoryState === 'summarizing' ? '正在总结…' : memoryState === 'error' ? '配置不完整或总结失败，重试' : '立即总结当前对话'}</button><button className="secondary-button" onClick={() => navigate('memory-list')}>查看与管理记忆（{currentMemories.length}）</button></div></section></>}
 
     {page === 'memory-api' && <><BackHeader title="记忆总结 API" onBack={goBack} action={<span className="saved-label">自动保存</span>} /><section className="content-stack form-stack"><div className="api-status"><span className={currentMemoryConfig.api.apiKey ? 'ok' : ''}></span><div><strong>{currentMemoryConfig.api.apiKey ? '已配置独立接口' : '尚未填写密钥'}</strong><small>仅供 {activeCharacter.name} 的记忆总结使用</small></div></div><label>Base URL<input value={currentMemoryConfig.api.baseUrl} onChange={(e) => updateMemoryApi({ baseUrl: e.target.value })} /></label><label>API Key<input type="password" value={currentMemoryConfig.api.apiKey} onChange={(e) => updateMemoryApi({ apiKey: e.target.value })} placeholder="sk-••••••••" /></label><label>模型名称<input value={currentMemoryConfig.api.modelName} onChange={(e) => updateMemoryApi({ modelName: e.target.value })} /></label><div className="privacy-note">此接口独立于聊天 API。密钥只保存在当前设备，不上传仓库。</div></section></>}
 
     {page === 'memory-list' && <><BackHeader title={`${activeCharacter.name} · 记忆库`} onBack={goBack} /><section className="content-stack">{currentMemories.length === 0 ? <div className="empty-memory"><span>✦</span><strong>还没有长期记忆</strong><p>返回上一页，配置总结 API 后可立即总结当前对话。</p></div> : currentMemories.slice().reverse().map((entry) => <article className="memory-entry" key={entry.id}><div><strong>{entry.title}</strong><small>{new Date(entry.createdAt).toLocaleString()} · 来源 {entry.sourceCount} 条消息</small></div><textarea rows={8} value={entry.content} onChange={(e) => setMemoryEntries((current) => ({ ...current, [activeCharacter.id]: (current[activeCharacter.id] || []).map((item) => item.id === entry.id ? { ...item, content: e.target.value } : item) }))} /><button className="danger-link" onClick={() => setMemoryEntries((current) => ({ ...current, [activeCharacter.id]: (current[activeCharacter.id] || []).filter((item) => item.id !== entry.id) }))}>删除这条记忆</button></article>)}</section></>}
 
     {page === 'model' && <><BackHeader title="模型设置" onBack={goBack} /><section className="settings-stack"><div className="settings-group range-group"><RangeRow label="记忆长度" value={memoryLength} min={10} max={100} step={1} onChange={setMemoryLength} /><RangeRow label="回复令牌限制" value={maxTokens} min={1000} max={16000} step={500} onChange={setMaxTokens} /></div><div className="settings-group range-group"><RangeRow label="温度" value={temperature} min={0} max={2} step={0.05} onChange={setTemperature} /><RangeRow label="Top-P" value={topP} min={0} max={1} step={0.05} onChange={setTopP} /></div><div className="settings-group toggle-row"><div><strong>流式传输</strong><small>立即逐字显示回复</small></div><button className={`switch ${streaming ? 'on' : ''}`} onClick={() => setStreaming(!streaming)}><span /></button></div></section></>}
-    {page === 'settings' && <><BackHeader title="设置" onBack={goBack} /><section className="settings-stack"><div className="settings-group">{['外观 · 跟随系统', '语言 · 简体中文', '字体 · 默认', '存储空间', '备份与恢复'].map((item) => <button key={item}><span>{item}</span><span>›</span></button>)}</div></section></>}
+    {page === 'settings' && <><BackHeader title="应用设置" onBack={goBack} /><section className="settings-stack"><div className="settings-group">{['外观 · 跟随系统', '语言 · 简体中文', '字体 · 默认', '存储空间', '备份与恢复'].map((item) => <button key={item}><span>{item}</span><span>›</span></button>)}</div><UpdateCard /></section></>}
 
-    {(page === 'home' || page === 'characters') && <nav className="bottom-nav"><button className={page === 'home' ? 'active' : ''} onClick={() => setPage('home')}><span>⌂</span><small>首页</small></button><button className={page === 'characters' ? 'active' : ''} onClick={() => setPage('characters')}><span>◉</span><small>角色</small></button><button onClick={() => setPage('chat')}><span>✦</span><small>共演</small></button><button onClick={() => setPage('more')}><span>•••</span><small>更多</small></button></nav>}
+    {drawer && <div className="drawer-layer" role="presentation">
+      <button className="drawer-backdrop" aria-label="关闭抽屉" onClick={() => { setDrawer(null); setConversationMenuId(null) }} />
+      {drawer === 'left' && <aside className="app-drawer left-drawer" aria-label="对话列表">
+        <header className="drawer-header"><div><small>惟境</small><h2>全部聊天</h2></div><button onClick={goHome}>回首页</button></header>
+        <div className="conversation-list">{sortedConversations.length ? sortedConversations.map((conversation) => {
+          const character = characters.find((item) => item.id === conversation.characterId) || demoCharacter
+          const preview = conversation.messages[conversation.messages.length - 1]?.text || character.greeting
+          return <div className={`conversation-row ${conversation.id === activeConversation?.id ? 'active' : ''}`} key={conversation.id}>
+            <button className="conversation-main" onClick={() => openConversation(conversation)}>{character.avatar ? <img src={character.avatar} alt="" /> : <span>{character.name.slice(-1)}</span>}<div><strong>{conversation.title}</strong><small>{character.name} · {preview.slice(0, 32)}</small></div></button>
+            <button className="conversation-more" aria-label={`管理${conversation.title}`} onClick={() => setConversationMenuId(conversation.id)}>•••</button>
+          </div>
+        }) : <div className="drawer-empty">还没有对话，从角色库选择一个角色开始吧。</div>}</div>
+        <nav className="drawer-bottom-nav"><button onClick={() => navigate('api', 'left')}><span>⌁</span><small>API 连接</small></button><button onClick={() => navigate('characters', 'left')}><span>◉</span><small>角色</small></button><button onClick={() => navigate('more', 'left')}><span>•••</span><small>更多</small></button></nav>
+      </aside>}
+
+      {drawer === 'right' && <aside className="app-drawer right-drawer" aria-label="聊天设置">
+        <header className="drawer-character"><CharacterPortrait item={activeCharacter} /><div><small>当前角色</small><h2>{activeCharacter.name}</h2><p>{activeConversation?.title}</p></div></header>
+        <div className="drawer-settings">
+          {[
+            ['情景与角色资料', 'card-data', '◇'],
+            ['用户身份', 'identity', '惟'],
+            ['世界书', 'card-worldbook', '◎'],
+            ['正则与美化', 'card-regex', '.*'],
+            ['长期记忆', 'memory', '✦'],
+            ['API', 'api', '⌁'],
+            ['模型设置', 'model', '◫'],
+            ['预设', 'preset', '≡'],
+            ['应用设置', 'settings', '⚙'],
+          ].map(([label, target, icon]) => <button key={label} onClick={() => navigate(target as Page, 'right')}><span>{icon}</span><strong>{label}</strong><i>›</i></button>)}
+        </div>
+        <button className="drawer-detail-link" onClick={() => navigate('character-detail', 'right')}>查看角色详情 <span>›</span></button>
+      </aside>}
+
+      {menuConversation && <section className="conversation-menu" aria-label="会话操作">
+        <header><div><small>会话操作</small><strong>{menuConversation.title}</strong></div><button onClick={() => setConversationMenuId(null)}>×</button></header>
+        <button onClick={() => renameConversation(menuConversation)}>重命名</button>
+        <button onClick={() => restartConversation(menuConversation)}>重新开始</button>
+        <button onClick={() => cloneConversation(menuConversation)}>克隆对话</button>
+        <button className="danger" onClick={() => deleteConversation(menuConversation)}>删除对话</button>
+      </section>}
+    </div>}
   </main></div>
+}
+
+function UpdateCard() {
+  const [state, setState] = useState<'idle' | 'checking' | 'error'>('idle')
+  const refresh = async () => {
+    setState('checking')
+    try {
+      if ('serviceWorker' in navigator) {
+        const registration = await navigator.serviceWorker.getRegistration('/wewei-role-site/')
+        await registration?.update()
+        if (registration?.waiting) registration.waiting.postMessage({ type: 'SKIP_WAITING' })
+        const cacheNames = await caches.keys()
+        await Promise.all(cacheNames.filter((name) => name.startsWith('weijing-')).map((name) => caches.delete(name)))
+      }
+      const url = new URL(window.location.href)
+      url.searchParams.set('_refresh', Date.now().toString())
+      window.location.replace(url.toString())
+    } catch (error) {
+      console.error('更新失败', error)
+      setState('error')
+    }
+  }
+
+  return <section className="update-card"><strong>应用更新</strong><p>主动检查并拉取最新网页版本，不会删除角色、聊天记录或本地设置。</p><button onClick={refresh} disabled={state === 'checking'}>{state === 'checking' ? '正在检查更新…' : state === 'error' ? '更新失败，点我重试' : '强制刷新到最新版'}</button></section>
 }
 
 function EditablePage({ title, value, onChange, onBack, name, onName }: { title: string; value: string; onChange: (value: string) => void; onBack: () => void; name?: string; onName?: (value: string) => void }) {
