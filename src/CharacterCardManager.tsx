@@ -102,7 +102,7 @@ export default function CharacterCardManager({ character, onChange, onBack, init
     </div>}
 
     {section === 'regex' && <div className="metadata-stack">
-      <div className="manager-intro"><div><strong>正则脚本</strong><small>这里只编辑和保存规则，聊天渲染执行器将在下一阶段接入</small></div><button className="soft-button" onClick={() => { const script = blankRegex(); setRegexScripts([...character.regexScripts, script]); setExpandedRegex(script.id) }}>＋ 添加</button></div>
+      <div className="manager-intro"><div><strong>正则脚本</strong><small>显示规则用于消息美化，提示词规则会在发送给模型前执行</small></div><button className="soft-button" onClick={() => { const script = blankRegex(); setRegexScripts([...character.regexScripts, script]); setExpandedRegex(script.id) }}>＋ 添加</button></div>
       {character.regexScripts.length === 0 && <EmptyMetadata text="这张卡没有正则脚本" />}
       {character.regexScripts.map((script) => <article className="metadata-editor" key={script.id}>
         <button className="metadata-summary" onClick={() => setExpandedRegex(expandedRegex === script.id ? null : script.id)}><span className={`status-dot ${!script.disabled ? 'on' : ''}`} /><div><strong>{script.scriptName || '未命名正则'}</strong><small>{script.promptOnly ? '仅提示词' : script.markdownOnly ? '仅 Markdown' : '消息与显示'} · placement {script.placement.join(', ') || '未设'}</small></div><span>⌄</span></button>

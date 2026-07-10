@@ -120,6 +120,8 @@ button { cursor: pointer; }
 .api-status { padding: 18px; border-radius: 22px; display: flex; align-items: center; gap: 14px; background: #efedf0; }
 .api-status > span { width: 12px; height: 12px; border-radius: 50%; background: #b9b2bc; box-shadow: 0 0 0 6px rgba(185,178,188,.14); }
 .api-status > span.ok { background: #62c889; box-shadow: 0 0 0 6px rgba(98,200,137,.14); }
+.api-status > span.error { background: #d86d80; box-shadow: 0 0 0 6px rgba(216,109,128,.14); }
+.api-status.error { color: #8f4050; background: #f5e7ea; }
 .api-status strong, .api-status small { display: block; }
 .api-status small { margin-top: 4px; color: #98919c; }
 .privacy-note { padding: 15px 16px; border-radius: 18px; color: #8b8490; background: #f0edf3; font-size: 12px; line-height: 1.6; }
@@ -134,6 +136,9 @@ button { cursor: pointer; }
 .more-button { border: 0; color: #7d7581; background: transparent; font-weight: 800; }
 .scene-banner { align-self: center; margin: 14px 0 2px; padding: 7px 12px; border: 0; border-radius: 999px; display: flex; align-items: center; gap: 7px; color: #8d74ad; background: rgba(233,225,240,.9); font-size: 11px; }
 .scene-banner p { margin: 0; }
+.chat-error { align-self: center; width: min(calc(100% - 36px), 440px); margin: 10px 0 0; padding: 12px 14px; border: 0; border-radius: 17px; display: grid; gap: 3px; color: #874355; background: #f4e3e8; text-align: left; font-size: 11px; line-height: 1.45; }
+.chat-error span { font-weight: 800; }
+.chat-error i { color: #9c6070; font-style: normal; font-weight: 700; }
 .message-list { flex: 1; padding: 16px 18px 118px; display: flex; flex-direction: column; gap: 16px; }
 .message-row { display: flex; flex-direction: column; align-items: flex-start; }
 .message-row.user { align-items: flex-end; }
@@ -147,4 +152,5 @@ button { cursor: pointer; }
 .composer-plus, .send-button { width: 40px; height: 40px; border: 0; border-radius: 15px; }
 .composer-plus { color: #8f68c5; background: #ece7f1; font-size: 24px; }
 .send-button { color: white; background: linear-gradient(145deg, #7e52dc, #d382bd); font-size: 22px; font-weight: 800; }
+.send-button.stop { background: linear-gradient(145deg, #b45d75, #db8894); font-size: 13px; }
 @media (min-width: 700px) { .app-shell { padding: 28px 0; } .phone-canvas { min-height: calc(100vh - 56px); border-radius: 38px; box-shadow: 0 35px 90px rgba(48,37,56,.18); } .chat-canvas { overflow: hidden; } }
