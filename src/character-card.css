@@ -1,0 +1,37 @@
+.card-manager { display: grid; gap: 16px; }
+.card-format-banner { padding: 14px; border-radius: 24px; display: grid; grid-template-columns: 66px 1fr; align-items: center; gap: 14px; background: linear-gradient(145deg, #ece7f4, #f7eef3); }
+.card-format-banner > img, .card-format-banner > span { width: 66px; height: 76px; border-radius: 18px; object-fit: cover; display: grid; place-items: center; color: white; font-size: 25px; font-weight: 800; background: linear-gradient(145deg, #8260da, #d78fc7); }
+.card-format-banner strong, .card-format-banner small { display: block; }
+.card-format-banner small { margin-top: 4px; overflow: hidden; color: #8e8792; font-size: 11px; text-overflow: ellipsis; white-space: nowrap; }
+.card-tabs { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 5px; padding: 5px; border-radius: 17px; background: #ece8ee; }
+.card-tabs button { min-width: 0; border: 0; border-radius: 13px; padding: 10px 4px; color: #8e8792; background: transparent; font-size: 11px; font-weight: 700; }
+.card-tabs button.active { color: #7446c3; background: white; box-shadow: 0 7px 18px rgba(67,39,107,.08); }
+.metadata-stack { display: grid; gap: 13px; }
+.metadata-editor { overflow: hidden; border: 1px solid rgba(77,61,86,.05); border-radius: 22px; background: #efedf0; }
+.metadata-area { display: grid; gap: 10px; padding: 17px; color: #665f69; }
+.metadata-editor textarea, .metadata-editor input, .metadata-editor select { width: 100%; border: 1px solid rgba(71,55,80,.07); outline: none; border-radius: 15px; padding: 12px 13px; color: #332e36; background: #f8f6f9; resize: vertical; }
+.metadata-editor textarea:focus, .metadata-editor input:focus, .metadata-editor select:focus { border-color: #a87ed9; box-shadow: 0 0 0 3px rgba(158,108,211,.09); }
+.editor-heading, .manager-intro { display: flex; align-items: center; justify-content: space-between; gap: 14px; }
+.editor-heading { padding: 16px 17px 0; }
+.editor-heading + textarea { width: calc(100% - 34px); margin: 12px 17px 17px; }
+.manager-intro { padding: 17px; border-radius: 22px; background: #efedf0; }
+.manager-intro strong, .manager-intro small { display: block; }
+.manager-intro small { margin-top: 5px; color: #918a95; line-height: 1.45; }
+.metadata-summary { width: 100%; border: 0; padding: 16px; display: grid; grid-template-columns: 10px 1fr auto; align-items: center; gap: 12px; color: inherit; background: transparent; text-align: left; }
+.metadata-summary strong, .metadata-summary small { display: block; }
+.metadata-summary small { margin-top: 5px; overflow: hidden; color: #958e99; font-size: 11px; text-overflow: ellipsis; white-space: nowrap; }
+.status-dot { width: 9px; height: 9px; border-radius: 50%; background: #c0bac3; }
+.status-dot.on { background: #67c990; box-shadow: 0 0 0 5px rgba(103,201,144,.12); }
+.editor-body { display: grid; gap: 14px; padding: 2px 16px 16px; border-top: 1px solid rgba(75,61,83,.05); }
+.editor-body label { display: grid; gap: 7px; color: #746d78; font-size: 12px; font-weight: 700; }
+.editor-body label:first-child { margin-top: 14px; }
+.two-column-fields { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
+.toggle-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
+.mini-toggle { border: 0; border-radius: 14px; padding: 10px; display: flex; align-items: center; gap: 8px; color: #817a85; background: #e6e2e8; text-align: left; }
+.mini-toggle > span { width: 25px; height: 15px; padding: 2px; border-radius: 999px; background: #c6c0c9; }
+.mini-toggle > span::after { content: ''; display: block; width: 11px; height: 11px; border-radius: 50%; background: white; transition: .18s; }
+.mini-toggle.on > span { background: #8b58d8; }
+.mini-toggle.on > span::after { transform: translateX(10px); }
+.danger-button { width: 100%; border: 0; border-radius: 14px; padding: 12px; color: #bc6770; background: #f4e4e7; font-weight: 700; }
+.empty-metadata { min-height: 150px; border-radius: 22px; display: grid; place-items: center; align-content: center; gap: 8px; color: #9a929e; background: #efedf0; }
+.empty-metadata span { color: #a984d3; font-size: 24px; }
