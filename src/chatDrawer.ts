@@ -1,4 +1,14 @@
-type DrawerTarget = 'api' | 'characters' | 'more'
+type DrawerRoute =
+  | 'character-detail'
+  | 'card-data'
+  | 'card-worldbook'
+  | 'card-regex'
+  | 'memory'
+  | 'identity'
+  | 'api'
+  | 'model'
+  | 'preset'
+  | 'settings'
 
 const sleep = (ms: number) => new Promise((resolve) => window.setTimeout(resolve, ms))
 
@@ -16,49 +26,62 @@ async function waitForButton(text: string, timeout = 2500) {
   return undefined
 }
 
-async function leaveChatToCharacters() {
+async function leaveChatForCharacter() {
+  const identity = document.querySelector<HTMLButtonElement>('.chat-identity')
+  identity?.click()
+  await waitForButton('角色卡主体与开场白')
+}
+
+async function openMorePage() {
   if (document.querySelector('.chat-page')) {
-    document.querySelector<HTMLButtonElement>('.chat-header .icon-button')?.click()
-    await sleep(90)
+    document.querySelector<HTMLButtonElement>('.chat-identity')?.click()
+    await sleep(80)
   }
   if (findButtonByText('角色卡主体与开场白')) {
     document.querySelector<HTMLButtonElement>('.page-header .icon-button')?.click()
-    await sleep(90)
+    await sleep(80)
   }
+  const more = Array.from(document.querySelectorAll<HTMLButtonElement>('.bottom-nav button')).find((button) => button.textContent?.includes('更多'))
+  more?.click()
+  await waitForButton('API 连接')
 }
 
-async function openRoot(target: DrawerTarget) {
+async function navigate(route: DrawerRoute) {
   closeChatDrawer()
-  await leaveChatToCharacters()
-
-  if (target === 'characters') return
-
-  const navLabel = target === 'more' || target === 'api' ? '更多' : '角色'
-  const navButton = Array.from(document.querySelectorAll<HTMLButtonElement>('.bottom-nav button'))
-    .find((button) => button.textContent?.includes(navLabel))
-  navButton?.click()
-
-  if (target === 'api') {
-    ;(await waitForButton('API 连接'))?.click()
+  sessionStorage.setItem('weijing.returnToChat', '1')
+  if (route === 'character-detail') {
+    await leaveChatForCharacter()
+    return
   }
+
+  const characterTargets: Partial<Record<DrawerRoute, string>> = {
+    'card-data': '角色卡主体与开场白',
+    'card-worldbook': '角色世界书',
+    'card-regex': '角色正则与美化',
+    memory: '管理记忆与总结模型',
+  }
+
+  const characterTarget = characterTargets[route]
+  if (characterTarget) {
+    await leaveChatForCharacter()
+    ;(await waitForButton(characterTarget))?.click()
+    return
+  }
+
+  const globalTargets: Partial<Record<DrawerRoute, string>> = {
+    identity: '用户身份', api: 'API 连接', model: '模型设置', preset: '全局预设', settings: '设置',
+  }
+  await openMorePage()
+  const target = globalTargets[route]
+  if (target) (await waitForButton(target))?.click()
 }
 
-async function openConversation(characterName: string) {
-  closeChatDrawer()
-  await leaveChatToCharacters()
-  const characterButton = Array.from(document.querySelectorAll<HTMLButtonElement>('.character-card'))
-    .find((button) => button.textContent?.includes(characterName))
-  characterButton?.click()
-  ;(await waitForButton('继续共演'))?.click()
-}
-
-function readCharacters() {
-  try {
-    const value = JSON.parse(localStorage.getItem('weijing.characters') || '[]') as Array<{ id?: string; name?: string; avatar?: string; greeting?: string }>
-    return value.filter((item) => item.name).slice(0, 12)
-  } catch {
-    return []
-  }
+function item(icon: string, title: string, subtitle: string, route: DrawerRoute) {
+  return `<button class="chat-drawer-item" data-drawer-route="${route}">
+    <span class="chat-drawer-icon">${icon}</span>
+    <span class="chat-drawer-copy"><strong>${title}</strong><small>${subtitle}</small></span>
+    <span class="chat-drawer-chevron">›</span>
+  </button>`
 }
 
 export function closeChatDrawer() {
@@ -68,53 +91,47 @@ export function closeChatDrawer() {
 
 function openChatDrawer() {
   closeChatDrawer()
-  const currentName = document.querySelector('.chat-identity strong')?.textContent || '当前角色'
-  const currentAvatar = document.querySelector<HTMLImageElement>('.chat-identity img')?.src
-  const characters = readCharacters()
-
-  const rows = characters.length
-    ? characters.map((item) => `<button class="chat-session-row ${item.name === currentName ? 'active' : ''}" data-character-name="${encodeURIComponent(item.name || '')}">
-        <span class="chat-session-avatar">${item.avatar ? `<img src="${item.avatar}" alt="">` : (item.name || '角').slice(-1)}</span>
-        <span class="chat-session-copy"><strong>${item.name}</strong><small>${(item.greeting || '继续这段对话').replace(/<[^>]*>/g, '').slice(0, 38)}</small></span>
-        <span class="chat-session-more">•••</span>
-      </button>`).join('')
-    : `<div class="chat-session-empty">还没有其他角色</div>`
-
+  const name = document.querySelector('.chat-identity strong')?.textContent || '当前角色'
+  const subtitle = document.querySelector('.chat-identity small')?.textContent || '沉浸共演中'
+  const avatar = document.querySelector<HTMLImageElement>('.chat-identity img')?.src
   const root = document.createElement('div')
   root.dataset.chatDrawerRoot = 'true'
   root.className = 'chat-drawer-root'
   root.innerHTML = `<button class="chat-drawer-backdrop" aria-label="关闭抽屉"></button>
-    <aside class="chat-drawer-panel" aria-label="对话与导航">
-      <header class="chat-drawer-brand">
-        <div><strong>惟境</strong><small>WEIWEI ROLE</small></div>
+    <aside class="chat-drawer-panel" aria-label="聊天设置">
+      <div class="chat-drawer-handle"></div>
+      <header class="chat-drawer-profile">
+        <div class="chat-drawer-avatar">${avatar ? `<img src="${avatar}" alt="">` : name.slice(-1)}</div>
+        <div><strong>${name}</strong><small>${subtitle}</small></div>
         <button class="chat-drawer-close" aria-label="关闭">×</button>
       </header>
-      <div class="chat-drawer-filter"><strong>全部聊天</strong><span>⌄</span><button data-drawer-target="characters">＋</button></div>
-      <div class="chat-session-list">${rows}</div>
-      <nav class="chat-drawer-bottom">
-        <button data-drawer-target="api"><span>⌑</span><small>API连接</small></button>
-        <button data-drawer-target="characters"><span>♙</span><small>角色</small></button>
-        <button data-drawer-target="more"><span>•••</span><small>更多</small></button>
-      </nav>
+      <div class="chat-drawer-scroll">
+        <section class="chat-drawer-section"><h3>聊天</h3>
+          ${item('◌', '情景与角色资料', '角色设定、场景与开场白', 'card-data')}
+          ${item('人', '用户身份', '调整本次共演使用的身份', 'identity')}
+        </section>
+        <section class="chat-drawer-section"><h3>角色能力</h3>
+          ${item('世', '世界书', '管理条目、触发与注入位置', 'card-worldbook')}
+          ${item('正', '正则与美化', '消息替换、样式与渲染规则', 'card-regex')}
+          ${item('忆', '长期记忆', '独立记忆库与总结模型', 'memory')}
+        </section>
+        <section class="chat-drawer-section"><h3>模型与提示词</h3>
+          ${item('API', 'API 连接', '聊天模型接口与密钥', 'api')}
+          ${item('参', '模型设置', '温度、上下文与流式输出', 'model')}
+          ${item('预', '预设', '提示词流水线与上下文编排', 'preset')}
+        </section>
+        <section class="chat-drawer-section compact">
+          ${item('设', '应用设置', '外观、存储、备份与更新', 'settings')}
+          ${item('卡', '查看角色详情', '返回角色资料总览', 'character-detail')}
+        </section>
+      </div>
     </aside>`
-
   document.body.append(root)
   document.documentElement.classList.add('chat-drawer-open')
   requestAnimationFrame(() => root.classList.add('visible'))
-
   root.querySelector('.chat-drawer-backdrop')?.addEventListener('click', closeChatDrawer)
   root.querySelector('.chat-drawer-close')?.addEventListener('click', closeChatDrawer)
-  root.querySelectorAll<HTMLElement>('[data-drawer-target]').forEach((button) => {
-    button.addEventListener('click', () => openRoot(button.dataset.drawerTarget as DrawerTarget))
-  })
-  root.querySelectorAll<HTMLElement>('[data-character-name]').forEach((button) => {
-    button.addEventListener('click', () => openConversation(decodeURIComponent(button.dataset.characterName || '')))
-  })
-
-  if (currentAvatar) {
-    const activeAvatar = root.querySelector<HTMLImageElement>('.chat-session-row.active img')
-    if (activeAvatar && !activeAvatar.src) activeAvatar.src = currentAvatar
-  }
+  root.querySelectorAll<HTMLElement>('[data-drawer-route]').forEach((button) => button.addEventListener('click', () => navigate(button.dataset.drawerRoute as DrawerRoute)))
 }
 
 export function installChatDrawer() {
@@ -126,8 +143,5 @@ export function installChatDrawer() {
     event.stopPropagation()
     openChatDrawer()
   }, true)
-
-  document.addEventListener('keydown', (event) => {
-    if (event.key === 'Escape') closeChatDrawer()
-  })
+  document.addEventListener('keydown', (event) => { if (event.key === 'Escape') closeChatDrawer() })
 }
