@@ -10,6 +10,7 @@ import { completeChat, testApiConnection, type ApiConfig } from './chatApi'
 import { buildChatPrompt } from './promptBuilder'
 import { createApiChannel, normalizeApiChannels, type ApiChannel } from './apiChannels'
 import { enabledPresetText, normalizePresetSections } from './presetConfig'
+import { durableGet, durableSet } from './persistentStore'
 
 type Page = 'home' | 'characters' | 'create' | 'import-preview' | 'character-detail' | 'card-data' | 'card-worldbook' | 'card-regex' | 'greeting-picker' | 'chat' | 'more' | 'api' | 'model' | 'settings' | 'identity' | 'worldbook' | 'preset' | 'memory' | 'memory-api' | 'memory-list'
 type Message = { id: number; role: 'user' | 'assistant'; text: string; finishReason?: string | null }
@@ -22,6 +23,8 @@ type Conversation = {
   messages: Message[]
   createdAt: number
   updatedAt: number
+  contextSummary?: string
+  compressedUntil?: number
 }
 type LegacySessionMap = Record<string, Message[]>
 type MemoryEntry = { id: string; createdAt: number; title: string; content: string; sourceCount: number }
@@ -62,6 +65,10 @@ const read = <T,>(key: string, fallback: T): T => {
   try { const value = localStorage.getItem(key); return value ? JSON.parse(value) as T : fallback } catch { return fallback }
 }
 const write = (key: string, value: unknown) => localStorage.setItem(key, JSON.stringify(value))
+const writeDurable = (key: string, value: unknown) => {
+  try { write(key, value) } catch (error) { console.warn('本地轻量储存已满，继续写入 IndexedDB', error) }
+  void durableSet(key, value).catch((error) => console.error('IndexedDB 写入失败', error))
+}
 
 async function imageThumbnail(file: File, size = 256) {
   const bitmap = await createImageBitmap(file)
@@ -179,6 +186,9 @@ function App() {
   const [pendingImport, setPendingImport] = useState<Character | null>(null)
   const [restartingConversationId, setRestartingConversationId] = useState<string | null>(null)
   const [chatJump, setChatJump] = useState({ up: false, down: false })
+  const [persistenceReady, setPersistenceReady] = useState(false)
+  const [storageUsage, setStorageUsage] = useState('正在计算…')
+  const [compressingContext, setCompressingContext] = useState(false)
   const fileInputRef = useRef<HTMLInputElement>(null)
   const phoneCanvasRef = useRef<HTMLElement>(null)
   const composerRef = useRef<HTMLTextAreaElement>(null)
@@ -194,18 +204,35 @@ function App() {
   const currentMemoryConfig = memoryConfigs[activeCharacter.id] || defaultMemoryConfig()
   const currentMemories = memoryEntries[activeCharacter.id] || []
 
-  useEffect(() => write('weijing.characters', characters), [characters])
+  useEffect(() => {
+    let cancelled = false
+    Promise.all([
+      durableGet<Partial<Character>[]>('weijing.characters'), durableGet<Conversation[]>('weijing.conversations'),
+      durableGet<UserIdentity>('weijing.identity'), durableGet<MemoryConfigMap>('weijing.memoryConfigs'), durableGet<MemoryEntryMap>('weijing.memoryEntries'),
+    ]).then(([storedCharacters, storedConversations, storedIdentity, storedConfigs, storedEntries]) => {
+      if (cancelled) return
+      if (storedCharacters?.length) setCharacters(storedCharacters.map(normalizeStoredCharacter))
+      if (storedConversations?.length) setConversations(storedConversations)
+      if (storedIdentity) setIdentity(storedIdentity)
+      if (storedConfigs) setMemoryConfigs(storedConfigs)
+      if (storedEntries) setMemoryEntries(storedEntries)
+      setPersistenceReady(true)
+    }).catch(() => setPersistenceReady(true))
+    navigator.storage?.estimate().then(({ usage = 0, quota = 0 }) => setStorageUsage(`${(usage / 1048576).toFixed(1)} MB / ${(quota / 1048576).toFixed(0)} MB`))
+    return () => { cancelled = true }
+  }, [])
+  useEffect(() => { if (persistenceReady) writeDurable('weijing.characters', characters) }, [characters, persistenceReady])
   useEffect(() => write('weijing.activeCharacter', activeId), [activeId])
-  useEffect(() => write('weijing.conversations', conversations), [conversations])
+  useEffect(() => { if (persistenceReady) writeDurable('weijing.conversations', conversations) }, [conversations, persistenceReady])
   useEffect(() => write('weijing.activeConversation', activeConversation?.id || ''), [activeConversation?.id])
-  useEffect(() => write('weijing.identity', identity), [identity])
+  useEffect(() => { if (persistenceReady) writeDurable('weijing.identity', identity) }, [identity, persistenceReady])
   useEffect(() => write('weijing.worldbook', worldbook), [worldbook])
   useEffect(() => { write('weijing.presetSections', presetSections); write('weijing.preset', enabledPresetText(presetSections)) }, [presetSections])
   useEffect(() => write('weijing.apiChannels', apiChannels), [apiChannels])
   useEffect(() => write('weijing.activeApiChannel', api.id), [api.id])
   useEffect(() => write('weijing.api', { baseUrl: api.baseUrl, apiKey: api.apiKey, modelName: api.modelName, maxTokenField: api.maxTokenField }), [api])
-  useEffect(() => write('weijing.memoryConfigs', memoryConfigs), [memoryConfigs])
-  useEffect(() => write('weijing.memoryEntries', memoryEntries), [memoryEntries])
+  useEffect(() => { if (persistenceReady) writeDurable('weijing.memoryConfigs', memoryConfigs) }, [memoryConfigs, persistenceReady])
+  useEffect(() => { if (persistenceReady) writeDurable('weijing.memoryEntries', memoryEntries) }, [memoryEntries, persistenceReady])
   useEffect(() => { write('weijing.temperature', temperature); write('weijing.topP', topP); write('weijing.memoryLength', memoryLength); write('weijing.maxTokens', maxTokens); write('weijing.streaming', streaming) }, [temperature, topP, memoryLength, maxTokens, streaming])
   useEffect(() => () => generationControllers.current.forEach((controller) => controller.abort()), [])
   useEffect(() => { if (activeApiId !== api.id) setActiveApiId(api.id) }, [activeApiId, api.id])
@@ -523,6 +550,7 @@ function App() {
         globalWorldbook: worldbook,
         memory: { entries: capturedMemories, injectPosition: capturedMemoryConfig.injectPosition, injectPrompt: capturedMemoryConfig.injectPrompt },
         memoryLength,
+        contextSummary: conversation.contextSummary,
       })
       const completion = await completeChat({
         api,
@@ -621,6 +649,30 @@ function App() {
     setDrawer(null)
   }
 
+  const compressOldContext = async () => {
+    if (!activeConversation || compressingContext || messages.length < 16) return
+    if (!api.apiKey || !api.baseUrl || !api.modelName) { setChatError('请先配置当前聊天 API，再压缩上下文。'); return }
+    const keepRecent = Math.max(10, Math.floor(memoryLength / 2))
+    const oldMessages = messages.slice(0, Math.max(0, messages.length - keepRecent))
+    if (oldMessages.length < 6) return
+    setCompressingContext(true); setDrawer(null); let summary = ''
+    try {
+      const controller = new AbortController()
+      await completeChat({
+        api, temperature: .2, topP: 1, maxTokens: Math.min(3000, maxTokens), streaming: false,
+        signal: controller.signal,
+        messages: [
+          { role: 'system', content: '你是剧情上下文压缩器。只总结已经发生的事实，保留时间、地点、人物关系、承诺、冲突、情绪转折、重要物品、未完成事项和角色状态。不得续写剧情，不得虚构，不得省略影响后续扮演的信息。' },
+          { role: 'user', content: `${activeConversation.contextSummary ? `此前摘要：\n${activeConversation.contextSummary}\n\n` : ''}待压缩对话：\n${oldMessages.map((item) => `${item.role === 'user' ? identity.name : activeCharacter.name}：${item.text}`).join('\n\n')}` },
+        ],
+        onDelta: (delta) => { summary += delta },
+      })
+      if (!summary.trim()) throw new Error('模型没有生成摘要')
+      setConversations((current) => current.map((item) => item.id === activeConversation.id ? { ...item, contextSummary: summary.trim(), compressedUntil: oldMessages.length, updatedAt: Date.now() } : item))
+    } catch (error) { setChatError(error instanceof Error ? error.message : '上下文压缩失败') }
+    finally { setCompressingContext(false) }
+  }
+
   const updateChatJump = () => {
     const list = messageListRef.current; if (!list) return
     const distanceToBottom = list.scrollHeight - list.scrollTop - list.clientHeight
@@ -704,7 +756,7 @@ function App() {
     {page === 'memory-list' && <><BackHeader title={`${activeCharacter.name} · 记忆库`} onBack={goBack} /><section className="content-stack">{currentMemories.length === 0 ? <div className="empty-memory"><span>✦</span><strong>还没有长期记忆</strong><p>返回上一页，配置总结 API 后可立即总结当前对话。</p></div> : currentMemories.slice().reverse().map((entry) => <article className="memory-entry" key={entry.id}><div><strong>{entry.title}</strong><small>{new Date(entry.createdAt).toLocaleString()} · 来源 {entry.sourceCount} 条消息</small></div><textarea rows={8} value={entry.content} onChange={(e) => setMemoryEntries((current) => ({ ...current, [activeCharacter.id]: (current[activeCharacter.id] || []).map((item) => item.id === entry.id ? { ...item, content: e.target.value } : item) }))} /><button className="danger-link" onClick={() => setMemoryEntries((current) => ({ ...current, [activeCharacter.id]: (current[activeCharacter.id] || []).filter((item) => item.id !== entry.id) }))}>删除这条记忆</button></article>)}</section></>}
 
     {page === 'model' && <><BackHeader title="模型设置" onBack={goBack} /><section className="settings-stack"><div className="settings-group range-group"><RangeRow label="记忆长度" value={memoryLength} min={10} max={100} step={1} onChange={setMemoryLength} /><RangeRow label="回复令牌限制" hint={`当前最多请求 ${maxTokens} 个输出令牌`} value={maxTokens} min={1000} max={64000} step={1000} onChange={setMaxTokens} /></div><div className="settings-group range-group"><RangeRow label="温度" value={temperature} min={0} max={2} step={0.05} onChange={setTemperature} /><RangeRow label="Top-P" value={topP} min={0} max={1} step={0.05} onChange={setTopP} /></div><div className="settings-group toggle-row"><div><strong>流式传输</strong><small>立即逐字显示回复</small></div><button className={`switch ${streaming ? 'on' : ''}`} onClick={() => setStreaming(!streaming)}><span /></button></div></section></>}
-    {page === 'settings' && <><BackHeader title="应用设置" onBack={goBack} /><section className="settings-stack"><div className="settings-group">{['外观 · 跟随系统', '语言 · 简体中文', '字体 · 默认'].map((item) => <button key={item}><span>{item}</span><span>›</span></button>)}</div><BackupCard /><UpdateCard /></section></>}
+    {page === 'settings' && <><BackHeader title="应用设置" onBack={goBack} /><section className="settings-stack"><div className="storage-health-card"><div><strong>本地数据保险库</strong><small>角色、头像、聊天与长期记忆已同步保存到 IndexedDB</small></div><span>{storageUsage}</span></div><div className="settings-group">{['外观 · 跟随系统', '语言 · 简体中文', '字体 · 默认'].map((item) => <button key={item}><span>{item}</span><span>›</span></button>)}</div><BackupCard /><UpdateCard /></section></>}
 
     {menuCharacter && <div className="character-menu-layer"><button className="drawer-backdrop" aria-label="关闭角色菜单" onClick={() => setCharacterMenuId(null)} /><section className="conversation-menu character-action-menu"><header><div><small>角色操作</small><strong>{menuCharacter.name}</strong></div><button onClick={() => setCharacterMenuId(null)}>×</button></header><button onClick={() => { setActiveId(menuCharacter.id); setCharacterMenuId(null); navigate('card-data') }}>编辑角色卡</button><button onClick={() => duplicateCharacter(menuCharacter)}>复制角色</button><button onClick={() => exportCharacter(menuCharacter)}>导出 Character Card V3 JSON</button><button className="danger" onClick={() => deleteCharacter(menuCharacter)}>删除角色及相关数据</button></section></div>}
 
@@ -739,6 +791,7 @@ function App() {
           ].map(([label, target, icon]) => <button key={label} onClick={() => navigate(target as Page, 'right')}><span>{icon}</span><strong>{label}</strong><i>›</i></button>)}
         </div>
         <button className="drawer-detail-link" onClick={() => navigate('character-detail', 'right')}>查看角色详情 <span>›</span></button>
+        <button className="drawer-detail-link" onClick={compressOldContext} disabled={compressingContext || messages.length < 16}>{compressingContext ? '正在压缩旧上下文…' : activeConversation?.contextSummary ? `更新上下文摘要 · 已压缩 ${activeConversation.compressedUntil || 0} 条` : '压缩旧上下文'} <span>⌁</span></button>
         <button className="drawer-detail-link export-chat-link" onClick={exportConversationTxt}>导出当前对话 TXT <span>↓</span></button>
       </aside>}
 
