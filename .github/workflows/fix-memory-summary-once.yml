@@ -1,0 +1,188 @@
+name: Fix memory summary once
+
+on:
+  push:
+    paths:
+      - '.github/workflows/fix-memory-summary-once.yml'
+
+permissions:
+  contents: write
+
+jobs:
+  patch:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Patch memory summary logic
+        run: |
+          python3 - <<'PY'
+          from pathlib import Path
+
+          path = Path('src/App.tsx')
+          text = path.read_text()
+
+          replacements = []
+
+          replacements.append((
+          """  compressedUntil?: number
+}""",
+          """  compressedUntil?: number
+  memorySummarizedCount?: number
+}"""))
+
+          replacements.append((
+          """const defaultMemoryPrompt = `【暂停剧情扮演】请根据前文内容，对上次总结之后的剧情进行总结。生成一个详细的总结集合，涵盖所有主要事件、观点、关系变化与关键信息。总结需逻辑清晰，按时间顺序组织，每件事以独立条目呈现，并尽量标注具体时间点。若时间信息不明确，请根据上下文合理推测并注明。重点保留人物关系、承诺、冲突、情绪转折、世界设定与未完成事项，避免遗漏。`""",
+          """const defaultMemoryPrompt = `你是长期剧情记忆档案员。只提取“待总结对话”中明确发生的事实，禁止续写、脑补、评价或替任何角色补全心理。必须清楚区分用户与角色，不得把角色的言行写到用户名下，也不得替用户决定动作、情绪或选择。忽略 HTML、Markdown、美化标签、状态栏数值、系统提示和重复内容。只记录会影响后续剧情的事件、关系变化、承诺、冲突、重要物品、地点、时间线索与未完成事项。若时间不明确，写“时间未明确”，禁止自行推测日期。与已有记忆重复的内容不要再次展开。
+
+固定输出格式：
+【本段时间线】
+- 按发生顺序列出新增事件。
+【关系与情绪变化】
+- 只写对话中有明确证据的变化。
+【关键事实与承诺】
+- 列出新出现且后续需要记住的信息。
+【未完成事项】
+- 列出仍待处理的行动、约定或冲突；没有则写“无”。
+【当前剧情落点】
+- 用 1—3 句说明本段结束时人物所在地点、正在做什么及场面状态。`"""))
+
+          marker = """const defaultInjectPrompt = `以下是该角色与用户的长期记忆。请把它当作已经发生过的事实，自然延续，不要逐条复述，也不要替用户决定言行：\n\n{{memories}}`
+"""
+          helper = marker + """
+function cleanMemorySource(value: string) {
+  return value
+    .replace(/<style\\b[\\s\\S]*?<\\/style>/gi, ' ')
+    .replace(/<script\\b[\\s\\S]*?<\\/script>/gi, ' ')
+    .replace(/<audio\\b[\\s\\S]*?<\\/audio>/gi, ' ')
+    .replace(/<[^>]+>/g, ' ')
+    .replace(/^\\s*```(?:html|xml|markdown)?\\s*$/gim, '')
+    .replace(/^\\s*[▸▶►]\\s*(?:心理|动作|好感度|爱意值|情绪波动|性欲|性器|身体细节)\\s*[：:].*$/gim, '')
+    .replace(/^.*状态栏.*$/gim, '')
+    .replace(/[ \\t]+\\n/g, '\\n')
+    .replace(/\\n{3,}/g, '\\n\\n')
+    .trim()
+}
+"""
+          replacements.append((marker, helper))
+
+          old_summary = """  const summarizeMemory = async (sourceMessages = messages) => {
+    const config = currentMemoryConfig
+    if (!config.api.baseUrl || !config.api.modelName || !config.api.apiKey || sourceMessages.length < 2) { setMemoryState('error'); return }
+    setMemoryState('summarizing')
+    const transcript = sourceMessages.map((item) => `${item.role === 'user' ? identity.name : activeCharacter.name}：${item.text}`).join('\\n')
+    const previous = currentMemories.slice(-8).map((item) => item.content).join('\\n\\n')
+    try {
+      const endpoint = `${config.api.baseUrl.replace(/\\/$/, '')}/chat/completions`
+      const response = await fetch(endpoint, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${config.api.apiKey}` },
+        body: JSON.stringify({
+          model: config.api.modelName,
+          temperature: 0.2,
+          messages: [
+            { role: 'system', content: config.summaryPrompt },
+            { role: 'user', content: `角色：${activeCharacter.name}\\n用户：${identity.name}\\n已有记忆：\\n${previous || '暂无'}\\n\\n待总结对话：\\n${transcript}` },
+          ],
+        }),
+      })
+      if (!response.ok) throw new Error(`HTTP ${response.status}`)
+      const data = await response.json()
+      const content = data?.choices?.[0]?.message?.content?.trim()
+      if (!content) throw new Error('empty memory')
+      const entry: MemoryEntry = { id: crypto.randomUUID(), createdAt: Date.now(), title: `${new Date().toLocaleDateString()} · ${sourceMessages.length} 条消息`, content, sourceCount: sourceMessages.length }
+      setMemoryEntries((current) => ({ ...current, [activeCharacter.id]: [...(current[activeCharacter.id] || []), entry].slice(-config.maxEntries) }))
+      updateMemoryConfig({ lastSummarizedCount: sourceMessages.length })
+      setMemoryState('ok')
+    } catch (error) {
+      console.error('记忆总结失败', error)
+      setMemoryState('error')
+    }
+  }
+"""
+
+          new_summary = """  const summarizeMemory = async (sourceMessages = messages, conversationId = activeConversation?.id, startIndex?: number) => {
+    const config = memoryConfigs[activeCharacter.id] || defaultMemoryConfig()
+    const targetConversation = conversations.find((item) => item.id === conversationId) || activeConversation
+    const cursor = Math.max(0, startIndex ?? targetConversation?.memorySummarizedCount ?? 0)
+    const pendingMessages = sourceMessages.slice(cursor)
+    if (!config.api.baseUrl || !config.api.modelName || !config.api.apiKey || pendingMessages.length < 2) { setMemoryState('error'); return }
+
+    setMemoryState('summarizing')
+    const transcript = pendingMessages
+      .map((item) => `${item.role === 'user' ? identity.name : activeCharacter.name}：${cleanMemorySource(item.text)}`)
+      .filter((item) => item.trim())
+      .join('\\n\\n')
+    const previous = currentMemories.slice(-6).map((item) => item.content).join('\\n\\n')
+
+    try {
+      const endpoint = `${config.api.baseUrl.replace(/\\/$/, '')}/chat/completions`
+      const payload: Record<string, unknown> = {
+        model: config.api.modelName,
+        temperature: 0.1,
+        messages: [
+          { role: 'system', content: config.summaryPrompt },
+          { role: 'user', content: `角色：${activeCharacter.name}\\n用户：${identity.name}\\n\\n已有长期记忆（仅用于去重，不要重写）：\\n${previous || '暂无'}\\n\\n本次只总结以下新增对话（第 ${cursor + 1}—${sourceMessages.length} 条）：\\n${transcript}` },
+        ],
+      }
+      payload[config.api.maxTokenField || 'max_tokens'] = 2200
+      const response = await fetch(endpoint, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${config.api.apiKey}` },
+        body: JSON.stringify(payload),
+      })
+      if (!response.ok) {
+        const detail = await response.text().catch(() => '')
+        throw new Error(`HTTP ${response.status}${detail ? ` · ${detail.slice(0, 180)}` : ''}`)
+      }
+      const data = await response.json()
+      const content = data?.choices?.[0]?.message?.content?.trim()
+      if (!content) throw new Error('模型没有生成记忆内容')
+
+      const entry: MemoryEntry = {
+        id: crypto.randomUUID(),
+        createdAt: Date.now(),
+        title: `${new Date().toLocaleDateString()} · 新增 ${pendingMessages.length} 条消息`,
+        content,
+        sourceCount: pendingMessages.length,
+      }
+      setMemoryEntries((current) => ({ ...current, [activeCharacter.id]: [...(current[activeCharacter.id] || []), entry].slice(-config.maxEntries) }))
+      if (conversationId) {
+        setConversations((current) => current.map((item) => item.id === conversationId ? { ...item, memorySummarizedCount: sourceMessages.length, updatedAt: Date.now() } : item))
+      }
+      updateMemoryConfig({ lastSummarizedCount: sourceMessages.length })
+      setMemoryState('ok')
+    } catch (error) {
+      console.error('记忆总结失败', error)
+      setMemoryState('error')
+    }
+  }
+"""
+          replacements.append((old_summary, new_summary))
+
+          replacements.append((
+          """      if (capturedMemoryConfig.autoEvery > 0 && completed.length - capturedMemoryConfig.lastSummarizedCount >= capturedMemoryConfig.autoEvery && capturedMemoryConfig.api.apiKey) summarizeMemory(completed)""",
+          """      const summaryCursor = conversation.memorySummarizedCount || 0
+      if (capturedMemoryConfig.autoEvery > 0
+        && completed.length - summaryCursor >= capturedMemoryConfig.autoEvery
+        && capturedMemoryConfig.api.baseUrl
+        && capturedMemoryConfig.api.apiKey
+        && capturedMemoryConfig.api.modelName) {
+        void summarizeMemory(completed, conversationId, summaryCursor)
+      }"""))
+
+          for old, new in replacements:
+            if old not in text:
+              raise SystemExit(f'Replacement target not found:\n{old[:180]}')
+            text = text.replace(old, new, 1)
+
+          path.write_text(text)
+          PY
+
+          npm ci
+          npm run build
+          rm .github/workflows/fix-memory-summary-once.yml
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add src/App.tsx .github/workflows/fix-memory-summary-once.yml
+          git commit -m "修复自动记忆总结与增量摘要"
+          git push
