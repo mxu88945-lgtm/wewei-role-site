@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
 import ApiSettingsPage from './ApiSettingsPage'
 import BackupCard from './BackupCard'
+import PresetEditor from './PresetEditor'
 import CharacterCardManager from './CharacterCardManager'
 import { GreetingPicker, ImportPreview } from './ImportFlow'
 import MessageContent from './MessageContent'
@@ -8,6 +9,7 @@ import { createBlankCharacter, importCharacterCard, normalizeStoredCharacter, ty
 import { completeChat, testApiConnection, type ApiConfig } from './chatApi'
 import { buildChatPrompt } from './promptBuilder'
 import { createApiChannel, normalizeApiChannels, type ApiChannel } from './apiChannels'
+import { enabledPresetText, normalizePresetSections } from './presetConfig'
 
 type Page = 'home' | 'characters' | 'create' | 'import-preview' | 'character-detail' | 'card-data' | 'card-worldbook' | 'card-regex' | 'greeting-picker' | 'chat' | 'more' | 'api' | 'model' | 'settings' | 'identity' | 'worldbook' | 'preset' | 'memory' | 'memory-api' | 'memory-list'
 type Message = { id: number; role: 'user' | 'assistant'; text: string; finishReason?: string | null }
@@ -144,7 +146,7 @@ function App() {
   const [newCharacter, setNewCharacter] = useState({ name: '', tagline: '', description: '', greeting: '', tags: '' })
   const [identity, setIdentity] = useState(() => read('weijing.identity', { name: '周惟惟', description: '由用户亲自决定言行、心理与关键选择。' }))
   const [worldbook, setWorldbook] = useState(() => read('weijing.worldbook', 'A 国旧世家与现代都市并存。剧情缓慢推进，不替用户角色做决定。'))
-  const [preset, setPreset] = useState(() => read('weijing.preset', '克制、细腻、慢热；每轮携带微量剧情进展。'))
+  const [presetSections, setPresetSections] = useState(() => normalizePresetSections(read('weijing.presetSections', []), read('weijing.preset', '克制、细腻、慢热；每轮携带微量剧情进展。')))
   const [apiChannels, setApiChannels] = useState<ApiChannel[]>(() => normalizeApiChannels(read('weijing.apiChannels', []), read('weijing.api', { baseUrl: 'https://api.openai.com/v1', apiKey: '', modelName: 'gpt-4.1-mini' })))
   const [activeApiId, setActiveApiId] = useState(() => read('weijing.activeApiChannel', ''))
   const [connection, setConnection] = useState<'idle' | 'testing' | 'ok' | 'error'>('idle')
@@ -179,7 +181,7 @@ function App() {
   useEffect(() => write('weijing.activeConversation', activeConversation?.id || ''), [activeConversation?.id])
   useEffect(() => write('weijing.identity', identity), [identity])
   useEffect(() => write('weijing.worldbook', worldbook), [worldbook])
-  useEffect(() => write('weijing.preset', preset), [preset])
+  useEffect(() => { write('weijing.presetSections', presetSections); write('weijing.preset', enabledPresetText(presetSections)) }, [presetSections])
   useEffect(() => write('weijing.apiChannels', apiChannels), [apiChannels])
   useEffect(() => write('weijing.activeApiChannel', api.id), [api.id])
   useEffect(() => write('weijing.api', { baseUrl: api.baseUrl, apiKey: api.apiKey, modelName: api.modelName, maxTokenField: api.maxTokenField }), [api])
@@ -472,7 +474,7 @@ function App() {
         character: capturedCharacter,
         user: identity,
         messages: nextMessages,
-        preset,
+        preset: enabledPresetText(presetSections),
         globalWorldbook: worldbook,
         memory: { entries: capturedMemories, injectPosition: capturedMemoryConfig.injectPosition, injectPrompt: capturedMemoryConfig.injectPrompt },
         memoryLength,
@@ -575,7 +577,7 @@ function App() {
 
     {page === 'identity' && <EditablePage title="用户身份" value={identity.description} name={identity.name} onName={(name) => setIdentity({ ...identity, name })} onChange={(description) => setIdentity({ ...identity, description })} onBack={goBack} />}
     {page === 'worldbook' && <EditablePage title="世界书" value={worldbook} onChange={setWorldbook} onBack={goBack} />}
-    {page === 'preset' && <EditablePage title="预设" value={preset} onChange={setPreset} onBack={goBack} />}
+    {page === 'preset' && <PresetEditor sections={presetSections} onChange={setPresetSections} onBack={goBack} />}
 
     {page === 'memory' && <><BackHeader title={`${activeCharacter.name} · 长记忆`} onBack={goBack} action={<button className="soft-button" onClick={() => updateMemoryConfig({ ...defaultMemoryConfig(), api: currentMemoryConfig.api })}>恢复默认</button>} /><section className="settings-stack memory-settings"><div className="memory-character-banner"><div className="character-art"><span>{activeCharacter.name.slice(-1)}</span><i>✦</i></div><div><strong>独立记忆库</strong><small>仅属于 {activeCharacter.name}，不会与其他角色混用</small></div></div><button className="memory-api-row" onClick={() => navigate('memory-api')}><div><strong>总结专用 API</strong><small>{currentMemoryConfig.api.modelName || '未设置模型'}</small></div><span>›</span></button><div className="settings-group range-group"><RangeRow label="自动总结" hint={`每 ${currentMemoryConfig.autoEvery} 条消息总结一次，0 为禁用`} value={currentMemoryConfig.autoEvery} min={0} max={200} step={10} onChange={(value) => updateMemoryConfig({ autoEvery: value })} /><RangeRow label="记忆上限" hint={`最多保留 ${currentMemoryConfig.maxEntries} 条长期记忆`} value={currentMemoryConfig.maxEntries} min={100} max={3000} step={100} onChange={(value) => updateMemoryConfig({ maxEntries: value })} /></div><label className="memory-text-card"><strong>记忆总结提示词</strong><textarea rows={10} value={currentMemoryConfig.summaryPrompt} onChange={(e) => updateMemoryConfig({ summaryPrompt: e.target.value })} /><small>发送给记忆模型，用于生成长期记忆。</small></label><label className="memory-select-card"><strong>记忆注入位置</strong><select value={currentMemoryConfig.injectPosition} onChange={(e) => updateMemoryConfig({ injectPosition: e.target.value })}><option value="none">不注入</option><option value="before-main-prompt">↑ Main Prompt</option><option value="after-main-prompt">↓ Main Prompt</option><option value="before-chat-history">↑ Chat History</option><option value="after-chat-history">↓ Chat History</option><option value="depth-system">@Depth · system</option><option value="depth-user">@Depth · user</option><option value="depth-assistant">@Depth · assistant</option></select></label><label className="memory-text-card"><strong>记忆注入提示词</strong><textarea rows={6} value={currentMemoryConfig.injectPrompt} onChange={(e) => updateMemoryConfig({ injectPrompt: e.target.value })} /><small>使用 {'{{memories}}'} 作为记忆内容占位符。</small></label><div className="memory-actions"><button className="primary-button full" onClick={() => summarizeMemory()} disabled={memoryState === 'summarizing'}>{memoryState === 'summarizing' ? '正在总结…' : memoryState === 'error' ? '配置不完整或总结失败，重试' : '立即总结当前对话'}</button><button className="secondary-button" onClick={() => navigate('memory-list')}>查看与管理记忆（{currentMemories.length}）</button></div></section></>}
 
