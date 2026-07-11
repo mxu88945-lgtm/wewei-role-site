@@ -186,3 +186,5 @@ function cleanMemorySource(value: string) {
           git add src/App.tsx .github/workflows/fix-memory-summary-once.yml
           git commit -m "修复自动记忆总结与增量摘要"
           git push
+
+# trigger: 2
