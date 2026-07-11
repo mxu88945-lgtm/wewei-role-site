@@ -226,61 +226,10 @@ function enhanceMemoryApiPage() {
   })
 }
 
-let releaseScrollLock: (() => void) | null = null
-
-function lockStreamingScroll() {
-  releaseScrollLock?.()
-  window.setTimeout(() => {
-    const list = document.querySelector<HTMLElement>('.message-list')
-    const userRows = list?.querySelectorAll<HTMLElement>('.message-row.user')
-    const latestUser = userRows?.[userRows.length - 1]
-    if (!list || !latestUser) return
-
-    let locked = true
-    const targetTop = Math.max(0, latestUser.offsetTop - 16)
-    list.scrollTop = targetTop
-
-    const keepPosition = () => {
-      if (!locked) return
-      window.requestAnimationFrame(() => {
-        if (locked) list.scrollTop = targetTop
-      })
-    }
-    const observer = new MutationObserver(keepPosition)
-    observer.observe(list, { childList: true, subtree: true, characterData: true })
-
-    const unlock = () => {
-      if (!locked) return
-      locked = false
-      observer.disconnect()
-      list.removeEventListener('touchstart', unlock)
-      list.removeEventListener('wheel', unlock)
-      list.removeEventListener('pointerdown', unlock)
-      window.clearInterval(timer)
-      if (releaseScrollLock === unlock) releaseScrollLock = null
-    }
-
-    list.addEventListener('touchstart', unlock, { passive: true })
-    list.addEventListener('wheel', unlock, { passive: true })
-    list.addEventListener('pointerdown', unlock, { passive: true })
-    const timer = window.setInterval(() => {
-      if (!document.querySelector('.send-button.stop')) unlock()
-    }, 180)
-    releaseScrollLock = unlock
-  }, 0)
-}
-
 function installEnhancements() {
   const observer = new MutationObserver(enhanceMemoryApiPage)
   observer.observe(document.documentElement, { childList: true, subtree: true })
   enhanceMemoryApiPage()
-
-  document.addEventListener('click', (event) => {
-    const target = event.target
-    if (!(target instanceof Element)) return
-    const button = target.closest('.send-button')
-    if (button && !button.classList.contains('stop')) lockStreamingScroll()
-  }, true)
 }
 
 installEnhancements()
