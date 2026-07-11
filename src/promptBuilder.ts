@@ -14,6 +14,7 @@ type PromptInput = {
   globalWorldbook: string
   memory: MemoryInput
   memoryLength: number
+  contextSummary?: string
 }
 
 function matchesKeyword(source: string, keyword: string, entry: WorldBookEntry) {
@@ -114,6 +115,7 @@ export function buildChatPrompt(input: PromptInput): ChatApiMessage[] {
   if (character.mesExample.trim()) appendSystem(result, `【示例对话】\n${applyMacros(character.mesExample, character, user.name)}`)
   appendSystem(result, entryText(entries, 'after_example', character, user.name))
   if (input.memory.injectPosition === 'before-chat-history') appendSystem(result, memory)
+  appendSystem(result, input.contextSummary ? `【较早对话压缩摘要】\n${input.contextSummary}\n\n请把摘要视为已发生事实，与近期原文自然衔接，不要逐条复述。` : '')
 
   const history = recent.map<ChatApiMessage>((message) => ({
     role: message.role,
