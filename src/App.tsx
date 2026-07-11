@@ -169,6 +169,7 @@ function App() {
   const phoneCanvasRef = useRef<HTMLElement>(null)
   const composerRef = useRef<HTMLTextAreaElement>(null)
   const messageListRef = useRef<HTMLDivElement>(null)
+  const streamScrollLockRef = useRef<{ top: number; version: number } | null>(null)
   const generationControllers = useRef(new Map<string, AbortController>())
 
   const activeCharacter = characters.find((item) => item.id === activeId) || characters[0] || demoCharacter
@@ -203,6 +204,21 @@ function App() {
   useLayoutEffect(() => {
     phoneCanvasRef.current?.scrollTo({ top: 0, left: 0 })
   }, [page])
+  useLayoutEffect(() => {
+    const lock = streamScrollLockRef.current
+    const list = messageListRef.current
+    if (!lock || !list) return
+    const restore = () => {
+      if (streamScrollLockRef.current?.version === lock.version) list.scrollTop = lock.top
+    }
+    restore()
+    window.requestAnimationFrame(() => {
+      restore()
+      window.requestAnimationFrame(restore)
+    })
+    const timer = window.setTimeout(restore, 80)
+    return () => window.clearTimeout(timer)
+  }, [messages])
 
   const pageTitle = useMemo(() => page === 'home' ? '惟境' : page === 'characters' ? '角色' : '', [page])
   const navigate = (target: Page, reopenDrawer?: Drawer) => {
@@ -507,10 +523,9 @@ function App() {
         signal: controller.signal,
         onDelta: (delta) => {
           const list = messageListRef.current
-          const preservedTop = list?.scrollTop
+          if (list) streamScrollLockRef.current = { top: list.scrollTop, version: (streamScrollLockRef.current?.version || 0) + 1 }
           output += delta
           setConversations((current) => current.map((item) => item.id === conversationId ? { ...item, messages: item.messages.map((message) => message.id === assistantMessage.id ? { ...message, text: output } : message), updatedAt: Date.now() } : item))
-          if (list && preservedTop !== undefined) window.requestAnimationFrame(() => { list.scrollTop = preservedTop })
         },
       })
       if (!output.trim()) throw new Error('模型没有返回内容')
@@ -533,6 +548,7 @@ function App() {
         generationControllers.current.delete(conversationId)
         setGeneratingIds((current) => current.filter((id) => id !== conversationId))
       }
+      window.setTimeout(() => { streamScrollLockRef.current = null }, 120)
     }
   }
 
