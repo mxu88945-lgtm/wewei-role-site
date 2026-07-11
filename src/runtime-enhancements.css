@@ -1,0 +1,56 @@
+.message-list,
+.message-row,
+.message-bubble,
+.chat-header,
+.scene-banner,
+.composer {
+  overflow-anchor: none !important;
+}
+
+.message-list {
+  scroll-behavior: auto !important;
+}
+
+.memory-api-model-label {
+  position: relative;
+}
+
+.memory-api-model-label input {
+  padding-right: 118px !important;
+}
+
+.memory-api-fetch-models {
+  position: absolute;
+  right: 7px;
+  bottom: 7px;
+  min-width: 102px;
+  height: 42px;
+  border: 0;
+  border-radius: 15px;
+  padding: 0 14px;
+  color: white;
+  background: linear-gradient(135deg, #8150e7, #ce7fc4);
+  box-shadow: 0 8px 20px rgba(67, 39, 107, .12);
+  font-size: 12px;
+  font-weight: 800;
+}
+
+.memory-api-fetch-models:disabled {
+  opacity: .58;
+}
+
+.memory-api-model-message {
+  margin-top: -10px;
+}
+
+@media (max-width: 390px) {
+  .memory-api-model-label input {
+    padding-right: 16px !important;
+  }
+
+  .memory-api-fetch-models {
+    position: static;
+    width: 100%;
+    margin-top: 2px;
+  }
+}
