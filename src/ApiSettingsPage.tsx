@@ -1,27 +1,34 @@
 import { useMemo, useState } from 'react'
-import { fetchApiModels, type ApiConfig, type ApiModel } from './chatApi'
+import { fetchApiModels, type ApiModel } from './chatApi'
+import type { ApiChannel } from './apiChannels'
 
 type ConnectionState = 'idle' | 'testing' | 'ok' | 'error'
 
 type ApiSettingsPageProps = {
-  api: ApiConfig
+  api: ApiChannel
+  channels: ApiChannel[]
   connection: ConnectionState
   connectionMessage: string
-  onApiChange: (next: ApiConfig) => void
+  onApiChange: (next: ApiChannel) => void
+  onSelectChannel: (id: string) => void
+  onAddChannel: () => void
+  onDeleteChannel: (id: string) => void
   onConnectionReset: () => void
   onBack: () => void
-  onSave: () => void
   onTest: () => void
 }
 
 export default function ApiSettingsPage({
   api,
+  channels,
   connection,
   connectionMessage,
   onApiChange,
+  onSelectChannel,
+  onAddChannel,
+  onDeleteChannel,
   onConnectionReset,
   onBack,
-  onSave,
   onTest,
 }: ApiSettingsPageProps) {
   const [models, setModels] = useState<ApiModel[]>([])
@@ -36,7 +43,7 @@ export default function ApiSettingsPage({
     return models.filter((model) => model.id.toLowerCase().includes(keyword) || model.ownedBy?.toLowerCase().includes(keyword))
   }, [models, query])
 
-  const updateApi = (patch: Partial<ApiConfig>) => {
+  const updateApi = (patch: Partial<ApiChannel>) => {
     onApiChange({ ...api, ...patch })
     onConnectionReset()
   }
@@ -71,11 +78,18 @@ export default function ApiSettingsPage({
   return <section className="api-page">
     <header className="page-header api-page-header">
       <button className="icon-button" onClick={onBack}>‹</button>
-      <h1>API 连接</h1>
-      <div className="header-action"><button className="text-button" onClick={onSave}>保存</button></div>
+      <h1>API 渠道</h1>
+      <div className="header-action"><span className="saved-label">自动保存</span></div>
     </header>
 
     <div className="api-page-scroll content-stack form-stack">
+      <section className="api-channel-card">
+        <div className="api-channel-heading"><div><strong>聊天渠道</strong><small>每个渠道独立保存地址、密钥和模型</small></div><button type="button" onClick={onAddChannel}>＋ 添加</button></div>
+        <div className="api-channel-tabs">{channels.map((channel) => <button type="button" className={channel.id === api.id ? 'active' : ''} key={channel.id} onClick={() => onSelectChannel(channel.id)}>{channel.name || '未命名渠道'}</button>)}</div>
+        <label>渠道名称<input value={api.name} onChange={(event) => updateApi({ name: event.target.value })} /></label>
+        {channels.length > 1 && <button type="button" className="api-channel-delete" onClick={() => onDeleteChannel(api.id)}>删除当前渠道</button>}
+      </section>
+
       <div className={`api-status ${connection === 'error' ? 'error' : ''}`}>
         <span className={connection === 'ok' ? 'ok' : connection === 'error' ? 'error' : ''}></span>
         <div>
@@ -100,18 +114,26 @@ export default function ApiSettingsPage({
         {modelMessage && <small className={modelState === 'error' ? 'api-model-message error' : 'api-model-message'}>{modelMessage}</small>}
       </label>
 
-      <div className="privacy-note">聊天 API 和记忆总结 API 相互独立，配置仅保存在当前设备。</div>
+      <label>输出令牌参数
+        <select value={api.maxTokenField} onChange={(event) => updateApi({ maxTokenField: event.target.value as ApiChannel['maxTokenField'] })}>
+          <option value="auto">自动识别（推荐）</option>
+          <option value="max_tokens">max_tokens · 常见兼容接口</option>
+          <option value="max_completion_tokens">max_completion_tokens · 新版推理模型</option>
+        </select>
+      </label>
+
+      <div className="privacy-note">所有渠道均自动保存在当前设备。API Key 不会上传仓库；切换渠道后，新消息立即使用所选渠道。</div>
     </div>
 
     <footer className="api-page-footer">
-      <button className="primary-button full" onClick={onTest} disabled={connection === 'testing'}>{connection === 'testing' ? '正在连接…' : '真实测试连接'}</button>
+      <button className="primary-button full" onClick={onTest} disabled={connection === 'testing'}>{connection === 'testing' ? '正在连接…' : `测试「${api.name || '当前渠道'}」`}</button>
     </footer>
 
     {pickerOpen && <div className="api-model-picker-layer" role="presentation">
       <button className="api-model-picker-backdrop" aria-label="关闭模型列表" onClick={() => setPickerOpen(false)} />
       <section className="api-model-picker" role="dialog" aria-modal="true" aria-label="选择模型">
         <header>
-          <div><small>模型列表</small><strong>选择聊天模型</strong></div>
+          <div><small>{api.name}</small><strong>选择聊天模型</strong></div>
           <button onClick={() => setPickerOpen(false)}>×</button>
         </header>
         <input className="api-model-search" value={query} onChange={(event) => setQuery(event.target.value)} placeholder="搜索模型名称" autoFocus />

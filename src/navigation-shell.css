@@ -34,6 +34,7 @@
 
 .drawer-trigger { font-size: 21px; color: #706877; }
 .drawer-layer { position: fixed; inset: 0; z-index: 100; }
+.character-menu-layer { position: fixed; inset: 0; z-index: 110; }
 .drawer-backdrop { position: absolute; inset: 0; width: 100%; border: 0; background: rgba(30, 24, 34, .42); backdrop-filter: blur(5px); }
 .app-drawer {
   position: absolute;
@@ -101,6 +102,16 @@
 .update-card p { margin: 0; color: #8f8993; font-size: 13px; line-height: 1.55; }
 .update-card button { width: max-content; border: 0; border-radius: 16px; padding: 13px 18px; color: white; font-weight: 800; background: linear-gradient(135deg, #8150e7, #ce7fc4); box-shadow: 0 10px 24px rgba(67, 39, 107, .12); }
 .update-card button:disabled { opacity: .6; }
+
+.backup-card { padding: 20px; border-radius: 26px; display: grid; gap: 13px; background: #efedf0; }
+.backup-card > input { display: none; }
+.backup-card strong, .backup-card small { display: block; }
+.backup-card > div > small { margin-top: 5px; color: #918a95; font-size: 11px; }
+.backup-card p { margin: 0; color: #8f8993; font-size: 12px; line-height: 1.55; }
+.backup-actions { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
+.backup-actions button { min-height: 46px; border: 0; border-radius: 15px; color: #76529f; background: #e4ddea; font-weight: 800; font-size: 12px; }
+.backup-actions button:first-child { color: white; background: linear-gradient(135deg, #8150e7, #ce7fc4); }
+.backup-message { color: #8a5dc5; line-height: 1.45; }
 
 @media (max-width: 520px) {
   .home-dashboard { min-height: calc(100dvh - 124px); }
