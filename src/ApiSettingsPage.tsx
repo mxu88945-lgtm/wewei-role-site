@@ -1,8 +1,9 @@
-import { useMemo, useState } from 'react'
+import { useEffect, useMemo, useState } from 'react'
 import { fetchApiModels, type ApiModel } from './chatApi'
 import type { ApiChannel } from './apiChannels'
 
 type ConnectionState = 'idle' | 'testing' | 'ok' | 'error'
+type ModelState = 'idle' | 'loading' | 'ready' | 'error'
 
 type ApiSettingsPageProps = {
   api: ApiChannel
@@ -31,48 +32,67 @@ export default function ApiSettingsPage({
   onBack,
   onTest,
 }: ApiSettingsPageProps) {
-  const [models, setModels] = useState<ApiModel[]>([])
-  const [modelState, setModelState] = useState<'idle' | 'loading' | 'ready' | 'error'>('idle')
-  const [modelMessage, setModelMessage] = useState('')
-  const [pickerOpen, setPickerOpen] = useState(false)
+  const [listOpen, setListOpen] = useState(true)
+  const [expandedIds, setExpandedIds] = useState<string[]>([api.id])
+  const [modelsByChannel, setModelsByChannel] = useState<Record<string, ApiModel[]>>({})
+  const [modelStates, setModelStates] = useState<Record<string, ModelState>>({})
+  const [modelMessages, setModelMessages] = useState<Record<string, string>>({})
+  const [pickerChannelId, setPickerChannelId] = useState<string | null>(null)
   const [query, setQuery] = useState('')
 
+  useEffect(() => {
+    setExpandedIds((current) => current.includes(api.id) ? current : [...current, api.id])
+  }, [api.id])
+
+  const pickerChannel = channels.find((channel) => channel.id === pickerChannelId)
+  const pickerModels = pickerChannelId ? modelsByChannel[pickerChannelId] ?? [] : []
   const filteredModels = useMemo(() => {
     const keyword = query.trim().toLowerCase()
-    if (!keyword) return models
-    return models.filter((model) => model.id.toLowerCase().includes(keyword) || model.ownedBy?.toLowerCase().includes(keyword))
-  }, [models, query])
+    if (!keyword) return pickerModels
+    return pickerModels.filter((model) => model.id.toLowerCase().includes(keyword) || model.ownedBy?.toLowerCase().includes(keyword))
+  }, [pickerModels, query])
 
-  const updateApi = (patch: Partial<ApiChannel>) => {
-    onApiChange({ ...api, ...patch })
-    onConnectionReset()
+  const updateChannel = (channel: ApiChannel, patch: Partial<ApiChannel>) => {
+    onApiChange({ ...channel, ...patch })
+    if (channel.id === api.id) onConnectionReset()
   }
 
-  const loadModels = async () => {
-    setModelState('loading')
-    setModelMessage('正在请求模型列表…')
+  const selectChannel = (id: string) => {
+    onSelectChannel(id)
+    setExpandedIds((current) => current.includes(id) ? current : [...current, id])
+  }
+
+  const toggleChannel = (id: string) => {
+    setExpandedIds((current) => current.includes(id) ? current.filter((item) => item !== id) : [...current, id])
+  }
+
+  const loadModels = async (channel: ApiChannel) => {
+    setModelStates((current) => ({ ...current, [channel.id]: 'loading' }))
+    setModelMessages((current) => ({ ...current, [channel.id]: '正在请求模型列表…' }))
     try {
-      const nextModels = await fetchApiModels(api)
-      setModels(nextModels)
+      const nextModels = await fetchApiModels(channel)
+      setModelsByChannel((current) => ({ ...current, [channel.id]: nextModels }))
       if (!nextModels.length) {
-        setModelState('error')
-        setModelMessage('接口连接成功，但没有返回可用模型。仍可手动填写模型名称。')
+        setModelStates((current) => ({ ...current, [channel.id]: 'error' }))
+        setModelMessages((current) => ({ ...current, [channel.id]: '接口连接成功，但没有返回可用模型。仍可手动填写。' }))
         return
       }
-      setModelState('ready')
-      setModelMessage(`已获取 ${nextModels.length} 个模型`)
-      setPickerOpen(true)
+      setModelStates((current) => ({ ...current, [channel.id]: 'ready' }))
+      setModelMessages((current) => ({ ...current, [channel.id]: `已获取 ${nextModels.length} 个模型` }))
+      setPickerChannelId(channel.id)
+      setQuery('')
     } catch (error) {
-      setModelState('error')
-      setModelMessage(error instanceof Error ? error.message : '获取模型失败')
+      setModelStates((current) => ({ ...current, [channel.id]: 'error' }))
+      setModelMessages((current) => ({ ...current, [channel.id]: error instanceof Error ? error.message : '获取模型失败' }))
     }
   }
 
   const selectModel = (model: ApiModel) => {
-    updateApi({ modelName: model.id })
-    setPickerOpen(false)
+    if (!pickerChannel) return
+    updateChannel(pickerChannel, { modelName: model.id })
+    setPickerChannelId(null)
     setQuery('')
-    setModelMessage(`已选择 ${model.id}`)
+    setModelMessages((current) => ({ ...current, [pickerChannel.id]: `已选择 ${model.id}` }))
   }
 
   return <section className="api-page">
@@ -83,63 +103,82 @@ export default function ApiSettingsPage({
     </header>
 
     <div className="api-page-scroll content-stack form-stack">
-      <section className="api-channel-card">
-        <div className="api-channel-heading"><div><strong>聊天渠道</strong><small>每个渠道独立保存地址、密钥和模型</small></div><button type="button" onClick={onAddChannel}>＋ 添加</button></div>
-        <div className="api-channel-tabs">{channels.map((channel) => <button type="button" className={channel.id === api.id ? 'active' : ''} key={channel.id} onClick={() => onSelectChannel(channel.id)}>{channel.name || '未命名渠道'}</button>)}</div>
-        <label>渠道名称<input value={api.name} onChange={(event) => updateApi({ name: event.target.value })} /></label>
-        {channels.length > 1 && <button type="button" className="api-channel-delete" onClick={() => onDeleteChannel(api.id)}>删除当前渠道</button>}
+      <section className="api-channels-panel">
+        <button type="button" className="api-channels-summary" onClick={() => setListOpen((open) => !open)} aria-expanded={listOpen}>
+          <span><strong>已有渠道 <i>({channels.length})</i></strong><small>当前 · {api.name || '未命名渠道'} · {api.modelName || '未选择模型'}</small></span>
+          <b>{listOpen ? '收起⌃' : '展开⌄'}</b>
+        </button>
+
+        {listOpen && <div className="api-channel-list">
+          {channels.map((channel) => {
+            const active = channel.id === api.id
+            const expanded = expandedIds.includes(channel.id)
+            const modelState = modelStates[channel.id] ?? 'idle'
+            const modelMessage = modelMessages[channel.id] ?? ''
+            return <article className={`api-channel-item${active ? ' active' : ''}`} key={channel.id}>
+              <div className="api-channel-item-header">
+                <button type="button" className="api-channel-select" onClick={() => selectChannel(channel.id)} aria-label={`使用${channel.name || '未命名渠道'}`}>
+                  <span className="api-radio">{active && <i />}</span>
+                  <span className="api-channel-meta"><strong>{channel.name || '未命名渠道'}</strong><small>OpenAI 兼容 · 直连</small></span>
+                </button>
+                {channels.length > 1 && <button type="button" className="api-channel-remove" onClick={() => onDeleteChannel(channel.id)}>删除</button>}
+                <button type="button" className="api-channel-toggle" onClick={() => toggleChannel(channel.id)} aria-expanded={expanded} aria-label={expanded ? '收起渠道' : '展开渠道'}>{expanded ? '⌃' : '⌄'}</button>
+              </div>
+
+              <div className="api-channel-current-model"><span>当前模型</span><strong>{channel.modelName || '尚未选择'}</strong></div>
+
+              {expanded && <div className="api-channel-body form-stack">
+                <label>渠道商备注名
+                  <input value={channel.name} onChange={(event) => updateChannel(channel, { name: event.target.value })} placeholder="例如：OpenRouter、小克、肘子" />
+                </label>
+                <label>Base URL
+                  <input value={channel.baseUrl} onChange={(event) => updateChannel(channel, { baseUrl: event.target.value })} autoCapitalize="none" autoCorrect="off" placeholder="https://example.com/v1" />
+                </label>
+                <label>API Key
+                  <input type="password" value={channel.apiKey} onChange={(event) => updateChannel(channel, { apiKey: event.target.value })} autoCapitalize="none" autoCorrect="off" placeholder="sk-…" />
+                </label>
+                <label>模型名称
+                  <div className="api-model-field">
+                    <input value={channel.modelName} onChange={(event) => updateChannel(channel, { modelName: event.target.value })} autoCapitalize="none" autoCorrect="off" placeholder="可手填，或获取模型" />
+                    <button type="button" onClick={() => loadModels(channel)} disabled={modelState === 'loading'}>{modelState === 'loading' ? '获取中…' : '获取模型'}</button>
+                  </div>
+                  {modelMessage && <small className={modelState === 'error' ? 'api-model-message error' : 'api-model-message'}>{modelMessage}</small>}
+                </label>
+                <label>输出令牌参数
+                  <select value={channel.maxTokenField} onChange={(event) => updateChannel(channel, { maxTokenField: event.target.value as ApiChannel['maxTokenField'] })}>
+                    <option value="auto">自动识别（推荐）</option>
+                    <option value="max_tokens">max_tokens · 常见兼容接口</option>
+                    <option value="max_completion_tokens">max_completion_tokens · 新版推理模型</option>
+                  </select>
+                </label>
+              </div>}
+            </article>
+          })}
+
+          <button type="button" className="api-channel-add" onClick={onAddChannel}>＋ 添加一个新渠道</button>
+        </div>}
       </section>
 
       <div className={`api-status ${connection === 'error' ? 'error' : ''}`}>
         <span className={connection === 'ok' ? 'ok' : connection === 'error' ? 'error' : ''}></span>
-        <div>
-          <strong>{connection === 'testing' ? '正在测试连接' : connection === 'ok' ? '连接正常' : connection === 'error' ? '连接失败' : '尚未测试连接'}</strong>
-          <small>{connectionMessage}</small>
-        </div>
+        <div><strong>{connection === 'testing' ? '正在测试连接' : connection === 'ok' ? '连接正常' : connection === 'error' ? '连接失败' : '尚未测试连接'}</strong><small>{connectionMessage}</small></div>
       </div>
 
-      <label>Base URL
-        <input value={api.baseUrl} onChange={(event) => updateApi({ baseUrl: event.target.value })} autoCapitalize="none" autoCorrect="off" />
-      </label>
-
-      <label>API Key
-        <input type="password" value={api.apiKey} onChange={(event) => updateApi({ apiKey: event.target.value })} autoCapitalize="none" autoCorrect="off" />
-      </label>
-
-      <label>模型名称
-        <div className="api-model-field">
-          <input value={api.modelName} onChange={(event) => updateApi({ modelName: event.target.value })} autoCapitalize="none" autoCorrect="off" placeholder="可手动填写，或获取模型" />
-          <button type="button" onClick={loadModels} disabled={modelState === 'loading'}>{modelState === 'loading' ? '获取中…' : '获取模型'}</button>
-        </div>
-        {modelMessage && <small className={modelState === 'error' ? 'api-model-message error' : 'api-model-message'}>{modelMessage}</small>}
-      </label>
-
-      <label>输出令牌参数
-        <select value={api.maxTokenField} onChange={(event) => updateApi({ maxTokenField: event.target.value as ApiChannel['maxTokenField'] })}>
-          <option value="auto">自动识别（推荐）</option>
-          <option value="max_tokens">max_tokens · 常见兼容接口</option>
-          <option value="max_completion_tokens">max_completion_tokens · 新版推理模型</option>
-        </select>
-      </label>
-
-      <div className="privacy-note">所有渠道均自动保存在当前设备。API Key 不会上传仓库；切换渠道后，新消息立即使用所选渠道。</div>
+      <div className="privacy-note">所有渠道都会自动保存在当前设备，切换后新消息立即使用所选渠道。API Key 不会上传到仓库。</div>
     </div>
 
     <footer className="api-page-footer">
       <button className="primary-button full" onClick={onTest} disabled={connection === 'testing'}>{connection === 'testing' ? '正在连接…' : `测试「${api.name || '当前渠道'}」`}</button>
     </footer>
 
-    {pickerOpen && <div className="api-model-picker-layer" role="presentation">
-      <button className="api-model-picker-backdrop" aria-label="关闭模型列表" onClick={() => setPickerOpen(false)} />
+    {pickerChannel && <div className="api-model-picker-layer" role="presentation">
+      <button className="api-model-picker-backdrop" aria-label="关闭模型列表" onClick={() => setPickerChannelId(null)} />
       <section className="api-model-picker" role="dialog" aria-modal="true" aria-label="选择模型">
-        <header>
-          <div><small>{api.name}</small><strong>选择聊天模型</strong></div>
-          <button onClick={() => setPickerOpen(false)}>×</button>
-        </header>
+        <header><div><small>{pickerChannel.name || '未命名渠道'}</small><strong>选择聊天模型</strong></div><button onClick={() => setPickerChannelId(null)}>×</button></header>
         <input className="api-model-search" value={query} onChange={(event) => setQuery(event.target.value)} placeholder="搜索模型名称" autoFocus />
         <div className="api-model-list">
-          {filteredModels.length ? filteredModels.map((model) => <button className={model.id === api.modelName ? 'active' : ''} key={model.id} onClick={() => selectModel(model)}>
-            <span><strong>{model.id}</strong>{model.ownedBy && <small>{model.ownedBy}</small>}</span><i>{model.id === api.modelName ? '✓' : '›'}</i>
+          {filteredModels.length ? filteredModels.map((model) => <button className={model.id === pickerChannel.modelName ? 'active' : ''} key={model.id} onClick={() => selectModel(model)}>
+            <span><strong>{model.id}</strong>{model.ownedBy && <small>{model.ownedBy}</small>}</span><i>{model.id === pickerChannel.modelName ? '✓' : '›'}</i>
           </button>) : <div className="api-model-empty">没有匹配的模型</div>}
         </div>
       </section>
