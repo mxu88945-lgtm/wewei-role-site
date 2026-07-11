@@ -1,16 +1,3 @@
-.message-list,
-.message-row,
-.message-bubble,
-.chat-header,
-.scene-banner,
-.composer {
-  overflow-anchor: none !important;
-}
-
-.message-list {
-  scroll-behavior: auto !important;
-}
-
 .memory-api-model-label {
   position: relative;
 }
