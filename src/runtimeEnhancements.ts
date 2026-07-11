@@ -1,5 +1,7 @@
 type ApiModel = { id: string; ownedBy?: string }
 
+type MemoryChannelNameMap = Record<string, string>
+
 function apiEndpoint(baseUrl: string, path: string) {
   return `${baseUrl.replace(/\/$/, '')}/${path.replace(/^\//, '')}`
 }
@@ -46,6 +48,43 @@ function setReactInputValue(input: HTMLInputElement, value: string) {
   setter?.call(input, value)
   input.dispatchEvent(new Event('input', { bubbles: true }))
   input.dispatchEvent(new Event('change', { bubbles: true }))
+}
+
+function activeCharacterId() {
+  try {
+    const value = localStorage.getItem('weijing.activeCharacter')
+    return value ? String(JSON.parse(value)) : 'default'
+  } catch {
+    return 'default'
+  }
+}
+
+function readMemoryChannelNames(): MemoryChannelNameMap {
+  try {
+    const value = localStorage.getItem('weijing.memoryChannelNames')
+    const parsed = value ? JSON.parse(value) : {}
+    return parsed && typeof parsed === 'object' && !Array.isArray(parsed) ? parsed as MemoryChannelNameMap : {}
+  } catch {
+    return {}
+  }
+}
+
+function getMemoryChannelName() {
+  return readMemoryChannelNames()[activeCharacterId()] || ''
+}
+
+function saveMemoryChannelName(value: string) {
+  const names = readMemoryChannelNames()
+  names[activeCharacterId()] = value
+  localStorage.setItem('weijing.memoryChannelNames', JSON.stringify(names))
+}
+
+function updateMemoryApiStatus(section: HTMLElement, channelName: string) {
+  const statusText = section.querySelector<HTMLElement>('.api-status small')
+  if (!statusText) return
+  if (!statusText.dataset.baseText) statusText.dataset.baseText = statusText.textContent || ''
+  const baseText = statusText.dataset.baseText
+  statusText.textContent = channelName.trim() ? `${baseText} · 渠道：${channelName.trim()}` : baseText
 }
 
 function openModelPicker(models: ApiModel[], currentModel: string, onSelect: (model: string) => void) {
@@ -123,10 +162,37 @@ function enhanceMemoryApiPage() {
   const labels = Array.from(section.querySelectorAll<HTMLLabelElement>('label'))
   const modelLabel = labels.find((label) => label.textContent?.trim().startsWith('模型名称'))
   const modelInput = modelLabel?.querySelector<HTMLInputElement>('input')
-  const baseInput = labels.find((label) => label.textContent?.trim().startsWith('Base URL'))?.querySelector<HTMLInputElement>('input')
+  const baseLabel = labels.find((label) => label.textContent?.trim().startsWith('Base URL'))
+  const baseInput = baseLabel?.querySelector<HTMLInputElement>('input')
   const keyInput = labels.find((label) => label.textContent?.trim().startsWith('API Key'))?.querySelector<HTMLInputElement>('input')
-  if (!modelLabel || !modelInput || !baseInput || !keyInput || modelLabel.dataset.modelPickerReady === 'true') return
+  if (!modelLabel || !modelInput || !baseLabel || !baseInput || !keyInput) return
 
+  let channelLabel = section.querySelector<HTMLLabelElement>('.memory-api-channel-label')
+  if (!channelLabel) {
+    channelLabel = document.createElement('label')
+    channelLabel.className = 'memory-api-channel-label'
+    channelLabel.append('渠道商名称')
+
+    const channelInput = document.createElement('input')
+    channelInput.type = 'text'
+    channelInput.placeholder = '例如：DS、个人次 cli、依韵小克'
+    channelInput.autocomplete = 'off'
+    channelInput.value = getMemoryChannelName()
+    channelInput.addEventListener('input', () => {
+      saveMemoryChannelName(channelInput.value)
+      updateMemoryApiStatus(section, channelInput.value)
+    })
+    channelLabel.append(channelInput)
+    baseLabel.insertAdjacentElement('beforebegin', channelLabel)
+  }
+
+  const channelInput = channelLabel.querySelector<HTMLInputElement>('input')
+  if (channelInput && document.activeElement !== channelInput && channelInput.value !== getMemoryChannelName()) {
+    channelInput.value = getMemoryChannelName()
+  }
+  updateMemoryApiStatus(section, channelInput?.value || '')
+
+  if (modelLabel.dataset.modelPickerReady === 'true') return
   modelLabel.dataset.modelPickerReady = 'true'
   modelLabel.classList.add('memory-api-model-label')
 
