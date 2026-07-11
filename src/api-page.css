@@ -24,6 +24,19 @@
   padding: 8px 0 24px;
 }
 
+.api-channel-card { padding: 17px; border-radius: 24px; display: grid; gap: 14px; background: #efedf0; }
+.api-channel-heading { display: flex; align-items: center; justify-content: space-between; gap: 12px; }
+.api-channel-heading strong, .api-channel-heading small { display: block; }
+.api-channel-heading small { margin-top: 4px; color: #99919d; font-size: 10px; }
+.api-channel-heading > button { border: 0; border-radius: 13px; padding: 9px 11px; color: #7d55ae; background: #e5ddec; font-size: 12px; font-weight: 800; }
+.api-channel-tabs { display: flex; gap: 8px; overflow-x: auto; padding-bottom: 2px; scrollbar-width: none; }
+.api-channel-tabs::-webkit-scrollbar { display: none; }
+.api-channel-tabs button { flex: 0 0 auto; max-width: 180px; border: 0; border-radius: 999px; padding: 10px 14px; overflow: hidden; color: #827b86; background: #e4e1e6; text-overflow: ellipsis; white-space: nowrap; font-size: 12px; font-weight: 700; }
+.api-channel-tabs button.active { color: white; background: linear-gradient(135deg, #8150e7, #ce7fc4); }
+.api-channel-card label { gap: 7px; }
+.api-channel-delete { justify-self: end; border: 0; color: #ad5265; background: transparent; font-size: 11px; font-weight: 700; }
+.api-page select { width: 100%; border: 1px solid rgba(71,55,80,.08); outline: none; border-radius: 18px; padding: 15px 16px; color: #2e2931; background: #efedf0; }
+
 .api-page-footer {
   position: relative;
   z-index: 3;

@@ -30,7 +30,7 @@ function HtmlFrame({ html }: { html: string }) {
       const document = frame.contentDocument
       if (!document) return
       const next = Math.max(document.body?.scrollHeight || 0, document.documentElement?.scrollHeight || 0, 120)
-      setHeight(Math.min(next + 8, 2400))
+      setHeight(Math.min(next + 8, 8000))
     }
     frame.addEventListener('load', sync)
     const timer = window.setInterval(sync, 700)
