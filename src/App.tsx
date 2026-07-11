@@ -166,6 +166,7 @@ function App() {
   const [pendingImport, setPendingImport] = useState<Character | null>(null)
   const [restartingConversationId, setRestartingConversationId] = useState<string | null>(null)
   const fileInputRef = useRef<HTMLInputElement>(null)
+  const phoneCanvasRef = useRef<HTMLElement>(null)
   const composerRef = useRef<HTMLTextAreaElement>(null)
   const messageListRef = useRef<HTMLDivElement>(null)
   const generationControllers = useRef(new Map<string, AbortController>())
@@ -199,6 +200,9 @@ function App() {
     textarea.style.height = 'auto'
     textarea.style.height = `${Math.min(Math.max(textarea.scrollHeight, 40), 144)}px`
   }, [draft])
+  useLayoutEffect(() => {
+    phoneCanvasRef.current?.scrollTo({ top: 0, left: 0 })
+  }, [page])
 
   const pageTitle = useMemo(() => page === 'home' ? '惟境' : page === 'characters' ? '角色' : '', [page])
   const navigate = (target: Page, reopenDrawer?: Drawer) => {
@@ -560,7 +564,7 @@ function App() {
   })
   const isGenerating = Boolean(activeConversation && generatingIds.includes(activeConversation.id))
 
-  return <div className="app-shell"><main className={`phone-canvas ${page === 'chat' ? 'chat-canvas' : ''}`}>
+  return <div className="app-shell"><main ref={phoneCanvasRef} className={`phone-canvas ${page === 'chat' ? 'chat-canvas' : ''}`}>
     <input ref={fileInputRef} className="hidden-file-input" type="file" accept="image/png,.png" onChange={(event) => handleCharacterFile(event.target.files?.[0])} />
     {page === 'home' && <section className="home-dashboard">
       <header className="home-heading"><p className="eyebrow">WeiWei Role</p><h1>{pageTitle}</h1><p>选择今天要进入的空间。</p></header>

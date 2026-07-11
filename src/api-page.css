@@ -28,11 +28,15 @@
 }
 
 .api-channels-panel {
-  overflow: hidden;
+  overflow: visible;
   border: 1px solid rgba(91, 72, 101, .08);
   border-radius: 26px;
   background: rgba(245, 243, 246, .92);
 }
+
+.api-channels-toolbar { display: flex; align-items: center; gap: 8px; }
+.api-channels-toolbar .api-channels-summary { min-width: 0; flex: 1; }
+.api-channel-add-top { flex: 0 0 auto; margin-right: 12px; border: 0; border-radius: 13px; padding: 10px 12px; color: #fff; background: linear-gradient(135deg, #8150e7, #ce7fc4); font-size: 11px; font-weight: 800; }
 
 .api-channels-summary {
   width: 100%;
@@ -62,6 +66,7 @@
 }
 
 .api-channel-item {
+  overflow: visible;
   border: 1px solid rgba(255, 255, 255, .9);
   border-radius: 23px;
   padding: 14px;
