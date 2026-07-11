@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState } from 'react'
+import { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
 import ApiSettingsPage from './ApiSettingsPage'
 import BackupCard from './BackupCard'
 import PresetEditor from './PresetEditor'
@@ -164,7 +164,10 @@ function App() {
   const [importState, setImportState] = useState<'idle' | 'reading' | 'error'>('idle')
   const [importError, setImportError] = useState('')
   const [pendingImport, setPendingImport] = useState<Character | null>(null)
+  const [restartingConversationId, setRestartingConversationId] = useState<string | null>(null)
   const fileInputRef = useRef<HTMLInputElement>(null)
+  const composerRef = useRef<HTMLTextAreaElement>(null)
+  const messageListRef = useRef<HTMLDivElement>(null)
   const generationControllers = useRef(new Map<string, AbortController>())
 
   const activeCharacter = characters.find((item) => item.id === activeId) || characters[0] || demoCharacter
@@ -190,6 +193,12 @@ function App() {
   useEffect(() => { write('weijing.temperature', temperature); write('weijing.topP', topP); write('weijing.memoryLength', memoryLength); write('weijing.maxTokens', maxTokens); write('weijing.streaming', streaming) }, [temperature, topP, memoryLength, maxTokens, streaming])
   useEffect(() => () => generationControllers.current.forEach((controller) => controller.abort()), [])
   useEffect(() => { if (activeApiId !== api.id) setActiveApiId(api.id) }, [activeApiId, api.id])
+  useLayoutEffect(() => {
+    const textarea = composerRef.current
+    if (!textarea) return
+    textarea.style.height = 'auto'
+    textarea.style.height = `${Math.min(Math.max(textarea.scrollHeight, 40), 144)}px`
+  }, [draft])
 
   const pageTitle = useMemo(() => page === 'home' ? '惟境' : page === 'characters' ? '角色' : '', [page])
   const navigate = (target: Page, reopenDrawer?: Drawer) => {
@@ -233,8 +242,8 @@ function App() {
     setConnectionMessage('已切换渠道，请测试连接')
     setChatError('')
   }
-  const addApiChannel = () => {
-    const channel = createApiChannel(apiChannels.length + 1)
+  const addApiChannel = (seed?: Partial<ApiChannel>) => {
+    const channel = { ...createApiChannel(apiChannels.length + 1), ...seed }
     setApiChannels((current) => [...current, channel])
     selectApiChannel(channel.id)
   }
@@ -268,10 +277,8 @@ function App() {
   }
 
   const addImportedCharacter = (character: Character, nextPage: Page = 'character-detail') => {
-    const conversation = createConversation(character)
     setCharacters((current) => [...current.filter((item) => item.id !== character.id), character])
-    setConversations((current) => [...current, conversation])
-    setActiveConversationId(conversation.id)
+    setActiveConversationId('')
     setMemoryConfigs((current) => ({ ...current, [character.id]: defaultMemoryConfig() }))
     setMemoryEntries((current) => ({ ...current, [character.id]: [] }))
     setActiveId(character.id)
@@ -329,9 +336,16 @@ function App() {
   }
   const newSession = () => navigate('greeting-picker')
   const beginWithGreeting = (greeting: string) => {
-    const conversation = createConversation(activeCharacter, greeting)
-    setConversations((current) => [...current, conversation])
-    setActiveConversationId(conversation.id)
+    if (restartingConversationId) {
+      const id = restartingConversationId
+      setConversations((current) => current.map((item) => item.id === id ? { ...item, messages: [{ id: Date.now(), role: 'assistant', text: greeting }], updatedAt: Date.now() } : item))
+      setActiveConversationId(id)
+      setRestartingConversationId(null)
+    } else {
+      const conversation = createConversation(activeCharacter, greeting)
+      setConversations((current) => [...current, conversation])
+      setActiveConversationId(conversation.id)
+    }
     replacePage('chat')
   }
 
@@ -364,12 +378,12 @@ function App() {
   const restartConversation = (conversation: Conversation) => {
     abortConversation(conversation.id)
     const character = characters.find((item) => item.id === conversation.characterId) || demoCharacter
-    setConversations((current) => current.map((item) => item.id === conversation.id ? { ...item, messages: [{ id: Date.now(), role: 'assistant', text: character.greeting }], updatedAt: Date.now() } : item))
     setActiveId(character.id)
     setActiveConversationId(conversation.id)
+    setRestartingConversationId(conversation.id)
     setConversationMenuId(null)
     setDrawer(null)
-    replacePage('chat')
+    replacePage('greeting-picker')
   }
 
   const cloneConversation = (conversation: Conversation) => {
@@ -463,6 +477,12 @@ function App() {
     })
     setDraft('')
     setChatError('')
+    window.requestAnimationFrame(() => window.requestAnimationFrame(() => {
+      const list = messageListRef.current
+      const userRows = list?.querySelectorAll<HTMLElement>('.message-row.user')
+      const latest = userRows?.[userRows.length - 1]
+      if (list && latest) list.scrollTop = Math.max(0, latest.offsetTop - list.offsetTop - 14)
+    }))
 
     const controller = new AbortController()
     generationControllers.current.set(conversationId, controller)
@@ -556,7 +576,7 @@ function App() {
     {page === 'create' && <><BackHeader title="新建角色" onBack={goBack} action={<button className="text-button" onClick={createCharacter}>保存</button>} /><section className="content-stack form-stack"><button className="drop-zone compact" onClick={() => fileInputRef.current?.click()}><span className="drop-plus">＋</span><strong>{importState === 'reading' ? '正在读取角色卡…' : '导入 PNG 角色卡'}</strong><small>自动解析头像、开场白、世界书和正则</small></button>{importState === 'error' && <div className="import-notice error">{importError}</div>}<div className="form-divider"><span>或者手动创建</span></div><label>角色名称<input value={newCharacter.name} onChange={(e) => setNewCharacter({ ...newCharacter, name: e.target.value })} placeholder="例如：霍烬" /></label><label>一句话简介<input value={newCharacter.tagline} onChange={(e) => setNewCharacter({ ...newCharacter, tagline: e.target.value })} /></label><label>角色设定<textarea rows={7} value={newCharacter.description} onChange={(e) => setNewCharacter({ ...newCharacter, description: e.target.value })} /></label><label>开场白<textarea rows={4} value={newCharacter.greeting} onChange={(e) => setNewCharacter({ ...newCharacter, greeting: e.target.value })} /></label><label>标签<input value={newCharacter.tags} onChange={(e) => setNewCharacter({ ...newCharacter, tags: e.target.value })} placeholder="慢热，守护，剧情向" /></label><button className="primary-button full" onClick={createCharacter}>创建并保存</button></section></>}
 
     {page === 'import-preview' && pendingImport && <ImportPreview character={pendingImport} onCancel={() => { setPendingImport(null); goBack() }} onConfirm={({ includeBook, includeRegex }) => {
-      const character = { ...pendingImport, characterBook: includeBook ? pendingImport.characterBook : undefined, regexScripts: includeRegex ? pendingImport.regexScripts : [] }
+    const character = { ...pendingImport, characterBook: includeBook ? pendingImport.characterBook : undefined, regexScripts: includeRegex ? pendingImport.regexScripts : [] }
       setPendingImport(null)
       addImportedCharacter(character, 'greeting-picker')
     }} />}
@@ -567,9 +587,9 @@ function App() {
     {page === 'card-worldbook' && <CharacterCardManager character={activeCharacter} onChange={updateActiveCharacter} onBack={goBack} initialSection="worldbook" />}
     {page === 'card-regex' && <CharacterCardManager character={activeCharacter} onChange={updateActiveCharacter} onBack={goBack} initialSection="regex" />}
 
-    {page === 'greeting-picker' && <GreetingPicker character={activeCharacter} userName={identity.name} onCancel={goBack} onConfirm={beginWithGreeting} />}
+    {page === 'greeting-picker' && <GreetingPicker character={activeCharacter} userName={identity.name} onCancel={() => { const restarting = Boolean(restartingConversationId); setRestartingConversationId(null); restarting ? replacePage('chat') : goBack() }} onConfirm={beginWithGreeting} />}
 
-    {page === 'chat' && <section className="chat-page"><header className="chat-header"><button className="icon-button drawer-trigger" aria-label="打开对话列表" onClick={() => setDrawer('left')}>☰</button><button className="chat-identity" onClick={() => navigate('character-detail')}>{activeCharacter.avatar ? <img src={activeCharacter.avatar} alt="" /> : <span>{activeCharacter.name.slice(-1)}</span>}<div><strong>{activeCharacter.name}</strong><small>{isGenerating ? '正在回应…' : activeConversation?.title || `${identity.name} · 沉浸共演中`}</small></div></button><button className="more-button" aria-label="打开聊天设置" onClick={() => setDrawer('right')}>•••</button></header><button className="scene-banner" onClick={() => navigate('card-worldbook')}><span>✦</span><p>{(activeCharacter.characterBook?.name || worldbook).slice(0, 24)} · {activeCharacter.characterBook?.entries.length || 0} 条</p></button>{chatError && <button className="chat-error" onClick={() => navigate('api')}><span>连接提示</span>{chatError}<i>前往 API 设置 ›</i></button>}<div className="message-list">{messages.map((message) => <div key={message.id} className={`message-row ${message.role}`}><div className="message-bubble"><MessageContent text={message.text} role={message.role} character={activeCharacter} userName={identity.name} /></div>{message.role === 'assistant' && (message.finishReason === 'length' || message.finishReason === 'max_tokens') && <button className="message-continue" onClick={() => setDraft('请紧接上一句，从中断处继续，不要重复已经说过的内容。')}>回复达到上限 · 点此续写</button>}{message.role === 'assistant' && message.finishReason === 'content_filter' && <span className="message-finish-note">接口因内容过滤提前结束</span>}</div>)}</div><div className="composer"><button className="composer-plus">＋</button><textarea rows={1} value={draft} onChange={(e) => setDraft(e.target.value)} onKeyDown={(e) => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); if (!isGenerating) sendMessage() } }} placeholder={isGenerating ? '可以先写下一条，停止后再发送' : '写下你的回应……'} /><button className={`send-button ${isGenerating ? 'stop' : ''}`} aria-label={isGenerating ? '停止生成' : '发送'} onClick={() => isGenerating && activeConversation ? abortConversation(activeConversation.id) : sendMessage()}>{isGenerating ? '■' : '↑'}</button></div></section>}
+    {page === 'chat' && <section className="chat-page"><header className="chat-header"><button className="icon-button drawer-trigger" aria-label="打开对话列表" onClick={() => setDrawer('left')}>☰</button><button className="chat-identity" onClick={() => navigate('character-detail')}>{activeCharacter.avatar ? <img src={activeCharacter.avatar} alt="" /> : <span>{activeCharacter.name.slice(-1)}</span>}<div><strong>{activeCharacter.name}</strong><small>{isGenerating ? '正在回应…' : activeConversation?.title || `${identity.name} · 沉浸共演中`}</small></div></button><button className="more-button" aria-label="打开聊天设置" onClick={() => setDrawer('right')}>•••</button></header><button className="scene-banner" onClick={() => navigate('card-worldbook')}><span>✦</span><p>{(activeCharacter.characterBook?.name || worldbook).slice(0, 24)} · {activeCharacter.characterBook?.entries.length || 0} 条</p></button>{chatError && <button className="chat-error" onClick={() => navigate('api')}><span>连接提示</span>{chatError}<i>前往 API 设置 ›</i></button>}<div ref={messageListRef} className="message-list">{messages.map((message) => <div key={message.id} className={`message-row ${message.role}`}><div className="message-bubble"><MessageContent text={message.text} role={message.role} character={activeCharacter} userName={identity.name} /></div>{message.role === 'assistant' && (message.finishReason === 'length' || message.finishReason === 'max_tokens') && <button className="message-continue" onClick={() => setDraft('请紧接上一句，从中断处继续，不要重复已经说过的内容。')}>回复达到上限 · 点此续写</button>}{message.role === 'assistant' && message.finishReason === 'content_filter' && <span className="message-finish-note">接口因内容过滤提前结束</span>}</div>)}</div><div className="composer"><button className="composer-plus">＋</button><textarea ref={composerRef} rows={1} value={draft} onChange={(e) => setDraft(e.target.value)} onKeyDown={(e) => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); if (!isGenerating) sendMessage() } }} placeholder={isGenerating ? '可以先写下一条，停止后再发送' : '写下你的回应……'} /><button className={`send-button ${isGenerating ? 'stop' : ''}`} aria-label={isGenerating ? '停止生成' : '发送'} onClick={() => isGenerating && activeConversation ? abortConversation(activeConversation.id) : sendMessage()}>{isGenerating ? '■' : '↑'}</button></div></section>}
 
     {page === 'more' && <><BackHeader title="设置" onBack={goBack} /><section className="settings-stack">{[[['API 连接', 'api'], ['用户身份', 'identity']], [['模型设置', 'model'], ['全局预设', 'preset'], ['全局世界书', 'worldbook'], ['长记忆', 'memory']], [['应用设置', 'settings']]].map((group, index) => <div className="settings-group" key={index}>{group.map(([label, target]) => <button key={label} onClick={() => navigate(target as Page)}><span>{label}</span><span>›</span></button>)}</div>)}</section></>}
 

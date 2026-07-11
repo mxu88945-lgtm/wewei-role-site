@@ -12,7 +12,7 @@ type ApiSettingsPageProps = {
   connectionMessage: string
   onApiChange: (next: ApiChannel) => void
   onSelectChannel: (id: string) => void
-  onAddChannel: () => void
+  onAddChannel: (seed?: Partial<ApiChannel>) => void
   onDeleteChannel: (id: string) => void
   onConnectionReset: () => void
   onBack: () => void
@@ -39,6 +39,8 @@ export default function ApiSettingsPage({
   const [modelMessages, setModelMessages] = useState<Record<string, string>>({})
   const [pickerChannelId, setPickerChannelId] = useState<string | null>(null)
   const [query, setQuery] = useState('')
+  const [addOpen, setAddOpen] = useState(false)
+  const [newChannel, setNewChannel] = useState({ name: '', baseUrl: 'https://api.openai.com/v1', apiKey: '' })
 
   useEffect(() => {
     setExpandedIds((current) => current.includes(api.id) ? current : [...current, api.id])
@@ -93,6 +95,14 @@ export default function ApiSettingsPage({
     setPickerChannelId(null)
     setQuery('')
     setModelMessages((current) => ({ ...current, [pickerChannel.id]: `已选择 ${model.id}` }))
+  }
+
+  const createChannel = () => {
+    const name = newChannel.name.trim()
+    if (!name) return
+    onAddChannel({ name, baseUrl: newChannel.baseUrl.trim() || 'https://api.openai.com/v1', apiKey: newChannel.apiKey })
+    setNewChannel({ name: '', baseUrl: 'https://api.openai.com/v1', apiKey: '' })
+    setAddOpen(false)
   }
 
   return <section className="api-page">
@@ -155,7 +165,7 @@ export default function ApiSettingsPage({
             </article>
           })}
 
-          <button type="button" className="api-channel-add" onClick={onAddChannel}>＋ 添加一个新渠道</button>
+          <button type="button" className="api-channel-add" onClick={() => setAddOpen(true)}>＋ 添加一个新渠道</button>
         </div>}
       </section>
 
@@ -181,6 +191,17 @@ export default function ApiSettingsPage({
             <span><strong>{model.id}</strong>{model.ownedBy && <small>{model.ownedBy}</small>}</span><i>{model.id === pickerChannel.modelName ? '✓' : '›'}</i>
           </button>) : <div className="api-model-empty">没有匹配的模型</div>}
         </div>
+      </section>
+    </div>}
+
+    {addOpen && <div className="api-add-channel-layer">
+      <button className="api-model-picker-backdrop" aria-label="关闭新增渠道" onClick={() => setAddOpen(false)} />
+      <section className="api-add-channel-sheet" role="dialog" aria-modal="true" aria-label="新增 API 渠道">
+        <header><div><small>多渠道 API</small><strong>新增渠道</strong></div><button onClick={() => setAddOpen(false)}>×</button></header>
+        <label>渠道商备注名<input value={newChannel.name} onChange={(event) => setNewChannel({ ...newChannel, name: event.target.value })} placeholder="例如：OpenRouter、小克、SiliconFlow" autoFocus /></label>
+        <label>Base URL<input value={newChannel.baseUrl} onChange={(event) => setNewChannel({ ...newChannel, baseUrl: event.target.value })} autoCapitalize="none" autoCorrect="off" /></label>
+        <label>API Key<input type="password" value={newChannel.apiKey} onChange={(event) => setNewChannel({ ...newChannel, apiKey: event.target.value })} autoCapitalize="none" autoCorrect="off" placeholder="可稍后填写" /></label>
+        <button className="primary-button full" onClick={createChannel} disabled={!newChannel.name.trim()}>创建并进入渠道</button>
       </section>
     </div>}
   </section>
