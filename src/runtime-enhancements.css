@@ -30,6 +30,34 @@
   margin-top: -10px;
 }
 
+/* Imported character cards may render complete HTML panels through regex scripts. */
+.message-bubble:has(.message-shadow-content),
+.message-bubble:has(.message-html-frame) {
+  width: min(94%, 470px);
+  max-width: 94%;
+  padding: 0;
+  overflow: visible;
+  background: transparent;
+  box-shadow: none;
+}
+
+.message-shadow-content,
+.message-html-frame {
+  display: block;
+  width: 100%;
+  min-width: 0;
+}
+
+.message-row.assistant:has(.message-shadow-content),
+.message-row.assistant:has(.message-html-frame) {
+  width: 100%;
+}
+
+.message-row.assistant:has(.message-shadow-content) .message-bubble,
+.message-row.assistant:has(.message-html-frame) .message-bubble {
+  align-self: stretch;
+}
+
 @media (max-width: 390px) {
   .memory-api-model-label input {
     padding-right: 16px !important;
@@ -39,5 +67,11 @@
     position: static;
     width: 100%;
     margin-top: 2px;
+  }
+
+  .message-bubble:has(.message-shadow-content),
+  .message-bubble:has(.message-html-frame) {
+    width: 100%;
+    max-width: 100%;
   }
 }
