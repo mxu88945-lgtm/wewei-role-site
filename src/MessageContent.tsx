@@ -29,6 +29,7 @@ function renderInlineMarkdown(value: string) {
  */
 function normalizeMixedMarkup(value: string) {
   const source = unwrapCodeFence(value)
+    .replace(/^\s*```(?:html|xml|markdown)?\s*$/gim, '')
   const protectedBlocks: string[] = []
   const protectedSource = source.replace(/<(style|script)\b[\s\S]*?<\/\1>/gi, (block) => {
     const index = protectedBlocks.push(block) - 1
@@ -42,8 +43,7 @@ function normalizeMixedMarkup(value: string) {
     if (part.startsWith('<') && part.endsWith('>')) return part
     return renderInlineMarkdown(part)
       .replace(/\r\n?/g, '\n')
-      .replace(/\n{2,}/g, '<br><br>')
-      .replace(/\n/g, '<br>')
+      .replace(/\n+/g, '<br>')
   }).join('')
 }
 
@@ -61,15 +61,25 @@ function ShadowHtml({ html }: { html: string }) {
     return `${styles}<style>
       :host{display:block;width:100%;min-width:0;color:inherit;background:transparent}
       *{box-sizing:border-box;max-width:100%}
-      .message-html-root{display:flow-root;width:100%;min-width:0;overflow-wrap:anywhere;white-space:normal;line-height:1.75}
-      .message-html-root plot{display:block;margin:.7em 0;white-space:normal}
-      .message-html-root p{margin:.72em 0;line-height:1.8}
+      .message-html-root{display:flow-root;width:100%;min-width:0;overflow-wrap:anywhere;white-space:normal;line-height:1.62}
+      .message-html-root plot{display:block;margin:.35em 0;white-space:normal}
+      .message-html-root p{margin:.42em 0;line-height:1.62}
+      .message-html-root br{line-height:1.15}
       .message-html-root strong{font-weight:800}
       .message-html-root em{font-style:italic}
-      .message-html-root hr{height:1px;border:0;background:rgba(91,72,101,.16);margin:1.1em 0}
-      .message-html-root audio{display:block;width:100%;margin:.65em 0}
-      .message-html-root details{display:block;width:100%;margin:.85em 0;border-radius:18px;overflow:hidden}
-      .message-html-root summary{cursor:pointer;font-weight:750}
+      .message-html-root hr{height:1px;border:0;background:rgba(91,72,101,.16);margin:.8em 0}
+      .message-html-root audio{display:block;width:100%;margin:.55em 0 .7em}
+      .message-html-root details{
+        display:block;width:100%;margin:.65em 0;padding:0 15px 14px;
+        border:1px solid rgba(91,72,101,.09);border-radius:18px;overflow:hidden;
+        background:rgba(236,233,239,.92);box-shadow:0 10px 24px rgba(71,51,82,.07)
+      }
+      .message-html-root summary{
+        cursor:pointer;margin:0 -15px 10px;padding:13px 15px;
+        color:#4f4853;background:rgba(226,221,230,.92);font-weight:800;line-height:1.35
+      }
+      .message-html-root details:not([open]) summary{margin-bottom:0}
+      .message-html-root details br{line-height:1.05}
       .message-html-root pre,.message-html-root code{white-space:pre-wrap;overflow-wrap:anywhere}
     </style><div class="message-html-root">${document.body.innerHTML}</div>`
   }, [safeHtml])
