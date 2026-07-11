@@ -55,16 +55,15 @@
 
 .message-row.assistant:has(.message-shadow-content) .message-bubble,
 .message-row.assistant:has(.message-html-frame) .message-bubble {
-  flex: 1 1 auto;
-  width: auto;
-  max-width: calc(100% - 40px);
+  width: 100%;
+  max-width: 100%;
   align-self: stretch;
 }
 
 .message-row.assistant:has(.message-shadow-content) .message-line,
 .message-row.assistant:has(.message-html-frame) .message-line {
   width: 100%;
-  align-items: flex-start;
+  align-items: stretch;
 }
 
 @media (max-width: 390px) {
