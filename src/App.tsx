@@ -11,6 +11,7 @@ import { buildChatPrompt } from './promptBuilder'
 import { createApiChannel, normalizeApiChannels, type ApiChannel } from './apiChannels'
 import { enabledPresetText, normalizePresetSections } from './presetConfig'
 import { durableGet, durableSet } from './persistentStore'
+import { sanitizeAssistantOutput } from './outputSanitizer'
 
 type Page = 'home' | 'characters' | 'create' | 'import-preview' | 'character-detail' | 'card-data' | 'card-worldbook' | 'card-regex' | 'greeting-picker' | 'chat' | 'more' | 'api' | 'model' | 'settings' | 'identity' | 'worldbook' | 'preset' | 'memory' | 'memory-api' | 'memory-list'
 type Message = { id: number; role: 'user' | 'assistant'; text: string; finishReason?: string | null }
@@ -564,7 +565,8 @@ function App() {
           const list = messageListRef.current
           if (list) streamScrollLockRef.current = { top: list.scrollTop, version: (streamScrollLockRef.current?.version || 0) + 1 }
           output += delta
-          setConversations((current) => current.map((item) => item.id === conversationId ? { ...item, messages: item.messages.map((message) => message.id === assistantMessage.id ? { ...message, text: output } : message), updatedAt: Date.now() } : item))
+          const visibleOutput = sanitizeAssistantOutput(output)
+          setConversations((current) => current.map((item) => item.id === conversationId ? { ...item, messages: item.messages.map((message) => message.id === assistantMessage.id ? { ...message, text: visibleOutput || '正在整理回复…' } : message), updatedAt: Date.now() } : item))
         },
       })
       if (!output.trim()) throw new Error('模型没有返回内容')
@@ -572,11 +574,13 @@ function App() {
         setConversations((current) => current.map((item) => item.id === conversationId ? { ...item, messages: item.messages.map((message) => message.id === assistantMessage.id ? { ...message, finishReason: completion.finishReason } : message) } : item))
       }
 
-      const completed = [...nextMessages, { ...assistantMessage, text: output }]
+      const cleanOutput = sanitizeAssistantOutput(output) || output
+      setConversations((current) => current.map((item) => item.id === conversationId ? { ...item, messages: item.messages.map((message) => message.id === assistantMessage.id ? { ...message, text: cleanOutput } : message), updatedAt: Date.now() } : item))
+      const completed = [...nextMessages, { ...assistantMessage, text: cleanOutput }]
       if (capturedMemoryConfig.autoEvery > 0 && completed.length - capturedMemoryConfig.lastSummarizedCount >= capturedMemoryConfig.autoEvery && capturedMemoryConfig.api.apiKey) summarizeMemory(completed)
     } catch (error) {
       if (controller.signal.aborted) {
-        setConversations((current) => current.map((item) => item.id === conversationId ? { ...item, messages: item.messages.map((message) => message.id === assistantMessage.id ? { ...message, text: output || '已停止生成。' } : message) } : item))
+        setConversations((current) => current.map((item) => item.id === conversationId ? { ...item, messages: item.messages.map((message) => message.id === assistantMessage.id ? { ...message, text: sanitizeAssistantOutput(output) || '已停止生成。' } : message) } : item))
       } else {
         const message = error instanceof Error ? error.message : '聊天请求失败'
         setChatError(message)
