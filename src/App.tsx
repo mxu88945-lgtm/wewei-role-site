@@ -481,12 +481,6 @@ function App() {
     })
     setDraft('')
     setChatError('')
-    window.requestAnimationFrame(() => window.requestAnimationFrame(() => {
-      const list = messageListRef.current
-      const userRows = list?.querySelectorAll<HTMLElement>('.message-row.user')
-      const latest = userRows?.[userRows.length - 1]
-      if (list && latest) list.scrollTop = Math.max(0, latest.offsetTop - list.offsetTop - 14)
-    }))
 
     const controller = new AbortController()
     generationControllers.current.set(conversationId, controller)
@@ -512,8 +506,11 @@ function App() {
         streaming,
         signal: controller.signal,
         onDelta: (delta) => {
+          const list = messageListRef.current
+          const preservedTop = list?.scrollTop
           output += delta
           setConversations((current) => current.map((item) => item.id === conversationId ? { ...item, messages: item.messages.map((message) => message.id === assistantMessage.id ? { ...message, text: output } : message), updatedAt: Date.now() } : item))
+          if (list && preservedTop !== undefined) window.requestAnimationFrame(() => { list.scrollTop = preservedTop })
         },
       })
       if (!output.trim()) throw new Error('模型没有返回内容')
