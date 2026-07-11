@@ -42,6 +42,7 @@ describe('buildChatPrompt', () => {
       globalWorldbook: '现代都市。',
       memory: { entries: [{ content: '两人曾在雨夜见面。' }], injectPosition: 'after-main-prompt', injectPrompt: '长期记忆：\n{{memories}}' },
       memoryLength: 20,
+      contextSummary: '此前两人已经约定共同保守钥匙的秘密。',
     })
 
     const all = result.map((message) => message.content).join('\n')
@@ -50,6 +51,8 @@ describe('buildChatPrompt', () => {
     expect(all).toContain('顾荒在后台留了一把钥匙')
     expect(all).not.toContain('这段不应出现')
     expect(all).toContain('两人曾在雨夜见面')
+    expect(all).toContain('较早对话压缩摘要')
+    expect(all).toContain('共同保守钥匙的秘密')
     expect(result.find((message) => message.role === 'user')?.content).toContain('那个约定')
     expect(all).toContain('严禁代替惟惟行动')
     const finalMessage = result[result.length - 1]
