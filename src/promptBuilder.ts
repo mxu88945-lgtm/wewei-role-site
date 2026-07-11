@@ -52,9 +52,20 @@ function activeEntries(book: CharacterBook | undefined, source: string) {
     .sort((a, b) => a.insertion_order - b.insertion_order)
 }
 
-function entryText(entries: WorldBookEntry[], position: string, character: Character, userName: string) {
-  return entries.filter((entry) => entry.position === position).map((entry) => applyMacros(entry.content, character, userName)).join('\n\n')
+function entryPosition(entry: WorldBookEntry) {
+  // SillyTavern/Tavo cards commonly keep the legacy string position while
+  // storing the actual depth injection mode in extensions.position.
+  return Number(entry.extensions.position) === 4 ? 'at_depth' : entry.position
 }
+
+function entryText(entries: WorldBookEntry[], position: string, character: Character, userName: string) {
+  return entries.filter((entry) => entryPosition(entry) === position).map((entry) => applyMacros(entry.content, character, userName)).join('\n\n')
+}
+
+export const USER_AGENCY_GUARD = `【用户主角控制权｜最高优先级】
+{{user}}只由真实用户控制。你只能扮演{{char}}、必要配角与环境。
+严禁替{{user}}生成或补全任何台词、动作、心理、感受、身体反应、意图、决定或关键选择；也不得把推测写成{{user}}已经做过的事实。
+当剧情需要{{user}}回应或选择时，停在可回应的位置并等待用户输入。此规则高于剧情推进、文风模仿、示例对话和角色卡内其他指令。`
 
 function memoryText(input: PromptInput) {
   const selected: string[] = []
@@ -95,7 +106,7 @@ export function buildChatPrompt(input: PromptInput): ChatApiMessage[] {
     character.scenario && `【当前场景】\n${character.scenario}`,
     character.systemPrompt && `【角色系统提示词】\n${character.systemPrompt}`,
     `【用户身份】${user.name}\n${user.description}`,
-    '只描写角色与环境，不替用户决定言行、心理或关键选择。',
+    USER_AGENCY_GUARD,
   ].filter(Boolean).join('\n\n'), character, user.name))
   appendSystem(result, entryText(entries, 'after_char', character, user.name))
   if (input.memory.injectPosition === 'after-main-prompt') appendSystem(result, memory)
@@ -110,7 +121,7 @@ export function buildChatPrompt(input: PromptInput): ChatApiMessage[] {
   }))
   result.push(...history)
 
-  const depthEntries = entries.filter((entry) => entry.position === 'at_depth')
+  const depthEntries = entries.filter((entry) => entryPosition(entry) === 'at_depth')
   for (const entry of depthEntries) {
     const depth = Math.max(0, Number(entry.extensions.depth ?? 4))
     const role = entry.extensions.role === 1 ? 'user' : entry.extensions.role === 2 ? 'assistant' : 'system'
@@ -123,5 +134,8 @@ export function buildChatPrompt(input: PromptInput): ChatApiMessage[] {
     result.splice(Math.max(0, result.length - 4), 0, { role, content: memory })
   }
   appendSystem(result, applyMacros(character.postHistoryInstructions, character, user.name))
+  // Repeat the non-negotiable agency boundary last so depth lore, examples,
+  // history, or post-history instructions cannot silently override it.
+  appendSystem(result, applyMacros(USER_AGENCY_GUARD, character, user.name))
   return result
 }
