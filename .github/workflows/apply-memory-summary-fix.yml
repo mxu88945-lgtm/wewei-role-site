@@ -1,0 +1,247 @@
+name: Apply memory summary fix
+
+on:
+  push:
+    branches:
+      - agent/fix-memory-summary
+    paths:
+      - '.github/workflows/apply-memory-summary-fix.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  patch:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: agent/fix-memory-summary
+
+      - name: Patch memory summary source
+        run: |
+          python3 - <<'PY'
+          from pathlib import Path
+          import re
+
+          path = Path('src/App.tsx')
+          text = path.read_text()
+          original = text
+
+          def replace_once(pattern, replacement, label, flags=0):
+              global text
+              text, count = re.subn(pattern, replacement, text, count=1, flags=flags)
+              if count != 1:
+                  raise SystemExit(f'{label}: expected exactly one match, got {count}')
+
+          replace_once(
+              r'(  compressedUntil\?: number\n)(})',
+              r'\1  memorySummarizedCount?: number\n\2',
+              'Conversation cursor field',
+          )
+
+          replace_once(
+              r"const defaultMemoryPrompt = `[^`]*`",
+              """const defaultMemoryPrompt = `你是长期剧情记忆档案员。\n只提取“待总结对话”中明确发生的事实。禁止续写剧情、脑补、评价、推测日期，禁止替任何人物补全心理。\n必须清楚区分用户与角色：\n- 不得把角色的言行写到用户名下。\n- 不得把用户的言行写到角色名下。\n- 不得替用户决定动作、情绪、态度或选择。\n忽略 HTML、Markdown、美化标签、状态栏数值、系统提示、重复内容和格式装饰。\n只记录会影响后续剧情的信息：\n- 已发生的重要事件\n- 人物关系变化\n- 明确说出的承诺或约定\n- 冲突与情绪转折\n- 重要地点、物品与世界设定\n- 尚未完成的行动或悬而未决的问题\n若时间没有明确出现，写“时间未明确”，禁止自行推测具体日期。\n已有长期记忆只用于查重，不得重新改写或重复扩写。\n固定输出格式：\n【本段时间线】\n- 按发生顺序列出本次新增事件。\n【关系与情绪变化】\n- 只写对话中有明确证据的变化。\n【关键事实与承诺】\n- 列出新出现且后续需要记住的信息。\n【未完成事项】\n- 列出仍待处理的行动、约定或冲突；没有则写“无”。\n【当前剧情落点】\n- 用 1—3 句说明本段结束时人物所在地点、正在做什么及场面状态。`""",
+              'default memory prompt',
+              re.S,
+          )
+
+          inject_marker = "const defaultInjectPrompt = `以下是该角色与用户的长期记忆。请把它当作已经发生过的事实，自然延续，不要逐条复述，也不要替用户决定言行：\\n\\n{{memories}}`"
+          helper = inject_marker + """
+
+function cleanMemorySource(value: string) {
+  return value
+    .replace(/<style\\b[\\s\\S]*?<\\/style>/gi, ' ')
+    .replace(/<script\\b[\\s\\S]*?<\\/script>/gi, ' ')
+    .replace(/<audio\\b[\\s\\S]*?<\\/audio>/gi, ' ')
+    .replace(/<[^>]+>/g, ' ')
+    .replace(/^\\s*```(?:html|xml|markdown)?\\s*$/gim, '')
+    .replace(/^\\s*[▸▶►]\\s*(?:心理|动作|好感度|爱意值|情绪波动|性欲|性器|身体细节)\\s*[：:].*$/gim, '')
+    .replace(/^.*状态栏.*$/gim, '')
+    .replace(/[ \\t]+\\n/g, '\\n')
+    .replace(/\\n{3,}/g, '\\n\\n')
+    .trim()
+}
+"""
+          if inject_marker not in text:
+              raise SystemExit('inject prompt marker not found')
+          text = text.replace(inject_marker, helper, 1)
+
+          replace_once(
+              r"(const createConversation = \(character: Character, greeting = character\.greeting, title\?: string\): Conversation => \(\{[\s\S]*?  updatedAt: Date\.now\(\),\n)(\}\))",
+              r"\1  memorySummarizedCount: greeting.trim() ? 1 : 0,\n\2",
+              'new conversation cursor',
+          )
+
+          replace_once(
+              r'(  const generationControllers = useRef\(new Map<string, AbortController>\(\)\)\n)',
+              r"\1  const memorySummaryRunningRef = useRef(new Set<string>())\n",
+              'summary lock ref',
+          )
+
+          new_summary = r'''  const summarizeMemory = async ({
+    sourceMessages = messages,
+    conversationId = activeConversation?.id,
+    startIndex,
+    character = activeCharacter,
+    config = currentMemoryConfig,
+    memories = currentMemories,
+    userName = identity.name,
+    silentNoPending = false,
+  }: {
+    sourceMessages?: Message[]
+    conversationId?: string
+    startIndex?: number
+    character?: Character
+    config?: MemoryConfig
+    memories?: MemoryEntry[]
+    userName?: string
+    silentNoPending?: boolean
+  } = {}) => {
+    if (!conversationId) { setMemoryState('error'); return }
+    if (memorySummaryRunningRef.current.has(conversationId)) return
+
+    const targetConversation = conversations.find((item) => item.id === conversationId)
+    const cursor = Math.max(0, startIndex ?? targetConversation?.memorySummarizedCount ?? 0)
+    const pendingMessages = sourceMessages.slice(cursor)
+    if (pendingMessages.length === 0) {
+      setMemoryState('idle')
+      if (!silentNoPending) window.alert('当前没有待总结的新消息')
+      return
+    }
+    if (!config.api.baseUrl.trim() || !config.api.modelName.trim() || !config.api.apiKey.trim()) { setMemoryState('error'); return }
+
+    const transcript = pendingMessages
+      .map((item) => `${item.role === 'user' ? userName : character.name}：${cleanMemorySource(item.text)}`)
+      .filter((item) => item.trim())
+      .join('\n\n')
+    if (!transcript.trim()) { setMemoryState('error'); return }
+
+    memorySummaryRunningRef.current.add(conversationId)
+    setMemoryState('summarizing')
+    const previous = memories.slice(-8).map((item) => item.content).join('\n\n')
+
+    try {
+      const endpoint = `${config.api.baseUrl.replace(/\/$/, '')}/chat/completions`
+      const payload: Record<string, unknown> = {
+        model: config.api.modelName,
+        temperature: 0.1,
+        messages: [
+          { role: 'system', content: config.summaryPrompt },
+          { role: 'user', content: `角色：${character.name}\n用户：${userName}\n\n已有长期记忆（仅用于查重，不要重写）：\n${previous || '暂无'}\n\n本次只总结以下新增对话（第 ${cursor + 1}—${sourceMessages.length} 条）：\n${transcript}` },
+        ],
+      }
+      payload[config.api.maxTokenField || 'max_tokens'] = 2200
+      const response = await fetch(endpoint, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${config.api.apiKey}` },
+        body: JSON.stringify(payload),
+      })
+      if (!response.ok) {
+        const detail = await response.text().catch(() => '')
+        throw new Error(`HTTP ${response.status}${detail ? ` · ${detail.slice(0, 180)}` : ''}`)
+      }
+      const data = await response.json()
+      const content = data?.choices?.[0]?.message?.content?.trim()
+      if (!content) throw new Error('模型没有生成记忆内容')
+
+      const entry: MemoryEntry = {
+        id: crypto.randomUUID(),
+        createdAt: Date.now(),
+        title: `${new Date().toLocaleDateString()} · 新增 ${pendingMessages.length} 条消息`,
+        content,
+        sourceCount: pendingMessages.length,
+      }
+      setMemoryEntries((current) => ({ ...current, [character.id]: [...(current[character.id] || []), entry].slice(-config.maxEntries) }))
+      setConversations((current) => current.map((item) => item.id === conversationId ? { ...item, memorySummarizedCount: sourceMessages.length, updatedAt: Date.now() } : item))
+      setMemoryState('ok')
+    } catch (error) {
+      console.error('记忆总结失败', error)
+      setMemoryState('error')
+    } finally {
+      memorySummaryRunningRef.current.delete(conversationId)
+    }
+  }
+
+'''
+          replace_once(
+              r'  const summarizeMemory = async \([\s\S]*?\n  const generateAssistant = async',
+              new_summary + '  const generateAssistant = async',
+              'summarizeMemory function',
+          )
+
+          replace_once(
+              r'(    const capturedMemories = memoryEntries\[capturedCharacter\.id\] \|\| \[\]\n)',
+              r"\1    const capturedIdentityName = identity.name\n",
+              'captured identity',
+          )
+
+          old_auto = "      if (capturedMemoryConfig.autoEvery > 0 && completed.length - capturedMemoryConfig.lastSummarizedCount >= capturedMemoryConfig.autoEvery && capturedMemoryConfig.api.apiKey) summarizeMemory(completed)"
+          new_auto = """      const summaryCursor = conversation.memorySummarizedCount || 0
+      if (
+        capturedMemoryConfig.autoEvery > 0
+        && completed.length - summaryCursor >= capturedMemoryConfig.autoEvery
+        && capturedMemoryConfig.api.baseUrl.trim()
+        && capturedMemoryConfig.api.apiKey.trim()
+        && capturedMemoryConfig.api.modelName.trim()
+      ) {
+        void summarizeMemory({
+          sourceMessages: completed,
+          conversationId,
+          startIndex: summaryCursor,
+          character: capturedCharacter,
+          config: capturedMemoryConfig,
+          memories: capturedMemories,
+          userName: capturedIdentityName,
+          silentNoPending: true,
+        })
+      }"""
+          if old_auto not in text:
+              raise SystemExit('auto summary trigger not found')
+          text = text.replace(old_auto, new_auto, 1)
+
+          replace_once(
+              r"(item\.id === id \? \{ \.\.\.item, messages: \[\{ id: Date\.now\(\), role: 'assistant', text: greeting \}\], updatedAt: Date\.now\(\)) \}",
+              r"\1, memorySummarizedCount: greeting.trim() ? 1 : 0 }",
+              'restart cursor reset',
+          )
+
+          replace_once(
+              r"const copy: Conversation = \{ \.\.\.conversation, id: `\$\{conversation\.characterId\}-\$\{Date\.now\(\)\}-\$\{Math\.random\(\)\.toString\(36\)\.slice\(2, 8\)\}`, title: `\$\{conversation\.title\} · 副本`, messages: conversation\.messages\.map\(\(message\) => \(\{ \.\.\.message \}\)\), createdAt: Date\.now\(\), updatedAt: Date\.now\(\) \}",
+              "const copy: Conversation = { ...conversation, id: `${conversation.characterId}-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`, title: `${conversation.title} · 副本`, messages: conversation.messages.map((message) => ({ ...message })), createdAt: Date.now(), updatedAt: Date.now(), memorySummarizedCount: conversation.memorySummarizedCount ?? conversation.messages.length }",
+              'clone cursor inheritance',
+          )
+
+          old_manual = 'onClick={() => summarizeMemory()}'
+          new_manual = 'onClick={() => summarizeMemory({ sourceMessages: messages, conversationId: activeConversation?.id })}'
+          if old_manual not in text:
+              raise SystemExit('manual summarize button not found')
+          text = text.replace(old_manual, new_manual, 1)
+
+          if text == original:
+              raise SystemExit('no source changes produced')
+          path.write_text(text)
+          PY
+
+      - name: Remove obsolete failed workflow
+        run: rm -f .github/workflows/fix-memory-summary-once.yml
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Typecheck
+        run: npm run typecheck
+
+      - name: Build
+        run: npm run build
+
+      - name: Commit verified fix
+        run: |
+          rm -f .github/workflows/apply-memory-summary-fix.yml
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add src/App.tsx .github/workflows/fix-memory-summary-once.yml .github/workflows/apply-memory-summary-fix.yml
+          git commit -m "修复按会话增量记忆总结"
+          git push origin HEAD:agent/fix-memory-summary
