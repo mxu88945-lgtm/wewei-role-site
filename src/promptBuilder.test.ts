@@ -27,6 +27,7 @@ const character: Character = {
     entries: [
       { id: 1, keys: ['后台'], secondary_keys: [], comment: '触发', content: '{{char}}在后台留了一把钥匙。', constant: false, selective: false, insertion_order: 10, enabled: true, position: 'after_char', use_regex: false, extensions: {} },
       { id: 2, keys: ['不存在'], secondary_keys: [], comment: '不触发', content: '这段不应出现', constant: false, selective: false, insertion_order: 20, enabled: true, position: 'after_char', use_regex: false, extensions: {} },
+      { id: 3, keys: [], secondary_keys: [], comment: '深度规则', content: '严禁代替惟惟行动。', constant: true, selective: false, insertion_order: 30, enabled: true, position: 'after_char', use_regex: false, extensions: { position: 4, depth: 1, role: 0 } },
     ],
   },
 }
@@ -50,5 +51,10 @@ describe('buildChatPrompt', () => {
     expect(all).not.toContain('这段不应出现')
     expect(all).toContain('两人曾在雨夜见面')
     expect(result.find((message) => message.role === 'user')?.content).toContain('那个约定')
+    expect(all).toContain('严禁代替惟惟行动')
+    const finalMessage = result[result.length - 1]
+    expect(finalMessage).toEqual(expect.objectContaining({ role: 'system' }))
+    expect(finalMessage?.content).toContain('惟惟只由真实用户控制')
+    expect(finalMessage?.content).toContain('停在可回应的位置并等待用户输入')
   })
 })

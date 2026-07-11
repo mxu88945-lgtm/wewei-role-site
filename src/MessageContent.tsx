@@ -16,6 +16,8 @@ function looksLikeHtml(value: string) {
 
 function renderInlineMarkdown(value: string) {
   return value
+    .replace(/```[ \t]*\n?([\s\S]*?)```/g, '<div class="message-code-block">$1</div>')
+    .replace(/`([^`\n]+)`/g, '<span class="message-inline-code">$1</span>')
     .replace(/\*\*([^*\n]+)\*\*/g, '<strong>$1</strong>')
     .replace(/__([^_\n]+)__/g, '<strong>$1</strong>')
     .replace(/(^|[^*])\*([^*\n]+)\*/g, '$1<em>$2</em>')
@@ -27,9 +29,8 @@ function renderInlineMarkdown(value: string) {
  * Character cards commonly mix raw HTML, Markdown and plain-text line breaks.
  * Preserve existing HTML while converting only the text between tags.
  */
-function normalizeMixedMarkup(value: string) {
+export function normalizeMixedMarkup(value: string) {
   const source = unwrapCodeFence(value)
-    .replace(/^\s*```(?:html|xml|markdown)?\s*$/gim, '')
   const protectedBlocks: string[] = []
   const protectedSource = source.replace(/<(style|script)\b[\s\S]*?<\/\1>/gi, (block) => {
     const index = protectedBlocks.push(block) - 1
@@ -43,7 +44,8 @@ function normalizeMixedMarkup(value: string) {
     if (part.startsWith('<') && part.endsWith('>')) return part
     return renderInlineMarkdown(part)
       .replace(/\r\n?/g, '\n')
-      .replace(/\n+/g, '<br>')
+      .replace(/\n{2,}/g, '<span class="message-paragraph-break"></span>')
+      .replace(/\n/g, '<br>')
   }).join('')
 }
 
@@ -62,15 +64,25 @@ function ShadowHtml({ html }: { html: string }) {
       :host{display:block;width:100%;min-width:0;color:inherit;background:transparent}
       *{box-sizing:border-box;max-width:100%}
       .message-html-root{display:flow-root;width:100%;min-width:0;overflow-wrap:anywhere;white-space:normal;line-height:1.62}
-      .message-html-root plot{display:block;margin:.35em 0;white-space:normal}
-      .message-html-root p{margin:.42em 0;line-height:1.62}
+      .message-html-root plot{display:block;margin:.7em 0;white-space:normal}
+      .message-html-root p{margin:.7em 0;line-height:1.62}
       .message-html-root br{line-height:1.15}
+      .message-html-root .message-paragraph-break{display:block;height:.72em}
+      .message-html-root .message-code-block{
+        display:block;margin:.55em 0;padding:10px 13px;border-radius:12px;
+        background:rgba(79,72,83,.18);line-height:1.55;white-space:pre-wrap
+      }
+      .message-html-root plot>.message-code-block:first-child:last-child{margin:.35em 0}
+      .message-html-root .message-inline-code{
+        display:inline;padding:.05em .28em;border-radius:.3em;
+        color:inherit;background:rgba(79,72,83,.14);font-family:inherit
+      }
       .message-html-root strong{font-weight:800}
       .message-html-root em{font-style:italic}
       .message-html-root hr{height:1px;border:0;background:rgba(91,72,101,.16);margin:.8em 0}
       .message-html-root audio{display:block;width:100%;margin:.55em 0 .7em}
       .message-html-root details{
-        display:block;width:100%;margin:.65em 0;padding:0 15px 14px;
+        display:block;width:100%;margin:.8em 0;padding:0 15px 14px;
         border:1px solid rgba(91,72,101,.09);border-radius:18px;overflow:hidden;
         background:rgba(236,233,239,.92);box-shadow:0 10px 24px rgba(71,51,82,.07)
       }
@@ -80,6 +92,7 @@ function ShadowHtml({ html }: { html: string }) {
       }
       .message-html-root details:not([open]) summary{margin-bottom:0}
       .message-html-root details br{line-height:1.05}
+      .message-html-root details>.message-code-block{margin:.6em 0 0;background:rgba(79,72,83,.15)}
       .message-html-root pre,.message-html-root code{white-space:pre-wrap;overflow-wrap:anywhere}
     </style><div class="message-html-root">${document.body.innerHTML}</div>`
   }, [safeHtml])
