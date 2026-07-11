@@ -65,7 +65,9 @@ select {
 }
 
 .chat-canvas {
+  padding: 0 !important;
   overflow: hidden;
+  background: #f6f2f8;
 }
 
 .chat-page {
@@ -79,6 +81,7 @@ select {
   overflow-y: auto;
   overscroll-behavior-y: contain;
   -webkit-overflow-scrolling: touch;
+  overflow-anchor: none;
 }
 
 @media (min-width: 700px) {
