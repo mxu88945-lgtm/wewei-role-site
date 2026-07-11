@@ -36,6 +36,7 @@ type MemoryConfig = {
 }
 type MemoryConfigMap = Record<string, MemoryConfig>
 type MemoryEntryMap = Record<string, MemoryEntry[]>
+type UserIdentity = { name: string; description: string; avatar?: string }
 
 const demoCharacter: Character = {
   id: 'huo-jin', name: '霍烬', tagline: '沉稳克制的守护者',
@@ -61,6 +62,17 @@ const read = <T,>(key: string, fallback: T): T => {
   try { const value = localStorage.getItem(key); return value ? JSON.parse(value) as T : fallback } catch { return fallback }
 }
 const write = (key: string, value: unknown) => localStorage.setItem(key, JSON.stringify(value))
+
+async function imageThumbnail(file: File, size = 256) {
+  const bitmap = await createImageBitmap(file)
+  const canvas = document.createElement('canvas'); canvas.width = size; canvas.height = size
+  const context = canvas.getContext('2d'); if (!context) return ''
+  const scale = Math.max(size / bitmap.width, size / bitmap.height)
+  const width = bitmap.width * scale; const height = bitmap.height * scale
+  context.drawImage(bitmap, (size - width) / 2, (size - height) / 2, width, height)
+  bitmap.close()
+  return canvas.toDataURL('image/jpeg', .82)
+}
 
 function downloadJson(filename: string, value: unknown) {
   const blob = new Blob([JSON.stringify(value, null, 2)], { type: 'application/json' })
@@ -145,7 +157,7 @@ function App() {
   const [activeConversationId, setActiveConversationId] = useState(() => read('weijing.activeConversation', ''))
   const [draft, setDraft] = useState('')
   const [newCharacter, setNewCharacter] = useState({ name: '', tagline: '', description: '', greeting: '', tags: '' })
-  const [identity, setIdentity] = useState(() => read('weijing.identity', { name: '周惟惟', description: '由用户亲自决定言行、心理与关键选择。' }))
+  const [identity, setIdentity] = useState<UserIdentity>(() => read<UserIdentity>('weijing.identity', { name: '周惟惟', description: '由用户亲自决定言行、心理与关键选择。' }))
   const [worldbook, setWorldbook] = useState(() => read('weijing.worldbook', 'A 国旧世家与现代都市并存。剧情缓慢推进，不替用户角色做决定。'))
   const [presetSections, setPresetSections] = useState(() => normalizePresetSections(read('weijing.presetSections', []), read('weijing.preset', '克制、细腻、慢热；每轮携带微量剧情进展。')))
   const [apiChannels, setApiChannels] = useState<ApiChannel[]>(() => normalizeApiChannels(read('weijing.apiChannels', []), read('weijing.api', { baseUrl: 'https://api.openai.com/v1', apiKey: '', modelName: 'gpt-4.1-mini' })))
@@ -166,6 +178,7 @@ function App() {
   const [importError, setImportError] = useState('')
   const [pendingImport, setPendingImport] = useState<Character | null>(null)
   const [restartingConversationId, setRestartingConversationId] = useState<string | null>(null)
+  const [chatJump, setChatJump] = useState({ up: false, down: false })
   const fileInputRef = useRef<HTMLInputElement>(null)
   const phoneCanvasRef = useRef<HTMLElement>(null)
   const composerRef = useRef<HTMLTextAreaElement>(null)
@@ -205,6 +218,13 @@ function App() {
   useLayoutEffect(() => {
     phoneCanvasRef.current?.scrollTo({ top: 0, left: 0 })
   }, [page])
+  useLayoutEffect(() => {
+    if (page !== 'chat') return
+    const list = messageListRef.current
+    if (!list) return
+    const bottom = () => { list.scrollTop = list.scrollHeight; setChatJump({ up: list.scrollTop > 240, down: false }) }
+    window.requestAnimationFrame(() => window.requestAnimationFrame(bottom))
+  }, [page, activeConversation?.id])
   useLayoutEffect(() => {
     const lock = streamScrollLockRef.current
     const list = messageListRef.current
@@ -601,6 +621,17 @@ function App() {
     setDrawer(null)
   }
 
+  const updateChatJump = () => {
+    const list = messageListRef.current; if (!list) return
+    const distanceToBottom = list.scrollHeight - list.scrollTop - list.clientHeight
+    setChatJump({ up: list.scrollTop > 280, down: distanceToBottom > 280 })
+  }
+
+  const jumpChat = (edge: 'top' | 'bottom') => {
+    const list = messageListRef.current; if (!list) return
+    list.scrollTo({ top: edge === 'top' ? 0 : list.scrollHeight, behavior: 'smooth' })
+  }
+
   const testConnection = async () => {
     setConnection('testing')
     setConnectionMessage('正在请求模型列表…')
@@ -656,13 +687,13 @@ function App() {
 
     {page === 'greeting-picker' && <GreetingPicker character={activeCharacter} userName={identity.name} onCancel={() => { const restarting = Boolean(restartingConversationId); setRestartingConversationId(null); restarting ? replacePage('chat') : goBack() }} onConfirm={beginWithGreeting} />}
 
-    {page === 'chat' && <section className="chat-page"><header className="chat-header"><button className="icon-button drawer-trigger" aria-label="打开对话列表" onClick={() => setDrawer('left')}>☰</button><button className="chat-identity" onClick={() => navigate('character-detail')}>{activeCharacter.avatar ? <img src={activeCharacter.avatar} alt="" /> : <span>{activeCharacter.name.slice(-1)}</span>}<div><strong>{activeCharacter.name}</strong><small>{isGenerating ? '正在回应…' : activeConversation?.title || `${identity.name} · 沉浸共演中`}</small></div></button><button className="more-button" aria-label="打开聊天设置" onClick={() => setDrawer('right')}>•••</button></header><button className="scene-banner" onClick={() => navigate('card-worldbook')}><span>✦</span><p>{(activeCharacter.characterBook?.name || worldbook).slice(0, 24)} · {activeCharacter.characterBook?.entries.length || 0} 条</p></button>{chatError && <button className="chat-error" onClick={() => navigate('api')}><span>连接提示</span>{chatError}<i>前往 API 设置 ›</i></button>}<div ref={messageListRef} className="message-list">{messages.map((message) => <div key={message.id} className={`message-row ${message.role}`}><div className="message-bubble"><MessageContent text={message.text} role={message.role} character={activeCharacter} userName={identity.name} /></div><button className="message-action-trigger" aria-label="消息操作" onClick={() => setMessageMenuId(message.id)}>•••</button>{message.role === 'assistant' && (message.finishReason === 'length' || message.finishReason === 'max_tokens') && <button className="message-continue" onClick={() => setDraft('请紧接上一句，从中断处继续，不要重复已经说过的内容。')}>回复达到上限 · 点此续写</button>}{message.role === 'assistant' && message.finishReason === 'content_filter' && <span className="message-finish-note">接口因内容过滤提前结束</span>}</div>)}</div><div className="composer"><button className="composer-plus">＋</button><textarea ref={composerRef} rows={1} value={draft} onChange={(e) => setDraft(e.target.value)} onKeyDown={(e) => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); if (!isGenerating) sendMessage() } }} placeholder={isGenerating ? '可以先写下一条，停止后再发送' : '写下你的回应……'} /><button className={`send-button ${isGenerating ? 'stop' : ''}`} aria-label={isGenerating ? '停止生成' : '发送'} onClick={() => isGenerating && activeConversation ? abortConversation(activeConversation.id) : sendMessage()}>{isGenerating ? '■' : '↑'}</button></div></section>}
+    {page === 'chat' && <section className="chat-page"><header className="chat-header"><button className="icon-button drawer-trigger" aria-label="打开对话列表" onClick={() => setDrawer('left')}>☰</button><button className="chat-identity" onClick={() => navigate('character-detail')}>{activeCharacter.avatar ? <img src={activeCharacter.avatar} alt="" /> : <span>{activeCharacter.name.slice(-1)}</span>}<div><strong>{activeCharacter.name}</strong><small>{isGenerating ? '正在回应…' : activeConversation?.title || `${identity.name} · 沉浸共演中`}</small></div></button><button className="more-button" aria-label="打开聊天设置" onClick={() => setDrawer('right')}>•••</button></header><button className="scene-banner" onClick={() => navigate('card-worldbook')}><span>✦</span><p>{(activeCharacter.characterBook?.name || worldbook).slice(0, 24)} · {activeCharacter.characterBook?.entries.length || 0} 条</p></button>{chatError && <button className="chat-error" onClick={() => navigate('api')}><span>连接提示</span>{chatError}<i>前往 API 设置 ›</i></button>}<div ref={messageListRef} className="message-list" onScroll={updateChatJump}>{messages.map((message) => <div key={message.id} className={`message-row ${message.role}`}><div className="message-line"><div className="message-avatar">{message.role === 'assistant' ? (activeCharacter.avatar ? <img src={activeCharacter.avatar} alt="" /> : activeCharacter.name.slice(-1)) : (identity.avatar ? <img src={identity.avatar} alt="" /> : identity.name.slice(-1))}</div><div className="message-bubble"><MessageContent text={message.text} role={message.role} character={activeCharacter} userName={identity.name} /></div></div><button className="message-action-trigger" aria-label="消息操作" onClick={() => setMessageMenuId(message.id)}>•••</button>{message.role === 'assistant' && (message.finishReason === 'length' || message.finishReason === 'max_tokens') && <button className="message-continue" onClick={() => setDraft('请紧接上一句，从中断处继续，不要重复已经说过的内容。')}>回复达到上限 · 点此续写</button>}{message.role === 'assistant' && message.finishReason === 'content_filter' && <span className="message-finish-note">接口因内容过滤提前结束</span>}</div>)}</div>{(chatJump.up || chatJump.down) && <nav className="chat-jump-controls" aria-label="快速浏览对话">{chatJump.up && <button onClick={() => jumpChat('top')} aria-label="回到对话顶部">↑</button>}{chatJump.down && <button onClick={() => jumpChat('bottom')} aria-label="跳到最新消息">↓</button>}</nav>}<div className="composer"><button className="composer-plus">＋</button><textarea ref={composerRef} rows={1} value={draft} onChange={(e) => setDraft(e.target.value)} onKeyDown={(e) => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); if (!isGenerating) sendMessage() } }} placeholder={isGenerating ? '可以先写下一条，停止后再发送' : '写下你的回应……'} /><button className={`send-button ${isGenerating ? 'stop' : ''}`} aria-label={isGenerating ? '停止生成' : '发送'} onClick={() => isGenerating && activeConversation ? abortConversation(activeConversation.id) : sendMessage()}>{isGenerating ? '■' : '↑'}</button></div></section>}
 
     {page === 'more' && <><BackHeader title="设置" onBack={goBack} /><section className="settings-stack">{[[['API 连接', 'api'], ['用户身份', 'identity']], [['模型设置', 'model'], ['全局预设', 'preset'], ['全局世界书', 'worldbook'], ['长记忆', 'memory']], [['应用设置', 'settings']]].map((group, index) => <div className="settings-group" key={index}>{group.map(([label, target]) => <button key={label} onClick={() => navigate(target as Page)}><span>{label}</span><span>›</span></button>)}</div>)}</section></>}
 
     {page === 'api' && <ApiSettingsPage api={api} channels={apiChannels} connection={connection} connectionMessage={connectionMessage} onApiChange={updateApiChannel} onSelectChannel={selectApiChannel} onAddChannel={addApiChannel} onDeleteChannel={deleteApiChannel} onConnectionReset={resetApiConnection} onBack={goBack} onTest={testConnection} />}
 
-    {page === 'identity' && <EditablePage title="用户身份" value={identity.description} name={identity.name} onName={(name) => setIdentity({ ...identity, name })} onChange={(description) => setIdentity({ ...identity, description })} onBack={goBack} />}
+    {page === 'identity' && <EditablePage title="用户身份" value={identity.description} name={identity.name} avatar={identity.avatar} onAvatar={(avatar) => setIdentity({ ...identity, avatar })} onName={(name) => setIdentity({ ...identity, name })} onChange={(description) => setIdentity({ ...identity, description })} onBack={goBack} />}
     {page === 'worldbook' && <EditablePage title="世界书" value={worldbook} onChange={setWorldbook} onBack={goBack} />}
     {page === 'preset' && <PresetEditor sections={presetSections} onChange={setPresetSections} onBack={goBack} />}
 
@@ -748,8 +779,8 @@ function UpdateCard() {
   return <section className="update-card"><strong>应用更新</strong><p>主动检查并拉取最新网页版本，不会删除角色、聊天记录或本地设置。</p><button onClick={refresh} disabled={state === 'checking'}>{state === 'checking' ? '正在检查更新…' : state === 'error' ? '更新失败，点我重试' : '强制刷新到最新版'}</button></section>
 }
 
-function EditablePage({ title, value, onChange, onBack, name, onName }: { title: string; value: string; onChange: (value: string) => void; onBack: () => void; name?: string; onName?: (value: string) => void }) {
-  return <><BackHeader title={title} onBack={onBack} action={<span className="saved-label">自动保存</span>} /><section className="content-stack form-stack">{onName && <label>名称<input value={name} onChange={(e) => onName(e.target.value)} /></label>}<label>{title}内容<textarea rows={14} value={value} onChange={(e) => onChange(e.target.value)} placeholder={`填写${title}内容……`} /></label><div className="privacy-note">内容会自动保存在当前设备。</div></section></>
+function EditablePage({ title, value, onChange, onBack, name, onName, avatar, onAvatar }: { title: string; value: string; onChange: (value: string) => void; onBack: () => void; name?: string; onName?: (value: string) => void; avatar?: string; onAvatar?: (value: string) => void }) {
+  return <><BackHeader title={title} onBack={onBack} action={<span className="saved-label">自动保存</span>} /><section className="content-stack form-stack">{onAvatar && <div className="identity-avatar-editor"><div>{avatar ? <img src={avatar} alt="用户头像" /> : <span>{name?.slice(-1) || '惟'}</span>}</div><label className="soft-button">选择用户头像<input type="file" accept="image/*" onChange={async (event) => { const file = event.target.files?.[0]; if (file) onAvatar(await imageThumbnail(file)) }} /></label>{avatar && <button className="text-button" onClick={() => onAvatar('')}>移除</button>}</div>}{onName && <label>名称<input value={name} onChange={(e) => onName(e.target.value)} /></label>}<label>{title}内容<textarea rows={14} value={value} onChange={(e) => onChange(e.target.value)} placeholder={`填写${title}内容……`} /></label><div className="privacy-note">内容会自动保存在当前设备。</div></section></>
 }
 
 function RangeRow({ label, hint, value, min, max, step, onChange }: { label: string; hint?: string; value: number; min: number; max: number; step: number; onChange: (value: number) => void }) {
