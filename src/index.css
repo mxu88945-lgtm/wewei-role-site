@@ -148,6 +148,10 @@ button { cursor: pointer; }
 .message-list { min-height: 0; flex: 1; padding: 16px 18px calc(92px + env(safe-area-inset-bottom)); display: flex; flex-direction: column; gap: 16px; overflow-y: auto; overflow-anchor: none; }
 .message-row { display: flex; flex-direction: column; align-items: flex-start; }
 .message-row.user { align-items: flex-end; }
+.message-line { max-width: 100%; display: flex; align-items: flex-end; gap: 8px; }
+.message-row.user .message-line { flex-direction: row-reverse; }
+.message-avatar { flex: 0 0 32px; width: 32px; height: 32px; display: grid; place-items: center; overflow: hidden; border-radius: 11px; color: white; background: linear-gradient(145deg, #8561dc, #e099c1); font-size: 12px; font-weight: 800; box-shadow: 0 6px 16px rgba(67,48,78,.1); }
+.message-avatar img { width: 100%; height: 100%; object-fit: cover; }
 .message-continue { margin-top: 7px; border: 0; border-radius: 999px; padding: 7px 10px; color: #805bae; background: #e9e1f1; font-size: 10px; font-weight: 800; }
 .message-finish-note { margin-top: 7px; color: #a45667; font-size: 10px; }
 .message-bubble { max-width: 82%; padding: 14px 16px; border-radius: 22px 22px 22px 7px; color: #4e4852; background: rgba(255,255,255,.88); box-shadow: 0 12px 28px rgba(71,51,82,.08); line-height: 1.65; }
@@ -158,6 +162,8 @@ button { cursor: pointer; }
 .message-tools button { border: 0; padding: 5px 8px; border-radius: 999px; color: #918997; background: transparent; font-size: 10px; }
 .message-action-trigger { margin-top: 4px; border: 0; padding: 3px 8px; color: #aaa2ad; background: transparent; font-size: 12px; letter-spacing: 1px; }
 .message-row.user .message-action-trigger { align-self: flex-end; }
+.chat-jump-controls { position: fixed; z-index: 34; right: max(16px, calc((100vw - 520px) / 2 + 16px)); bottom: calc(78px + env(safe-area-inset-bottom)); display: grid; gap: 7px; }
+.chat-jump-controls button { width: 34px; height: 34px; border: 1px solid rgba(93,69,108,.08); border-radius: 50%; color: #79569f; background: rgba(248,244,250,.9); box-shadow: 0 8px 22px rgba(62,43,75,.14); backdrop-filter: blur(16px); font-size: 16px; font-weight: 800; }
 .message-menu-layer { position: fixed; z-index: 90; inset: 0; display: flex; justify-content: center; align-items: flex-end; }
 .message-action-sheet { position: relative; z-index: 2; width: min(100%, 520px); padding: 18px 18px calc(18px + env(safe-area-inset-bottom)); display: grid; gap: 8px; border-radius: 28px 28px 0 0; background: rgba(250,248,251,.98); box-shadow: 0 -24px 70px rgba(48,37,56,.2); backdrop-filter: blur(24px); }
 .message-action-sheet header { display: flex; align-items: center; justify-content: space-between; margin-bottom: 3px; }
@@ -169,6 +175,11 @@ button { cursor: pointer; }
 .message-action-sheet > button:disabled { opacity: .5; }
 .message-action-sheet > button.danger { color: #a54f63; background: #f5e8eb; }
 .export-chat-link { margin-top: 8px; }
+.identity-avatar-editor { display: flex; align-items: center; gap: 12px; padding: 16px; border-radius: 20px; background: #f0edf3; }
+.identity-avatar-editor > div { flex: 0 0 68px; width: 68px; height: 68px; display: grid; place-items: center; overflow: hidden; border-radius: 22px; color: white; background: linear-gradient(145deg, #8561dc, #e099c1); font-size: 24px; font-weight: 800; }
+.identity-avatar-editor img { width: 100%; height: 100%; object-fit: cover; }
+.identity-avatar-editor label { display: block; cursor: pointer; }
+.identity-avatar-editor input { display: none; }
 .composer { position: fixed; z-index: 35; left: 50%; bottom: 0; transform: translateX(-50%); width: min(100%, 520px); min-height: calc(66px + env(safe-area-inset-bottom)); padding: 8px 12px max(8px, env(safe-area-inset-bottom)); display: grid; grid-template-columns: 40px minmax(0, 1fr) 42px; align-items: end; gap: 6px; border-top: 1px solid rgba(78,60,88,.08); background: rgba(250,248,251,.96); box-shadow: 0 -12px 35px rgba(67,48,78,.1); backdrop-filter: blur(22px); }
 .composer textarea { width: 100%; min-height: 40px; max-height: 144px; border: 0; outline: 0; padding: 9px 8px; overflow-y: auto; resize: none; color: #3e3842; background: #f0ebf4; border-radius: 16px; line-height: 1.45; }
 .composer-plus, .send-button { width: 40px; height: 40px; border: 0; border-radius: 15px; }
