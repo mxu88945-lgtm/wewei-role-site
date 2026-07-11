@@ -82,17 +82,17 @@ function ShadowHtml({ html }: { html: string }) {
       .message-html-root hr{height:1px;border:0;background:rgba(91,72,101,.16);margin:.8em 0}
       .message-html-root audio{display:block;width:100%;margin:.55em 0 .7em}
       .message-html-root details{
-        display:block;width:100%;margin:.8em 0;padding:0 15px 14px;
-        border:1px solid rgba(91,72,101,.09);border-radius:18px;overflow:hidden;
-        background:rgba(236,233,239,.92);box-shadow:0 10px 24px rgba(71,51,82,.07)
+        display:block;width:100%;margin:.8em 0;padding:0;border:0;
+        border-radius:0;overflow:visible;background:transparent;box-shadow:none
       }
       .message-html-root summary{
-        cursor:pointer;margin:0 -15px 10px;padding:13px 15px;
+        cursor:pointer;margin:0 0 8px;padding:11px 13px;border-radius:12px;
         color:#4f4853;background:rgba(226,221,230,.92);font-weight:800;line-height:1.35
       }
       .message-html-root details:not([open]) summary{margin-bottom:0}
+      .message-html-root summary+.message-paragraph-break{display:none}
       .message-html-root details br{line-height:1.05}
-      .message-html-root details>.message-code-block{margin:.6em 0 0;background:rgba(79,72,83,.15)}
+      .message-html-root details>.message-code-block{margin:0;background:rgba(79,72,83,.18)}
       .message-html-root pre,.message-html-root code{white-space:pre-wrap;overflow-wrap:anywhere}
     </style><div class="message-html-root">${document.body.innerHTML}</div>`
   }, [safeHtml])
