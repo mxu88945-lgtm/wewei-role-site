@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState } from 'react'
+import { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
 import DOMPurify from 'dompurify'
 import type { Character } from './characterCard'
 import { applyMacros, applyRegexScripts } from './regexEngine'
@@ -17,6 +17,8 @@ function looksLikeHtml(value: string) {
 function HtmlFrame({ html }: { html: string }) {
   const ref = useRef<HTMLIFrameElement>(null)
   const [height, setHeight] = useState(220)
+  const heightRef = useRef(220)
+  const scrollSnapshot = useRef<{ list: HTMLElement; top: number } | null>(null)
   const safeHtml = useMemo(() => DOMPurify.sanitize(unwrapCodeFence(html), {
     WHOLE_DOCUMENT: true,
     ADD_TAGS: ['style', 'audio', 'source', 'details', 'summary'],
@@ -29,13 +31,25 @@ function HtmlFrame({ html }: { html: string }) {
     const sync = () => {
       const document = frame.contentDocument
       if (!document) return
-      const next = Math.max(document.body?.scrollHeight || 0, document.documentElement?.scrollHeight || 0, 120)
-      setHeight(Math.min(next + 8, 8000))
+      const next = Math.min(Math.max(document.body?.scrollHeight || 0, document.documentElement?.scrollHeight || 0, 120) + 8, 8000)
+      if (Math.abs(next - heightRef.current) < 2) return
+      const list = frame.closest<HTMLElement>('.message-list')
+      if (list) scrollSnapshot.current = { list, top: list.scrollTop }
+      heightRef.current = next
+      setHeight(next)
     }
     frame.addEventListener('load', sync)
     const timer = window.setInterval(sync, 700)
     return () => { frame.removeEventListener('load', sync); window.clearInterval(timer) }
   }, [safeHtml])
+
+  useLayoutEffect(() => {
+    const snapshot = scrollSnapshot.current
+    if (!snapshot) return
+    snapshot.list.scrollTop = snapshot.top
+    window.requestAnimationFrame(() => { snapshot.list.scrollTop = snapshot.top })
+    scrollSnapshot.current = null
+  }, [height])
 
   return <iframe ref={ref} className="message-html-frame" title="角色卡美化内容" sandbox="allow-same-origin allow-popups" referrerPolicy="no-referrer" srcDoc={safeHtml} style={{ height }} />
 }

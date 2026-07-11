@@ -114,10 +114,13 @@ export default function ApiSettingsPage({
 
     <div className="api-page-scroll content-stack form-stack">
       <section className="api-channels-panel">
-        <button type="button" className="api-channels-summary" onClick={() => setListOpen((open) => !open)} aria-expanded={listOpen}>
-          <span><strong>已有渠道 <i>({channels.length})</i></strong><small>当前 · {api.name || '未命名渠道'} · {api.modelName || '未选择模型'}</small></span>
-          <b>{listOpen ? '收起⌃' : '展开⌄'}</b>
-        </button>
+        <div className="api-channels-toolbar">
+          <button type="button" className="api-channels-summary" onClick={() => setListOpen((open) => !open)} aria-expanded={listOpen}>
+            <span><strong>已有渠道 <i>({channels.length})</i></strong><small>当前 · {api.name || '未命名渠道'} · {api.modelName || '未选择模型'}</small></span>
+            <b>{listOpen ? '收起⌃' : '展开⌄'}</b>
+          </button>
+          <button type="button" className="api-channel-add-top" onClick={() => setAddOpen(true)}>＋ 新增</button>
+        </div>
 
         {listOpen && <div className="api-channel-list">
           {channels.map((channel) => {
