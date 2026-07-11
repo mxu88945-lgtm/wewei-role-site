@@ -34,9 +34,6 @@
   background: rgba(245, 243, 246, .92);
 }
 
-.api-channels-toolbar { display: flex; align-items: center; gap: 8px; }
-.api-channels-toolbar .api-channels-summary { min-width: 0; flex: 1; }
-.api-channel-add-top { flex: 0 0 auto; margin-right: 12px; border: 0; border-radius: 13px; padding: 10px 12px; color: #fff; background: linear-gradient(135deg, #8150e7, #ce7fc4); font-size: 11px; font-weight: 800; }
 
 .api-channels-summary {
   width: 100%;
@@ -101,6 +98,7 @@
 .api-channel-body label { gap: 7px; font-size: 11px; }
 .api-channel-body input, .api-channel-body select { background: rgba(239, 237, 240, .86); }
 .api-channel-add { min-height: 48px; border: 1px dashed rgba(123, 91, 143, .28); border-radius: 18px; color: #79538f; background: rgba(235, 228, 240, .66); font-size: 12px; font-weight: 800; }
+.api-channel-add.persistent { width: 100%; flex: 0 0 auto; }
 .api-page select { width: 100%; border: 1px solid rgba(71,55,80,.08); outline: none; border-radius: 18px; padding: 15px 16px; color: #2e2931; background: #efedf0; }
 
 .api-page-footer {

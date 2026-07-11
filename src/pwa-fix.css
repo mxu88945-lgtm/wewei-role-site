@@ -64,6 +64,16 @@ select {
   height: calc(72px + max(20px, env(safe-area-inset-top)));
 }
 
+.page-header::before {
+  content: '';
+  position: absolute;
+  left: 0;
+  right: 0;
+  bottom: 100%;
+  height: max(48px, env(safe-area-inset-top));
+  background: #faf9fb;
+}
+
 .chat-canvas {
   padding: 0 !important;
   overflow: hidden;
