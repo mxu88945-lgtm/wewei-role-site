@@ -10,7 +10,7 @@ import './navigation-shell.css'
 import './api-page.css'
 import './preset-page.css'
 import './runtime-enhancements.css'
-import './runtimeEnhancements'
+import './memoryApiEnhancements'
 
 const APP_SCOPE = '/wewei-role-site/'
 
