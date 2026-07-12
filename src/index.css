@@ -184,6 +184,23 @@ button { cursor: pointer; }
 .identity-avatar-editor img { width: 100%; height: 100%; object-fit: cover; }
 .identity-avatar-editor label { display: block; cursor: pointer; }
 .identity-avatar-editor input { display: none; }
+.persona-page { padding-bottom: 34px; }
+.persona-heading { display: flex; align-items: center; justify-content: space-between; gap: 14px; }
+.persona-heading strong, .persona-heading small { display: block; }
+.persona-heading small { margin-top: 5px; color: #98909b; font-size: 11px; line-height: 1.45; }
+.persona-tabs { display: flex; gap: 10px; overflow-x: auto; padding: 2px 1px 8px; scroll-snap-type: x proximity; }
+.persona-tabs > button { flex: 0 0 168px; min-width: 0; padding: 11px; border: 1px solid transparent; border-radius: 20px; display: grid; grid-template-columns: 44px 1fr; align-items: center; gap: 10px; color: inherit; background: #efedf0; text-align: left; scroll-snap-align: start; }
+.persona-tabs > button.active { border-color: rgba(139,87,199,.42); background: #ece5f4; box-shadow: 0 10px 24px rgba(91,61,109,.08); }
+.persona-tabs img, .persona-tabs > button > span { width: 44px; height: 44px; border-radius: 15px; object-fit: cover; }
+.persona-tabs > button > span { display: grid; place-items: center; color: white; background: linear-gradient(145deg,#8561dc,#e099c1); font-weight: 800; }
+.persona-tabs strong, .persona-tabs small { display: block; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.persona-tabs small { margin-top: 4px; color: #9a929d; font-size: 9px; }
+.persona-editor { padding: 16px; border-radius: 25px; display: grid; gap: 16px; background: #f3f0f4; }
+.persona-editor > label { display: grid; gap: 8px; color: #6e6872; font-size: 12px; font-weight: 800; }
+.persona-editor input, .persona-editor textarea { width: 100%; border: 1px solid rgba(71,55,80,.08); outline: 0; border-radius: 18px; padding: 15px 16px; color: #2e2931; background: #faf8fb; resize: vertical; }
+.persona-editor input:focus, .persona-editor textarea:focus { border-color: #aa83de; box-shadow: 0 0 0 4px rgba(158,108,211,.1); }
+.persona-delete { justify-self: start; border: 0; background: transparent; }
+.update-card > small { display: block; margin: -3px 0 12px; color: #9b8fa1; font-size: 10px; }
 .storage-health-card { padding: 18px; display: flex; align-items: center; justify-content: space-between; gap: 16px; border-radius: 22px; color: #554d59; background: linear-gradient(145deg, #eee9f2, #f5f1f6); box-shadow: 0 12px 28px rgba(71,51,82,.06); }
 .storage-health-card strong, .storage-health-card small { display: block; }
 .storage-health-card small { max-width: 280px; margin-top: 5px; color: #928a96; font-size: 11px; line-height: 1.5; }
