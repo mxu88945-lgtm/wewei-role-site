@@ -12,6 +12,7 @@ import { createApiChannel, normalizeApiChannels, type ApiChannel } from './apiCh
 import { enabledPresetText, normalizePresetSections } from './presetConfig'
 import { durableGet, durableSet } from './persistentStore'
 import { sanitizeAssistantOutput } from './outputSanitizer'
+import { memoriesForConversation } from './memoryEngine'
 
 type Page = 'home' | 'characters' | 'create' | 'group-create' | 'import-preview' | 'character-detail' | 'card-data' | 'card-worldbook' | 'card-regex' | 'greeting-picker' | 'chat' | 'more' | 'api' | 'model' | 'settings' | 'appearance' | 'identity' | 'worldbook' | 'preset' | 'memory' | 'memory-api' | 'memory-list'
 type Message = { id: number; role: 'user' | 'assistant'; text: string; characterId?: string; finishReason?: string | null }
@@ -34,7 +35,7 @@ type Conversation = {
   personaId?: string
 }
 type LegacySessionMap = Record<string, Message[]>
-type MemoryEntry = { id: string; createdAt: number; title: string; content: string; sourceCount: number }
+type MemoryEntry = { id: string; createdAt: number; title: string; content: string; sourceCount: number; pinned?: boolean; consolidated?: boolean }
 type MemoryConfig = {
   api: ApiConfig
   autoEvery: number
@@ -265,7 +266,8 @@ function App() {
   const identity = identities.find((item) => item.id === activeConversation?.personaId) || identities.find((item) => item.id === activePersonaId) || identities[0] || { id: 'persona-default', name: '周惟惟', description: '由用户亲自决定言行、心理与关键选择。' }
   const messages = activeConversation?.messages || [{ id: 1, role: 'assistant' as const, text: activeCharacter.greeting }]
   const currentMemoryConfig = memoryConfigs[activeCharacter.id] || defaultMemoryConfig()
-  const currentMemories = memoryEntries[activeCharacter.id] || []
+  const memoryScopeId = activeConversation?.id || activeCharacter.id
+  const currentMemories = memoriesForConversation(memoryEntries, activeConversation?.id, activeCharacter.id) as MemoryEntry[]
 
   useEffect(() => {
     let cancelled = false
@@ -679,9 +681,10 @@ function App() {
     const pendingMessages = sourceMessages.slice(summarizedCount)
     if (!targetConversation || !config.api.baseUrl || !config.api.modelName || !config.api.apiKey || pendingMessages.length < 2) { setMemoryState('error'); return }
     setMemoryState('summarizing')
-    const transcript = pendingMessages.map((item) => `${item.role === 'user' ? identity.name : targetCharacter.name}：${item.text}`).join('\n')
-    const characterMemories = memoryEntries[targetCharacter.id] || []
-    const previous = characterMemories.slice(-4).map((item) => item.content).join('\n\n').slice(-8000)
+    const scopeId = targetConversation.id
+    const transcript = pendingMessages.map((item) => `${item.role === 'user' ? identity.name : characters.find((character) => character.id === item.characterId)?.name || targetCharacter.name}：${item.text}`).join('\n')
+    const conversationMemories = memoriesForConversation(memoryEntries, scopeId, targetCharacter.id) as MemoryEntry[]
+    const previous = [...conversationMemories.filter((item) => item.pinned), ...conversationMemories.filter((item) => !item.pinned).slice(-6)].map((item) => item.content).join('\n\n').slice(-12000)
     try {
       const endpoint = `${config.api.baseUrl.replace(/\/$/, '')}/chat/completions`
       const response = await fetch(endpoint, {
@@ -701,7 +704,30 @@ function App() {
       const content = data?.choices?.[0]?.message?.content?.trim()
       if (!content) throw new Error('empty memory')
       const entry: MemoryEntry = { id: crypto.randomUUID(), createdAt: Date.now(), title: `${new Date().toLocaleDateString()} · 新增 ${pendingMessages.length} 条`, content, sourceCount: pendingMessages.length }
-      setMemoryEntries((current) => ({ ...current, [targetCharacter.id]: [...(current[targetCharacter.id] || []), entry].slice(-config.maxEntries) }))
+      let nextEntries = [...conversationMemories.filter((item) => item.pinned), ...[...conversationMemories.filter((item) => !item.pinned), entry].slice(-config.maxEntries)]
+      const ordinary = nextEntries.filter((item) => !item.pinned)
+      if (ordinary.length >= 12) {
+        try {
+          const consolidationResponse = await fetch(endpoint, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${config.api.apiKey}` },
+            body: JSON.stringify({
+              model: config.api.modelName,
+              temperature: 0.1,
+              messages: [
+                { role: 'system', content: '你是长期记忆整理器。把多份剧情记忆合并成一份完整、无重复、按时间顺序的事实档案。必须保留关系变化、承诺、冲突、关键事件、重要物品、当前状态和未完成事项；新事实明确推翻旧事实时保留最新状态并注明变化。不得续写或虚构。' },
+                { role: 'user', content: ordinary.map((item, index) => `【记忆 ${index + 1}】\n${item.content}`).join('\n\n').slice(-24000) },
+              ],
+            }),
+          })
+          if (consolidationResponse.ok) {
+            const consolidationData = await consolidationResponse.json()
+            const consolidated = consolidationData?.choices?.[0]?.message?.content?.trim()
+            if (consolidated) nextEntries = [...nextEntries.filter((item) => item.pinned), { id: crypto.randomUUID(), createdAt: Date.now(), title: `${new Date().toLocaleDateString()} · 阶段记忆整理`, content: consolidated, sourceCount: ordinary.reduce((sum, item) => sum + item.sourceCount, 0), consolidated: true }]
+          }
+        } catch (error) { console.warn('自动整理长期记忆失败，保留原记忆', error) }
+      }
+      setMemoryEntries((current) => ({ ...current, [scopeId]: nextEntries }))
       setConversations((current) => current.map((item) => item.id === targetConversation.id ? { ...item, memorySummarizedCount: sourceMessages.length } : item))
       setMemoryState('ok')
     } catch (error) {
@@ -720,7 +746,7 @@ function App() {
 
     const capturedCharacter = speaker
     const capturedMemoryConfig = memoryConfigs[capturedCharacter.id] || defaultMemoryConfig()
-    const capturedMemories = memoryEntries[capturedCharacter.id] || []
+    const capturedMemories = memoriesForConversation(memoryEntries, conversation.id, capturedCharacter.id) as MemoryEntry[]
     const assistantMessage: Message = { id: Date.now() + Math.floor(Math.random() * 1000), role: 'assistant', characterId: speaker.id, text: '正在回应…' }
     const pendingMessages = [...nextMessages, assistantMessage]
     setConversations((current) => {
@@ -839,6 +865,10 @@ function App() {
         const channel = apiChannels.find((item) => item.id === channelId) || api
         groupMessages = await generateAssistant(conversation, groupMessages, speaker, channel)
       }
+      const memoryCharacter = characters.find((item) => item.id === participantIds[0]) || activeCharacter
+      const groupMemoryConfig = memoryConfigs[memoryCharacter.id] || defaultMemoryConfig()
+      const summarizedCount = Math.min(conversation.memorySummarizedCount || 0, groupMessages.length)
+      if (groupMemoryConfig.autoEvery > 0 && groupMessages.length - summarizedCount >= groupMemoryConfig.autoEvery && groupMemoryConfig.api.apiKey) void summarizeMemory(groupMessages, conversation, memoryCharacter)
       return
     }
     await generateAssistant(conversation, baseMessages)
@@ -1038,7 +1068,7 @@ function App() {
 
     {page === 'memory-api' && <><BackHeader title="记忆总结 API" onBack={goBack} action={<span className="saved-label">自动保存</span>} /><section className="content-stack form-stack"><div className="api-status"><span className={currentMemoryConfig.api.apiKey ? 'ok' : ''}></span><div><strong>{currentMemoryConfig.api.apiKey ? '已配置独立接口' : '尚未填写密钥'}</strong><small>仅供 {activeCharacter.name} 的记忆总结使用</small></div></div><label>Base URL<input value={currentMemoryConfig.api.baseUrl} onChange={(e) => updateMemoryApi({ baseUrl: e.target.value })} /></label><label>API Key<input type="password" value={currentMemoryConfig.api.apiKey} onChange={(e) => updateMemoryApi({ apiKey: e.target.value })} placeholder="sk-••••••••" /></label><label>模型名称<input value={currentMemoryConfig.api.modelName} onChange={(e) => updateMemoryApi({ modelName: e.target.value })} /></label><div className="privacy-note">此接口独立于聊天 API。密钥只保存在当前设备，不上传仓库。</div></section></>}
 
-    {page === 'memory-list' && <><BackHeader title={`${activeCharacter.name} · 记忆库`} onBack={goBack} /><section className="content-stack">{currentMemories.length === 0 ? <div className="empty-memory"><span>✦</span><strong>还没有长期记忆</strong><p>返回上一页，配置总结 API 后可立即总结当前对话。</p></div> : currentMemories.slice().reverse().map((entry) => <article className="memory-entry" key={entry.id}><div><strong>{entry.title}</strong><small>{new Date(entry.createdAt).toLocaleString()} · 来源 {entry.sourceCount} 条消息</small></div><textarea rows={8} value={entry.content} onChange={(e) => setMemoryEntries((current) => ({ ...current, [activeCharacter.id]: (current[activeCharacter.id] || []).map((item) => item.id === entry.id ? { ...item, content: e.target.value } : item) }))} /><button className="danger-link" onClick={() => setMemoryEntries((current) => ({ ...current, [activeCharacter.id]: (current[activeCharacter.id] || []).filter((item) => item.id !== entry.id) }))}>删除这条记忆</button></article>)}</section></>}
+    {page === 'memory-list' && <><BackHeader title={`${activeConversation?.title || activeCharacter.name} · 记忆库`} onBack={goBack} /><section className="content-stack"><div className="privacy-note">这份记忆只属于当前对话。标为核心后会永久注入，不会被相关性筛选或自动整理移除。</div>{currentMemories.length === 0 ? <div className="empty-memory"><span>✦</span><strong>还没有长期记忆</strong><p>返回上一页，配置总结 API 后可立即总结当前对话。</p></div> : currentMemories.slice().reverse().map((entry) => <article className={`memory-entry ${entry.pinned ? 'pinned' : ''}`} key={entry.id}><div><strong>{entry.pinned ? '★ 核心 · ' : entry.consolidated ? '阶段整理 · ' : ''}{entry.title}</strong><small>{new Date(entry.createdAt).toLocaleString()} · 来源 {entry.sourceCount} 条消息</small></div><textarea rows={8} value={entry.content} onChange={(e) => setMemoryEntries((current) => ({ ...current, [memoryScopeId]: (memoriesForConversation(current, activeConversation?.id, activeCharacter.id) as MemoryEntry[]).map((item) => item.id === entry.id ? { ...item, content: e.target.value } : item) }))} /><div className="memory-entry-actions"><button className="soft-button" onClick={() => setMemoryEntries((current) => ({ ...current, [memoryScopeId]: (memoriesForConversation(current, activeConversation?.id, activeCharacter.id) as MemoryEntry[]).map((item) => item.id === entry.id ? { ...item, pinned: !item.pinned } : item) }))}>{entry.pinned ? '取消核心' : '设为核心记忆'}</button><button className="danger-link" onClick={() => setMemoryEntries((current) => ({ ...current, [memoryScopeId]: (memoriesForConversation(current, activeConversation?.id, activeCharacter.id) as MemoryEntry[]).filter((item) => item.id !== entry.id) }))}>删除</button></div></article>)}</section></>}
 
     {page === 'model' && <><BackHeader title="模型设置" onBack={goBack} /><section className="settings-stack"><div className="settings-group range-group"><RangeRow label="记忆长度" value={memoryLength} min={10} max={100} step={1} onChange={setMemoryLength} /><RangeRow label="回复令牌限制" hint={`当前最多请求 ${maxTokens} 个输出令牌`} value={maxTokens} min={1000} max={64000} step={1000} onChange={setMaxTokens} /></div><div className="settings-group range-group"><RangeRow label="温度" value={temperature} min={0} max={2} step={0.05} onChange={setTemperature} /><RangeRow label="Top-P" value={topP} min={0} max={1} step={0.05} onChange={setTopP} /></div><div className="settings-group toggle-row"><div><strong>流式传输</strong><small>立即逐字显示回复</small></div><button className={`switch ${streaming ? 'on' : ''}`} onClick={() => setStreaming(!streaming)}><span /></button></div></section></>}
     {page === 'settings' && <><BackHeader title="应用设置" onBack={goBack} /><section className="settings-stack"><div className="storage-health-card"><div><strong>本地数据保险库</strong><small>真实数据 {appDataUsage} · 浏览器总占用 {storageUsage}</small><small>总占用包含 Safari 的缓存、内部存储页与预留空间，刷新后可能波动。</small></div><span>{appDataUsage}</span></div><div className="settings-group"><button onClick={() => navigate('appearance')}><span>外观 · 自定义主题</span><span>›</span></button><button><span>语言 · 简体中文</span><span>›</span></button><button onClick={() => navigate('appearance')}><span>字体 · {chatFontSize}px</span><span>›</span></button></div><BackupCard /><UpdateCard /></section></>}
