@@ -1,0 +1,43 @@
+export type LongMemoryEntry = {
+  id?: string
+  createdAt?: number
+  title?: string
+  content: string
+  sourceCount?: number
+  pinned?: boolean
+  consolidated?: boolean
+}
+
+export type LongMemoryMap = Record<string, LongMemoryEntry[]>
+
+export function memoriesForConversation(map: LongMemoryMap, conversationId: string | undefined, legacyCharacterId: string) {
+  return (conversationId && map[conversationId]) || map[legacyCharacterId] || []
+}
+
+function searchTerms(value: string) {
+  return Array.from(new Set(value.match(/[\u4e00-\u9fff]{2,6}|[A-Za-z0-9_]{3,}/g) || [])).slice(-120)
+}
+
+/** Core memories are permanent; ordinary memories are chosen by relevance with recent-event fallback. */
+export function selectRelevantMemories(entries: LongMemoryEntry[], recentText: string, maxChars = 12000) {
+  const terms = searchTerms(recentText)
+  const pinned = entries.filter((entry) => entry.pinned).sort((a, b) => (a.createdAt || 0) - (b.createdAt || 0))
+  const ordinary = entries.filter((entry) => !entry.pinned)
+  const newestIds = new Set(ordinary.slice(-3).map((entry) => entry.id))
+  const ranked = ordinary.map((entry) => ({
+    entry,
+    score: terms.reduce((score, term) => score + (entry.content.includes(term) ? Math.min(8, term.length) : 0), 0) + (newestIds.has(entry.id) ? 6 : 0),
+  })).sort((a, b) => b.score - a.score || (b.entry.createdAt || 0) - (a.entry.createdAt || 0))
+
+  const selected: LongMemoryEntry[] = [...pinned]
+  let remaining = Math.max(0, maxChars - pinned.reduce((sum, entry) => sum + entry.content.trim().length, 0))
+  for (const entry of ranked.map((item) => item.entry)) {
+    if (selected.includes(entry) || remaining <= 0) continue
+    const contentLength = entry.content.trim().length
+    if (!contentLength) continue
+    if (contentLength > remaining && selected.length) continue
+    selected.push(entry)
+    remaining -= Math.min(contentLength, remaining)
+  }
+  return selected.sort((a, b) => (a.createdAt || 0) - (b.createdAt || 0))
+}
