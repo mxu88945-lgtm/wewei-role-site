@@ -29,6 +29,7 @@ type Conversation = {
   kind?: 'single' | 'group'
   participantIds?: string[]
   participantApiIds?: Record<string, string>
+  memorySummarizedCount?: number
 }
 type LegacySessionMap = Record<string, Message[]>
 type MemoryEntry = { id: string; createdAt: number; title: string; content: string; sourceCount: number }
@@ -52,7 +53,23 @@ const demoCharacter: Character = {
   tags: ['慢热', '沉稳', '守护', '剧情向'], creator: '', characterVersion: '', regexScripts: [],
 }
 
-const defaultMemoryPrompt = `【暂停剧情扮演】请根据前文内容，对上次总结之后的剧情进行总结。生成一个详细的总结集合，涵盖所有主要事件、观点、关系变化与关键信息。总结需逻辑清晰，按时间顺序组织，每件事以独立条目呈现，并尽量标注具体时间点。若时间信息不明确，请根据上下文合理推测并注明。重点保留人物关系、承诺、冲突、情绪转折、世界设定与未完成事项，避免遗漏。`
+const legacyMemoryPrompt = `【暂停剧情扮演】请根据前文内容，对上次总结之后的剧情进行总结。生成一个详细的总结集合，涵盖所有主要事件、观点、关系变化与关键信息。总结需逻辑清晰，按时间顺序组织，每件事以独立条目呈现，并尽量标注具体时间点。若时间信息不明确，请根据上下文合理推测并注明。重点保留人物关系、承诺、冲突、情绪转折、世界设定与未完成事项，避免遗漏。`
+const defaultMemoryPrompt = `【长期记忆整理｜不要继续角色扮演】
+你只整理“本次新增对话”，输出可供后续剧情检索的长期记忆，不续写剧情，不复述提示词。
+要求：
+1. 只记录实际发生或明确说出的事实，不把猜测写成事实；时间不明时写“时间未明确”，禁止擅自编造日期。
+2. 按发生顺序整理，优先保留事件、地点、人物关系变化、承诺、冲突、情绪转折、重要物品、世界设定与未完成事项。
+3. 区分角色与用户各自的言行，禁止把角色行为记到用户身上。
+4. “已有长期记忆”仅用于查重；不要复制或改写已保存内容，只补充新增信息或明确发生的变化。
+5. 删除寒暄、重复描述、文风修辞、状态栏格式要求及与长期剧情无关的细节。
+输出格式：
+【时间线】
+- 时间/阶段｜地点｜事件与结果
+【关系与状态变化】
+- 人物｜变化｜原因
+【未完成事项】
+- 事项｜当前进度
+没有内容的栏目写“无”，不要输出其他说明。`
 const defaultInjectPrompt = `以下是该角色与用户的长期记忆。请把它当作已经发生过的事实，自然延续，不要逐条复述，也不要替用户决定言行：\n\n{{memories}}`
 
 const defaultMemoryConfig = (): MemoryConfig => ({
@@ -64,6 +81,11 @@ const defaultMemoryConfig = (): MemoryConfig => ({
   injectPrompt: defaultInjectPrompt,
   lastSummarizedCount: 0,
 })
+
+const migrateMemoryConfigs = (configs: MemoryConfigMap) => Object.fromEntries(Object.entries(configs).map(([id, config]) => [id, {
+  ...config,
+  summaryPrompt: config.summaryPrompt === legacyMemoryPrompt ? defaultMemoryPrompt : config.summaryPrompt,
+}]))
 
 const read = <T,>(key: string, fallback: T): T => {
   try { const value = localStorage.getItem(key); return value ? JSON.parse(value) as T : fallback } catch { return fallback }
@@ -184,7 +206,7 @@ function App() {
   const [memoryLength, setMemoryLength] = useState(() => read('weijing.memoryLength', 47))
   const [maxTokens, setMaxTokens] = useState(() => read('weijing.maxTokens', 8000))
   const [streaming, setStreaming] = useState(() => read('weijing.streaming', true))
-  const [memoryConfigs, setMemoryConfigs] = useState<MemoryConfigMap>(() => read('weijing.memoryConfigs', { [demoCharacter.id]: defaultMemoryConfig() }))
+  const [memoryConfigs, setMemoryConfigs] = useState<MemoryConfigMap>(() => migrateMemoryConfigs(read('weijing.memoryConfigs', { [demoCharacter.id]: defaultMemoryConfig() })))
   const [memoryEntries, setMemoryEntries] = useState<MemoryEntryMap>(() => read('weijing.memoryEntries', { [demoCharacter.id]: [] }))
   const [memoryState, setMemoryState] = useState<'idle' | 'summarizing' | 'ok' | 'error'>('idle')
   const [importState, setImportState] = useState<'idle' | 'reading' | 'error'>('idle')
@@ -222,7 +244,7 @@ function App() {
       if (storedCharacters?.length) setCharacters(storedCharacters.map(normalizeStoredCharacter))
       if (storedConversations?.length) setConversations(storedConversations)
       if (storedIdentity) setIdentity(storedIdentity)
-      if (storedConfigs) setMemoryConfigs(storedConfigs)
+      if (storedConfigs) setMemoryConfigs(migrateMemoryConfigs(storedConfigs))
       if (storedEntries) setMemoryEntries(storedEntries)
       setPersistenceReady(true)
     }).catch(() => setPersistenceReady(true))
@@ -514,12 +536,15 @@ function App() {
     }
   }
 
-  const summarizeMemory = async (sourceMessages = messages) => {
-    const config = currentMemoryConfig
-    if (!config.api.baseUrl || !config.api.modelName || !config.api.apiKey || sourceMessages.length < 2) { setMemoryState('error'); return }
+  const summarizeMemory = async (sourceMessages = messages, targetConversation = activeConversation, targetCharacter = activeCharacter) => {
+    const config = memoryConfigs[targetCharacter.id] || defaultMemoryConfig()
+    const summarizedCount = Math.min(targetConversation?.memorySummarizedCount || 0, sourceMessages.length)
+    const pendingMessages = sourceMessages.slice(summarizedCount)
+    if (!targetConversation || !config.api.baseUrl || !config.api.modelName || !config.api.apiKey || pendingMessages.length < 2) { setMemoryState('error'); return }
     setMemoryState('summarizing')
-    const transcript = sourceMessages.map((item) => `${item.role === 'user' ? identity.name : activeCharacter.name}：${item.text}`).join('\n')
-    const previous = currentMemories.slice(-8).map((item) => item.content).join('\n\n')
+    const transcript = pendingMessages.map((item) => `${item.role === 'user' ? identity.name : targetCharacter.name}：${item.text}`).join('\n')
+    const characterMemories = memoryEntries[targetCharacter.id] || []
+    const previous = characterMemories.slice(-4).map((item) => item.content).join('\n\n').slice(-8000)
     try {
       const endpoint = `${config.api.baseUrl.replace(/\/$/, '')}/chat/completions`
       const response = await fetch(endpoint, {
@@ -530,7 +555,7 @@ function App() {
           temperature: 0.2,
           messages: [
             { role: 'system', content: config.summaryPrompt },
-            { role: 'user', content: `角色：${activeCharacter.name}\n用户：${identity.name}\n已有记忆：\n${previous || '暂无'}\n\n待总结对话：\n${transcript}` },
+            { role: 'user', content: `角色：${targetCharacter.name}\n用户：${identity.name}\n已有长期记忆（仅供查重）：\n${previous || '暂无'}\n\n本次新增对话（只总结这一段）：\n${transcript}` },
           ],
         }),
       })
@@ -538,9 +563,9 @@ function App() {
       const data = await response.json()
       const content = data?.choices?.[0]?.message?.content?.trim()
       if (!content) throw new Error('empty memory')
-      const entry: MemoryEntry = { id: crypto.randomUUID(), createdAt: Date.now(), title: `${new Date().toLocaleDateString()} · ${sourceMessages.length} 条消息`, content, sourceCount: sourceMessages.length }
-      setMemoryEntries((current) => ({ ...current, [activeCharacter.id]: [...(current[activeCharacter.id] || []), entry].slice(-config.maxEntries) }))
-      updateMemoryConfig({ lastSummarizedCount: sourceMessages.length })
+      const entry: MemoryEntry = { id: crypto.randomUUID(), createdAt: Date.now(), title: `${new Date().toLocaleDateString()} · 新增 ${pendingMessages.length} 条`, content, sourceCount: pendingMessages.length }
+      setMemoryEntries((current) => ({ ...current, [targetCharacter.id]: [...(current[targetCharacter.id] || []), entry].slice(-config.maxEntries) }))
+      setConversations((current) => current.map((item) => item.id === targetConversation.id ? { ...item, memorySummarizedCount: sourceMessages.length } : item))
       setMemoryState('ok')
     } catch (error) {
       console.error('记忆总结失败', error)
@@ -610,7 +635,8 @@ function App() {
       const cleanOutput = sanitizeAssistantOutput(output) || output
       setConversations((current) => current.map((item) => item.id === conversationId ? { ...item, messages: item.messages.map((message) => message.id === assistantMessage.id ? { ...message, text: cleanOutput } : message), updatedAt: Date.now() } : item))
       const completed = [...nextMessages, { ...assistantMessage, text: cleanOutput }]
-      if (!isGroup && capturedMemoryConfig.autoEvery > 0 && completed.length - capturedMemoryConfig.lastSummarizedCount >= capturedMemoryConfig.autoEvery && capturedMemoryConfig.api.apiKey) summarizeMemory(completed)
+      const summarizedCount = Math.min(conversation.memorySummarizedCount || 0, completed.length)
+      if (!isGroup && capturedMemoryConfig.autoEvery > 0 && completed.length - summarizedCount >= capturedMemoryConfig.autoEvery && capturedMemoryConfig.api.apiKey) summarizeMemory(completed, conversation, capturedCharacter)
       return completed
     } catch (error) {
       if (controller.signal.aborted) {
