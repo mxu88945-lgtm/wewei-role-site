@@ -25,6 +25,7 @@ function hasExecutableScript(value: string) {
 
 function renderInlineMarkdown(value: string) {
   return value
+    .replace(/(“[^”\n]+”|「[^」\n]+」|『[^』\n]+』)/g, '<span class="message-quote">$1</span>')
     .replace(/```[ \t]*\n?([\s\S]*?)```/g, '<div class="message-code-block">$1</div>')
     .replace(/`([^`\n]+)`/g, '<span class="message-inline-code">$1</span>')
     .replace(/\*\*([^*\n]+)\*\*/g, '<strong>$1</strong>')
@@ -32,6 +33,17 @@ function renderInlineMarkdown(value: string) {
     .replace(/(^|[^*])\*([^*\n]+)\*/g, '$1<em>$2</em>')
     .replace(/(^|[^_])_([^_\n]+)_/g, '$1<em>$2</em>')
     .replace(/~~([^~\n]+)~~/g, '<del>$1</del>')
+}
+
+function styledPlainText(value: string) {
+  const pattern = /(\*[^*\n]+\*|（[^）\n]+）|\([^\)\n]+\)|“[^”\n]+”|「[^」\n]+」|『[^』\n]+』)/g
+  const parts = value.split(pattern)
+  return parts.map((part, index) => {
+    if (/^\*[^*\n]+\*$/.test(part)) return <span className="message-narration" key={index}>{part.slice(1, -1)}</span>
+    if (/^(?:（[^）\n]+）|\([^\)\n]+\))$/.test(part)) return <span className="message-narration" key={index}>{part}</span>
+    if (/^(?:“[^”\n]+”|「[^」\n]+」|『[^』\n]+』)$/.test(part)) return <span className="message-quote" key={index}>{part}</span>
+    return part
+  })
 }
 
 const SENTENCE_RE = /[^。！？!?…]+(?:[。！？!?]+[”」』】）)]*|…+[”」』】）)]*|$)/g
@@ -133,7 +145,8 @@ function ShadowHtml({ html }: { html: string }) {
         color:inherit;background:rgba(79,72,83,.14);font-family:inherit
       }
       .message-html-root strong{font-weight:800}
-      .message-html-root em{font-style:italic}
+      .message-html-root em{font-style:italic;color:var(--chat-narration-color,#7f7089)}
+      .message-html-root .message-quote{color:var(--chat-quote-color,#7b4d67)}
       .message-html-root hr{height:1px;border:0;background:rgba(91,72,101,.16);margin:.8em 0}
       .message-html-root audio{display:block;width:100%;margin:.55em 0 .7em}
       .message-html-root details{
@@ -218,5 +231,5 @@ export default function MessageContent({ text, role, character, userName, layout
 
   if (hasExecutableScript(rendered) || isFullHtmlDocument(rendered)) return <div className="message-content message-content-rich"><SandboxHtml html={rendered} /></div>
   if (looksLikeHtml(rendered)) return <div className="message-content message-content-rich"><SafeInlineHtml html={rendered} /></div>
-  return <div className={`message-content message-content-plain ${layout === 'bubble' ? 'message-content-bubble' : 'message-content-flat'}`}><div className="message-plain-text">{plainTextParagraphs(rendered).map((paragraph, index) => <p key={`${index}-${paragraph.slice(0, 12)}`}>{paragraph}</p>)}</div></div>
+  return <div className={`message-content message-content-plain ${layout === 'bubble' ? 'message-content-bubble' : 'message-content-flat'}`}><div className="message-plain-text">{plainTextParagraphs(rendered).map((paragraph, index) => <p key={`${index}-${paragraph.slice(0, 12)}`}>{styledPlainText(paragraph)}</p>)}</div></div>
 }
