@@ -1,4 +1,4 @@
-import { useLayoutEffect, useMemo, useRef } from 'react'
+import { useLayoutEffect, useMemo, useRef, useState } from 'react'
 import DOMPurify from 'dompurify'
 import type { Character } from './characterCard'
 import { applyMacros, applyRegexScripts } from './regexEngine'
@@ -12,6 +12,10 @@ function unwrapCodeFence(value: string) {
 
 function looksLikeHtml(value: string) {
   return /<!doctype\s+html|<html[\s>]|<(?:div|section|article|style|audio|details|table|p|span|plot)\b/i.test(value)
+}
+
+function hasExecutableScript(value: string) {
+  return /<script\b/i.test(unwrapCodeFence(value))
 }
 
 function renderInlineMarkdown(value: string) {
@@ -114,11 +118,44 @@ function ShadowHtml({ html }: { html: string }) {
   return <div ref={ref} className="message-shadow-content message-html-frame" />
 }
 
+function SandboxHtml({ html }: { html: string }) {
+  const frameRef = useRef<HTMLIFrameElement>(null)
+  const tokenRef = useRef(`render-${crypto.randomUUID()}`)
+  const [height, setHeight] = useState(220)
+  const source = useMemo(() => {
+    const document = new DOMParser().parseFromString(unwrapCodeFence(html), 'text/html')
+    const policy = document.createElement('meta')
+    policy.httpEquiv = 'Content-Security-Policy'
+    policy.content = "default-src 'none'; img-src data: https:; media-src data: https:; font-src data: https:; style-src 'unsafe-inline'; script-src 'unsafe-inline'; connect-src 'none'; frame-src 'none'; form-action 'none'; base-uri 'none'"
+    document.head.prepend(policy)
+    const baseStyle = document.createElement('style')
+    baseStyle.textContent = 'html,body{margin:0!important;padding:0!important;min-height:0!important;overflow-x:hidden;box-sizing:border-box}*,*:before,*:after{box-sizing:border-box;max-width:100%}'
+    document.head.append(baseStyle)
+    const reporter = document.createElement('script')
+    reporter.textContent = `(()=>{const token=${JSON.stringify(tokenRef.current)};let last=0,queued=false;const report=()=>{queued=false;const next=Math.ceil(Math.max(document.body?.scrollHeight||0,document.documentElement?.scrollHeight||0));if(next!==last){last=next;parent.postMessage({type:'weijing-render-size',token,height:next},'*')}};const queue=()=>{if(!queued){queued=true;requestAnimationFrame(report)}};addEventListener('load',queue);new ResizeObserver(queue).observe(document.documentElement);setTimeout(queue,80);setTimeout(queue,500);setTimeout(queue,1500)})();`
+    document.body.append(reporter)
+    return `<!doctype html>${document.documentElement.outerHTML}`
+  }, [html])
+
+  useLayoutEffect(() => {
+    const receive = (event: MessageEvent) => {
+      if (event.source !== frameRef.current?.contentWindow || event.data?.type !== 'weijing-render-size' || event.data?.token !== tokenRef.current) return
+      const next = Math.max(56, Math.min(1200, Number(event.data.height) || 220))
+      setHeight((current) => Math.abs(current - next) > 1 ? next : current)
+    }
+    window.addEventListener('message', receive)
+    return () => window.removeEventListener('message', receive)
+  }, [])
+
+  return <iframe ref={frameRef} className="message-script-frame" title="角色卡互动内容" sandbox="allow-scripts" srcDoc={source} style={{ height }} />
+}
+
 export default function MessageContent({ text, role, character, userName }: { text: string; role: 'user' | 'assistant'; character: Character; userName: string }) {
   const rendered = useMemo(() => role === 'assistant'
     ? applyRegexScripts(text, character.regexScripts, character, userName, 2, 'display')
     : applyMacros(text, character, userName), [text, role, character, userName])
 
+  if (hasExecutableScript(rendered)) return <SandboxHtml html={rendered} />
   if (looksLikeHtml(rendered)) return <ShadowHtml html={rendered} />
   return <div className="message-plain-text">{rendered}</div>
 }

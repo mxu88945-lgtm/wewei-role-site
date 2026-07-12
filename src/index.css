@@ -158,8 +158,9 @@ button { cursor: pointer; }
 .message-finish-note { margin-top: 7px; color: #a45667; font-size: 10px; }
 .message-bubble { max-width: 82%; padding: 14px 16px; border-radius: 22px 22px 22px 7px; color: #4e4852; background: rgba(255,255,255,.88); box-shadow: 0 12px 28px rgba(71,51,82,.08); line-height: 1.65; }
 .message-row.user .message-bubble { border-radius: 22px 22px 7px 22px; color: white; background: linear-gradient(145deg, #8158d7, #bd77c3); }
-.message-bubble:has(.message-shadow-content) { width: min(94%, 460px); max-width: 94%; padding: 0; overflow: visible; overflow-anchor: none; background: transparent; box-shadow: none; }
+.message-bubble:has(.message-shadow-content), .message-bubble:has(.message-script-frame) { width: min(94%, 460px); max-width: 94%; padding: 0; overflow: visible; overflow-anchor: none; background: transparent; box-shadow: none; }
 .message-shadow-content { width: 100%; min-width: 0; display: block; overflow: visible; overflow-anchor: none; }
+.message-script-frame { width: 100%; min-width: 0; max-height: 1200px; border: 0; display: block; overflow-anchor: none; background: transparent; }
 .message-tools { margin-top: 7px; display: flex; gap: 6px; }
 .message-tools button { border: 0; padding: 5px 8px; border-radius: 999px; color: #918997; background: transparent; font-size: 10px; }
 .message-action-trigger { margin-top: 4px; border: 0; padding: 3px 8px; color: #aaa2ad; background: transparent; font-size: 12px; letter-spacing: 1px; }
