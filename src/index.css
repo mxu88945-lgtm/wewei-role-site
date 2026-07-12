@@ -115,6 +115,11 @@ button { cursor: pointer; }
 .character-hero h2 { margin: 4px 0 8px; font-size: 30px; }
 .character-hero p:last-child { margin: 0; color: #7c7580; }
 .detail-card h3 { margin: 0 0 12px; font-size: 16px; }
+.detail-card-heading { display: flex; align-items: center; justify-content: space-between; gap: 12px; }
+.detail-card-heading h3 { margin: 0; }
+.detail-card-heading button { border: 0; border-radius: 12px; padding: 8px 10px; color: #825bb4; background: #eee7f2; font-size: 11px; font-weight: 800; }
+.character-intro-card:not(.expanded) > p { display: -webkit-box; -webkit-line-clamp: 5; -webkit-box-orient: vertical; overflow: hidden; }
+.character-intro-card.expanded > p { display: block; overflow: visible; }
 .detail-card p { margin: 0; color: #746e78; line-height: 1.75; }
 .detail-card blockquote { margin: 0; color: #5f5764; font-size: 18px; line-height: 1.7; }
 .data-summary-card { width: 100%; border: 0; border-radius: 24px; padding: 20px; display: flex; align-items: center; justify-content: space-between; gap: 16px; color: inherit; background: linear-gradient(145deg, #ece6f3, #f5edf2); text-align: left; }
@@ -160,6 +165,12 @@ button { cursor: pointer; }
 .message-row.user .message-bubble { border-radius: 22px 22px 7px 22px; color: white; background: linear-gradient(145deg, #8158d7, #bd77c3); }
 .message-bubble:has(.message-shadow-content), .message-bubble:has(.message-script-frame) { width: min(94%, 460px); max-width: 94%; padding: 0; overflow: visible; overflow-anchor: none; background: transparent; box-shadow: none; }
 .message-shadow-content { width: 100%; min-width: 0; display: block; overflow: visible; overflow-anchor: none; }
+.message-safe-html { display: flow-root; width: 100%; min-width: 0; overflow-wrap: anywhere; white-space: normal; }
+.message-safe-html p { margin: .35em 0; }
+.message-safe-html > :first-child { margin-top: 0; }
+.message-safe-html > :last-child { margin-bottom: 0; }
+.message-safe-html details { margin: .45em 0; overflow: hidden; border-radius: 12px; background: rgba(79,72,83,.08); }
+.message-safe-html summary { cursor: pointer; padding: 8px 10px; color: #5a525e; font-weight: 800; }
 .message-script-frame { width: 100%; min-width: 0; max-height: 1200px; border: 0; display: block; overflow-anchor: none; background: transparent; }
 .message-script-frame.full-document { height: min(68dvh, 620px); max-height: min(68dvh, 620px); border-radius: 18px; overflow: auto; }
 .message-tools { margin-top: 7px; display: flex; gap: 6px; }
