@@ -25,4 +25,10 @@ describe('character-card mixed markup', () => {
   it('leaves short bubble messages as one paragraph', () => {
     expect(plainTextParagraphs('妈在？')).toEqual(['妈在？'])
   })
+
+  it('adds visual paragraph breaks to long narrative inside inline character-card markup', () => {
+    const narrative = '你哭累后那句软着声音的话，像是一把生锈的钝刀，在顾荒自以为坚不可摧的心脏上疯狂搅弄。你轻抚小腹的动作，让他那双总是不可一世的眼睛里，再次蓄满了猩红的泪水。她怀着我的孩子，却每天担惊受怕。顾荒低下头，看着你那只轻轻抚摸着小腹的手。'
+    const result = normalizeMixedMarkup(`<plot>⏰时间:2034年02月18日</plot>${narrative}`)
+    expect(result).toContain('message-auto-paragraph-break')
+  })
 })
