@@ -15,7 +15,7 @@ function looksLikeHtml(value: string) {
 }
 
 function isFullHtmlDocument(value: string) {
-  return /<!doctype\s+html|<html[\s>]|<head[\s>]|<body[\s>]|<style[\s>]|<script[\s>]/i.test(unwrapCodeFence(value))
+  return /<!doctype\s+html|<html[\s>]|<head[\s>]|<body[\s>]|<script[\s>]/i.test(unwrapCodeFence(value))
 }
 
 function hasExecutableScript(value: string) {
