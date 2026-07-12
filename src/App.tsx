@@ -13,7 +13,7 @@ import { enabledPresetText, normalizePresetSections } from './presetConfig'
 import { durableGet, durableSet } from './persistentStore'
 import { sanitizeAssistantOutput } from './outputSanitizer'
 
-type Page = 'home' | 'characters' | 'create' | 'group-create' | 'import-preview' | 'character-detail' | 'card-data' | 'card-worldbook' | 'card-regex' | 'greeting-picker' | 'chat' | 'more' | 'api' | 'model' | 'settings' | 'identity' | 'worldbook' | 'preset' | 'memory' | 'memory-api' | 'memory-list'
+type Page = 'home' | 'characters' | 'create' | 'group-create' | 'import-preview' | 'character-detail' | 'card-data' | 'card-worldbook' | 'card-regex' | 'greeting-picker' | 'chat' | 'more' | 'api' | 'model' | 'settings' | 'appearance' | 'identity' | 'worldbook' | 'preset' | 'memory' | 'memory-api' | 'memory-list'
 type Message = { id: number; role: 'user' | 'assistant'; text: string; characterId?: string; finishReason?: string | null }
 type Drawer = 'left' | 'right'
 type HistoryEntry = { page: Page; reopenDrawer?: Drawer }
@@ -106,6 +106,21 @@ async function imageThumbnail(file: File, size = 256) {
   context.drawImage(bitmap, (size - width) / 2, (size - height) / 2, width, height)
   bitmap.close()
   return canvas.toDataURL('image/jpeg', .82)
+}
+
+async function backgroundImageData(file: File, maxEdge = 1600) {
+  const bitmap = await createImageBitmap(file)
+  const scale = Math.min(1, maxEdge / Math.max(bitmap.width, bitmap.height))
+  const canvas = document.createElement('canvas')
+  canvas.width = Math.max(1, Math.round(bitmap.width * scale))
+  canvas.height = Math.max(1, Math.round(bitmap.height * scale))
+  const context = canvas.getContext('2d')
+  if (!context) return ''
+  context.fillStyle = '#f7f3fa'
+  context.fillRect(0, 0, canvas.width, canvas.height)
+  context.drawImage(bitmap, 0, 0, canvas.width, canvas.height)
+  bitmap.close()
+  return canvas.toDataURL('image/jpeg', .84)
 }
 
 function downloadJson(filename: string, value: unknown) {
@@ -212,6 +227,11 @@ function App() {
   const [maxTokens, setMaxTokens] = useState(() => read('weijing.maxTokens', 8000))
   const [streaming, setStreaming] = useState(() => read('weijing.streaming', true))
   const [chatLayout, setChatLayout] = useState<'bubble' | 'flat'>(() => read('weijing.chatLayout', 'bubble'))
+  const [chatFontSize, setChatFontSize] = useState(() => read('weijing.chatFontSize', 16))
+  const [chatTextColor, setChatTextColor] = useState(() => read('weijing.chatTextColor', '#4e4852'))
+  const [chatBaseColor, setChatBaseColor] = useState(() => read('weijing.chatBaseColor', '#f5f1f8'))
+  const [chatBackgroundFrost, setChatBackgroundFrost] = useState(() => read('weijing.chatBackgroundFrost', .72))
+  const [chatBackground, setChatBackground] = useState('')
   const [memoryConfigs, setMemoryConfigs] = useState<MemoryConfigMap>(() => migrateMemoryConfigs(read('weijing.memoryConfigs', { [demoCharacter.id]: defaultMemoryConfig() })))
   const [memoryEntries, setMemoryEntries] = useState<MemoryEntryMap>(() => read('weijing.memoryEntries', { [demoCharacter.id]: [] }))
   const [memoryState, setMemoryState] = useState<'idle' | 'summarizing' | 'ok' | 'error'>('idle')
@@ -245,8 +265,8 @@ function App() {
     let cancelled = false
     Promise.all([
       durableGet<Partial<Character>[]>('weijing.characters'), durableGet<Conversation[]>('weijing.conversations'),
-      durableGet<UserIdentity[]>('weijing.identities'), durableGet<UserIdentity>('weijing.identity'), durableGet<MemoryConfigMap>('weijing.memoryConfigs'), durableGet<MemoryEntryMap>('weijing.memoryEntries'),
-    ]).then(([storedCharacters, storedConversations, storedIdentities, storedIdentity, storedConfigs, storedEntries]) => {
+      durableGet<UserIdentity[]>('weijing.identities'), durableGet<UserIdentity>('weijing.identity'), durableGet<MemoryConfigMap>('weijing.memoryConfigs'), durableGet<MemoryEntryMap>('weijing.memoryEntries'), durableGet<string>('weijing.chatBackground'),
+    ]).then(([storedCharacters, storedConversations, storedIdentities, storedIdentity, storedConfigs, storedEntries, storedBackground]) => {
       if (cancelled) return
       if (storedCharacters?.length) setCharacters(storedCharacters.map(normalizeStoredCharacter))
       if (storedConversations?.length) setConversations(storedConversations)
@@ -254,6 +274,7 @@ function App() {
       else if (storedIdentity) setIdentities([{ ...storedIdentity, id: storedIdentity.id || 'persona-default' }])
       if (storedConfigs) setMemoryConfigs(migrateMemoryConfigs(storedConfigs))
       if (storedEntries) setMemoryEntries(storedEntries)
+      if (storedBackground) setChatBackground(storedBackground)
       setPersistenceReady(true)
     }).catch(() => setPersistenceReady(true))
     navigator.storage?.estimate().then(({ usage = 0, quota = 0 }) => setStorageUsage(`${(usage / 1048576).toFixed(1)} MB / ${(quota / 1048576).toFixed(0)} MB`))
@@ -275,6 +296,13 @@ function App() {
   useEffect(() => { if (persistenceReady) writeDurable('weijing.memoryEntries', memoryEntries) }, [memoryEntries, persistenceReady])
   useEffect(() => { write('weijing.temperature', temperature); write('weijing.topP', topP); write('weijing.memoryLength', memoryLength); write('weijing.maxTokens', maxTokens); write('weijing.streaming', streaming) }, [temperature, topP, memoryLength, maxTokens, streaming])
   useEffect(() => write('weijing.chatLayout', chatLayout), [chatLayout])
+  useEffect(() => {
+    write('weijing.chatFontSize', chatFontSize)
+    write('weijing.chatTextColor', chatTextColor)
+    write('weijing.chatBaseColor', chatBaseColor)
+    write('weijing.chatBackgroundFrost', chatBackgroundFrost)
+  }, [chatFontSize, chatTextColor, chatBaseColor, chatBackgroundFrost])
+  useEffect(() => { if (persistenceReady) void durableSet('weijing.chatBackground', chatBackground) }, [chatBackground, persistenceReady])
   useEffect(() => {
     document.documentElement.classList.toggle('chat-layout-flat', chatLayout === 'flat')
     return () => document.documentElement.classList.remove('chat-layout-flat')
@@ -888,8 +916,9 @@ function App() {
     </div>
   }
 
-  return <div className="app-shell"><main ref={phoneCanvasRef} className={`phone-canvas ${page === 'chat' ? 'chat-canvas' : ''}`}>
+  return <div className="app-shell"><main ref={phoneCanvasRef} className={`phone-canvas ${page === 'chat' ? 'chat-canvas' : ''}`} style={{ '--chat-font-size': `${chatFontSize}px`, '--chat-text-color': chatTextColor, '--chat-base-color': chatBaseColor } as React.CSSProperties}>
     <input ref={fileInputRef} className="hidden-file-input" type="file" accept="image/png,.png" onChange={(event) => handleCharacterFile(event.target.files?.[0])} />
+    {page === 'chat' && <div className="chat-background" style={{ backgroundImage: chatBackground ? `url(${JSON.stringify(chatBackground)})` : undefined, '--chat-background-frost': chatBackgroundFrost } as React.CSSProperties} />}
     {page === 'home' && <section className="home-dashboard">
       <header className="home-heading"><p className="eyebrow">WeiWei Role</p><h1>{pageTitle}</h1><p>选择今天要进入的空间。</p></header>
       <div className="home-entrances">
@@ -937,7 +966,8 @@ function App() {
     {page === 'memory-list' && <><BackHeader title={`${activeCharacter.name} · 记忆库`} onBack={goBack} /><section className="content-stack">{currentMemories.length === 0 ? <div className="empty-memory"><span>✦</span><strong>还没有长期记忆</strong><p>返回上一页，配置总结 API 后可立即总结当前对话。</p></div> : currentMemories.slice().reverse().map((entry) => <article className="memory-entry" key={entry.id}><div><strong>{entry.title}</strong><small>{new Date(entry.createdAt).toLocaleString()} · 来源 {entry.sourceCount} 条消息</small></div><textarea rows={8} value={entry.content} onChange={(e) => setMemoryEntries((current) => ({ ...current, [activeCharacter.id]: (current[activeCharacter.id] || []).map((item) => item.id === entry.id ? { ...item, content: e.target.value } : item) }))} /><button className="danger-link" onClick={() => setMemoryEntries((current) => ({ ...current, [activeCharacter.id]: (current[activeCharacter.id] || []).filter((item) => item.id !== entry.id) }))}>删除这条记忆</button></article>)}</section></>}
 
     {page === 'model' && <><BackHeader title="模型设置" onBack={goBack} /><section className="settings-stack"><div className="settings-group range-group"><RangeRow label="记忆长度" value={memoryLength} min={10} max={100} step={1} onChange={setMemoryLength} /><RangeRow label="回复令牌限制" hint={`当前最多请求 ${maxTokens} 个输出令牌`} value={maxTokens} min={1000} max={64000} step={1000} onChange={setMaxTokens} /></div><div className="settings-group range-group"><RangeRow label="温度" value={temperature} min={0} max={2} step={0.05} onChange={setTemperature} /><RangeRow label="Top-P" value={topP} min={0} max={1} step={0.05} onChange={setTopP} /></div><div className="settings-group toggle-row"><div><strong>流式传输</strong><small>立即逐字显示回复</small></div><button className={`switch ${streaming ? 'on' : ''}`} onClick={() => setStreaming(!streaming)}><span /></button></div></section></>}
-    {page === 'settings' && <><BackHeader title="应用设置" onBack={goBack} /><section className="settings-stack"><div className="storage-health-card"><div><strong>本地数据保险库</strong><small>角色、头像、聊天与长期记忆已同步保存到 IndexedDB</small></div><span>{storageUsage}</span></div><div className="settings-group">{['外观 · 跟随系统', '语言 · 简体中文', '字体 · 默认'].map((item) => <button key={item}><span>{item}</span><span>›</span></button>)}</div><BackupCard /><UpdateCard /></section></>}
+    {page === 'settings' && <><BackHeader title="应用设置" onBack={goBack} /><section className="settings-stack"><div className="storage-health-card"><div><strong>本地数据保险库</strong><small>角色、头像、聊天与长期记忆已同步保存到 IndexedDB</small></div><span>{storageUsage}</span></div><div className="settings-group"><button onClick={() => navigate('appearance')}><span>外观 · 自定义主题</span><span>›</span></button><button><span>语言 · 简体中文</span><span>›</span></button><button onClick={() => navigate('appearance')}><span>字体 · {chatFontSize}px</span><span>›</span></button></div><BackupCard /><UpdateCard /></section></>}
+    {page === 'appearance' && <><BackHeader title="聊天外观" onBack={goBack} action={<button className="soft-button" onClick={() => { setChatFontSize(16); setChatTextColor('#4e4852'); setChatBaseColor('#f5f1f8'); setChatBackgroundFrost(.72); setChatBackground('') }}>恢复默认</button>} /><section className="settings-stack appearance-page"><div className="appearance-preview" style={{ color: chatTextColor, backgroundColor: chatBaseColor, backgroundImage: chatBackground ? `linear-gradient(rgba(255,255,255,${chatBackgroundFrost}),rgba(255,255,255,${chatBackgroundFrost})),url(${JSON.stringify(chatBackground)})` : undefined, fontSize: chatFontSize }}><small>聊天正文预览</small><p>你终于回来了。文字大小、颜色和背景都会即时跟随这里。</p></div><div className="appearance-card"><RangeRow label="正文字号" hint="只调整聊天正文，不影响按钮与设置页" value={chatFontSize} min={13} max={24} step={1} onChange={setChatFontSize} /><label className="appearance-color-row"><div><strong>正文颜色</strong><small>{chatTextColor}</small></div><input type="color" value={chatTextColor} onChange={(event) => setChatTextColor(event.target.value)} /></label><label className="appearance-color-row"><div><strong>背景底色</strong><small>{chatBaseColor}</small></div><input type="color" value={chatBaseColor} onChange={(event) => setChatBaseColor(event.target.value)} /></label></div><div className="appearance-card background-card"><div><strong>聊天背景图</strong><small>图片会压缩并保存在本机 IndexedDB，不上传仓库。</small></div>{chatBackground && <div className="background-preview" style={{ backgroundImage: `url(${JSON.stringify(chatBackground)})` }} />}<div className="appearance-actions"><label className="primary-button">选择背景图<input type="file" accept="image/*" onChange={async (event) => { const file = event.target.files?.[0]; if (file) setChatBackground(await backgroundImageData(file)); event.currentTarget.value = '' }} /></label>{chatBackground && <button className="secondary-button" onClick={() => setChatBackground('')}>移除背景</button>}</div>{chatBackground && <RangeRow label="背景白纱" hint="数值越高，文字越清楚" value={chatBackgroundFrost} min={0} max={.92} step={.04} onChange={setChatBackgroundFrost} />}</div></section></>}
 
     {menuCharacter && <div className="character-menu-layer"><button className="drawer-backdrop" aria-label="关闭角色菜单" onClick={() => setCharacterMenuId(null)} /><section className="conversation-menu character-action-menu"><header><div><small>角色操作</small><strong>{menuCharacter.name}</strong></div><button onClick={() => setCharacterMenuId(null)}>×</button></header><button onClick={() => { setActiveId(menuCharacter.id); setCharacterMenuId(null); navigate('card-data') }}>编辑角色卡</button><button onClick={() => duplicateCharacter(menuCharacter)}>复制角色</button><button onClick={() => exportCharacter(menuCharacter)}>导出 Character Card V3 JSON</button><button className="danger" onClick={() => deleteCharacter(menuCharacter)}>删除角色及相关数据</button></section></div>}
 
