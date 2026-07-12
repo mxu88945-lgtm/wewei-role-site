@@ -167,12 +167,12 @@ function SandboxHtml({ html }: { html: string }) {
   return <iframe ref={frameRef} className={`message-script-frame ${fullDocument ? 'full-document' : 'inline-script'}`} title="角色卡互动内容" sandbox="allow-scripts" srcDoc={source} style={{ height }} />
 }
 
-export default function MessageContent({ text, role, character, userName }: { text: string; role: 'user' | 'assistant'; character: Character; userName: string }) {
+export default function MessageContent({ text, role, character, userName, layout = 'bubble' }: { text: string; role: 'user' | 'assistant'; character: Character; userName: string; layout?: 'bubble' | 'flat' }) {
   const rendered = useMemo(() => role === 'assistant'
     ? applyRegexScripts(text, character.regexScripts, character, userName, 2, 'display')
     : applyMacros(text, character, userName), [text, role, character, userName])
 
-  if (hasExecutableScript(rendered) || isFullHtmlDocument(rendered)) return <SandboxHtml html={rendered} />
-  if (looksLikeHtml(rendered)) return <SafeInlineHtml html={rendered} />
-  return <div className="message-plain-text">{rendered}</div>
+  if (hasExecutableScript(rendered) || isFullHtmlDocument(rendered)) return <div className="message-content message-content-rich"><SandboxHtml html={rendered} /></div>
+  if (looksLikeHtml(rendered)) return <div className="message-content message-content-rich"><SafeInlineHtml html={rendered} /></div>
+  return <div className={`message-content message-content-plain ${layout === 'bubble' ? 'message-content-bubble' : 'message-content-flat'}`}><div className="message-plain-text">{rendered}</div></div>
 }
