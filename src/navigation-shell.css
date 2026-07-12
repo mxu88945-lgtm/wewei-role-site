@@ -96,13 +96,11 @@
 .drawer-section-title strong { font-size: 12px; }
 .drawer-section-title > button { border: 0; color: #8258bd; background: transparent; font-size: 11px; font-weight: 800; }
 .drawer-member-row { display: flex; gap: 11px; overflow-x: auto; padding: 8px 1px 2px; }
-.drawer-member-chip, .drawer-add-member { position: relative; width: 56px; flex: 0 0 56px; border: 0; display: grid; justify-items: center; gap: 4px; color: #77707b; background: transparent; }
-.drawer-member-chip > img, .drawer-member-chip > span, .drawer-add-member { width: 48px; height: 48px; border-radius: 16px; object-fit: cover; }
-.drawer-member-chip > span, .drawer-add-member { display: grid; place-items: center; color: white; background: linear-gradient(145deg,#8561dc,#e099c1); font-weight: 800; }
-.drawer-member-chip small, .drawer-add-member small { width: 58px; overflow: hidden; color: #827a87; text-align: center; text-overflow: ellipsis; white-space: nowrap; font-size: 9px; }
+.drawer-member-chip { position: relative; width: 56px; flex: 0 0 56px; border: 0; display: grid; justify-items: center; gap: 4px; color: #77707b; background: transparent; }
+.drawer-member-chip > img, .drawer-member-chip > span { width: 48px; height: 48px; border-radius: 16px; object-fit: cover; }
+.drawer-member-chip > span { display: grid; place-items: center; color: white; background: linear-gradient(145deg,#8561dc,#e099c1); font-weight: 800; }
+.drawer-member-chip small { width: 58px; overflow: hidden; color: #827a87; text-align: center; text-overflow: ellipsis; white-space: nowrap; font-size: 9px; }
 .drawer-member-chip > button { position: absolute; top: -5px; right: -2px; width: 19px; height: 19px; padding: 0; border: 2px solid #f0edf2; border-radius: 50%; color: white; background: #8c858f; font-size: 11px; line-height: 14px; }
-.drawer-add-member { height: auto; color: #8258bd; background: #e6deee; font-size: 21px; }
-.drawer-add-member small { position: absolute; top: 52px; }
 .drawer-compact-group > .drawer-section-title { padding: 8px 14px 4px; }
 .drawer-compact-group > button { width: 100%; min-height: 46px; padding: 0 14px; border: 0; display: flex; align-items: center; justify-content: space-between; color: #49434d; background: transparent; text-align: left; font-size: 12px; }
 .drawer-compact-group > button + button, .drawer-inline-setting + .drawer-inline-setting { border-top: 1px solid rgba(75,61,83,.06); }
