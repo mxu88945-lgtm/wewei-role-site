@@ -1,10 +1,10 @@
 import type { Character, CharacterBook, WorldBookEntry } from './characterCard'
 import type { ChatApiMessage } from './chatApi'
 import { applyMacros, applyRegexScripts } from './regexEngine'
+import { selectRelevantMemories, type LongMemoryEntry } from './memoryEngine'
 
 type SourceMessage = { role: 'user' | 'assistant'; text: string }
-type MemoryEntry = { content: string }
-type MemoryInput = { entries: MemoryEntry[]; injectPosition: string; injectPrompt: string }
+type MemoryInput = { entries: LongMemoryEntry[]; injectPosition: string; injectPrompt: string }
 
 type PromptInput = {
   character: Character
@@ -71,17 +71,9 @@ export const USER_AGENCY_GUARD = `【用户主角控制权｜最高优先级】
 此规则高于剧情推进、文风模仿、示例对话和角色卡内其他指令。`
 
 function memoryText(input: PromptInput) {
-  const selected: string[] = []
-  let remaining = 12000
-  for (const entry of input.memory.entries.slice().reverse()) {
-    const content = entry.content.trim()
-    if (!content) continue
-    const clipped = content.slice(-remaining)
-    selected.unshift(clipped)
-    remaining -= clipped.length
-    if (remaining <= 0) break
-  }
-  const contents = selected.join('\n\n')
+  const recentText = input.messages.slice(-Math.max(1, input.memoryLength)).map((message) => message.text).join('\n')
+  const selected = selectRelevantMemories(input.memory.entries, recentText)
+  const contents = selected.map((entry) => `${entry.pinned ? '【核心记忆｜永久有效】\n' : ''}${entry.content.trim()}`).join('\n\n')
   if (!contents) return ''
   return applyMacros(input.memory.injectPrompt || '{{memories}}', input.character, input.user.name).replace('{{memories}}', contents)
 }
