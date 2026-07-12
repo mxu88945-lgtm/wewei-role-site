@@ -120,7 +120,8 @@ export default function CharacterCardManager({ character, onChange, onBack, init
 }
 
 function MetadataArea({ label, value, onChange }: { label: string; value: string; onChange: (value: string) => void }) {
-  return <label className="metadata-editor metadata-area"><strong>{label}</strong><textarea rows={8} value={value} onChange={(event) => onChange(event.target.value)} /></label>
+  const [expanded, setExpanded] = useState(false)
+  return <article className={`metadata-editor metadata-area ${expanded ? 'expanded' : ''}`}><button className="metadata-area-heading" onClick={() => setExpanded(!expanded)}><div><strong>{label}</strong><small>{value.trim() ? `${value.trim().slice(0, 72)}${value.trim().length > 72 ? '…' : ''}` : '暂无内容'}</small></div><span>{expanded ? '收起⌃' : '展开⌄'}</span></button>{expanded && <textarea rows={10} value={value} onChange={(event) => onChange(event.target.value)} />}</article>
 }
 
 function Toggle({ label, value, onChange }: { label: string; value: boolean; onChange: (value: boolean) => void }) {

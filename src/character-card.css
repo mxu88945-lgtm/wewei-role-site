@@ -20,6 +20,13 @@
 .metadata-summary { width: 100%; border: 0; padding: 16px; display: grid; grid-template-columns: 10px 1fr auto; align-items: center; gap: 12px; color: inherit; background: transparent; text-align: left; }
 .metadata-summary strong, .metadata-summary small { display: block; }
 .metadata-summary small { margin-top: 5px; overflow: hidden; color: #958e99; font-size: 11px; text-overflow: ellipsis; white-space: nowrap; }
+.metadata-area { padding: 0; overflow: hidden; }
+.metadata-area-heading { width: 100%; border: 0; padding: 17px 18px; display: flex; align-items: center; justify-content: space-between; gap: 14px; color: inherit; background: transparent; text-align: left; }
+.metadata-area-heading div { min-width: 0; }
+.metadata-area-heading strong, .metadata-area-heading small { display: block; }
+.metadata-area-heading small { max-width: 100%; margin-top: 6px; overflow: hidden; color: #958e99; font-size: 11px; line-height: 1.45; text-overflow: ellipsis; white-space: nowrap; }
+.metadata-area-heading > span { flex: 0 0 auto; color: #825bb4; font-size: 11px; font-weight: 800; }
+.metadata-area > textarea { width: calc(100% - 32px); margin: 0 16px 16px; }
 .status-dot { width: 9px; height: 9px; border-radius: 50%; background: #c0bac3; }
 .status-dot.on { background: #67c990; box-shadow: 0 0 0 5px rgba(103,201,144,.12); }
 .editor-body { display: grid; gap: 14px; padding: 2px 16px 16px; border-top: 1px solid rgba(75,61,83,.05); }
