@@ -1053,37 +1053,14 @@ function App() {
       </aside>}
 
       {drawer === 'right' && <aside className="app-drawer right-drawer" aria-label="聊天设置">
-        <header className="drawer-character"><CharacterPortrait item={activeCharacter} /><div><small>当前角色</small><h2>{activeCharacter.name}</h2><p>{activeConversation?.title}</p></div></header>
-        <div className="drawer-settings">
-          {[
-            ['情景与角色资料', 'card-data', '◇'],
-            ['用户身份', 'identity', '惟'],
-            ['世界书', 'card-worldbook', '◎'],
-            ['正则与美化', 'card-regex', '.*'],
-            ['长期记忆', 'memory', '✦'],
-            [`API · ${api.name || '当前渠道'}`, 'api', '⌁'],
-            ['模型设置', 'model', '◫'],
-            ['预设', 'preset', '≡'],
-            ['应用设置', 'settings', '⚙'],
-          ].map(([label, target, icon]) => <button key={label} onClick={() => navigate(target as Page, 'right')}><span>{icon}</span><strong>{label}</strong><i>›</i></button>)}
+        <header className="drawer-character compact"><div><small>{activeConversation?.kind === 'group' ? '群聊设置' : '聊天设置'}</small><h2>{activeConversation?.title || activeCharacter.name}</h2></div><button onClick={() => setDrawer(null)}>×</button></header>
+        <div className="right-drawer-scroll">
+          <section className="drawer-members-section"><div className="drawer-section-title"><strong>成员（{conversationMemberIds().length}）</strong><button onClick={() => { setDrawer(null); setMemberPickerOpen(true) }}>添加</button></div><div className="drawer-member-row">{conversationMemberIds().map((id) => { const member = characters.find((item) => item.id === id); if (!member) return null; return <div className="drawer-member-chip" key={id}>{member.avatar ? <img src={member.avatar} alt="" /> : <span>{member.name.slice(-1)}</span>}<small>{member.name}</small>{conversationMemberIds().length > 1 && <button aria-label={`移除${member.name}`} onClick={() => removeConversationMember(id)}>×</button>}</div> })}<button className="drawer-add-member" onClick={() => { setDrawer(null); setMemberPickerOpen(true) }}>＋<small>添加</small></button></div></section>
+          <section className="drawer-compact-group"><div className="drawer-section-title"><strong>聊天设置</strong></div>{[['情景与角色资料', 'card-data'], ['用户身份', 'identity'], ['聊天外观与主题', 'appearance']].map(([label, target]) => <button key={label} onClick={() => navigate(target as Page, 'right')}><span>{label}</span><i>›</i></button>)}</section>
+          <section className="drawer-compact-group"><div className="drawer-section-title"><strong>显示与回复</strong></div><div className="drawer-inline-setting"><span>消息显示</span><div className="mini-segment"><button className={chatLayout === 'bubble' ? 'active' : ''} onClick={() => setChatLayout('bubble')}>气泡</button><button className={chatLayout === 'flat' ? 'active' : ''} onClick={() => setChatLayout('flat')}>平铺</button></div></div>{activeConversation?.kind === 'group' && <div className="drawer-inline-setting reply-mode-row"><span>回复模式</span><select value={groupReplyMode} onChange={(event) => setGroupReplyMode(event.target.value as GroupReplyMode)}><option value="natural">自然聊天</option><option value="contextual">情境发言</option><option value="all">全员回复</option><option value="specified">指定 @</option></select></div>}</section>
+          <section className="drawer-compact-group"><div className="drawer-section-title"><strong>角色与高级设置</strong></div>{[['世界书', 'card-worldbook'], ['正则与美化', 'card-regex'], ['长期记忆', 'memory'], [`API · ${api.name || '当前渠道'}`, 'api'], ['模型设置', 'model'], ['预设', 'preset'], ['应用设置', 'settings']].map(([label, target]) => <button key={label} onClick={() => navigate(target as Page, 'right')}><span>{label}</span><i>›</i></button>)}</section>
+          <section className="drawer-compact-group drawer-actions-group"><button onClick={() => navigate('character-detail', 'right')}><span>查看角色详情</span><i>›</i></button><button onClick={compressOldContext} disabled={compressingContext || messages.length < 16}><span>{compressingContext ? '正在压缩旧上下文…' : activeConversation?.contextSummary ? `更新上下文摘要 · 已压缩 ${activeConversation.compressedUntil || 0} 条` : '压缩旧上下文'}</span><i>⌁</i></button><button onClick={exportConversationTxt}><span>导出当前对话 TXT</span><i>↓</i></button></section>
         </div>
-        <section className="chat-layout-setting" aria-label="消息显示方式">
-          <div><strong>消息显示</strong><small>角色卡美化不变，只切换外层排版</small></div>
-          <div className="chat-layout-switch">
-            <button className={chatLayout === 'bubble' ? 'active' : ''} onClick={() => setChatLayout('bubble')}>气泡</button>
-            <button className={chatLayout === 'flat' ? 'active' : ''} onClick={() => setChatLayout('flat')}>平铺</button>
-          </div>
-        </section>
-        {activeConversation?.kind === 'group' && <section className="chat-layout-setting group-reply-setting" aria-label="群聊发言模式">
-          <div><strong>群聊发言模式</strong><small>当前：{{ natural: '自然聊天', contextual: '情境发言', all: '全员回复', specified: '指定 @' }[groupReplyMode]}</small></div>
-          <div className="group-reply-grid">
-            {([['natural', '自然聊天'], ['contextual', '情境发言'], ['all', '全员回复'], ['specified', '指定 @']] as const).map(([mode, label]) => <button key={mode} className={groupReplyMode === mode ? 'active' : ''} onClick={() => setGroupReplyMode(mode)}>{label}</button>)}
-          </div>
-        </section>}
-        <button className="drawer-detail-link member-manage-link" onClick={() => { setDrawer(null); setMemberPickerOpen(true) }}>{activeConversation?.kind === 'group' ? `管理群聊成员（${conversationMemberIds().length}）` : '＋ 添加成员并转为群聊'} <span>›</span></button>
-        <button className="drawer-detail-link" onClick={() => navigate('character-detail', 'right')}>查看角色详情 <span>›</span></button>
-        <button className="drawer-detail-link" onClick={compressOldContext} disabled={compressingContext || messages.length < 16}>{compressingContext ? '正在压缩旧上下文…' : activeConversation?.contextSummary ? `更新上下文摘要 · 已压缩 ${activeConversation.compressedUntil || 0} 条` : '压缩旧上下文'} <span>⌁</span></button>
-        <button className="drawer-detail-link export-chat-link" onClick={exportConversationTxt}>导出当前对话 TXT <span>↓</span></button>
       </aside>}
 
       {menuConversation && <section className="conversation-menu" aria-label="会话操作">
