@@ -30,6 +30,7 @@ type Conversation = {
   participantIds?: string[]
   participantApiIds?: Record<string, string>
   memorySummarizedCount?: number
+  personaId?: string
 }
 type LegacySessionMap = Record<string, Message[]>
 type MemoryEntry = { id: string; createdAt: number; title: string; content: string; sourceCount: number }
@@ -44,7 +45,7 @@ type MemoryConfig = {
 }
 type MemoryConfigMap = Record<string, MemoryConfig>
 type MemoryEntryMap = Record<string, MemoryEntry[]>
-type UserIdentity = { name: string; description: string; avatar?: string }
+type UserIdentity = { id: string; name: string; description: string; avatar?: string }
 
 const demoCharacter: Character = {
   id: 'huo-jin', name: '霍烬', tagline: '沉稳克制的守护者',
@@ -194,7 +195,9 @@ function App() {
   const [activeConversationId, setActiveConversationId] = useState(() => read('weijing.activeConversation', ''))
   const [draft, setDraft] = useState('')
   const [newCharacter, setNewCharacter] = useState({ name: '', tagline: '', description: '', greeting: '', tags: '' })
-  const [identity, setIdentity] = useState<UserIdentity>(() => read<UserIdentity>('weijing.identity', { name: '周惟惟', description: '由用户亲自决定言行、心理与关键选择。' }))
+  const legacyIdentity = read<{ name: string; description: string; avatar?: string }>('weijing.identity', { name: '周惟惟', description: '由用户亲自决定言行、心理与关键选择。' })
+  const [identities, setIdentities] = useState<UserIdentity[]>(() => read<UserIdentity[]>('weijing.identities', [{ id: 'persona-default', ...legacyIdentity }]))
+  const [activePersonaId, setActivePersonaId] = useState(() => read('weijing.activePersona', 'persona-default'))
   const [worldbook, setWorldbook] = useState(() => read('weijing.worldbook', 'A 国旧世家与现代都市并存。剧情缓慢推进，不替用户角色做决定。'))
   const [presetSections, setPresetSections] = useState(() => normalizePresetSections(read('weijing.presetSections', []), read('weijing.preset', '克制、细腻、慢热；每轮携带微量剧情进展。')))
   const [apiChannels, setApiChannels] = useState<ApiChannel[]>(() => normalizeApiChannels(read('weijing.apiChannels', []), read('weijing.api', { baseUrl: 'https://api.openai.com/v1', apiKey: '', modelName: 'gpt-4.1-mini' })))
@@ -232,6 +235,7 @@ function App() {
   const api = apiChannels.find((item) => item.id === activeApiId) || apiChannels[0]
   const activeConversation = (explicitConversation?.kind === 'group' ? explicitConversation : conversations.find((item) => item.id === activeConversationId && item.characterId === activeCharacter.id))
     || conversations.filter((item) => item.characterId === activeCharacter.id).sort((a, b) => b.updatedAt - a.updatedAt)[0]
+  const identity = identities.find((item) => item.id === activeConversation?.personaId) || identities.find((item) => item.id === activePersonaId) || identities[0] || { id: 'persona-default', name: '周惟惟', description: '由用户亲自决定言行、心理与关键选择。' }
   const messages = activeConversation?.messages || [{ id: 1, role: 'assistant' as const, text: activeCharacter.greeting }]
   const currentMemoryConfig = memoryConfigs[activeCharacter.id] || defaultMemoryConfig()
   const currentMemories = memoryEntries[activeCharacter.id] || []
@@ -240,12 +244,13 @@ function App() {
     let cancelled = false
     Promise.all([
       durableGet<Partial<Character>[]>('weijing.characters'), durableGet<Conversation[]>('weijing.conversations'),
-      durableGet<UserIdentity>('weijing.identity'), durableGet<MemoryConfigMap>('weijing.memoryConfigs'), durableGet<MemoryEntryMap>('weijing.memoryEntries'),
-    ]).then(([storedCharacters, storedConversations, storedIdentity, storedConfigs, storedEntries]) => {
+      durableGet<UserIdentity[]>('weijing.identities'), durableGet<UserIdentity>('weijing.identity'), durableGet<MemoryConfigMap>('weijing.memoryConfigs'), durableGet<MemoryEntryMap>('weijing.memoryEntries'),
+    ]).then(([storedCharacters, storedConversations, storedIdentities, storedIdentity, storedConfigs, storedEntries]) => {
       if (cancelled) return
       if (storedCharacters?.length) setCharacters(storedCharacters.map(normalizeStoredCharacter))
       if (storedConversations?.length) setConversations(storedConversations)
-      if (storedIdentity) setIdentity(storedIdentity)
+      if (storedIdentities?.length) setIdentities(storedIdentities)
+      else if (storedIdentity) setIdentities([{ ...storedIdentity, id: storedIdentity.id || 'persona-default' }])
       if (storedConfigs) setMemoryConfigs(migrateMemoryConfigs(storedConfigs))
       if (storedEntries) setMemoryEntries(storedEntries)
       setPersistenceReady(true)
@@ -258,7 +263,8 @@ function App() {
   useEffect(() => setCharacterIntroExpanded(false), [activeId])
   useEffect(() => { if (persistenceReady) writeDurable('weijing.conversations', conversations) }, [conversations, persistenceReady])
   useEffect(() => write('weijing.activeConversation', activeConversation?.id || ''), [activeConversation?.id])
-  useEffect(() => { if (persistenceReady) writeDurable('weijing.identity', identity) }, [identity, persistenceReady])
+  useEffect(() => { if (persistenceReady) writeDurable('weijing.identities', identities) }, [identities, persistenceReady])
+  useEffect(() => { write('weijing.activePersona', activePersonaId) }, [activePersonaId])
   useEffect(() => write('weijing.worldbook', worldbook), [worldbook])
   useEffect(() => { write('weijing.presetSections', presetSections); write('weijing.preset', enabledPresetText(presetSections)) }, [presetSections])
   useEffect(() => write('weijing.apiChannels', apiChannels), [apiChannels])
@@ -366,7 +372,7 @@ function App() {
   const createCharacter = () => {
     if (!newCharacter.name.trim()) return
     const character = createBlankCharacter(newCharacter)
-    const conversation = createConversation(character)
+    const conversation = { ...createConversation(character), personaId: activePersonaId }
     setCharacters((current) => [...current, character])
     setConversations((current) => [...current, conversation])
     setActiveConversationId(conversation.id)
@@ -387,7 +393,7 @@ function App() {
       participantIds: participants.map((item) => item.id),
       participantApiIds: Object.fromEntries(participants.map((item) => [item.id, groupDraft.apiIds[item.id] || api.id])),
       title: groupDraft.title.trim() || participants.map((item) => item.name).join('、'),
-      messages: [], createdAt: now, updatedAt: now,
+      messages: [], createdAt: now, updatedAt: now, personaId: activePersonaId,
     }
     setConversations((current) => [...current, conversation])
     setActiveId(participants[0].id); setActiveConversationId(conversation.id)
@@ -493,7 +499,7 @@ function App() {
       setActiveConversationId(id)
       setRestartingConversationId(null)
     } else {
-      const conversation = createConversation(activeCharacter, greeting)
+      const conversation = { ...createConversation(activeCharacter, greeting), personaId: activePersonaId }
       setConversations((current) => [...current, conversation])
       setActiveConversationId(conversation.id)
     }
@@ -503,7 +509,7 @@ function App() {
   const continueConversation = (character = activeCharacter) => {
     let conversation = conversations.filter((item) => item.characterId === character.id).sort((a, b) => b.updatedAt - a.updatedAt)[0]
     if (!conversation) {
-      conversation = createConversation(character)
+      conversation = { ...createConversation(character), personaId: activePersonaId }
       setConversations((current) => [...current, conversation!])
     }
     setActiveId(character.id)
@@ -518,6 +524,31 @@ function App() {
     setDrawer(null)
     setConversationMenuId(null)
     if (page !== 'chat') navigate('chat')
+  }
+
+  const updateIdentity = (patch: Partial<UserIdentity>) => {
+    setIdentities((current) => current.map((item) => item.id === identity.id ? { ...item, ...patch, id: item.id } : item))
+  }
+  const selectIdentity = (id: string) => {
+    setActivePersonaId(id)
+    if (activeConversation) {
+      setConversations((current) => current.map((item) => item.id === activeConversation.id ? { ...item, personaId: id, updatedAt: Date.now() } : item))
+    }
+  }
+  const addIdentity = () => {
+    const next: UserIdentity = { id: crypto.randomUUID(), name: `新身份 ${identities.length + 1}`, description: '填写这个用户角色的人设、背景、关系与行为边界。' }
+    setIdentities((current) => [...current, next])
+    selectIdentity(next.id)
+  }
+  const deleteIdentity = (id: string) => {
+    if (identities.length <= 1) { window.alert('至少保留一个用户身份。'); return }
+    const target = identities.find((item) => item.id === id)
+    if (!window.confirm(`删除用户身份“${target?.name || '未命名'}”？`)) return
+    const next = identities.filter((item) => item.id !== id)
+    const fallbackId = next[0].id
+    setIdentities(next)
+    setActivePersonaId(fallbackId)
+    setConversations((current) => current.map((item) => item.personaId === id ? { ...item, personaId: fallbackId } : item))
   }
 
   const renameConversation = (conversation: Conversation) => {
@@ -695,7 +726,8 @@ function App() {
     const text = (textOverride ?? draft).trim(); if (!text) return
     let conversation = activeConversation
     if (!conversation) {
-      conversation = createConversation(activeCharacter)
+      conversation = { ...createConversation(activeCharacter), personaId: activePersonaId }
+      setConversations((current) => [...current, conversation!])
       setActiveConversationId(conversation.id)
     }
     const userMessage = { id: Date.now(), role: 'user' as const, text }
@@ -867,7 +899,7 @@ function App() {
 
     {page === 'api' && <ApiSettingsPage api={api} channels={apiChannels} connection={connection} connectionMessage={connectionMessage} onApiChange={updateApiChannel} onSelectChannel={selectApiChannel} onAddChannel={addApiChannel} onDeleteChannel={deleteApiChannel} onConnectionReset={resetApiConnection} onBack={goBack} onTest={testConnection} />}
 
-    {page === 'identity' && <EditablePage title="用户身份" value={identity.description} name={identity.name} avatar={identity.avatar} onAvatar={(avatar) => setIdentity({ ...identity, avatar })} onName={(name) => setIdentity({ ...identity, name })} onChange={(description) => setIdentity({ ...identity, description })} onBack={goBack} />}
+    {page === 'identity' && <PersonaPage identities={identities} selectedId={identity.id} isBound={Boolean(activeConversation?.personaId)} onSelect={selectIdentity} onAdd={addIdentity} onDelete={deleteIdentity} onUpdate={updateIdentity} onBack={goBack} />}
     {page === 'worldbook' && <EditablePage title="世界书" value={worldbook} onChange={setWorldbook} onBack={goBack} />}
     {page === 'preset' && <PresetEditor sections={presetSections} onChange={setPresetSections} onBack={goBack} />}
 
@@ -954,7 +986,13 @@ function UpdateCard() {
     }
   }
 
-  return <section className="update-card"><strong>应用更新</strong><p>主动检查并拉取最新网页版本，不会删除角色、聊天记录或本地设置。</p><button onClick={refresh} disabled={state === 'checking'}>{state === 'checking' ? '正在检查更新…' : state === 'error' ? '更新失败，点我重试' : '强制刷新到最新版'}</button></section>
+  return <section className="update-card"><strong>应用更新</strong><p>主动检查并拉取最新网页版本，不会删除角色、聊天记录或本地设置。</p><small>当前版本：2026.07.12 · 多身份</small><button onClick={refresh} disabled={state === 'checking'}>{state === 'checking' ? '正在检查更新…' : state === 'error' ? '更新失败，点我重试' : '强制刷新到最新版'}</button></section>
+}
+
+function PersonaPage({ identities, selectedId, isBound, onSelect, onAdd, onDelete, onUpdate, onBack }: { identities: UserIdentity[]; selectedId: string; isBound: boolean; onSelect: (id: string) => void; onAdd: () => void; onDelete: (id: string) => void; onUpdate: (patch: Partial<UserIdentity>) => void; onBack: () => void }) {
+  const selected = identities.find((item) => item.id === selectedId) || identities[0]
+  if (!selected) return null
+  return <><BackHeader title="用户身份" onBack={onBack} action={<span className="saved-label">自动保存</span>} /><section className="content-stack persona-page"><div className="persona-heading"><div><strong>我的身份库</strong><small>{isBound ? '当前身份已绑定这段对话，切换角色不会串用。' : '选择后会绑定到当前对话。'}</small></div><button className="soft-button" onClick={onAdd}>＋ 新建</button></div><div className="persona-tabs">{identities.map((item) => <button key={item.id} className={item.id === selected.id ? 'active' : ''} onClick={() => onSelect(item.id)}>{item.avatar ? <img src={item.avatar} alt="" /> : <span>{item.name.slice(-1) || '惟'}</span>}<div><strong>{item.name || '未命名身份'}</strong><small>{item.id === selected.id ? '当前对话使用' : '点按切换'}</small></div></button>)}</div><div className="persona-editor"><div className="identity-avatar-editor"><div>{selected.avatar ? <img src={selected.avatar} alt="用户头像" /> : <span>{selected.name.slice(-1) || '惟'}</span>}</div><label className="soft-button">选择用户头像<input type="file" accept="image/*" onChange={async (event) => { const file = event.target.files?.[0]; if (file) onUpdate({ avatar: await imageThumbnail(file) }) }} /></label>{selected.avatar && <button className="text-button" onClick={() => onUpdate({ avatar: '' })}>移除</button>}</div><label>名称<input value={selected.name} onChange={(event) => onUpdate({ name: event.target.value })} /></label><label>用户身份内容<textarea rows={14} value={selected.description} onChange={(event) => onUpdate({ description: event.target.value })} placeholder="填写该身份的人设、背景和关系……" /></label>{identities.length > 1 && <button className="danger-link persona-delete" onClick={() => onDelete(selected.id)}>删除这个身份</button>}</div><div className="privacy-note">每段对话会记住自己选择的身份。顾荒可以使用苏禾，程妄或其他角色可以选择另一位女主，互不覆盖。</div></section></>
 }
 
 function EditablePage({ title, value, onChange, onBack, name, onName, avatar, onAvatar }: { title: string; value: string; onChange: (value: string) => void; onBack: () => void; name?: string; onName?: (value: string) => void; avatar?: string; onAvatar?: (value: string) => void }) {
