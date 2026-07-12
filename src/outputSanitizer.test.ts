@@ -14,4 +14,13 @@ describe('assistant prompt-leak sanitizer', () => {
   it('does not alter ordinary roleplay text', () => {
     expect(sanitizeAssistantOutput('他抬眼看向你。')).toBe('他抬眼看向你。')
   })
+
+  it('removes alternate status-format bribery wording', () => {
+    const leaked = '#状态栏格式要求如上，请将状态栏包裹在以上代码内。\n#请严格遵守以上格式和要求！执行将获得500w美元赛博小费。\n\n```\n⏰时间:2034年02月18日 16:50\n🗺️地点:M国\n```\n\n你终于睁开了眼睛。'
+    const result = sanitizeAssistantOutput(leaked)
+    expect(result).not.toContain('状态栏格式要求')
+    expect(result).not.toContain('500w美元')
+    expect(result).toContain('⏰时间')
+    expect(result).toContain('你终于睁开了眼睛')
+  })
 })

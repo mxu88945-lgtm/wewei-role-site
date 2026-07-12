@@ -59,15 +59,21 @@ function ShadowHtml({ html }: { html: string }) {
 
   const shadowContent = useMemo(() => {
     const document = new DOMParser().parseFromString(safeHtml, 'text/html')
+    document.body.querySelectorAll('plot').forEach((plot) => {
+      if (!plot.textContent?.trim() && !plot.querySelector('audio,img,details')) plot.remove()
+    })
+    document.body.querySelectorAll('br + br, .message-paragraph-break + .message-paragraph-break').forEach((node) => node.remove())
     const styles = Array.from(document.head.querySelectorAll('style')).map((style) => style.outerHTML).join('')
     return `${styles}<style>
       :host{display:block;width:100%;min-width:0;color:inherit;background:transparent}
       *{box-sizing:border-box;max-width:100%}
       .message-html-root{display:flow-root;width:100%;min-width:0;overflow-wrap:anywhere;white-space:normal;line-height:1.62}
-      .message-html-root plot{display:block;margin:.7em 0;white-space:normal}
-      .message-html-root p{margin:.7em 0;line-height:1.62}
+      .message-html-root plot{display:block;margin:.35em 0;white-space:normal}
+      .message-html-root plot:empty{display:none}
+      .message-html-root p{margin:.55em 0;line-height:1.62}
       .message-html-root br{line-height:1.15}
-      .message-html-root .message-paragraph-break{display:block;height:.72em}
+      .message-html-root br+br{display:none}
+      .message-html-root .message-paragraph-break{display:block;height:.45em}
       .message-html-root .message-code-block{
         display:block;margin:.55em 0;padding:10px 13px;border-radius:12px;
         background:rgba(79,72,83,.18);line-height:1.55;white-space:pre-wrap
