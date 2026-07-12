@@ -23,4 +23,13 @@ describe('assistant prompt-leak sanitizer', () => {
     expect(result).toContain('⏰时间')
     expect(result).toContain('你终于睁开了眼睛')
   })
+
+  it('removes strict-format leakage used by imported role cards', () => {
+    const leaked = '#注意：请严格按照以上格式输出，禁止缺少任何符号（包括空格与换行），禁止缺少任何一项，如果不按照此格式输出，将会被倒扣1000美元！！\n⏰时间:2034年02月18日 17:15\n🗺️地点:M国\n\n真正剧情。'
+    const result = sanitizeAssistantOutput(leaked)
+    expect(result).not.toContain('严格按照以上格式')
+    expect(result).not.toContain('1000美元')
+    expect(result).toContain('⏰时间')
+    expect(result).toContain('真正剧情')
+  })
 })
