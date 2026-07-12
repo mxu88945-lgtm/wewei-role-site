@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { normalizeMixedMarkup } from './MessageContent'
+import { isFullHtmlDocument, normalizeMixedMarkup } from './MessageContent'
 
 describe('character-card mixed markup', () => {
   it('renders Tavo-style plot fences, inline thoughts and paragraph spacing', () => {
@@ -9,5 +9,9 @@ describe('character-card mixed markup', () => {
     expect(result).toContain('<span class="message-paragraph-break"></span>')
     expect(result).toContain('<em>动作</em>')
     expect(result).toContain('<span class="message-inline-code">心理</span>')
+  })
+
+  it('keeps character-card style blocks in the sandbox renderer', () => {
+    expect(isFullHtmlDocument('<style>.bubble{border-radius:18px}</style><div class="bubble">妈在？</div>')).toBe(true)
   })
 })
