@@ -2,6 +2,7 @@ import { useLayoutEffect, useMemo, useRef, useState } from 'react'
 import DOMPurify from 'dompurify'
 import type { Character } from './characterCard'
 import { applyMacros, applyRegexScripts } from './regexEngine'
+import { sanitizeAssistantOutput } from './outputSanitizer'
 
 function unwrapCodeFence(value: string) {
   return value
@@ -36,7 +37,7 @@ function renderInlineMarkdown(value: string) {
 const SENTENCE_RE = /[^。！？!?…]+(?:[。！？!?]+[”」』】）)]*|…+[”」』】）)]*|$)/g
 
 function segmentLongChineseParagraph(value: string) {
-  if (value.length < 140) return [value]
+  if (value.length < 100) return [value]
   const sentences = value.match(SENTENCE_RE)?.map((sentence) => sentence.trim()).filter(Boolean) || [value]
   if (sentences.length < 2) return [value]
 
@@ -87,7 +88,10 @@ export function normalizeMixedMarkup(value: string) {
     const protectedMatch = part.match(/^\u0000PROTECTED_(\d+)\u0000$/)
     if (protectedMatch) return protectedBlocks[Number(protectedMatch[1])] || ''
     if (part.startsWith('<') && part.endsWith('>')) return part
-    return renderInlineMarkdown(part)
+    const autoParagraph = !part.includes('```') && part.trim().length >= 100
+    const visualParagraphs = autoParagraph ? plainTextParagraphs(part) : [part]
+    const renderedPart = visualParagraphs.map(renderInlineMarkdown).join('<span class="message-paragraph-break message-auto-paragraph-break"></span>')
+    return renderedPart
       .replace(/\r\n?/g, '\n')
       .replace(/\n{2,}/g, '<span class="message-paragraph-break"></span>')
       .replace(/\n/g, '<br>')
@@ -205,9 +209,12 @@ function SandboxHtml({ html }: { html: string }) {
 }
 
 export default function MessageContent({ text, role, character, userName, layout = 'bubble' }: { text: string; role: 'user' | 'assistant'; character: Character; userName: string; layout?: 'bubble' | 'flat' }) {
-  const rendered = useMemo(() => role === 'assistant'
-    ? applyRegexScripts(text, character.regexScripts, character, userName, 2, 'display')
-    : applyMacros(text, character, userName), [text, role, character, userName])
+  const rendered = useMemo(() => {
+    const visibleText = role === 'assistant' ? sanitizeAssistantOutput(text) : text
+    return role === 'assistant'
+      ? applyRegexScripts(visibleText, character.regexScripts, character, userName, 2, 'display')
+      : applyMacros(visibleText, character, userName)
+  }, [text, role, character, userName])
 
   if (hasExecutableScript(rendered) || isFullHtmlDocument(rendered)) return <div className="message-content message-content-rich"><SandboxHtml html={rendered} /></div>
   if (looksLikeHtml(rendered)) return <div className="message-content message-content-rich"><SafeInlineHtml html={rendered} /></div>
