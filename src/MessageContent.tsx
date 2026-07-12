@@ -118,41 +118,6 @@ function ShadowHtml({ html }: { html: string }) {
   return <div ref={ref} className="message-shadow-content message-html-frame" />
 }
 
-function StaticHtmlFrame({ html }: { html: string }) {
-  const frameRef = useRef<HTMLIFrameElement>(null)
-  const tokenRef = useRef(`static-render-${crypto.randomUUID()}`)
-  const [height, setHeight] = useState(80)
-  const source = useMemo(() => {
-    const safeHtml = DOMPurify.sanitize(normalizeMixedMarkup(html), {
-      WHOLE_DOCUMENT: true,
-      ADD_TAGS: ['style', 'audio', 'source', 'details', 'summary', 'plot'],
-      ADD_ATTR: ['style', 'controls', 'autoplay', 'loop', 'preload', 'playsinline', 'target'],
-    })
-    const document = new DOMParser().parseFromString(safeHtml, 'text/html')
-    document.body.querySelectorAll('plot').forEach((plot) => {
-      if (!plot.textContent?.trim() && !plot.querySelector('audio,img,details')) plot.remove()
-    })
-    const baseStyle = document.createElement('style')
-    baseStyle.textContent = `html,body{margin:0!important;padding:0!important;height:auto!important;min-height:0!important;overflow:hidden!important;background:transparent!important}body{display:flow-root;width:100%;color:#4e4852;font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif}*,*:before,*:after{box-sizing:border-box;max-width:100%}p{overflow-wrap:anywhere}`
-    document.head.append(baseStyle)
-    const reporter = document.createElement('script')
-    reporter.textContent = `(()=>{const token=${JSON.stringify(tokenRef.current)};const report=()=>{const h=Math.ceil(Math.max(document.body?.getBoundingClientRect().height||0,document.body?.scrollHeight||0));parent.postMessage({type:'weijing-static-size',token,height:h},'*')};addEventListener('load',report,{once:true});requestAnimationFrame(report);setTimeout(report,120);setTimeout(report,500)})();`
-    document.body.append(reporter)
-    return `<!doctype html>${document.documentElement.outerHTML}`
-  }, [html])
-
-  useLayoutEffect(() => {
-    const receive = (event: MessageEvent) => {
-      if (event.source !== frameRef.current?.contentWindow || event.data?.type !== 'weijing-static-size' || event.data?.token !== tokenRef.current) return
-      setHeight(Math.max(28, Math.min(900, Number(event.data.height) || 80)))
-    }
-    window.addEventListener('message', receive)
-    return () => window.removeEventListener('message', receive)
-  }, [])
-
-  return <iframe ref={frameRef} className="message-script-frame message-static-frame" title="角色卡美化内容" sandbox="allow-scripts" srcDoc={source} style={{ height }} />
-}
-
 function SandboxHtml({ html }: { html: string }) {
   const frameRef = useRef<HTMLIFrameElement>(null)
   const tokenRef = useRef(`render-${crypto.randomUUID()}`)
@@ -194,6 +159,6 @@ export default function MessageContent({ text, role, character, userName }: { te
     : applyMacros(text, character, userName), [text, role, character, userName])
 
   if (hasExecutableScript(rendered)) return <SandboxHtml html={rendered} />
-  if (looksLikeHtml(rendered)) return <StaticHtmlFrame html={rendered} />
+  if (looksLikeHtml(rendered)) return <ShadowHtml html={rendered} />
   return <div className="message-plain-text">{rendered}</div>
 }
