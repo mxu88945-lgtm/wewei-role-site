@@ -14,6 +14,10 @@ function looksLikeHtml(value: string) {
   return /<!doctype\s+html|<html[\s>]|<(?:div|section|article|style|audio|details|table|p|span|plot)\b/i.test(value)
 }
 
+function isFullHtmlDocument(value: string) {
+  return /<!doctype\s+html|<html[\s>]|<head[\s>]|<body[\s>]|<style[\s>]|<script[\s>]/i.test(unwrapCodeFence(value))
+}
+
 function hasExecutableScript(value: string) {
   return /<script\b/i.test(unwrapCodeFence(value))
 }
@@ -118,6 +122,16 @@ function ShadowHtml({ html }: { html: string }) {
   return <div ref={ref} className="message-shadow-content message-html-frame" />
 }
 
+function SafeInlineHtml({ html }: { html: string }) {
+  const clean = useMemo(() => DOMPurify.sanitize(normalizeMixedMarkup(html), {
+    ADD_TAGS: ['audio', 'source', 'details', 'summary'],
+    ADD_ATTR: ['style', 'controls', 'loop', 'preload', 'playsinline', 'target', 'open'],
+    FORBID_TAGS: ['script', 'style', 'iframe', 'object', 'embed', 'link', 'meta', 'form', 'input', 'button'],
+    FORBID_ATTR: ['onerror', 'onload', 'onclick'],
+  }), [html])
+  return <div className="message-safe-html" dangerouslySetInnerHTML={{ __html: clean }} />
+}
+
 function SandboxHtml({ html }: { html: string }) {
   const frameRef = useRef<HTMLIFrameElement>(null)
   const tokenRef = useRef(`render-${crypto.randomUUID()}`)
@@ -158,7 +172,7 @@ export default function MessageContent({ text, role, character, userName }: { te
     ? applyRegexScripts(text, character.regexScripts, character, userName, 2, 'display')
     : applyMacros(text, character, userName), [text, role, character, userName])
 
-  if (hasExecutableScript(rendered)) return <SandboxHtml html={rendered} />
-  if (looksLikeHtml(rendered)) return <ShadowHtml html={rendered} />
+  if (hasExecutableScript(rendered) || isFullHtmlDocument(rendered)) return <SandboxHtml html={rendered} />
+  if (looksLikeHtml(rendered)) return <SafeInlineHtml html={rendered} />
   return <div className="message-plain-text">{rendered}</div>
 }
