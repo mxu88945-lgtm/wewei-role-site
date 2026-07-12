@@ -33,6 +33,43 @@ function renderInlineMarkdown(value: string) {
     .replace(/~~([^~\n]+)~~/g, '<del>$1</del>')
 }
 
+const SENTENCE_RE = /[^。！？!?…]+(?:[。！？!?]+[”」』】）)]*|…+[”」』】）)]*|$)/g
+
+function segmentLongChineseParagraph(value: string) {
+  if (value.length < 140) return [value]
+  const sentences = value.match(SENTENCE_RE)?.map((sentence) => sentence.trim()).filter(Boolean) || [value]
+  if (sentences.length < 2) return [value]
+
+  const paragraphs: string[] = []
+  let current = ''
+  const flush = () => {
+    if (current) paragraphs.push(current)
+    current = ''
+  }
+
+  for (const sentence of sentences) {
+    const standaloneDialogue = /^[“「『].*[”」』]$/.test(sentence)
+    if (standaloneDialogue) {
+      flush()
+      paragraphs.push(sentence)
+    } else if (current && current.length + sentence.length > 112) {
+      flush()
+      current = sentence
+    } else {
+      current += sentence
+    }
+  }
+  flush()
+  return paragraphs
+}
+
+/** Visual-only paragraphing for long plain-text roleplay; stored message text stays untouched. */
+export function plainTextParagraphs(value: string) {
+  const blocks = value.replace(/\r\n?/g, '\n').split(/\n+/).map((block) => block.trim()).filter(Boolean)
+  if (!blocks.length) return ['']
+  return blocks.flatMap(segmentLongChineseParagraph)
+}
+
 /**
  * Character cards commonly mix raw HTML, Markdown and plain-text line breaks.
  * Preserve existing HTML while converting only the text between tags.
@@ -174,5 +211,5 @@ export default function MessageContent({ text, role, character, userName, layout
 
   if (hasExecutableScript(rendered) || isFullHtmlDocument(rendered)) return <div className="message-content message-content-rich"><SandboxHtml html={rendered} /></div>
   if (looksLikeHtml(rendered)) return <div className="message-content message-content-rich"><SafeInlineHtml html={rendered} /></div>
-  return <div className={`message-content message-content-plain ${layout === 'bubble' ? 'message-content-bubble' : 'message-content-flat'}`}><div className="message-plain-text">{rendered}</div></div>
+  return <div className={`message-content message-content-plain ${layout === 'bubble' ? 'message-content-bubble' : 'message-content-flat'}`}><div className="message-plain-text">{plainTextParagraphs(rendered).map((paragraph, index) => <p key={`${index}-${paragraph.slice(0, 12)}`}>{paragraph}</p>)}</div></div>
 }

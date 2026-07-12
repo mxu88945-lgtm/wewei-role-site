@@ -32,4 +32,6 @@
 .greeting-option-head button { border: 0; color: #736c77; background: transparent; font-size: 20px; }
 .greeting-render-preview { padding: 0 14px 14px; }
 .message-shadow-content { width: 100%; border: 0; border-radius: 16px; display: block; background: transparent; }
-.message-plain-text { white-space: pre-wrap; overflow-wrap: anywhere; }
+.message-plain-text { overflow-wrap: anywhere; }
+.message-plain-text p { margin: 0 0 .82em; }
+.message-plain-text p:last-child { margin-bottom: 0; }
