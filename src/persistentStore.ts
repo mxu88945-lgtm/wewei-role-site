@@ -24,8 +24,23 @@ export async function durableGet<T>(key: string) {
 export async function durableSet(key: string, value: unknown) {
   const database = await openDatabase()
   return new Promise<void>((resolve, reject) => {
-    const request = database.transaction(STORE_NAME, 'readwrite').objectStore(STORE_NAME).put({ value, savedAt: Date.now() }, key)
-    request.onsuccess = () => resolve()
-    request.onerror = () => reject(request.error)
+    const transaction = database.transaction(STORE_NAME, 'readwrite')
+    const store = transaction.objectStore(STORE_NAME)
+    const readRequest = store.get(key)
+    readRequest.onerror = () => reject(readRequest.error)
+    readRequest.onsuccess = () => {
+      const previous = (readRequest.result as StoredValue<unknown> | undefined)?.value
+      try {
+        if (JSON.stringify(previous) === JSON.stringify(value)) {
+          resolve()
+          return
+        }
+      } catch {
+        // If comparison fails, persist normally rather than risking data loss.
+      }
+      const writeRequest = store.put({ value, savedAt: Date.now() }, key)
+      writeRequest.onsuccess = () => resolve()
+      writeRequest.onerror = () => reject(writeRequest.error)
+    }
   }).finally(() => database.close())
 }
