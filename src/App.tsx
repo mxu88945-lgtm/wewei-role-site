@@ -186,6 +186,7 @@ function App() {
   const [characterQuery, setCharacterQuery] = useState('')
   const [groupDraft, setGroupDraft] = useState<{ title: string; participantIds: string[]; apiIds: Record<string, string> }>({ title: '', participantIds: [], apiIds: {} })
   const [groupReplyTarget, setGroupReplyTarget] = useState('all')
+  const [memberPickerOpen, setMemberPickerOpen] = useState(false)
   const [characters, setCharacters] = useState<Character[]>(() => read<Partial<Character>[]>('weijing.characters', [demoCharacter]).map(normalizeStoredCharacter))
   const [activeId, setActiveId] = useState(() => read('weijing.activeCharacter', demoCharacter.id))
   const [conversations, setConversations] = useState<Conversation[]>(() => loadConversations(read<Partial<Character>[]>('weijing.characters', [demoCharacter]).map(normalizeStoredCharacter)))
@@ -390,6 +391,38 @@ function App() {
     setActiveId(participants[0].id); setActiveConversationId(conversation.id)
     setGroupDraft({ title: '', participantIds: [], apiIds: {} }); setGroupReplyTarget('all')
     replacePage('chat')
+  }
+
+  const conversationMemberIds = (conversation = activeConversation) => conversation?.kind === 'group' ? (conversation.participantIds || []) : conversation ? [conversation.characterId] : []
+  const addConversationMember = (characterId: string) => {
+    if (!activeConversation || conversationMemberIds().includes(characterId)) return
+    const participantIds = [...conversationMemberIds(), characterId]
+    setConversations((current) => current.map((item) => item.id === activeConversation.id ? {
+      ...item,
+      kind: 'group',
+      participantIds,
+      participantApiIds: { ...(item.participantApiIds || {}), [item.characterId]: item.participantApiIds?.[item.characterId] || api.id, [characterId]: api.id },
+      title: item.kind === 'group' ? item.title : participantIds.map((id) => characters.find((character) => character.id === id)?.name).filter(Boolean).join('、'),
+      updatedAt: Date.now(),
+    } : item))
+    setGroupReplyTarget('all')
+  }
+  const removeConversationMember = (characterId: string) => {
+    if (!activeConversation) return
+    const remaining = conversationMemberIds().filter((id) => id !== characterId)
+    if (!remaining.length) return
+    setConversations((current) => current.map((item) => {
+      if (item.id !== activeConversation.id) return item
+      const participantApiIds = { ...(item.participantApiIds || {}) }; delete participantApiIds[characterId]
+      if (remaining.length === 1) return { ...item, kind: 'single', characterId: remaining[0], participantIds: undefined, participantApiIds: undefined, title: `与${characters.find((character) => character.id === remaining[0])?.name || '角色'}的对话`, updatedAt: Date.now() }
+      return { ...item, characterId: remaining[0], participantIds: remaining, participantApiIds, updatedAt: Date.now() }
+    }))
+    if (groupReplyTarget === characterId) setGroupReplyTarget('all')
+    setActiveId(remaining[0])
+  }
+  const updateConversationMemberApi = (characterId: string, channelId: string) => {
+    if (!activeConversation) return
+    setConversations((current) => current.map((item) => item.id === activeConversation.id ? { ...item, participantApiIds: { ...(item.participantApiIds || {}), [characterId]: channelId } } : item))
   }
 
   const addImportedCharacter = (character: Character, nextPage: Page = 'character-detail') => {
@@ -877,6 +910,7 @@ function App() {
             ['应用设置', 'settings', '⚙'],
           ].map(([label, target, icon]) => <button key={label} onClick={() => navigate(target as Page, 'right')}><span>{icon}</span><strong>{label}</strong><i>›</i></button>)}
         </div>
+        <button className="drawer-detail-link member-manage-link" onClick={() => { setDrawer(null); setMemberPickerOpen(true) }}>{activeConversation?.kind === 'group' ? `管理群聊成员（${conversationMemberIds().length}）` : '＋ 添加成员并转为群聊'} <span>›</span></button>
         <button className="drawer-detail-link" onClick={() => navigate('character-detail', 'right')}>查看角色详情 <span>›</span></button>
         <button className="drawer-detail-link" onClick={compressOldContext} disabled={compressingContext || messages.length < 16}>{compressingContext ? '正在压缩旧上下文…' : activeConversation?.contextSummary ? `更新上下文摘要 · 已压缩 ${activeConversation.compressedUntil || 0} 条` : '压缩旧上下文'} <span>⌁</span></button>
         <button className="drawer-detail-link export-chat-link" onClick={exportConversationTxt}>导出当前对话 TXT <span>↓</span></button>
@@ -890,6 +924,8 @@ function App() {
         <button className="danger" onClick={() => deleteConversation(menuConversation)}>删除对话</button>
       </section>}
     </div>}
+
+    {memberPickerOpen && activeConversation && <div className="member-picker-layer"><button className="drawer-backdrop" aria-label="关闭成员管理" onClick={() => setMemberPickerOpen(false)} /><section className="member-picker"><header><div><small>当前会话</small><strong>成员与独立 API</strong></div><button onClick={() => setMemberPickerOpen(false)}>×</button></header><div className="member-picker-list">{characters.map((character) => { const joined = conversationMemberIds().includes(character.id); const canRemove = conversationMemberIds().length > 1; return <article className={joined ? 'joined' : ''} key={character.id}><div className="member-picker-main"><CharacterPortrait item={character} /><div><strong>{character.name}</strong><small>{joined ? '已在当前会话' : character.tagline}</small></div><button onClick={() => joined ? canRemove && removeConversationMember(character.id) : addConversationMember(character.id)} disabled={joined && !canRemove}>{joined ? canRemove ? '移除' : '保留' : '＋ 加入'}</button></div>{joined && <label>回复渠道<select value={activeConversation.participantApiIds?.[character.id] || api.id} onChange={(event) => updateConversationMemberApi(character.id, event.target.value)}>{apiChannels.map((channel) => <option key={channel.id} value={channel.id}>{channel.name} · {channel.modelName || '未选模型'}</option>)}</select></label>}</article> })}</div><div className="privacy-note">单聊加入第二位角色后会原地变成群聊；移除到只剩一位时恢复 1v1。已有消息与署名不会丢失。</div></section></div>}
 
     {menuMessage && <div className="message-menu-layer"><button className="drawer-backdrop" aria-label="关闭消息菜单" onClick={() => setMessageMenuId(null)} /><section className="message-action-sheet"><header><div><small>{menuMessage.role === 'assistant' ? '模型消息' : '用户消息'}</small><strong>消息操作</strong></div><button onClick={() => setMessageMenuId(null)}>×</button></header>{menuMessage.role === 'assistant' ? <><button onClick={() => regenerateMessage(menuMessage)} disabled={isGenerating}>重新生成</button><button onClick={() => editAssistantMessage(menuMessage)}>编辑改写</button><button onClick={() => copyMessage(menuMessage)}>复制文本</button><button className="danger" onClick={() => withdrawMessage(menuMessage)}>撤回消息</button></> : <><button onClick={() => editAndResendUserMessage(menuMessage)} disabled={isGenerating}>编辑并重新发送</button><button onClick={() => copyMessage(menuMessage)}>复制文本</button></>}</section></div>}
   </main></div>
