@@ -153,7 +153,9 @@ button { cursor: pointer; }
 .message-list { min-height: 0; flex: 1; padding: 16px 18px calc(92px + env(safe-area-inset-bottom)); display: flex; flex-direction: column; gap: 16px; overflow-y: auto; overflow-anchor: none; }
 .message-row { display: flex; flex-direction: column; align-items: flex-start; }
 .message-row.user { align-items: flex-end; }
+.message-row.assistant { width: 100%; }
 .message-line { max-width: 100%; display: flex; flex-direction: column; align-items: flex-start; gap: 7px; }
+.message-row.assistant .message-line { width: 100%; }
 .message-row.user .message-line { align-items: flex-end; }
 .message-author { display: flex; align-items: center; gap: 7px; color: #978f9a; font-size: 11px; }
 .message-row.user .message-author { flex-direction: row-reverse; }
@@ -162,6 +164,7 @@ button { cursor: pointer; }
 .message-continue { margin-top: 7px; border: 0; border-radius: 999px; padding: 7px 10px; color: #805bae; background: #e9e1f1; font-size: 10px; font-weight: 800; }
 .message-finish-note { margin-top: 7px; color: #a45667; font-size: 10px; }
 .message-bubble { max-width: 82%; padding: 14px 16px; border-radius: 22px 22px 22px 7px; color: #4e4852; background: rgba(255,255,255,.88); box-shadow: 0 12px 28px rgba(71,51,82,.08); line-height: 1.65; }
+.message-row.assistant .message-bubble { width: 100%; max-width: 100%; padding: 4px 0; border-radius: 0; background: transparent; box-shadow: none; }
 .message-row.user .message-bubble { border-radius: 22px 22px 7px 22px; color: white; background: linear-gradient(145deg, #8158d7, #bd77c3); }
 .message-bubble:has(.message-shadow-content), .message-bubble:has(.message-script-frame) { width: min(94%, 460px); max-width: 94%; padding: 0; overflow: visible; overflow-anchor: none; background: transparent; box-shadow: none; }
 .message-shadow-content { width: 100%; min-width: 0; display: block; overflow: visible; overflow-anchor: none; }
@@ -210,7 +213,8 @@ button { cursor: pointer; }
 .persona-editor > label { display: grid; gap: 8px; color: #6e6872; font-size: 12px; font-weight: 800; }
 .persona-editor input, .persona-editor textarea { width: 100%; border: 1px solid rgba(71,55,80,.08); outline: 0; border-radius: 18px; padding: 15px 16px; color: #2e2931; background: #faf8fb; resize: vertical; }
 .persona-editor input:focus, .persona-editor textarea:focus { border-color: #aa83de; box-shadow: 0 0 0 4px rgba(158,108,211,.1); }
-.persona-delete { justify-self: start; border: 0; background: transparent; }
+.persona-delete { order: -1; justify-self: end; border: 0; border-radius: 12px; padding: 8px 12px; color: #a34f62; background: #f4e5e9; font-weight: 800; }
+.persona-editor textarea { height: 230px; min-height: 180px; max-height: 420px; }
 .update-card > small { display: block; margin: -3px 0 12px; color: #9b8fa1; font-size: 10px; }
 .storage-health-card { padding: 18px; display: flex; align-items: center; justify-content: space-between; gap: 16px; border-radius: 22px; color: #554d59; background: linear-gradient(145deg, #eee9f2, #f5f1f6); box-shadow: 0 12px 28px rgba(71,51,82,.06); }
 .storage-health-card strong, .storage-health-card small { display: block; }
