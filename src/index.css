@@ -185,6 +185,7 @@ button { cursor: pointer; }
 .message-shadow-content { width: 100%; min-width: 0; display: block; overflow: visible; overflow-anchor: none; }
 .message-safe-html { display: flow-root; width: 100%; min-width: 0; overflow-wrap: anywhere; white-space: normal; }
 .message-safe-html p { margin: .35em 0; }
+.message-safe-html .message-auto-paragraph-break { display: block; height: .82em; }
 .message-safe-html > :first-child { margin-top: 0; }
 .message-safe-html > :last-child { margin-bottom: 0; }
 .message-safe-html details { margin: .45em 0; overflow: hidden; border-radius: 12px; background: rgba(79,72,83,.08); }
