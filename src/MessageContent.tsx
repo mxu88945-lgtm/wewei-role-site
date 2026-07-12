@@ -121,7 +121,8 @@ function ShadowHtml({ html }: { html: string }) {
 function SandboxHtml({ html }: { html: string }) {
   const frameRef = useRef<HTMLIFrameElement>(null)
   const tokenRef = useRef(`render-${crypto.randomUUID()}`)
-  const [height, setHeight] = useState(220)
+  const fullDocument = useMemo(() => /<!doctype\s+html|<html[\s>]/i.test(unwrapCodeFence(html)), [html])
+  const [height, setHeight] = useState(fullDocument ? 620 : 220)
   const source = useMemo(() => {
     const document = new DOMParser().parseFromString(unwrapCodeFence(html), 'text/html')
     const policy = document.createElement('meta')
@@ -131,11 +132,13 @@ function SandboxHtml({ html }: { html: string }) {
     const baseStyle = document.createElement('style')
     baseStyle.textContent = 'html,body{margin:0!important;padding:0!important;min-height:0!important;overflow-x:hidden;box-sizing:border-box}*,*:before,*:after{box-sizing:border-box;max-width:100%}'
     document.head.append(baseStyle)
-    const reporter = document.createElement('script')
-    reporter.textContent = `(()=>{const token=${JSON.stringify(tokenRef.current)};let last=0,queued=false;const report=()=>{queued=false;const next=Math.ceil(Math.max(document.body?.scrollHeight||0,document.documentElement?.scrollHeight||0));if(next!==last){last=next;parent.postMessage({type:'weijing-render-size',token,height:next},'*')}};const queue=()=>{if(!queued){queued=true;requestAnimationFrame(report)}};addEventListener('load',queue);new ResizeObserver(queue).observe(document.documentElement);setTimeout(queue,80);setTimeout(queue,500);setTimeout(queue,1500)})();`
-    document.body.append(reporter)
+    if (!fullDocument) {
+      const reporter = document.createElement('script')
+      reporter.textContent = `(()=>{const token=${JSON.stringify(tokenRef.current)};let last=0,queued=false;const report=()=>{queued=false;const next=Math.ceil(Math.max(document.body?.scrollHeight||0,document.documentElement?.scrollHeight||0));if(next!==last){last=next;parent.postMessage({type:'weijing-render-size',token,height:next},'*')}};const queue=()=>{if(!queued){queued=true;requestAnimationFrame(report)}};addEventListener('load',queue);new ResizeObserver(queue).observe(document.documentElement);setTimeout(queue,80);setTimeout(queue,500);setTimeout(queue,1500)})();`
+      document.body.append(reporter)
+    }
     return `<!doctype html>${document.documentElement.outerHTML}`
-  }, [html])
+  }, [html, fullDocument])
 
   useLayoutEffect(() => {
     const receive = (event: MessageEvent) => {
@@ -147,7 +150,7 @@ function SandboxHtml({ html }: { html: string }) {
     return () => window.removeEventListener('message', receive)
   }, [])
 
-  return <iframe ref={frameRef} className="message-script-frame" title="角色卡互动内容" sandbox="allow-scripts" srcDoc={source} style={{ height }} />
+  return <iframe ref={frameRef} className={`message-script-frame ${fullDocument ? 'full-document' : 'inline-script'}`} title="角色卡互动内容" sandbox="allow-scripts" srcDoc={source} style={{ height }} />
 }
 
 export default function MessageContent({ text, role, character, userName }: { text: string; role: 'user' | 'assistant'; character: Character; userName: string }) {
