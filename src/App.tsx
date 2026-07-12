@@ -211,6 +211,7 @@ function App() {
   const [memoryLength, setMemoryLength] = useState(() => read('weijing.memoryLength', 47))
   const [maxTokens, setMaxTokens] = useState(() => read('weijing.maxTokens', 8000))
   const [streaming, setStreaming] = useState(() => read('weijing.streaming', true))
+  const [chatLayout, setChatLayout] = useState<'bubble' | 'flat'>(() => read('weijing.chatLayout', 'bubble'))
   const [memoryConfigs, setMemoryConfigs] = useState<MemoryConfigMap>(() => migrateMemoryConfigs(read('weijing.memoryConfigs', { [demoCharacter.id]: defaultMemoryConfig() })))
   const [memoryEntries, setMemoryEntries] = useState<MemoryEntryMap>(() => read('weijing.memoryEntries', { [demoCharacter.id]: [] }))
   const [memoryState, setMemoryState] = useState<'idle' | 'summarizing' | 'ok' | 'error'>('idle')
@@ -273,6 +274,11 @@ function App() {
   useEffect(() => { if (persistenceReady) writeDurable('weijing.memoryConfigs', memoryConfigs) }, [memoryConfigs, persistenceReady])
   useEffect(() => { if (persistenceReady) writeDurable('weijing.memoryEntries', memoryEntries) }, [memoryEntries, persistenceReady])
   useEffect(() => { write('weijing.temperature', temperature); write('weijing.topP', topP); write('weijing.memoryLength', memoryLength); write('weijing.maxTokens', maxTokens); write('weijing.streaming', streaming) }, [temperature, topP, memoryLength, maxTokens, streaming])
+  useEffect(() => write('weijing.chatLayout', chatLayout), [chatLayout])
+  useEffect(() => {
+    document.documentElement.classList.toggle('chat-layout-flat', chatLayout === 'flat')
+    return () => document.documentElement.classList.remove('chat-layout-flat')
+  }, [chatLayout])
   useEffect(() => () => generationControllers.current.forEach((controller) => controller.abort()), [])
   useEffect(() => { if (activeApiId !== api.id) setActiveApiId(api.id) }, [activeApiId, api.id])
   useLayoutEffect(() => {
@@ -944,6 +950,13 @@ function App() {
             ['应用设置', 'settings', '⚙'],
           ].map(([label, target, icon]) => <button key={label} onClick={() => navigate(target as Page, 'right')}><span>{icon}</span><strong>{label}</strong><i>›</i></button>)}
         </div>
+        <section className="chat-layout-setting" aria-label="消息显示方式">
+          <div><strong>消息显示</strong><small>角色卡美化不变，只切换外层排版</small></div>
+          <div className="chat-layout-switch">
+            <button className={chatLayout === 'bubble' ? 'active' : ''} onClick={() => setChatLayout('bubble')}>气泡</button>
+            <button className={chatLayout === 'flat' ? 'active' : ''} onClick={() => setChatLayout('flat')}>平铺</button>
+          </div>
+        </section>
         <button className="drawer-detail-link member-manage-link" onClick={() => { setDrawer(null); setMemberPickerOpen(true) }}>{activeConversation?.kind === 'group' ? `管理群聊成员（${conversationMemberIds().length}）` : '＋ 添加成员并转为群聊'} <span>›</span></button>
         <button className="drawer-detail-link" onClick={() => navigate('character-detail', 'right')}>查看角色详情 <span>›</span></button>
         <button className="drawer-detail-link" onClick={compressOldContext} disabled={compressingContext || messages.length < 16}>{compressingContext ? '正在压缩旧上下文…' : activeConversation?.contextSummary ? `更新上下文摘要 · 已压缩 ${activeConversation.compressedUntil || 0} 条` : '压缩旧上下文'} <span>⌁</span></button>
@@ -986,7 +999,7 @@ function UpdateCard() {
     }
   }
 
-  return <section className="update-card"><strong>应用更新</strong><p>主动检查并拉取最新网页版本，不会删除角色、聊天记录或本地设置。</p><small>当前版本：2026.07.12 · 平铺渲染</small><button onClick={refresh} disabled={state === 'checking'}>{state === 'checking' ? '正在检查更新…' : state === 'error' ? '更新失败，点我重试' : '强制刷新到最新版'}</button></section>
+  return <section className="update-card"><strong>应用更新</strong><p>主动检查并拉取最新网页版本，不会删除角色、聊天记录或本地设置。</p><small>当前版本：2026.07.12 · 双布局渲染</small><button onClick={refresh} disabled={state === 'checking'}>{state === 'checking' ? '正在检查更新…' : state === 'error' ? '更新失败，点我重试' : '强制刷新到最新版'}</button></section>
 }
 
 function PersonaPage({ identities, selectedId, isBound, onSelect, onAdd, onDelete, onUpdate, onBack }: { identities: UserIdentity[]; selectedId: string; isBound: boolean; onSelect: (id: string) => void; onAdd: () => void; onDelete: (id: string) => void; onUpdate: (patch: Partial<UserIdentity>) => void; onBack: () => void }) {
