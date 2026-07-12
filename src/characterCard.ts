@@ -216,15 +216,19 @@ async function createAvatarThumbnail(file: File) {
 }
 
 export async function importCharacterCard(file: File): Promise<Character> {
-  if (file.type !== 'image/png' && !file.name.toLowerCase().endsWith('.png')) {
-    throw new Error('目前请导入带元数据的 PNG 角色卡')
+  const isPng = file.type === 'image/png' || file.name.toLowerCase().endsWith('.png')
+  const isJson = file.type.includes('json') || file.name.toLowerCase().endsWith('.json')
+  let rawCard: RawCard
+  if (isPng) {
+    const chunks = await readPngTextChunks(await file.arrayBuffer())
+    const encoded = chunks.get('ccv3') || chunks.get('chara')
+    if (!encoded) throw new Error('图片里没有找到 chara 或 ccv3 角色卡元数据')
+    rawCard = decodeBase64Json(encoded)
+  } else if (isJson) {
+    try { rawCard = JSON.parse(await file.text()) as RawCard } catch { throw new Error('JSON 角色卡格式无效') }
+  } else {
+    throw new Error('请导入 PNG 或 JSON 角色卡')
   }
-
-  const chunks = await readPngTextChunks(await file.arrayBuffer())
-  const encoded = chunks.get('ccv3') || chunks.get('chara')
-  if (!encoded) throw new Error('图片里没有找到 chara 或 ccv3 角色卡元数据')
-
-  const rawCard = decodeBase64Json(encoded)
   const data = rawCard.data || rawCard
   const name = stringValue(data.name || rawCard.name).trim()
   if (!name) throw new Error('角色卡缺少角色名称')
@@ -253,7 +257,7 @@ export async function importCharacterCard(file: File): Promise<Character> {
     tags: stringArray(data.tags),
     creator: stringValue(data.creator),
     characterVersion: stringValue(data.character_version),
-    avatar: await createAvatarThumbnail(file),
+    avatar: isPng ? await createAvatarThumbnail(file) : undefined,
     cardSpec: rawCard.spec,
     cardSpecVersion: rawCard.spec_version,
     sourceFileName: file.name,

@@ -274,6 +274,13 @@ button { cursor: pointer; }
 .avatar-upload-preview img { width: 100%; height: 100%; object-fit: cover; }
 .avatar-upload-row strong, .avatar-upload-row small { display: block; }
 .avatar-upload-row small { margin-top: 4px; color: #99909d; font-size: 11px; }
+.url-import-card { padding: 16px; display: grid; gap: 12px; border-radius: 20px; background: #f0edf3; }
+.url-import-card strong, .url-import-card small { display: block; }
+.url-import-card small { margin-top: 4px; color: #99909d; font-size: 10px; }
+.url-import-card > div:last-child { display: grid; grid-template-columns: minmax(0,1fr) auto; gap: 8px; }
+.url-import-card input { min-width: 0; border: 1px solid rgba(71,55,80,.08); outline: 0; border-radius: 14px; padding: 12px 13px; color: #3f3943; background: #faf8fb; }
+.url-import-card button { border: 0; border-radius: 14px; padding: 0 16px; color: white; background: linear-gradient(145deg,#8158d7,#bd77c3); font-weight: 800; }
+.url-import-card button:disabled { opacity: .45; }
 .card-format-banner { position: relative; }
 .avatar-edit-button { margin-left: auto; flex: 0 0 auto; padding: 8px 10px; border-radius: 999px; color: #8258c3; background: #eee7f5; font-size: 10px; font-weight: 800; cursor: pointer; }
 .mention-picker-layer { position: fixed; z-index: 80; inset: 0; }
