@@ -1,4 +1,4 @@
-const CACHE_NAME = 'weijing-shell-v1'
+const CACHE_NAME = 'weijing-shell-v3'
 const APP_ROOT = '/wewei-role-site/'
 
 self.addEventListener('install', () => {
@@ -38,14 +38,15 @@ self.addEventListener('fetch', (event) => {
 
   event.respondWith((async () => {
     const cached = await caches.match(request)
-    const network = fetch(request, { cache: 'no-store' }).then(async (response) => {
+    try {
+      const response = await fetch(request, { cache: 'no-store' })
       if (response.ok) {
         const cache = await caches.open(CACHE_NAME)
-        cache.put(request, response.clone())
+        await cache.put(request, response.clone())
       }
       return response
-    }).catch(() => undefined)
-
-    return cached || await network || Response.error()
+    } catch {
+      return cached || Response.error()
+    }
   })())
 })
