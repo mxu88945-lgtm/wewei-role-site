@@ -16,6 +16,7 @@ import { sanitizeAssistantOutput } from './outputSanitizer'
 type Page = 'home' | 'characters' | 'create' | 'group-create' | 'import-preview' | 'character-detail' | 'card-data' | 'card-worldbook' | 'card-regex' | 'greeting-picker' | 'chat' | 'more' | 'api' | 'model' | 'settings' | 'appearance' | 'identity' | 'worldbook' | 'preset' | 'memory' | 'memory-api' | 'memory-list'
 type Message = { id: number; role: 'user' | 'assistant'; text: string; characterId?: string; finishReason?: string | null }
 type Drawer = 'left' | 'right'
+type GroupReplyMode = 'natural' | 'contextual' | 'all' | 'specified'
 type HistoryEntry = { page: Page; reopenDrawer?: Drawer }
 type Conversation = {
   id: string
@@ -201,7 +202,8 @@ function App() {
   const [characterMenuId, setCharacterMenuId] = useState<string | null>(null)
   const [characterQuery, setCharacterQuery] = useState('')
   const [groupDraft, setGroupDraft] = useState<{ title: string; participantIds: string[]; apiIds: Record<string, string> }>({ title: '', participantIds: [], apiIds: {} })
-  const [groupReplyTarget, setGroupReplyTarget] = useState('all')
+  const [groupReplyMode, setGroupReplyMode] = useState<GroupReplyMode>(() => read('weijing.groupReplyMode', 'natural'))
+  const [mentionPickerOpen, setMentionPickerOpen] = useState(false)
   const [memberPickerOpen, setMemberPickerOpen] = useState(false)
   const [characterIntroExpanded, setCharacterIntroExpanded] = useState(false)
   const [characters, setCharacters] = useState<Character[]>(() => read<Partial<Character>[]>('weijing.characters', [demoCharacter]).map(normalizeStoredCharacter))
@@ -209,7 +211,7 @@ function App() {
   const [conversations, setConversations] = useState<Conversation[]>(() => loadConversations(read<Partial<Character>[]>('weijing.characters', [demoCharacter]).map(normalizeStoredCharacter)))
   const [activeConversationId, setActiveConversationId] = useState(() => read('weijing.activeConversation', ''))
   const [draft, setDraft] = useState('')
-  const [newCharacter, setNewCharacter] = useState({ name: '', tagline: '', description: '', greeting: '', tags: '' })
+  const [newCharacter, setNewCharacter] = useState({ name: '', tagline: '', description: '', greeting: '', tags: '', avatar: '' })
   const legacyIdentity = read<{ name: string; description: string; avatar?: string }>('weijing.identity', { name: '周惟惟', description: '由用户亲自决定言行、心理与关键选择。' })
   const [identities, setIdentities] = useState<UserIdentity[]>(() => read<UserIdentity[]>('weijing.identities', [{ id: 'persona-default', ...legacyIdentity }]))
   const [activePersonaId, setActivePersonaId] = useState(() => read('weijing.activePersona', 'persona-default'))
@@ -229,6 +231,8 @@ function App() {
   const [chatLayout, setChatLayout] = useState<'bubble' | 'flat'>(() => read('weijing.chatLayout', 'bubble'))
   const [chatFontSize, setChatFontSize] = useState(() => read('weijing.chatFontSize', 16))
   const [chatTextColor, setChatTextColor] = useState(() => read('weijing.chatTextColor', '#4e4852'))
+  const [chatNarrationColor, setChatNarrationColor] = useState(() => read('weijing.chatNarrationColor', '#7f7089'))
+  const [chatQuoteColor, setChatQuoteColor] = useState(() => read('weijing.chatQuoteColor', '#7b4d67'))
   const [chatBaseColor, setChatBaseColor] = useState(() => read('weijing.chatBaseColor', '#f5f1f8'))
   const [chatBackgroundFrost, setChatBackgroundFrost] = useState(() => read('weijing.chatBackgroundFrost', .72))
   const [chatBackground, setChatBackground] = useState('')
@@ -296,12 +300,15 @@ function App() {
   useEffect(() => { if (persistenceReady) writeDurable('weijing.memoryEntries', memoryEntries) }, [memoryEntries, persistenceReady])
   useEffect(() => { write('weijing.temperature', temperature); write('weijing.topP', topP); write('weijing.memoryLength', memoryLength); write('weijing.maxTokens', maxTokens); write('weijing.streaming', streaming) }, [temperature, topP, memoryLength, maxTokens, streaming])
   useEffect(() => write('weijing.chatLayout', chatLayout), [chatLayout])
+  useEffect(() => write('weijing.groupReplyMode', groupReplyMode), [groupReplyMode])
   useEffect(() => {
     write('weijing.chatFontSize', chatFontSize)
     write('weijing.chatTextColor', chatTextColor)
+    write('weijing.chatNarrationColor', chatNarrationColor)
+    write('weijing.chatQuoteColor', chatQuoteColor)
     write('weijing.chatBaseColor', chatBaseColor)
     write('weijing.chatBackgroundFrost', chatBackgroundFrost)
-  }, [chatFontSize, chatTextColor, chatBaseColor, chatBackgroundFrost])
+  }, [chatFontSize, chatTextColor, chatNarrationColor, chatQuoteColor, chatBaseColor, chatBackgroundFrost])
   useEffect(() => { if (persistenceReady) void durableSet('weijing.chatBackground', chatBackground) }, [chatBackground, persistenceReady])
   useEffect(() => {
     document.documentElement.classList.toggle('chat-layout-flat', chatLayout === 'flat')
@@ -405,7 +412,7 @@ function App() {
   }
   const createCharacter = () => {
     if (!newCharacter.name.trim()) return
-    const character = createBlankCharacter(newCharacter)
+    const character = { ...createBlankCharacter(newCharacter), avatar: newCharacter.avatar || undefined }
     const conversation = { ...createConversation(character), personaId: activePersonaId }
     setCharacters((current) => [...current, character])
     setConversations((current) => [...current, conversation])
@@ -413,7 +420,7 @@ function App() {
     setMemoryConfigs((current) => ({ ...current, [character.id]: defaultMemoryConfig() }))
     setMemoryEntries((current) => ({ ...current, [character.id]: [] }))
     setActiveId(character.id)
-    setNewCharacter({ name: '', tagline: '', description: '', greeting: '', tags: '' })
+    setNewCharacter({ name: '', tagline: '', description: '', greeting: '', tags: '', avatar: '' })
     replacePage('character-detail')
   }
 
@@ -431,7 +438,7 @@ function App() {
     }
     setConversations((current) => [...current, conversation])
     setActiveId(participants[0].id); setActiveConversationId(conversation.id)
-    setGroupDraft({ title: '', participantIds: [], apiIds: {} }); setGroupReplyTarget('all')
+    setGroupDraft({ title: '', participantIds: [], apiIds: {} }); setGroupReplyMode('natural')
     replacePage('chat')
   }
 
@@ -447,7 +454,7 @@ function App() {
       title: item.kind === 'group' ? item.title : participantIds.map((id) => characters.find((character) => character.id === id)?.name).filter(Boolean).join('、'),
       updatedAt: Date.now(),
     } : item))
-    setGroupReplyTarget('all')
+    setGroupReplyMode('natural')
   }
   const removeConversationMember = (characterId: string) => {
     if (!activeConversation) return
@@ -459,7 +466,6 @@ function App() {
       if (remaining.length === 1) return { ...item, kind: 'single', characterId: remaining[0], participantIds: undefined, participantApiIds: undefined, title: `与${characters.find((character) => character.id === remaining[0])?.name || '角色'}的对话`, updatedAt: Date.now() }
       return { ...item, characterId: remaining[0], participantIds: remaining, participantApiIds, updatedAt: Date.now() }
     }))
-    if (groupReplyTarget === characterId) setGroupReplyTarget('all')
     setActiveId(remaining[0])
   }
   const updateConversationMemberApi = (characterId: string, channelId: string) => {
@@ -554,7 +560,6 @@ function App() {
   const openConversation = (conversation: Conversation) => {
     setActiveConversationId(conversation.id)
     setActiveId(conversation.participantIds?.[0] || conversation.characterId)
-    setGroupReplyTarget('all')
     setDrawer(null)
     setConversationMenuId(null)
     if (page !== 'chat') navigate('chat')
@@ -766,10 +771,34 @@ function App() {
     }
     const userMessage = { id: Date.now(), role: 'user' as const, text }
     setDraft('')
-    const baseMessages = [...(historyOverride ?? messages), userMessage]
+    const baseMessages: Message[] = [...(historyOverride ?? messages), userMessage]
     if (conversation.kind === 'group') {
       setConversations((current) => current.map((item) => item.id === conversation.id ? { ...item, messages: baseMessages, updatedAt: Date.now() } : item))
-      const speakerIds = groupReplyTarget === 'all' ? (conversation.participantIds || []) : [groupReplyTarget]
+      const participantIds = conversation.participantIds || []
+      const mentionedIds = participantIds.filter((id) => {
+        const name = characters.find((item) => item.id === id)?.name
+        return Boolean(name && (text.includes(`@${name}`) || text.includes(`＠${name}`)))
+      })
+      const lastSpeakerId = [...baseMessages].reverse().find((item) => item.role === 'assistant')?.characterId
+      const availableIds = participantIds.filter((id) => id !== lastSpeakerId)
+      let speakerIds: string[] = []
+      if (groupReplyMode === 'all') speakerIds = participantIds
+      else if (groupReplyMode === 'specified') speakerIds = mentionedIds
+      else if (mentionedIds.length) speakerIds = groupReplyMode === 'natural' ? mentionedIds.slice(0, 1) : mentionedIds
+      else {
+        const pool = availableIds.length ? availableIds : participantIds
+        const first = pool[Math.floor(Math.random() * Math.max(1, pool.length))]
+        speakerIds = first ? [first] : []
+        if (groupReplyMode === 'contextual' && /你们|大家|两人|所有人|一起|分别/.test(text)) {
+          const second = participantIds.find((id) => id !== first)
+          if (second) speakerIds.push(second)
+        }
+      }
+      if (!speakerIds.length) {
+        setChatError('指定发言模式需要在消息里写 @角色名，例如“@顾荒 你怎么看？”')
+        return
+      }
+      setChatError('')
       let groupMessages = baseMessages
       for (const speakerId of speakerIds) {
         const speaker = characters.find((item) => item.id === speakerId)
@@ -781,6 +810,12 @@ function App() {
       return
     }
     await generateAssistant(conversation, baseMessages)
+  }
+
+  const insertGroupMention = (name: string) => {
+    setDraft((current) => /[@＠][^@＠\s]*$/.test(current) ? current.replace(/[@＠][^@＠\s]*$/, `@${name} `) : `${current}${current && !/\s$/.test(current) ? ' ' : ''}@${name} `)
+    setMentionPickerOpen(false)
+    window.requestAnimationFrame(() => composerRef.current?.focus())
   }
 
   const copyMessage = async (message: Message) => {
@@ -916,7 +951,7 @@ function App() {
     </div>
   }
 
-  return <div className="app-shell"><main ref={phoneCanvasRef} className={`phone-canvas ${page === 'chat' ? 'chat-canvas' : ''}`} style={{ '--chat-font-size': `${chatFontSize}px`, '--chat-text-color': chatTextColor, '--chat-base-color': chatBaseColor } as React.CSSProperties}>
+  return <div className="app-shell"><main ref={phoneCanvasRef} className={`phone-canvas ${page === 'chat' ? 'chat-canvas' : ''}`} style={{ '--chat-font-size': `${chatFontSize}px`, '--chat-text-color': chatTextColor, '--chat-narration-color': chatNarrationColor, '--chat-quote-color': chatQuoteColor, '--chat-base-color': chatBaseColor } as React.CSSProperties}>
     <input ref={fileInputRef} className="hidden-file-input" type="file" accept="image/png,.png" onChange={(event) => handleCharacterFile(event.target.files?.[0])} />
     {page === 'chat' && <div className="chat-background" style={{ backgroundImage: chatBackground ? `url(${JSON.stringify(chatBackground)})` : undefined, '--chat-background-frost': chatBackgroundFrost } as React.CSSProperties} />}
     {page === 'home' && <section className="home-dashboard">
@@ -931,7 +966,7 @@ function App() {
 
     {page === 'characters' && <><BackHeader title="角色库" onBack={goBack} action={<button className="text-button" onClick={() => fileInputRef.current?.click()}>导入</button>} /><section className="content-stack"><div className="section-heading"><div><h2>全部角色</h2><p>支持 Tavern PNG · Card V2/V3</p></div><div className="library-actions"><button onClick={() => navigate('create')}>＋ 新建</button></div></div><div className="character-search"><span>⌕</span><input value={characterQuery} onChange={(event) => setCharacterQuery(event.target.value)} placeholder="搜索名字、作者或标签" />{characterQuery && <button onClick={() => setCharacterQuery('')}>×</button>}</div>{importState === 'reading' && <div className="import-notice">正在解析角色卡、世界书与正则…</div>}{importState === 'error' && <div className="import-notice error">{importError}</div>}{filteredCharacters.map((item) => <CharacterCard key={item.id} item={item} />)}{filteredCharacters.length === 0 && <div className="library-empty">没有找到匹配的角色。</div>}</section></>}
 
-    {page === 'create' && <><BackHeader title="新建角色" onBack={goBack} action={<button className="text-button" onClick={createCharacter}>保存</button>} /><section className="content-stack form-stack"><button className="drop-zone compact" onClick={() => fileInputRef.current?.click()}><span className="drop-plus">＋</span><strong>{importState === 'reading' ? '正在读取角色卡…' : '导入 PNG 角色卡'}</strong><small>自动解析头像、开场白、世界书和正则</small></button>{importState === 'error' && <div className="import-notice error">{importError}</div>}<div className="form-divider"><span>或者手动创建</span></div><label>角色名称<input value={newCharacter.name} onChange={(e) => setNewCharacter({ ...newCharacter, name: e.target.value })} placeholder="例如：霍烬" /></label><label>一句话简介<input value={newCharacter.tagline} onChange={(e) => setNewCharacter({ ...newCharacter, tagline: e.target.value })} /></label><label>角色设定<textarea rows={7} value={newCharacter.description} onChange={(e) => setNewCharacter({ ...newCharacter, description: e.target.value })} /></label><label>开场白<textarea rows={4} value={newCharacter.greeting} onChange={(e) => setNewCharacter({ ...newCharacter, greeting: e.target.value })} /></label><label>标签<input value={newCharacter.tags} onChange={(e) => setNewCharacter({ ...newCharacter, tags: e.target.value })} placeholder="慢热，守护，剧情向" /></label><button className="primary-button full" onClick={createCharacter}>创建并保存</button></section></>}
+    {page === 'create' && <><BackHeader title="新建角色" onBack={goBack} action={<button className="text-button" onClick={createCharacter}>保存</button>} /><section className="content-stack form-stack"><button className="drop-zone compact" onClick={() => fileInputRef.current?.click()}><span className="drop-plus">＋</span><strong>{importState === 'reading' ? '正在读取角色卡…' : '导入 PNG 角色卡'}</strong><small>自动解析头像、开场白、世界书和正则</small></button>{importState === 'error' && <div className="import-notice error">{importError}</div>}<div className="form-divider"><span>或者手动创建</span></div><label className="avatar-upload-row"><span className="avatar-upload-preview">{newCharacter.avatar ? <img src={newCharacter.avatar} alt="" /> : '＋'}</span><span><strong>角色头像</strong><small>选择照片并自动裁成方形</small></span><input type="file" accept="image/*" onChange={async (event) => { const file = event.target.files?.[0]; if (file) setNewCharacter({ ...newCharacter, avatar: await imageThumbnail(file) }); event.currentTarget.value = '' }} /></label><label>角色名称<input value={newCharacter.name} onChange={(e) => setNewCharacter({ ...newCharacter, name: e.target.value })} placeholder="例如：霍烬" /></label><label>一句话简介<input value={newCharacter.tagline} onChange={(e) => setNewCharacter({ ...newCharacter, tagline: e.target.value })} /></label><label>角色设定<textarea rows={7} value={newCharacter.description} onChange={(e) => setNewCharacter({ ...newCharacter, description: e.target.value })} /></label><label>开场白<textarea rows={4} value={newCharacter.greeting} onChange={(e) => setNewCharacter({ ...newCharacter, greeting: e.target.value })} /></label><label>标签<input value={newCharacter.tags} onChange={(e) => setNewCharacter({ ...newCharacter, tags: e.target.value })} placeholder="慢热，守护，剧情向" /></label><button className="primary-button full" onClick={createCharacter}>创建并保存</button></section></>}
 
     {page === 'group-create' && <><BackHeader title="新建群聊" onBack={goBack} action={<span className="saved-label">{groupDraft.participantIds.length} 位成员</span>} /><section className="content-stack group-create-page"><label className="group-title-field">群聊名称<input value={groupDraft.title} onChange={(event) => setGroupDraft({ ...groupDraft, title: event.target.value })} placeholder="例如：雨夜重逢" /></label><div className="privacy-note">选择至少两位角色。每位角色会使用自己的角色卡、世界书、美化和长期记忆，并可绑定不同 API 渠道。</div><div className="group-member-list">{characters.map((character) => { const selected = groupDraft.participantIds.includes(character.id); return <article className={selected ? 'selected' : ''} key={character.id}><button className="group-member-toggle" onClick={() => setGroupDraft((current) => ({ ...current, participantIds: selected ? current.participantIds.filter((id) => id !== character.id) : [...current.participantIds, character.id], apiIds: { ...current.apiIds, [character.id]: current.apiIds[character.id] || api.id } }))}><CharacterPortrait item={character} /><div><strong>{character.name}</strong><small>{character.tagline}</small></div><span>{selected ? '✓' : '＋'}</span></button>{selected && <label>API 渠道<select value={groupDraft.apiIds[character.id] || api.id} onChange={(event) => setGroupDraft((current) => ({ ...current, apiIds: { ...current.apiIds, [character.id]: event.target.value } }))}>{apiChannels.map((channel) => <option key={channel.id} value={channel.id}>{channel.name} · {channel.modelName || '未选模型'}</option>)}</select></label>}</article> })}</div><button className="primary-button full" disabled={groupDraft.participantIds.length < 2} onClick={createGroupConversation}>创建群聊并进入</button></section></>}
 
@@ -949,7 +984,7 @@ function App() {
 
     {page === 'greeting-picker' && <GreetingPicker character={activeCharacter} userName={identity.name} onCancel={() => { const restarting = Boolean(restartingConversationId); setRestartingConversationId(null); restarting ? replacePage('chat') : goBack() }} onConfirm={beginWithGreeting} />}
 
-    {page === 'chat' && <section className="chat-page"><header className="chat-header"><button className="icon-button drawer-trigger" aria-label="打开对话列表" onClick={() => setDrawer('left')}>☰</button><button className="chat-identity" onClick={() => navigate('character-detail')}>{activeCharacter.avatar ? <img src={activeCharacter.avatar} alt="" /> : <span>{activeCharacter.name.slice(-1)}</span>}<div><strong>{activeConversation?.kind === 'group' ? activeConversation.title : activeCharacter.name}</strong><small>{isGenerating ? '正在回应…' : activeConversation?.title || `${identity.name} · 沉浸共演中`}</small></div></button><button className="more-button" aria-label="打开聊天设置" onClick={() => setDrawer('right')}>•••</button></header><button className="scene-banner" onClick={() => navigate('card-worldbook')}><span>✦</span><p>{(activeCharacter.characterBook?.name || worldbook).slice(0, 24)} · {activeCharacter.characterBook?.entries.length || 0} 条</p></button>{chatError && <button className="chat-error" onClick={() => navigate('api')}><span>连接提示</span>{chatError}<i>前往 API 设置 ›</i></button>}<div ref={messageListRef} className="message-list" onScroll={updateChatJump}>{messages.map(renderChatMessage)}</div>{(chatJump.up || chatJump.down) && <nav className="chat-jump-controls" aria-label="快速浏览对话">{chatJump.up && <button onClick={() => jumpChat('top')} aria-label="回到对话顶部">↑</button>}{chatJump.down && <button onClick={() => jumpChat('bottom')} aria-label="跳到最新消息">↓</button>}</nav>}{activeConversation?.kind === 'group' && <div className="group-speaker-bar"><button className={groupReplyTarget === 'all' ? 'active' : ''} onClick={() => setGroupReplyTarget('all')}>全员依次</button>{groupParticipants.map((member) => <button key={member.id} className={groupReplyTarget === member.id ? 'active' : ''} onClick={() => setGroupReplyTarget(member.id)}>只让 {member.name}</button>)}</div>}<div className="composer"><button className="composer-plus">＋</button><textarea ref={composerRef} rows={1} value={draft} onChange={(e) => setDraft(e.target.value)} onKeyDown={(e) => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); if (!isGenerating) sendMessage() } }} placeholder={isGenerating ? '可以先写下一条，停止后再发送' : '写下你的回应……'} /><button className={`send-button ${isGenerating ? 'stop' : ''}`} aria-label={isGenerating ? '停止生成' : '发送'} onClick={() => isGenerating && activeConversation ? abortConversation(activeConversation.id) : sendMessage()}>{isGenerating ? '■' : '↑'}</button></div></section>}
+    {page === 'chat' && <section className="chat-page"><header className="chat-header"><button className="icon-button drawer-trigger" aria-label="打开对话列表" onClick={() => setDrawer('left')}>☰</button><button className="chat-identity" onClick={() => navigate('character-detail')}>{activeCharacter.avatar ? <img src={activeCharacter.avatar} alt="" /> : <span>{activeCharacter.name.slice(-1)}</span>}<div><strong>{activeConversation?.kind === 'group' ? activeConversation.title : activeCharacter.name}</strong><small>{isGenerating ? '正在回应…' : activeConversation?.title || `${identity.name} · 沉浸共演中`}</small></div></button><button className="more-button" aria-label="打开聊天设置" onClick={() => setDrawer('right')}>•••</button></header><button className="scene-banner" onClick={() => navigate('card-worldbook')}><span>✦</span><p>{(activeCharacter.characterBook?.name || worldbook).slice(0, 24)} · {activeCharacter.characterBook?.entries.length || 0} 条</p></button>{chatError && <button className="chat-error" onClick={() => navigate('api')}><span>连接提示</span>{chatError}<i>前往 API 设置 ›</i></button>}<div ref={messageListRef} className="message-list" onScroll={updateChatJump}>{messages.map(renderChatMessage)}</div>{(chatJump.up || chatJump.down) && <nav className="chat-jump-controls" aria-label="快速浏览对话">{chatJump.up && <button onClick={() => jumpChat('top')} aria-label="回到对话顶部">↑</button>}{chatJump.down && <button onClick={() => jumpChat('bottom')} aria-label="跳到最新消息">↓</button>}</nav>}{activeConversation?.kind === 'group' && <div className="group-speaker-bar">{([['natural', '自然聊天'], ['contextual', '情境发言'], ['all', '全员回复'], ['specified', '指定 @']] as const).map(([mode, label]) => <button key={mode} className={groupReplyMode === mode ? 'active' : ''} onClick={() => setGroupReplyMode(mode)}>{label}</button>)}</div>}<div className="composer"><button className="composer-plus">＋</button><textarea ref={composerRef} rows={1} value={draft} onChange={(e) => { setDraft(e.target.value); if (activeConversation?.kind === 'group' && /[@＠][^@＠\s]*$/.test(e.target.value)) setMentionPickerOpen(true) }} onKeyDown={(e) => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); if (!isGenerating) sendMessage() } }} placeholder={isGenerating ? '可以先写下一条，停止后再发送' : groupReplyMode === 'specified' && activeConversation?.kind === 'group' ? '输入 @ 选择回答的角色……' : '写下你的回应……'} /><button className={`send-button ${isGenerating ? 'stop' : ''}`} aria-label={isGenerating ? '停止生成' : '发送'} onClick={() => isGenerating && activeConversation ? abortConversation(activeConversation.id) : sendMessage()}>{isGenerating ? '■' : '↑'}</button></div></section>}
 
     {page === 'more' && <><BackHeader title="设置" onBack={goBack} /><section className="settings-stack">{[[['API 连接', 'api'], ['用户身份', 'identity']], [['模型设置', 'model'], ['全局预设', 'preset'], ['全局世界书', 'worldbook'], ['长记忆', 'memory']], [['应用设置', 'settings']]].map((group, index) => <div className="settings-group" key={index}>{group.map(([label, target]) => <button key={label} onClick={() => navigate(target as Page)}><span>{label}</span><span>›</span></button>)}</div>)}</section></>}
 
@@ -967,7 +1002,9 @@ function App() {
 
     {page === 'model' && <><BackHeader title="模型设置" onBack={goBack} /><section className="settings-stack"><div className="settings-group range-group"><RangeRow label="记忆长度" value={memoryLength} min={10} max={100} step={1} onChange={setMemoryLength} /><RangeRow label="回复令牌限制" hint={`当前最多请求 ${maxTokens} 个输出令牌`} value={maxTokens} min={1000} max={64000} step={1000} onChange={setMaxTokens} /></div><div className="settings-group range-group"><RangeRow label="温度" value={temperature} min={0} max={2} step={0.05} onChange={setTemperature} /><RangeRow label="Top-P" value={topP} min={0} max={1} step={0.05} onChange={setTopP} /></div><div className="settings-group toggle-row"><div><strong>流式传输</strong><small>立即逐字显示回复</small></div><button className={`switch ${streaming ? 'on' : ''}`} onClick={() => setStreaming(!streaming)}><span /></button></div></section></>}
     {page === 'settings' && <><BackHeader title="应用设置" onBack={goBack} /><section className="settings-stack"><div className="storage-health-card"><div><strong>本地数据保险库</strong><small>角色、头像、聊天与长期记忆已同步保存到 IndexedDB</small></div><span>{storageUsage}</span></div><div className="settings-group"><button onClick={() => navigate('appearance')}><span>外观 · 自定义主题</span><span>›</span></button><button><span>语言 · 简体中文</span><span>›</span></button><button onClick={() => navigate('appearance')}><span>字体 · {chatFontSize}px</span><span>›</span></button></div><BackupCard /><UpdateCard /></section></>}
-    {page === 'appearance' && <><BackHeader title="聊天外观" onBack={goBack} action={<button className="soft-button" onClick={() => { setChatFontSize(16); setChatTextColor('#4e4852'); setChatBaseColor('#f5f1f8'); setChatBackgroundFrost(.72); setChatBackground('') }}>恢复默认</button>} /><section className="settings-stack appearance-page"><div className="appearance-preview" style={{ color: chatTextColor, backgroundColor: chatBaseColor, backgroundImage: chatBackground ? `linear-gradient(rgba(255,255,255,${chatBackgroundFrost}),rgba(255,255,255,${chatBackgroundFrost})),url(${JSON.stringify(chatBackground)})` : undefined, fontSize: chatFontSize }}><small>聊天正文预览</small><p>你终于回来了。文字大小、颜色和背景都会即时跟随这里。</p></div><div className="appearance-card"><RangeRow label="正文字号" hint="只调整聊天正文，不影响按钮与设置页" value={chatFontSize} min={13} max={24} step={1} onChange={setChatFontSize} /><label className="appearance-color-row"><div><strong>正文颜色</strong><small>{chatTextColor}</small></div><input type="color" value={chatTextColor} onChange={(event) => setChatTextColor(event.target.value)} /></label><label className="appearance-color-row"><div><strong>背景底色</strong><small>{chatBaseColor}</small></div><input type="color" value={chatBaseColor} onChange={(event) => setChatBaseColor(event.target.value)} /></label></div><div className="appearance-card background-card"><div><strong>聊天背景图</strong><small>图片会压缩并保存在本机 IndexedDB，不上传仓库。</small></div>{chatBackground && <div className="background-preview" style={{ backgroundImage: `url(${JSON.stringify(chatBackground)})` }} />}<div className="appearance-actions"><label className="primary-button">选择背景图<input type="file" accept="image/*" onChange={async (event) => { const file = event.target.files?.[0]; if (file) setChatBackground(await backgroundImageData(file)); event.currentTarget.value = '' }} /></label>{chatBackground && <button className="secondary-button" onClick={() => setChatBackground('')}>移除背景</button>}</div>{chatBackground && <RangeRow label="背景白纱" hint="数值越高，文字越清楚" value={chatBackgroundFrost} min={0} max={.92} step={.04} onChange={setChatBackgroundFrost} />}</div></section></>}
+    {page === 'appearance' && <><BackHeader title="聊天外观" onBack={goBack} action={<button className="soft-button" onClick={() => { setChatFontSize(16); setChatTextColor('#4e4852'); setChatNarrationColor('#7f7089'); setChatQuoteColor('#7b4d67'); setChatBaseColor('#f5f1f8'); setChatBackgroundFrost(.72); setChatBackground('') }}>恢复默认</button>} /><section className="settings-stack appearance-page"><div className="appearance-preview" style={{ color: chatTextColor, backgroundColor: chatBaseColor, backgroundImage: chatBackground ? `linear-gradient(rgba(255,255,255,${chatBackgroundFrost}),rgba(255,255,255,${chatBackgroundFrost})),url(${JSON.stringify(chatBackground)})` : undefined, fontSize: chatFontSize }}><small>聊天正文预览</small><p><span style={{ color: chatNarrationColor }}>（他终于等到你回来。）</span><br /><span style={{ color: chatQuoteColor }}>“我一直在这里。”</span></p></div><div className="appearance-card"><RangeRow label="正文字号" hint="只调整聊天正文，不影响按钮与设置页" value={chatFontSize} min={13} max={24} step={1} onChange={setChatFontSize} /><label className="appearance-color-row"><div><strong>正文颜色</strong><small>{chatTextColor}</small></div><input type="color" value={chatTextColor} onChange={(event) => setChatTextColor(event.target.value)} /></label><label className="appearance-color-row"><div><strong>旁白颜色</strong><small>识别 *旁白*、（旁白）</small></div><input type="color" value={chatNarrationColor} onChange={(event) => setChatNarrationColor(event.target.value)} /></label><label className="appearance-color-row"><div><strong>引用颜色</strong><small>识别 “对话” 与「对话」</small></div><input type="color" value={chatQuoteColor} onChange={(event) => setChatQuoteColor(event.target.value)} /></label><label className="appearance-color-row"><div><strong>背景底色</strong><small>{chatBaseColor}</small></div><input type="color" value={chatBaseColor} onChange={(event) => setChatBaseColor(event.target.value)} /></label></div><div className="appearance-card background-card"><div><strong>聊天背景图</strong><small>图片会压缩并保存在本机 IndexedDB，不上传仓库。</small></div>{chatBackground && <div className="background-preview" style={{ backgroundImage: `url(${JSON.stringify(chatBackground)})` }} />}<div className="appearance-actions"><label className="primary-button">选择背景图<input type="file" accept="image/*" onChange={async (event) => { const file = event.target.files?.[0]; if (file) setChatBackground(await backgroundImageData(file)); event.currentTarget.value = '' }} /></label>{chatBackground && <button className="secondary-button" onClick={() => setChatBackground('')}>移除背景</button>}</div>{chatBackground && <RangeRow label="背景白纱" hint="数值越高，文字越清楚" value={chatBackgroundFrost} min={0} max={.92} step={.04} onChange={setChatBackgroundFrost} />}</div></section></>}
+
+    {mentionPickerOpen && activeConversation?.kind === 'group' && <div className="mention-picker-layer"><button className="drawer-backdrop" aria-label="关闭角色选择" onClick={() => setMentionPickerOpen(false)} /><section className="mention-picker"><header><strong>选择 @ 的角色</strong><button onClick={() => setMentionPickerOpen(false)}>×</button></header>{groupParticipants.map((member) => <button className="mention-member" key={member.id} onClick={() => insertGroupMention(member.name)}>{member.avatar ? <img src={member.avatar} alt="" /> : <span>{member.name.slice(-1)}</span>}<strong>{member.name}</strong></button>)}</section></div>}
 
     {menuCharacter && <div className="character-menu-layer"><button className="drawer-backdrop" aria-label="关闭角色菜单" onClick={() => setCharacterMenuId(null)} /><section className="conversation-menu character-action-menu"><header><div><small>角色操作</small><strong>{menuCharacter.name}</strong></div><button onClick={() => setCharacterMenuId(null)}>×</button></header><button onClick={() => { setActiveId(menuCharacter.id); setCharacterMenuId(null); navigate('card-data') }}>编辑角色卡</button><button onClick={() => duplicateCharacter(menuCharacter)}>复制角色</button><button onClick={() => exportCharacter(menuCharacter)}>导出 Character Card V3 JSON</button><button className="danger" onClick={() => deleteCharacter(menuCharacter)}>删除角色及相关数据</button></section></div>}
 

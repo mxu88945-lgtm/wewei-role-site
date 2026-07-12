@@ -42,6 +42,17 @@ function blankRegex(): RegexScript {
   }
 }
 
+async function avatarThumbnail(file: File, size = 320) {
+  const bitmap = await createImageBitmap(file)
+  const canvas = document.createElement('canvas'); canvas.width = size; canvas.height = size
+  const context = canvas.getContext('2d'); if (!context) return ''
+  const scale = Math.max(size / bitmap.width, size / bitmap.height)
+  const width = bitmap.width * scale; const height = bitmap.height * scale
+  context.drawImage(bitmap, (size - width) / 2, (size - height) / 2, width, height)
+  bitmap.close()
+  return canvas.toDataURL('image/jpeg', .84)
+}
+
 export default function CharacterCardManager({ character, onChange, onBack, initialSection = 'overview' }: { character: Character; onChange: (next: Character) => void; onBack: () => void; initialSection?: CharacterCardSection }) {
   const [section, setSection] = useState<CharacterCardSection>(initialSection)
   const [expandedWorld, setExpandedWorld] = useState<number | null>(null)
@@ -62,6 +73,7 @@ export default function CharacterCardManager({ character, onChange, onBack, init
     <div className="card-format-banner">
       {character.avatar ? <img src={character.avatar} alt="" /> : <span>{character.name.slice(-1)}</span>}
       <div><strong>{character.name}</strong><small>{character.cardSpec || '手动创建'} · {character.cardSpecVersion || '本地格式'}</small><small>{character.sourceFileName || '未关联原始文件'}</small></div>
+      <label className="avatar-edit-button">更换头像<input type="file" accept="image/*" onChange={async (event) => { const file = event.target.files?.[0]; if (file) patch({ avatar: await avatarThumbnail(file) }); event.currentTarget.value = '' }} /></label>
     </div>
 
     <nav className="card-tabs">
