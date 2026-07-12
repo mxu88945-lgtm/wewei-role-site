@@ -22,6 +22,9 @@
 .memory-entry strong, .memory-entry small { display: block; }
 .memory-entry small { margin-top: 6px; color: #9a939e; }
 .memory-entry textarea { width: 100%; border: 1px solid rgba(71,55,80,.08); border-radius: 18px; padding: 14px; color: #413a45; background: #f8f6f9; resize: vertical; line-height: 1.65; }
+.memory-entry.pinned { border: 1px solid rgba(135,83,196,.28); background: linear-gradient(145deg,#eee7f5,#f5eef4); }
+.memory-entry-actions { display: flex; align-items: center; justify-content: space-between; gap: 10px; }
+.memory-entry-actions .soft-button { min-height: 36px; }
 .danger-link { width: max-content; padding: 0; border: 0; color: #c45e72; background: transparent; font-weight: 700; }
 .primary-button:disabled { opacity: .6; cursor: wait; }
 .saved-label { color: #8e8792; font-size: 12px; }
