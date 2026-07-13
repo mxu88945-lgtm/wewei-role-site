@@ -94,7 +94,7 @@ export function buildChatPrompt(input: PromptInput): ChatApiMessage[] {
   appendSystem(result, entryText(entries, 'before_char', character, user.name))
   appendSystem(result, applyMacros([
     input.preset && `【全局预设】\n${input.preset}`,
-    input.globalWorldbook && `【全局世界书】\n${input.globalWorldbook}`,
+    input.globalWorldbook && `【惟境全局世界观背景｜所有角色共用】\n${input.globalWorldbook}`,
     `【角色】${character.name}`,
     character.description && `【角色描述】\n${character.description}`,
     character.personality && `【性格】\n${character.personality}`,
