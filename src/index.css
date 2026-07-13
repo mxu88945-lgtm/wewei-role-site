@@ -74,6 +74,10 @@ button { cursor: pointer; }
 .settings-stack { gap: 16px; }
 .settings-group { overflow: hidden; border-radius: 26px; background: #efedf0; }
 .settings-group > button { width: 100%; min-height: 74px; border: 0; padding: 0 22px; display: flex; justify-content: space-between; align-items: center; color: inherit; background: transparent; text-align: left; }
+.compact-settings { gap: 12px; }
+.compact-settings .settings-group { border-radius: 20px; }
+.compact-settings .settings-group > button { min-height: 58px; padding: 0 17px; font-size: 14px; }
+.compact-settings .settings-group > button > span:last-child { font-size: 20px; }
 .settings-group > button + button { border-top: 1px solid rgba(75,61,83,.05); }
 .setting-value { color: #96909a; font-size: 14px; }
 .setting-value b, .settings-group > button > span:last-child { color: #aaa3ad; font-size: 25px; font-weight: 400; }
@@ -197,12 +201,12 @@ button { cursor: pointer; }
 .appearance-preview small { opacity: .62; font-size: 11px; }
 .appearance-preview p { margin: 8px 0 0; }
 .appearance-card { overflow: hidden; border-radius: 26px; background: #efedf0; }
-.appearance-color-row { min-height: 78px; padding: 0 20px; display: flex; align-items: center; justify-content: space-between; gap: 16px; border-top: 1px solid rgba(75,61,83,.05); }
+.appearance-color-row { min-height: 62px; padding: 0 16px; display: flex; align-items: center; justify-content: space-between; gap: 14px; border-top: 1px solid rgba(75,61,83,.05); }
 .appearance-color-row strong, .appearance-color-row small, .background-card strong, .background-card small { display: block; }
 .appearance-color-row small, .background-card small { margin-top: 4px; color: #97909b; font-size: 10px; }
 .appearance-color-row input { width: 48px; height: 38px; padding: 2px; border: 0; border-radius: 12px; background: white; }
-.background-card { padding: 20px; display: grid; gap: 16px; }
-.background-preview { height: 210px; border-radius: 22px; background-position: center; background-size: cover; box-shadow: inset 0 0 0 1px rgba(70,55,80,.08); }
+.background-card { padding: 16px; display: grid; gap: 13px; }
+.background-preview { height: 160px; border-radius: 18px; background-position: center; background-size: cover; box-shadow: inset 0 0 0 1px rgba(70,55,80,.08); }
 .appearance-actions { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
 .appearance-actions label, .appearance-actions button { min-height: 48px; border: 0; border-radius: 16px; display: grid; place-items: center; font-weight: 800; }
 .appearance-actions input { display: none; }
@@ -230,7 +234,7 @@ button { cursor: pointer; }
 .identity-avatar-editor img { width: 100%; height: 100%; object-fit: cover; }
 .identity-avatar-editor label { display: block; cursor: pointer; }
 .identity-avatar-editor input { display: none; }
-.persona-page { padding-bottom: 34px; }
+.persona-page { padding-bottom: 28px; gap: 14px; }
 .persona-heading { display: flex; align-items: center; justify-content: space-between; gap: 14px; }
 .persona-heading strong, .persona-heading small { display: block; }
 .persona-heading small { margin-top: 5px; color: #98909b; font-size: 11px; line-height: 1.45; }
@@ -241,17 +245,23 @@ button { cursor: pointer; }
 .persona-tabs > button > span { display: grid; place-items: center; color: white; background: linear-gradient(145deg,#8561dc,#e099c1); font-weight: 800; }
 .persona-tabs strong, .persona-tabs small { display: block; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .persona-tabs small { margin-top: 4px; color: #9a929d; font-size: 9px; }
-.persona-editor { padding: 16px; border-radius: 25px; display: grid; gap: 16px; background: #f3f0f4; }
+.persona-editor { padding: 14px; border-radius: 20px; display: grid; gap: 13px; background: #f3f0f4; }
 .persona-editor > label { display: grid; gap: 8px; color: #6e6872; font-size: 12px; font-weight: 800; }
 .persona-editor input, .persona-editor textarea { width: 100%; border: 1px solid rgba(71,55,80,.08); outline: 0; border-radius: 18px; padding: 15px 16px; color: #2e2931; background: #faf8fb; resize: vertical; }
 .persona-editor input:focus, .persona-editor textarea:focus { border-color: #aa83de; box-shadow: 0 0 0 4px rgba(158,108,211,.1); }
 .persona-delete { order: -1; justify-self: end; border: 0; border-radius: 12px; padding: 8px 12px; color: #a34f62; background: #f4e5e9; font-weight: 800; }
-.persona-editor textarea { height: 230px; min-height: 180px; max-height: 420px; }
+.persona-editor textarea { height: 170px; min-height: 140px; max-height: 360px; font-size: 14px; line-height: 1.55; }
 .update-card > small { display: block; margin: -3px 0 12px; color: #9b8fa1; font-size: 10px; }
-.storage-health-card { padding: 18px; display: flex; align-items: center; justify-content: space-between; gap: 16px; border-radius: 22px; color: #554d59; background: linear-gradient(145deg, #eee9f2, #f5f1f6); box-shadow: 0 12px 28px rgba(71,51,82,.06); }
+.storage-health-card { padding: 15px 16px; display: flex; align-items: center; justify-content: space-between; gap: 14px; border-radius: 19px; color: #554d59; background: linear-gradient(145deg, #eee9f2, #f5f1f6); box-shadow: 0 10px 24px rgba(71,51,82,.05); }
 .storage-health-card strong, .storage-health-card small { display: block; }
 .storage-health-card small { max-width: 280px; margin-top: 5px; color: #928a96; font-size: 11px; line-height: 1.5; }
 .storage-health-card > span { flex: 0 0 auto; color: #8b61bd; font-size: 11px; font-weight: 800; }
+.compact-settings .support-card, .compact-settings .update-card { padding: 16px; border-radius: 20px; }
+.compact-settings .range-group { padding: 5px 16px; }
+.compact-settings .range-row { padding: 15px 0; }
+.compact-settings .range-controls { margin-top: 11px; grid-template-columns: 1fr 64px; gap: 10px; }
+.compact-settings .range-controls output { padding: 8px; }
+.theme-preview { font-size: 14px !important; }
 .drawer-detail-link:disabled { opacity: .48; cursor: default; }
 .group-create-page { padding-bottom: 30px; }
 .group-title-field { display: grid; gap: 8px; color: #6e6872; font-size: 12px; font-weight: 800; }
