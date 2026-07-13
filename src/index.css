@@ -95,6 +95,11 @@ button { cursor: pointer; }
 .switch span { display: block; width: 28px; height: 28px; border-radius: 50%; background: white; box-shadow: 0 3px 10px rgba(0,0,0,.16); transition: .2s ease; }
 .switch.on { background: #844be8; }
 .switch.on span { transform: translateX(24px); }
+.settings-group > button.switch { width: 58px; min-height: 34px; height: 34px; padding: 3px; flex: 0 0 58px; }
+.compact-settings .toggle-row { padding: 15px 16px; border-radius: 20px; }
+.compact-settings .settings-group > button.switch { width: 50px; min-height: 30px; height: 30px; padding: 3px; flex-basis: 50px; }
+.compact-settings .switch span { width: 24px; height: 24px; }
+.compact-settings .switch.on span { transform: translateX(20px); }
 .bottom-nav { position: fixed; left: 50%; bottom: calc(12px + env(safe-area-inset-bottom)); transform: translateX(-50%); width: min(calc(100% - 28px), 492px); height: 72px; padding: 8px 10px; display: grid; grid-template-columns: repeat(4, 1fr); gap: 4px; border: 1px solid rgba(77,61,86,.07); border-radius: 26px; background: rgba(248,246,249,.88); box-shadow: 0 18px 50px rgba(58,45,65,.16); backdrop-filter: blur(24px); }
 .bottom-nav button { border: 0; border-radius: 18px; display: grid; place-items: center; align-content: center; gap: 3px; color: #a09aa4; background: transparent; }
 .bottom-nav button span { font-size: 20px; line-height: 1; }
@@ -240,8 +245,10 @@ button { cursor: pointer; }
 .persona-heading small { margin-top: 5px; color: #98909b; font-size: 11px; line-height: 1.45; }
 .persona-tabs { display: flex; gap: 10px; overflow-x: auto; padding: 2px 1px 8px; scroll-snap-type: x proximity; }
 .persona-tabs > button { flex: 0 0 168px; min-width: 0; padding: 11px; border: 1px solid transparent; border-radius: 20px; display: grid; grid-template-columns: 44px 1fr; align-items: center; gap: 10px; color: inherit; background: #efedf0; text-align: left; scroll-snap-align: start; }
+.persona-tabs > button { flex-basis: 148px; padding: 9px; border-radius: 17px; grid-template-columns: 38px 1fr; gap: 8px; }
 .persona-tabs > button.active { border-color: rgba(139,87,199,.42); background: #ece5f4; box-shadow: 0 10px 24px rgba(91,61,109,.08); }
 .persona-tabs img, .persona-tabs > button > span { width: 44px; height: 44px; border-radius: 15px; object-fit: cover; }
+.persona-tabs img, .persona-tabs > button > span { width: 38px; height: 38px; border-radius: 13px; }
 .persona-tabs > button > span { display: grid; place-items: center; color: white; background: linear-gradient(145deg,#8561dc,#e099c1); font-weight: 800; }
 .persona-tabs strong, .persona-tabs small { display: block; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .persona-tabs small { margin-top: 4px; color: #9a929d; font-size: 9px; }
@@ -251,6 +258,10 @@ button { cursor: pointer; }
 .persona-editor input:focus, .persona-editor textarea:focus { border-color: #aa83de; box-shadow: 0 0 0 4px rgba(158,108,211,.1); }
 .persona-delete { order: -1; justify-self: end; border: 0; border-radius: 12px; padding: 8px 12px; color: #a34f62; background: #f4e5e9; font-weight: 800; }
 .persona-editor textarea { height: 170px; min-height: 140px; max-height: 360px; font-size: 14px; line-height: 1.55; }
+.persona-editor input { padding: 12px 14px; border-radius: 15px; font-size: 14px; }
+.persona-page .identity-avatar-editor { padding: 12px; border-radius: 17px; }
+.persona-page .identity-avatar-editor > div { flex-basis: 54px; width: 54px; height: 54px; border-radius: 17px; }
+.content-stack.form-stack > label > textarea[rows="14"] { min-height: 260px; height: 42dvh; max-height: 480px; padding: 14px; border-radius: 17px; font-size: 14px; line-height: 1.6; }
 .update-card > small { display: block; margin: -3px 0 12px; color: #9b8fa1; font-size: 10px; }
 .storage-health-card { padding: 15px 16px; display: flex; align-items: center; justify-content: space-between; gap: 14px; border-radius: 19px; color: #554d59; background: linear-gradient(145deg, #eee9f2, #f5f1f6); box-shadow: 0 10px 24px rgba(71,51,82,.05); }
 .storage-health-card strong, .storage-health-card small { display: block; }
