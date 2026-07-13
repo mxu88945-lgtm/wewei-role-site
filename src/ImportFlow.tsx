@@ -65,7 +65,7 @@ export function GroupGreetingPicker({ characters, userName, onCancel, onConfirm 
 
   return <section className="greeting-picker-page">
     <header className="picker-header"><button onClick={onCancel}>取消</button><h1>选择群聊开场</h1><button disabled={!choice} onClick={() => choice && onConfirm({ characterId: choice.character.id, greeting: choice.greeting })}>确定</button></header>
-    <div className="picker-character"><span /><strong>{characters.map((character) => character.name).join('、')}</strong><span /></div>
+    <div className="group-picker-members" title={characters.map((character) => character.name).join('、')}>{characters.map((character) => character.name).join('、')}</div>
     <div className="import-count-note">选择一位成员的一条开场作为整个剧场的第一幕，其余成员不会重复发送开场白。</div>
     <div className="greeting-list">
       {choices.map(({ character, greeting, index }, choiceIndex) => {
