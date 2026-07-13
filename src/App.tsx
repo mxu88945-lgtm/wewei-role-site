@@ -255,7 +255,6 @@ function App() {
   const phoneCanvasRef = useRef<HTMLElement>(null)
   const composerRef = useRef<HTMLTextAreaElement>(null)
   const messageListRef = useRef<HTMLDivElement>(null)
-  const lastChatScrollTopRef = useRef(0)
   const streamScrollLockRef = useRef<{ top: number; version: number } | null>(null)
   const generationControllers = useRef(new Map<string, AbortController>())
 
@@ -958,22 +957,6 @@ function App() {
 
   const updateChatJump = () => {
     const list = messageListRef.current; if (!list) return
-    const header = phoneCanvasRef.current?.querySelector<HTMLElement>('.chat-header')
-    const previousTop = lastChatScrollTopRef.current
-    if (header) {
-      const movingDown = list.scrollTop > previousTop + 3
-      const movingUp = list.scrollTop < previousTop - 3
-      if (list.scrollTop < 24 || movingUp) {
-        header.style.transform = 'translateY(0)'
-        header.style.opacity = '1'
-        header.style.pointerEvents = 'auto'
-      } else if (movingDown) {
-        header.style.transform = 'translateY(calc(-100% - 18px))'
-        header.style.opacity = '0'
-        header.style.pointerEvents = 'none'
-      }
-    }
-    lastChatScrollTopRef.current = list.scrollTop
     const distanceToBottom = list.scrollHeight - list.scrollTop - list.clientHeight
     setChatJump({ up: list.scrollTop > 280, down: distanceToBottom > 280 })
   }
