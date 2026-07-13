@@ -49,7 +49,7 @@ type MemoryConfig = {
 type MemoryConfigMap = Record<string, MemoryConfig>
 type MemoryEntryMap = Record<string, MemoryEntry[]>
 type UserIdentity = { id: string; name: string; description: string; avatar?: string }
-type ChatThemePreset = { id: string; name: string; mode: 'mist' | 'pearl'; baseColor: string; textColor: string; narrationColor: string; quoteColor: string; frost: number; layout: 'bubble' | 'flat'; custom?: boolean }
+type ChatThemePreset = { id: string; name: string; mode: 'mist' | 'pearl'; baseColor: string; textColor: string; narrationColor: string; quoteColor: string; frost: number; custom?: boolean }
 
 const demoCharacter: Character = {
   id: 'huo-jin', name: '霍烬', tagline: '沉稳克制的守护者',
@@ -87,8 +87,8 @@ const defaultMemoryConfig = (): MemoryConfig => ({
   lastSummarizedCount: 0,
 })
 const builtInThemes: ChatThemePreset[] = [
-  { id: 'mist', name: '惟境紫雾', mode: 'mist', baseColor: '#f5f1f8', textColor: '#4e4852', narrationColor: '#7f7089', quoteColor: '#7b4d67', frost: .72, layout: 'bubble' },
-  { id: 'pearl', name: '月光珍珠', mode: 'pearl', baseColor: '#f8f7f5', textColor: '#403d42', narrationColor: '#716d74', quoteColor: '#6a5360', frost: .68, layout: 'flat' },
+  { id: 'mist', name: '惟境紫雾', mode: 'mist', baseColor: '#f5f1f8', textColor: '#4e4852', narrationColor: '#7f7089', quoteColor: '#7b4d67', frost: .72 },
+  { id: 'pearl', name: '月光珍珠', mode: 'pearl', baseColor: '#f8f7f5', textColor: '#403d42', narrationColor: '#716d74', quoteColor: '#6a5360', frost: .68 },
 ]
 
 const migrateMemoryConfigs = (configs: MemoryConfigMap) => Object.fromEntries(Object.entries(configs).map(([id, config]) => [id, {
@@ -280,11 +280,11 @@ function App() {
   const applyThemePreset = (preset: ChatThemePreset, bind = true) => {
     setChatTheme(preset.mode); setChatBaseColor(preset.baseColor); setChatTextColor(preset.textColor)
     setChatNarrationColor(preset.narrationColor); setChatQuoteColor(preset.quoteColor)
-    setChatBackgroundFrost(preset.frost); setChatLayout(preset.layout)
+    setChatBackgroundFrost(preset.frost)
     if (bind && activeConversation) setConversations((current) => current.map((item) => item.id === activeConversation.id ? { ...item, themePresetId: preset.id } : item))
   }
   const duplicateCurrentTheme = () => {
-    const preset: ChatThemePreset = { id: `theme-${Date.now()}`, name: `我的主题 ${customThemes.length + 1}`, mode: chatTheme, baseColor: chatBaseColor, textColor: chatTextColor, narrationColor: chatNarrationColor, quoteColor: chatQuoteColor, frost: chatBackgroundFrost, layout: chatLayout, custom: true }
+    const preset: ChatThemePreset = { id: `theme-${Date.now()}`, name: `我的主题 ${customThemes.length + 1}`, mode: chatTheme, baseColor: chatBaseColor, textColor: chatTextColor, narrationColor: chatNarrationColor, quoteColor: chatQuoteColor, frost: chatBackgroundFrost, custom: true }
     setCustomThemes((current) => [...current, preset]); applyThemePreset(preset)
   }
   const renameCustomTheme = (preset: ChatThemePreset) => {
