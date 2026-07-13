@@ -208,6 +208,21 @@
           "substituteRegex": 0,
           "minDepth": null,
           "maxDepth": null
+        },
+        {
+          "id": "huo-jin-story-card",
+          "scriptName": "霍烬全文剧情卡美化",
+          "findRegex": "/^([\\s\\S]+)$/g",
+          "replaceString": "<div class=\"hj-story-card\" style=\"width:100%;padding:18px 18px 16px;border:1px solid rgba(116,101,125,.13);border-radius:22px;color:#4f4952;background:linear-gradient(155deg,rgba(250,247,242,.96),rgba(244,240,244,.94));box-shadow:0 12px 30px rgba(67,52,74,.08);line-height:1.78;white-space:normal;overflow-wrap:anywhere\">$1</div>",
+          "trimStrings": [],
+          "placement": [2],
+          "disabled": false,
+          "markdownOnly": false,
+          "promptOnly": false,
+          "runOnEdit": true,
+          "substituteRegex": 0,
+          "minDepth": null,
+          "maxDepth": null
         }
       ]
     }
