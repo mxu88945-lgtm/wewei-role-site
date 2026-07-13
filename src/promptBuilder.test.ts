@@ -48,6 +48,8 @@ describe('buildChatPrompt', () => {
     const all = result.map((message) => message.content).join('\n')
     expect(all).toContain('细腻慢热')
     expect(all).toContain('现代都市')
+    expect(all).toContain('【惟境全局世界观背景｜所有角色共用】')
+    expect(all.match(/现代都市/g)).toHaveLength(1)
     expect(all).toContain('顾荒在后台留了一把钥匙')
     expect(all).not.toContain('这段不应出现')
     expect(all).toContain('两人曾在雨夜见面')
