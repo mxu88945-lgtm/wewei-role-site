@@ -3,7 +3,7 @@ import ApiSettingsPage from './ApiSettingsPage'
 import BackupCard from './BackupCard'
 import PresetEditor from './PresetEditor'
 import CharacterCardManager from './CharacterCardManager'
-import { GreetingPicker, ImportPreview } from './ImportFlow'
+import { GreetingPicker, GroupGreetingPicker, ImportPreview, type GroupGreetingChoice } from './ImportFlow'
 import MessageContent from './MessageContent'
 import { createBlankCharacter, importCharacterCard, normalizeStoredCharacter, type Character } from './characterCard'
 import { completeChat, testApiConnection, type ApiConfig } from './chatApi'
@@ -14,7 +14,7 @@ import { durableGet, durableSet } from './persistentStore'
 import { sanitizeAssistantOutput } from './outputSanitizer'
 import { memoriesForConversation } from './memoryEngine'
 
-type Page = 'home' | 'characters' | 'create' | 'group-create' | 'import-preview' | 'character-detail' | 'card-data' | 'card-worldbook' | 'card-regex' | 'greeting-picker' | 'chat' | 'more' | 'api' | 'model' | 'settings' | 'appearance' | 'font' | 'identity' | 'worldbook' | 'theater-world' | 'preset' | 'memory' | 'memory-api' | 'memory-list'
+type Page = 'home' | 'characters' | 'create' | 'group-create' | 'group-greeting-picker' | 'import-preview' | 'character-detail' | 'card-data' | 'card-worldbook' | 'card-regex' | 'greeting-picker' | 'chat' | 'more' | 'api' | 'model' | 'settings' | 'appearance' | 'font' | 'identity' | 'worldbook' | 'theater-world' | 'preset' | 'memory' | 'memory-api' | 'memory-list'
 type Message = { id: number; role: 'user' | 'assistant'; text: string; characterId?: string; finishReason?: string | null }
 type Drawer = 'left' | 'right'
 type GroupReplyMode = 'natural' | 'contextual' | 'all' | 'specified'
@@ -273,6 +273,8 @@ function App() {
   const activeConversation = (explicitConversation?.kind === 'group' ? explicitConversation : conversations.find((item) => item.id === activeConversationId && item.characterId === activeCharacter.id))
     || conversations.filter((item) => item.characterId === activeCharacter.id).sort((a, b) => b.updatedAt - a.updatedAt)[0]
   const identity = identities.find((item) => item.id === activeConversation?.personaId) || identities.find((item) => item.id === activePersonaId) || identities[0] || { id: 'persona-default', name: '周惟惟', description: '由用户亲自决定言行、心理与关键选择。' }
+  const restartingGroupConversation = conversations.find((item) => item.id === restartingConversationId && item.kind === 'group')
+  const groupGreetingCharacters = (restartingGroupConversation?.participantIds || groupDraft.participantIds).map((id) => characters.find((item) => item.id === id)).filter(Boolean) as Character[]
   const messages = activeConversation?.messages || [{ id: 1, role: 'assistant' as const, text: activeCharacter.greeting }]
   const currentMemoryConfig = memoryConfigs[activeCharacter.id] || defaultMemoryConfig()
   const memoryScopeId = activeConversation?.id || activeCharacter.id
@@ -467,7 +469,7 @@ function App() {
     replacePage('character-detail')
   }
 
-  const createGroupConversation = () => {
+  const createGroupConversation = ({ characterId, greeting }: GroupGreetingChoice) => {
     if (groupDraft.participantIds.length < 2) { window.alert('群聊至少选择两个角色。'); return }
     const now = Date.now()
     const participants = groupDraft.participantIds.map((id) => characters.find((item) => item.id === id)).filter(Boolean) as Character[]
@@ -477,11 +479,31 @@ function App() {
       participantIds: participants.map((item) => item.id),
       participantApiIds: Object.fromEntries(participants.map((item) => [item.id, groupDraft.apiIds[item.id] || api.id])),
       title: groupDraft.title.trim() || participants.map((item) => item.name).join('、'),
-      messages: [], createdAt: now, updatedAt: now, personaId: activePersonaId,
+      messages: [{ id: now, role: 'assistant', text: greeting, characterId }], createdAt: now, updatedAt: now, personaId: activePersonaId,
     }
     setConversations((current) => [...current, conversation])
     setActiveId(participants[0].id); setActiveConversationId(conversation.id)
     setGroupDraft({ title: '', participantIds: [], apiIds: {} }); setGroupReplyMode('natural')
+    replacePage('chat')
+  }
+
+  const openGroupGreetingPicker = () => {
+    if (groupDraft.participantIds.length < 2) { window.alert('群聊至少选择两个角色。'); return }
+    navigate('group-greeting-picker')
+  }
+
+  const beginGroupWithGreeting = (choice: GroupGreetingChoice) => {
+    if (!restartingConversationId) { createGroupConversation(choice); return }
+    const id = restartingConversationId
+    const now = Date.now()
+    setConversations((current) => current.map((item) => item.id === id ? {
+      ...item,
+      messages: [{ id: now, role: 'assistant', text: choice.greeting, characterId: choice.characterId }],
+      contextSummary: '', compressedUntil: 0, updatedAt: now,
+    } : item))
+    setActiveConversationId(id)
+    setActiveId(choice.characterId)
+    setRestartingConversationId(null)
     replacePage('chat')
   }
 
@@ -669,9 +691,13 @@ function App() {
   const restartConversation = (conversation: Conversation) => {
     abortConversation(conversation.id)
     if (conversation.kind === 'group') {
-      if (!window.confirm('清空这段群聊并重新开始？')) return
-      setConversations((current) => current.map((item) => item.id === conversation.id ? { ...item, messages: [], contextSummary: '', compressedUntil: 0, updatedAt: Date.now() } : item))
-      setActiveConversationId(conversation.id); setConversationMenuId(null); setDrawer(null); replacePage('chat'); return
+      setActiveId(conversation.participantIds?.[0] || conversation.characterId)
+      setActiveConversationId(conversation.id)
+      setRestartingConversationId(conversation.id)
+      setConversationMenuId(null)
+      setDrawer(null)
+      replacePage('group-greeting-picker')
+      return
     }
     const character = characters.find((item) => item.id === conversation.characterId) || demoCharacter
     setActiveId(character.id)
@@ -1074,7 +1100,7 @@ function App() {
 
     {page === 'create' && <><BackHeader title="新建角色" onBack={goBack} action={<button className="text-button" onClick={createCharacter}>保存</button>} /><section className="content-stack form-stack"><button className="drop-zone compact" onClick={() => fileInputRef.current?.click()}><span className="drop-plus">＋</span><strong>{importState === 'reading' ? '正在读取角色卡…' : '从文件导入角色卡'}</strong><small>支持带元数据的 PNG 与 JSON</small></button><div className="url-import-card"><div><strong>从 URL 导入角色卡</strong><small>粘贴 PNG 或 JSON 角色卡直链</small></div><div><input type="url" value={characterUrl} onChange={(event) => setCharacterUrl(event.target.value)} onKeyDown={(event) => { if (event.key === 'Enter') { event.preventDefault(); handleCharacterUrl() } }} placeholder="https://…/character.png" /><button onClick={handleCharacterUrl} disabled={!characterUrl.trim() || importState === 'reading'}>{importState === 'reading' ? '读取中' : '导入'}</button></div></div>{importState === 'error' && <div className="import-notice error">{importError}</div>}<div className="form-divider"><span>或者手动创建</span></div><label className="avatar-upload-row"><span className="avatar-upload-preview">{newCharacter.avatar ? <img src={newCharacter.avatar} alt="" /> : '＋'}</span><span><strong>角色头像</strong><small>选择照片并自动裁成方形</small></span><input type="file" accept="image/*" onChange={async (event) => { const file = event.target.files?.[0]; if (file) setNewCharacter({ ...newCharacter, avatar: await imageThumbnail(file) }); event.currentTarget.value = '' }} /></label><label>角色名称<input value={newCharacter.name} onChange={(e) => setNewCharacter({ ...newCharacter, name: e.target.value })} placeholder="例如：霍烬" /></label><label>一句话简介<input value={newCharacter.tagline} onChange={(e) => setNewCharacter({ ...newCharacter, tagline: e.target.value })} /></label><label>角色设定<textarea rows={7} value={newCharacter.description} onChange={(e) => setNewCharacter({ ...newCharacter, description: e.target.value })} /></label><label>开场白<textarea rows={4} value={newCharacter.greeting} onChange={(e) => setNewCharacter({ ...newCharacter, greeting: e.target.value })} /></label><label>标签<input value={newCharacter.tags} onChange={(e) => setNewCharacter({ ...newCharacter, tags: e.target.value })} placeholder="慢热，守护，剧情向" /></label><button className="primary-button full" onClick={createCharacter}>创建并保存</button></section></>}
 
-    {page === 'group-create' && <><BackHeader title="新建群聊" onBack={goBack} action={<span className="saved-label">{groupDraft.participantIds.length} 位成员</span>} /><section className="content-stack group-create-page"><label className="group-title-field">群聊名称<input value={groupDraft.title} onChange={(event) => setGroupDraft({ ...groupDraft, title: event.target.value })} placeholder="例如：雨夜重逢" /></label><div className="privacy-note">选择至少两位角色。每位角色会使用自己的角色卡、世界书、美化和长期记忆，并可绑定不同 API 渠道。</div><div className="group-member-list">{characters.map((character) => { const selected = groupDraft.participantIds.includes(character.id); return <article className={selected ? 'selected' : ''} key={character.id}><button className="group-member-toggle" onClick={() => setGroupDraft((current) => ({ ...current, participantIds: selected ? current.participantIds.filter((id) => id !== character.id) : [...current.participantIds, character.id], apiIds: { ...current.apiIds, [character.id]: current.apiIds[character.id] || api.id } }))}><CharacterPortrait item={character} /><div><strong>{character.name}</strong><small>{character.tagline}</small></div><span>{selected ? '✓' : '＋'}</span></button>{selected && <label>API 渠道<select value={groupDraft.apiIds[character.id] || api.id} onChange={(event) => setGroupDraft((current) => ({ ...current, apiIds: { ...current.apiIds, [character.id]: event.target.value } }))}>{apiChannels.map((channel) => <option key={channel.id} value={channel.id}>{channel.name} · {channel.modelName || '未选模型'}</option>)}</select></label>}</article> })}</div><button className="primary-button full" disabled={groupDraft.participantIds.length < 2} onClick={createGroupConversation}>创建群聊并进入</button></section></>}
+    {page === 'group-create' && <><BackHeader title="新建群聊" onBack={goBack} action={<span className="saved-label">{groupDraft.participantIds.length} 位成员</span>} /><section className="content-stack group-create-page"><label className="group-title-field">群聊名称<input value={groupDraft.title} onChange={(event) => setGroupDraft({ ...groupDraft, title: event.target.value })} placeholder="例如：雨夜重逢" /></label><div className="privacy-note">选择至少两位角色。每位角色会使用自己的角色卡、世界书、美化和长期记忆，并可绑定不同 API 渠道。</div><div className="group-member-list">{characters.map((character) => { const selected = groupDraft.participantIds.includes(character.id); return <article className={selected ? 'selected' : ''} key={character.id}><button className="group-member-toggle" onClick={() => setGroupDraft((current) => ({ ...current, participantIds: selected ? current.participantIds.filter((id) => id !== character.id) : [...current.participantIds, character.id], apiIds: { ...current.apiIds, [character.id]: current.apiIds[character.id] || api.id } }))}><CharacterPortrait item={character} /><div><strong>{character.name}</strong><small>{character.tagline}</small></div><span>{selected ? '✓' : '＋'}</span></button>{selected && <label>API 渠道<select value={groupDraft.apiIds[character.id] || api.id} onChange={(event) => setGroupDraft((current) => ({ ...current, apiIds: { ...current.apiIds, [character.id]: event.target.value } }))}>{apiChannels.map((channel) => <option key={channel.id} value={channel.id}>{channel.name} · {channel.modelName || '未选模型'}</option>)}</select></label>}</article> })}</div><button className="primary-button full" disabled={groupDraft.participantIds.length < 2} onClick={openGroupGreetingPicker}>下一步：选择开场白</button></section></>}
 
     {page === 'import-preview' && pendingImport && <ImportPreview character={pendingImport} onCancel={() => { setPendingImport(null); goBack() }} onConfirm={({ includeBook, includeRegex }) => {
     const character = { ...pendingImport, characterBook: includeBook ? pendingImport.characterBook : undefined, regexScripts: includeRegex ? pendingImport.regexScripts : [] }
@@ -1089,6 +1115,8 @@ function App() {
     {page === 'card-regex' && <CharacterCardManager character={activeCharacter} onChange={updateActiveCharacter} onBack={goBack} initialSection="regex" />}
 
     {page === 'greeting-picker' && <GreetingPicker character={activeCharacter} userName={identity.name} onCancel={() => { const restarting = Boolean(restartingConversationId); setRestartingConversationId(null); restarting ? replacePage('chat') : goBack() }} onConfirm={beginWithGreeting} />}
+
+    {page === 'group-greeting-picker' && <GroupGreetingPicker characters={groupGreetingCharacters} userName={(identities.find((item) => item.id === activePersonaId) || identity).name} onCancel={() => { const restarting = Boolean(restartingConversationId); setRestartingConversationId(null); restarting ? replacePage('chat') : goBack() }} onConfirm={beginGroupWithGreeting} />}
 
     {page === 'chat' && <section className="chat-page"><header className="chat-header"><button className="icon-button drawer-trigger" aria-label="打开对话列表" onClick={() => setDrawer('left')}>☰</button><button className="chat-identity" onClick={() => navigate('character-detail')}>{activeCharacter.avatar ? <img src={activeCharacter.avatar} alt="" /> : <span>{activeCharacter.name.slice(-1)}</span>}<div><strong>{activeConversation?.kind === 'group' ? activeConversation.title : activeCharacter.name}</strong><small>{isGenerating ? '正在回应…' : activeConversation?.title || `${identity.name} · 沉浸共演中`}</small></div></button><button className="more-button" aria-label="打开聊天设置" onClick={() => setDrawer('right')}>•••</button></header>{chatError && <button className="chat-error" onClick={() => navigate('api')}><span>连接提示</span>{chatError}<i>前往 API 设置 ›</i></button>}<div ref={messageListRef} className="message-list" onScroll={updateChatJump}>{messages.map(renderChatMessage)}</div>{(chatJump.up || chatJump.down) && <nav className="chat-jump-controls" aria-label="快速浏览对话">{chatJump.up && <button onClick={() => jumpChat('top')} aria-label="回到对话顶部">↑</button>}{chatJump.down && <button onClick={() => jumpChat('bottom')} aria-label="跳到最新消息">↓</button>}</nav>}<div className="composer"><button className="composer-plus">＋</button><textarea ref={composerRef} rows={1} value={draft} onChange={(e) => { setDraft(e.target.value); if (activeConversation?.kind === 'group' && /[@＠][^@＠\s]*$/.test(e.target.value)) setMentionPickerOpen(true) }} onKeyDown={(e) => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); if (!isGenerating) sendMessage() } }} placeholder={isGenerating ? '可以先写下一条，停止后再发送' : groupReplyMode === 'specified' && activeConversation?.kind === 'group' ? '输入 @ 选择回答的角色……' : '写下你的回应……'} /><button className={`send-button ${isGenerating ? 'stop' : ''}`} aria-label={isGenerating ? '停止生成' : '发送'} onClick={() => isGenerating && activeConversation ? abortConversation(activeConversation.id) : sendMessage()}>{isGenerating ? '■' : '↑'}</button></div></section>}
 
