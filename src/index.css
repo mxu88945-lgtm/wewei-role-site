@@ -348,3 +348,20 @@ button { cursor: pointer; }
 .send-button { color: white; background: linear-gradient(145deg, #7e52dc, #d382bd); font-size: 22px; font-weight: 800; }
 .send-button.stop { background: linear-gradient(145deg, #b45d75, #db8894); font-size: 13px; }
 @media (min-width: 700px) { .app-shell { padding: 28px 0; } .phone-canvas { min-height: calc(100vh - 56px); border-radius: 38px; box-shadow: 0 35px 90px rgba(48,37,56,.18); } .chat-canvas { overflow: hidden; } }
+
+
+/* Group greeting picker: keep long member names horizontal instead of squeezing them vertically. */
+.group-picker-members {
+  width: min(100%, 720px);
+  min-width: 0;
+  margin: 18px auto 22px;
+  padding: 0 18px;
+  overflow: hidden;
+  color: #817986;
+  font-size: 14px;
+  font-weight: 700;
+  line-height: 1.45;
+  text-align: center;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
