@@ -291,9 +291,16 @@ button { cursor: pointer; }
 .theme-choice-grid button strong { font-size: 12px; }
 .theme-choice-grid button small { margin-top: 3px; color: #98909b; font-size: 9px; }
 .custom-theme-list { display: grid; gap: 7px; }
-.custom-theme-list button { width: 100%; min-height: 42px; padding: 8px 10px; display: flex; align-items: center; gap: 9px; border: 1px solid transparent; border-radius: 14px; color: #5d5561; background: rgba(255,255,255,.55); text-align: left; }
-.custom-theme-list button.active { border-color: rgba(137,89,197,.48); }
+.custom-theme-list article { padding: 6px; display: grid; grid-template-columns: minmax(0,1fr) auto; align-items: center; gap: 5px; border: 1px solid transparent; border-radius: 14px; background: rgba(255,255,255,.55); }
+.custom-theme-list article.active { border-color: rgba(137,89,197,.48); box-shadow: 0 7px 18px rgba(83,56,101,.07); }
+.custom-theme-use { min-width: 0; min-height: 42px; padding: 4px; display: flex; align-items: center; gap: 9px; border: 0; color: #5d5561; background: transparent; text-align: left; }
+.custom-theme-use span { min-width: 0; }
+.custom-theme-use strong, .custom-theme-use small { display: block; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.custom-theme-use small { margin-top: 3px; color: #928a96; font-size: 9px; }
 .custom-theme-list i { width: 28px; height: 28px; flex: 0 0 auto; border-radius: 9px; }
+.custom-theme-actions { display: flex; gap: 3px; }
+.custom-theme-actions button { min-height: 32px; padding: 0 7px; border: 0; border-radius: 9px; color: #76549b; background: #eee8f2; font-size: 9px; font-weight: 800; }
+.custom-theme-actions button.danger { color: #b05668; background: #f3e7ea; }
 .duplicate-theme-button { width: 100%; min-height: 40px; border: 1px dashed rgba(131,86,175,.35); border-radius: 14px; color: #7956a0; background: rgba(255,255,255,.35); font-weight: 700; }
 .drawer-members-section .drawer-section-title > button { font-size: 0; }
 .drawer-members-section .drawer-section-title > button::after { content: '＋ 添加 / 配置 API'; font-size: 11px; }
