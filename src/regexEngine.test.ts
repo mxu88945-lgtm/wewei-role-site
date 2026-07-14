@@ -42,6 +42,14 @@ describe('character-card regex boundaries', () => {
     expect(applyRegexScripts(existing, [wrapper], character, '惟惟', 2, 'display')).toBe(existing)
   })
 
+  it('uses the native chat bubble instead of the two built-in full-message wrappers', () => {
+    const maleLeadWrapper = script({ id: 'pei-chengyan-story-card' })
+    const directorWrapper = script({ id: 'pei-director-story-card' })
+
+    expect(applyRegexScripts('裴成砚发言。', [maleLeadWrapper], character, '惟惟', 2, 'display')).toBe('裴成砚发言。')
+    expect(applyRegexScripts('旁白推进。', [directorWrapper], character, '惟惟', 2, 'display')).toBe('旁白推进。')
+  })
+
   it('removes old card shells while preserving their visible text for history', () => {
     const nested = '<style>.card{padding:1rem}</style><div class="card">【旁白】<div>时间：12:35</div><p>会议开始。</p></div>'
     const result = stripPresentationalHtmlForPrompt(nested)
