@@ -2,13 +2,8 @@ import { fetchApiModels, type ApiModel } from './chatApi'
 
 type MemoryChannelNameMap = Record<string, string>
 
-function activeCharacterId() {
-  try {
-    const value = localStorage.getItem('weijing.activeCharacter')
-    return value ? String(JSON.parse(value)) : 'default'
-  } catch {
-    return 'default'
-  }
+function memoryApiScope(section: HTMLElement) {
+  return section.dataset.memoryApiScope || 'global'
 }
 
 function readMemoryChannelNames(): MemoryChannelNameMap {
@@ -21,13 +16,13 @@ function readMemoryChannelNames(): MemoryChannelNameMap {
   }
 }
 
-function getMemoryChannelName() {
-  return readMemoryChannelNames()[activeCharacterId()] || ''
+function getMemoryChannelName(scope: string) {
+  return readMemoryChannelNames()[scope] || ''
 }
 
-function saveMemoryChannelName(value: string) {
+function saveMemoryChannelName(scope: string, value: string) {
   const names = readMemoryChannelNames()
-  names[activeCharacterId()] = value
+  names[scope] = value
   localStorage.setItem('weijing.memoryChannelNames', JSON.stringify(names))
 }
 
@@ -116,9 +111,10 @@ function openModelPicker(models: ApiModel[], currentModel: string, onSelect: (mo
 }
 
 function enhanceMemoryApiPage() {
-  const header = Array.from(document.querySelectorAll<HTMLElement>('.page-header h1')).find((item) => item.textContent?.trim() === '记忆总结 API')
+  const header = Array.from(document.querySelectorAll<HTMLElement>('.page-header h1')).find((item) => item.textContent?.includes('记忆 API'))
   const section = header?.closest('.page-header')?.nextElementSibling
   if (!(section instanceof HTMLElement)) return
+  const scope = memoryApiScope(section)
 
   const labels = Array.from(section.querySelectorAll<HTMLLabelElement>('label'))
   const modelLabel = labels.find((label) => label.textContent?.trim().startsWith('模型名称'))
@@ -138,9 +134,9 @@ function enhanceMemoryApiPage() {
     channelInput.type = 'text'
     channelInput.placeholder = '例如：DS、个人次 cli、依韵小克'
     channelInput.autocomplete = 'off'
-    channelInput.value = getMemoryChannelName()
+    channelInput.value = getMemoryChannelName(scope)
     channelInput.addEventListener('input', () => {
-      saveMemoryChannelName(channelInput.value)
+      saveMemoryChannelName(memoryApiScope(section), channelInput.value)
       updateStatus(section, channelInput.value)
     })
     channelLabel.append(channelInput)
@@ -148,8 +144,8 @@ function enhanceMemoryApiPage() {
   }
 
   const channelInput = channelLabel.querySelector<HTMLInputElement>('input')
-  if (channelInput && document.activeElement !== channelInput && channelInput.value !== getMemoryChannelName()) {
-    channelInput.value = getMemoryChannelName()
+  if (channelInput && document.activeElement !== channelInput && channelInput.value !== getMemoryChannelName(scope)) {
+    channelInput.value = getMemoryChannelName(scope)
   }
   updateStatus(section, channelInput?.value || '')
 
