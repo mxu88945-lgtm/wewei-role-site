@@ -1,6 +1,6 @@
 import type { Character, CharacterBook, WorldBookEntry } from './characterCard'
 import type { ChatApiMessage } from './chatApi'
-import { applyMacros, applyRegexScripts } from './regexEngine'
+import { applyMacros, applyRegexScripts, stripPresentationalHtmlForPrompt } from './regexEngine'
 import { selectRelevantMemories, type LongMemoryEntry } from './memoryEngine'
 
 type SourceMessage = { role: 'user' | 'assistant'; text: string }
@@ -115,7 +115,14 @@ export function buildChatPrompt(input: PromptInput): ChatApiMessage[] {
 
   const history = recent.map<ChatApiMessage>((message) => ({
     role: message.role,
-    content: applyRegexScripts(message.text, character.regexScripts, character, user.name, message.role === 'user' ? 1 : 2, 'prompt'),
+    content: applyRegexScripts(
+      message.role === 'assistant' ? stripPresentationalHtmlForPrompt(message.text) : message.text,
+      character.regexScripts,
+      character,
+      user.name,
+      message.role === 'user' ? 1 : 2,
+      'prompt',
+    ),
   }))
   result.push(...history)
 
