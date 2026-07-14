@@ -13,11 +13,11 @@ import { enabledPresetText, normalizePresetSections } from './presetConfig'
 import { durableGet, durableSet } from './persistentStore'
 import { sanitizeAssistantOutput } from './outputSanitizer'
 import { memoriesForConversation } from './memoryEngine'
+import { selectGroupSpeakerIds, type GroupReplyMode } from './groupReplyRouting'
 
 type Page = 'home' | 'characters' | 'create' | 'group-create' | 'group-greeting-picker' | 'import-preview' | 'character-detail' | 'card-data' | 'card-worldbook' | 'card-regex' | 'greeting-picker' | 'chat' | 'more' | 'api' | 'model' | 'settings' | 'appearance' | 'font' | 'identity' | 'worldbook' | 'theater-world' | 'preset' | 'memory' | 'memory-api' | 'memory-list'
 type Message = { id: number; role: 'user' | 'assistant'; text: string; characterId?: string; finishReason?: string | null }
 type Drawer = 'left' | 'right'
-type GroupReplyMode = 'natural' | 'contextual' | 'all' | 'specified'
 type HistoryEntry = { page: Page; reopenDrawer?: Drawer }
 type Conversation = {
   id: string
@@ -923,13 +923,20 @@ function App() {
       return completed
     } catch (error) {
       if (controller.signal.aborted) {
-        setConversations((current) => current.map((item) => item.id === conversationId ? { ...item, messages: item.messages.map((message) => message.id === assistantMessage.id ? { ...message, text: sanitizeAssistantOutput(output) || '已停止生成。' } : message) } : item))
+        const partialOutput = sanitizeAssistantOutput(output)
+        setConversations((current) => current.map((item) => item.id === conversationId ? {
+          ...item,
+          messages: partialOutput
+            ? item.messages.map((message) => message.id === assistantMessage.id ? { ...message, text: partialOutput } : message)
+            : item.messages.filter((message) => message.id !== assistantMessage.id),
+        } : item))
+        return partialOutput ? [...nextMessages, { ...assistantMessage, text: partialOutput }] : nextMessages
       } else {
         const message = error instanceof Error ? error.message : '聊天请求失败'
         setChatError(message)
-        setConversations((current) => current.map((item) => item.id === conversationId ? { ...item, messages: item.messages.map((entry) => entry.id === assistantMessage.id ? { ...entry, text: `请求失败：${message}` } : entry) } : item))
+        setConversations((current) => current.map((item) => item.id === conversationId ? { ...item, messages: item.messages.filter((entry) => entry.id !== assistantMessage.id) } : item))
+        return nextMessages
       }
-      return [...nextMessages, { ...assistantMessage, text: sanitizeAssistantOutput(output) || (controller.signal.aborted ? '已停止生成。' : '生成失败。') }]
     } finally {
       if (generationControllers.current.get(conversationId) === controller) {
         generationControllers.current.delete(conversationId)
@@ -958,20 +965,7 @@ function App() {
         return Boolean(name && (text.includes(`@${name}`) || text.includes(`＠${name}`)))
       })
       const lastSpeakerId = [...baseMessages].reverse().find((item) => item.role === 'assistant')?.characterId
-      const availableIds = participantIds.filter((id) => id !== lastSpeakerId)
-      let speakerIds: string[] = []
-      if (groupReplyMode === 'all') speakerIds = participantIds
-      else if (groupReplyMode === 'specified') speakerIds = mentionedIds
-      else if (mentionedIds.length) speakerIds = groupReplyMode === 'natural' ? mentionedIds.slice(0, 1) : mentionedIds
-      else {
-        const pool = availableIds.length ? availableIds : participantIds
-        const first = pool[Math.floor(Math.random() * Math.max(1, pool.length))]
-        speakerIds = first ? [first] : []
-        if (groupReplyMode === 'contextual' && /你们|大家|两人|所有人|一起|分别/.test(text)) {
-          const second = participantIds.find((id) => id !== first)
-          if (second) speakerIds.push(second)
-        }
-      }
+      const speakerIds = selectGroupSpeakerIds({ participantIds, mentionedIds, mode: groupReplyMode, lastSpeakerId, text })
       if (!speakerIds.length) {
         setChatError('指定发言模式需要在消息里写 @角色名，例如“@顾荒 你怎么看？”')
         return
@@ -984,7 +978,9 @@ function App() {
         const channelId = conversation.participantApiIds?.[speakerId]
         const baseChannel = apiChannels.find((item) => item.id === channelId) || api
         const channel = withApiModel(baseChannel, conversation.participantModelNames?.[speakerId])
-        groupMessages = await generateAssistant(conversation, groupMessages, speaker, channel)
+        const nextGroupMessages = await generateAssistant(conversation, groupMessages, speaker, channel)
+        if (nextGroupMessages.length === groupMessages.length) break
+        groupMessages = nextGroupMessages
       }
       const memoryCharacter = characters.find((item) => item.id === participantIds[0]) || activeCharacter
       const groupMemoryConfig = memoryConfigFor(memoryCharacter.id)
