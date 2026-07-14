@@ -349,6 +349,42 @@ button { cursor: pointer; }
 .send-button.stop { background: linear-gradient(145deg, #b45d75, #db8894); font-size: 13px; }
 @media (min-width: 700px) { .app-shell { padding: 28px 0; } .phone-canvas { min-height: calc(100vh - 56px); border-radius: 38px; box-shadow: 0 35px 90px rgba(48,37,56,.18); } .chat-canvas { overflow: hidden; } }
 
+/* 惟境桌宠：固定在应用列内，不参与页面滚动，也不挤压聊天布局。 */
+@keyframes pet-float { 0%,100% { transform:translateY(0) rotate(-3deg) } 50% { transform:translateY(-6px) rotate(3deg) } }
+@keyframes pet-hop { 0% { transform:translateY(0) scale(1) } 30% { transform:translateY(-18px) scale(1.18) rotate(-8deg) } 55% { transform:translateY(0) scale(.96) } 75% { transform:translateY(-6px) scale(1.05) rotate(6deg) } 100% { transform:translateY(0) scale(1) } }
+@keyframes pet-bubble-in { from { transform:translate(-50%,4px) scale(.6);opacity:0 } to { transform:translate(-50%,0) scale(1);opacity:1 } }
+@keyframes pet-heart-rise { 0% { transform:translate(-50%,0) scale(.6);opacity:0 } 20% { opacity:1 } 100% { transform:translate(-50%,-46px) scale(1.1);opacity:0 } }
+@keyframes pet-body-bob { 0%,100% { transform:translateY(0) } 50% { transform:translateY(-1.5px) } }
+@keyframes pet-leg-a { 0%,100% { transform:rotate(0) } 50% { transform:rotate(16deg) } }
+@keyframes pet-leg-b { 0%,100% { transform:rotate(16deg) } 50% { transform:rotate(0) } }
+.weijing-pet { position:fixed; z-index:42; width:52px; height:52px; transform:translate(-50%,-50%); pointer-events:none; user-select:none; -webkit-user-select:none; }
+.weijing-pet-button { width:52px; height:52px; display:grid; place-items:center; padding:0; border:0; border-radius:50%; color:inherit; background:transparent; cursor:grab; touch-action:none; pointer-events:auto; filter:drop-shadow(0 7px 8px rgba(65,42,76,.14)); }
+.weijing-pet-button:active { cursor:grabbing; }
+.weijing-pet-button svg { width:48px; height:44px; overflow:visible; }
+.pet-idle { animation:pet-float 3.4s ease-in-out infinite; }
+.pet-hop { animation:pet-hop .6s ease; }
+.pet-critter.walk { animation:pet-body-bob .34s ease-in-out infinite; }
+.pet-leg { transform-box:fill-box; transform-origin:top center; }
+.pet-critter.walk .leg-a { animation:pet-leg-a .34s ease-in-out infinite; }
+.pet-critter.walk .leg-b { animation:pet-leg-b .34s ease-in-out infinite; }
+.pet-bubble { position:absolute; left:50%; top:-27px; padding:5px 9px; border:1px solid rgba(112,82,132,.12); border-radius:999px; color:#5b4e63; background:rgba(255,255,255,.92); box-shadow:0 6px 16px rgba(58,38,68,.12); font-size:11px; font-weight:800; white-space:nowrap; animation:pet-bubble-in .22s ease both; }
+.pet-heart { position:absolute; left:50%; top:-4px; font-size:15px; pointer-events:none; animation:pet-heart-rise .9s ease-out forwards; }
+.pet-settings-card { padding:17px; display:grid; gap:14px; border-radius:22px; background:#f0edf3; }
+.pet-settings-heading { display:flex; align-items:center; justify-content:space-between; gap:14px; }
+.pet-settings-heading strong,.pet-settings-heading small { display:block; }
+.pet-settings-heading small { margin-top:4px; color:#968d9a; font-size:10px; }
+.pet-toggle { width:42px; height:24px; flex:0 0 auto; padding:3px; border:0; border-radius:999px; background:#d8d1dc; }
+.pet-toggle span { width:18px; height:18px; display:block; border-radius:50%; background:white; box-shadow:0 2px 6px rgba(55,39,63,.18); transition:transform .2s ease; }
+.pet-toggle.active { background:linear-gradient(145deg,#8a61dc,#cd83bd); }
+.pet-toggle.active span { transform:translateX(18px); }
+.pet-choice-grid { display:grid; grid-template-columns:repeat(3,1fr); gap:9px; }
+.pet-choice-grid button { min-width:0; min-height:88px; padding:9px 5px 8px; display:grid; place-items:center; gap:4px; border:1px solid transparent; border-radius:17px; color:#6d6471; background:rgba(255,255,255,.52); }
+.pet-choice-grid button.active { border-color:rgba(133,87,190,.38); background:#eee5f5; box-shadow:inset 0 0 0 1px rgba(133,87,190,.12); }
+.pet-choice-grid svg { width:48px; height:42px; }
+.pet-choice-grid span { font-size:10px; font-weight:800; }
+.pet-reset-button { justify-self:start; padding:7px 10px; border:0; border-radius:999px; color:#7d58a4; background:rgba(255,255,255,.65); font-size:10px; font-weight:800; }
+@media (prefers-reduced-motion:reduce) { .pet-idle,.pet-hop,.pet-critter.walk,.pet-critter.walk .leg-a,.pet-critter.walk .leg-b { animation:none; } }
+
 
 /* Group greeting picker: keep long member names horizontal instead of squeezing them vertically. */
 .group-picker-members {
