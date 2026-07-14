@@ -79,10 +79,11 @@ function messageContent(value: unknown) {
 async function consumeJson(response: Response, onDelta: (delta: string) => void): Promise<CompletionResult> {
   const data = await response.json()
   const choice = data?.choices?.[0]
-  const content = messageContent(choice?.message?.content)
+  const content = messageContent(choice?.message?.content ?? choice?.text ?? data?.content ?? data?.output_text)
   if (!content) throw new Error('接口返回成功，但没有回复内容')
   onDelta(content)
-  return { finishReason: typeof choice?.finish_reason === 'string' ? choice.finish_reason : null }
+  const finishReason = choice?.finish_reason ?? data?.stop_reason
+  return { finishReason: typeof finishReason === 'string' ? finishReason : null }
 }
 
 async function consumeEventStream(response: Response, onDelta: (delta: string) => void): Promise<CompletionResult> {
@@ -100,9 +101,19 @@ async function consumeEventStream(response: Response, onDelta: (delta: string) =
       try {
         const data = JSON.parse(payload)
         const choice = data?.choices?.[0]
-        const delta = messageContent(choice?.delta?.content ?? choice?.message?.content)
+        const delta = messageContent(
+          choice?.delta?.content
+          ?? choice?.message?.content
+          ?? choice?.delta?.text
+          ?? choice?.text
+          ?? data?.delta?.text
+          ?? data?.delta
+          ?? data?.output_text
+          ?? data?.response?.output_text,
+        )
         if (delta) onDelta(delta)
-        if (typeof choice?.finish_reason === 'string') finishReason = choice.finish_reason
+        const nextFinishReason = choice?.finish_reason ?? data?.stop_reason
+        if (typeof nextFinishReason === 'string') finishReason = nextFinishReason
       } catch {
         // Ignore provider keep-alive events that are not JSON.
       }
