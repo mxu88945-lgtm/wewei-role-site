@@ -83,3 +83,54 @@
     max-width: 100%;
   }
 }
+
+/* System typography is independent from the per-conversation message font. */
+.phone-canvas {
+  font-size: calc(14px * var(--ui-font-scale, 1));
+  font-weight: var(--ui-font-weight, 500);
+}
+
+.phone-canvas :where(p, li, label, input, textarea, select):not(.message-content *):not(.chat-font-preview *) {
+  font-size: calc(14px * var(--ui-font-scale, 1)) !important;
+  font-weight: var(--ui-font-weight, 500) !important;
+}
+
+.phone-canvas :where(h1, h2):not(.message-content *):not(.chat-font-preview *) {
+  font-size: calc(21px * var(--ui-font-scale, 1)) !important;
+  font-weight: var(--ui-heading-font-weight, 600) !important;
+}
+
+.phone-canvas :where(h3, strong, b):not(.message-content *):not(.chat-font-preview *) {
+  font-size: calc(15px * var(--ui-font-scale, 1)) !important;
+  font-weight: var(--ui-heading-font-weight, 600) !important;
+}
+
+.phone-canvas small:not(.message-content *):not(.chat-font-preview *) {
+  font-size: calc(11px * var(--ui-font-scale, 1)) !important;
+  font-weight: var(--ui-font-weight, 500) !important;
+}
+
+.phone-canvas button:not(.icon-button):not(.avatar-button):not(.composer-plus):not(.send-button):not(.switch):not(.message-action-trigger):not(.chat-jump-controls button):not(.message-content *) {
+  font-size: calc(13px * var(--ui-font-scale, 1)) !important;
+  font-weight: var(--ui-heading-font-weight, 600) !important;
+}
+
+/* Keep symbols and message text on their dedicated sizing rules. */
+.phone-canvas :where(.icon-button, .avatar-button, .composer-plus, .send-button, .message-action-trigger, .chat-jump-controls button) {
+  font-weight: 800;
+}
+
+.message-content,
+.message-content * {
+  font-size: inherit;
+}
+
+.message-content {
+  font-size: var(--chat-font-size, 16px) !important;
+}
+
+.chat-font-preview,
+.chat-font-preview p,
+.chat-font-preview span {
+  font-size: inherit !important;
+}
