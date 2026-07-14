@@ -1,5 +1,7 @@
 export type GroupReplyMode = 'natural' | 'contextual' | 'all' | 'specified'
 
+type GroupParticipant = { id: string; name: string }
+
 type SelectGroupSpeakersOptions = {
   participantIds: string[]
   mentionedIds: string[]
@@ -7,6 +9,20 @@ type SelectGroupSpeakersOptions = {
   lastSpeakerId?: string
   text: string
   random?: () => number
+}
+
+export function findMentionedParticipantIds(text: string, participants: GroupParticipant[]) {
+  const mentionedIds: string[] = []
+  const mentionPattern = /[@＠]/g
+
+  for (const match of text.matchAll(mentionPattern)) {
+    const nameStart = (match.index ?? 0) + match[0].length
+    const matchedParticipant = participants
+      .filter((participant) => participant.name && text.startsWith(participant.name, nameStart))
+      .sort((left, right) => right.name.length - left.name.length)[0]
+    if (matchedParticipant && !mentionedIds.includes(matchedParticipant.id)) mentionedIds.push(matchedParticipant.id)
+  }
+  return mentionedIds
 }
 
 export function selectGroupSpeakerIds({ participantIds, mentionedIds, mode, lastSpeakerId, text, random = Math.random }: SelectGroupSpeakersOptions) {

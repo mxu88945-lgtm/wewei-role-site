@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { selectGroupSpeakerIds } from './groupReplyRouting'
+import { findMentionedParticipantIds, selectGroupSpeakerIds } from './groupReplyRouting'
 
 describe('group reply routing', () => {
   const participantIds = ['male-lead', 'director']
@@ -18,5 +18,22 @@ describe('group reply routing', () => {
 
   it('requires a mention in specified mode', () => {
     expect(selectGroupSpeakerIds({ participantIds, mentionedIds: [], mode: 'specified', text: '继续' })).toEqual([])
+  })
+
+  it('uses the longest complete name when one member name prefixes another', () => {
+    const participants = [
+      { id: 'male-lead', name: '裴成砚' },
+      { id: 'director', name: '裴成砚剧场·旁白导演' },
+    ]
+    expect(findMentionedParticipantIds('@裴成砚剧场·旁白导演 推进到下一幕', participants)).toEqual(['director'])
+    expect(findMentionedParticipantIds('@裴成砚 回答她', participants)).toEqual(['male-lead'])
+  })
+
+  it('supports several explicit mentions without prefix collisions', () => {
+    const participants = [
+      { id: 'male-lead', name: '裴成砚' },
+      { id: 'director', name: '裴成砚剧场·旁白导演' },
+    ]
+    expect(findMentionedParticipantIds('@裴成砚剧场·旁白导演 先说，@裴成砚 再说', participants)).toEqual(['director', 'male-lead'])
   })
 })
