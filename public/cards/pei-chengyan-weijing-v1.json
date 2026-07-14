@@ -288,7 +288,7 @@
           "replaceString": "<div class=\"pcy-story-card\" style=\"width:100%;padding:18px 18px 16px;border:1px solid rgba(125,105,75,.16);border-radius:22px;color:#47433f;background:linear-gradient(155deg,rgba(250,249,246,.97),rgba(242,239,233,.96));box-shadow:0 12px 30px rgba(72,58,42,.09);line-height:1.82;white-space:normal;overflow-wrap:anywhere\">$1</div>",
           "trimStrings": [],
           "placement": [2],
-          "disabled": false,
+          "disabled": true,
           "markdownOnly": true,
           "promptOnly": false,
           "runOnEdit": true,
