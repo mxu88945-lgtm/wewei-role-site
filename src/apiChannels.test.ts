@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { normalizeApiChannels } from './apiChannels'
+import { createApiChannel, normalizeApiChannels, withApiModel } from './apiChannels'
 
 describe('api channels', () => {
   it('将旧单渠道配置迁移为默认渠道', () => {
@@ -15,5 +15,14 @@ describe('api channels', () => {
     ], { baseUrl: '', apiKey: '', modelName: '' })
     expect(channels.map((item) => item.name)).toEqual(['小克', 'OpenAI'])
     expect(channels[1].maxTokenField).toBe('max_completion_tokens')
+  })
+
+  it('同一渠道可为成员覆盖不同模型', () => {
+    const channel = createApiChannel(1, { baseUrl: 'https://same.example/v1', apiKey: 'shared-key', modelName: 'default-model' })
+    const memberChannel = withApiModel(channel, 'member-model')
+
+    expect(memberChannel).toMatchObject({ id: channel.id, baseUrl: channel.baseUrl, apiKey: channel.apiKey, modelName: 'member-model' })
+    expect(channel.modelName).toBe('default-model')
+    expect(withApiModel(channel, '')).toBe(channel)
   })
 })
