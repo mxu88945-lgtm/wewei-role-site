@@ -13,7 +13,7 @@ import { enabledPresetText, normalizePresetSections } from './presetConfig'
 import { durableGet, durableSet } from './persistentStore'
 import { sanitizeAssistantOutput } from './outputSanitizer'
 import { memoriesForConversation } from './memoryEngine'
-import { selectGroupSpeakerIds, type GroupReplyMode } from './groupReplyRouting'
+import { findMentionedParticipantIds, selectGroupSpeakerIds, type GroupReplyMode } from './groupReplyRouting'
 
 type Page = 'home' | 'characters' | 'create' | 'group-create' | 'group-greeting-picker' | 'import-preview' | 'character-detail' | 'card-data' | 'card-worldbook' | 'card-regex' | 'greeting-picker' | 'chat' | 'more' | 'api' | 'model' | 'settings' | 'appearance' | 'font' | 'identity' | 'worldbook' | 'theater-world' | 'preset' | 'memory' | 'memory-api' | 'memory-list'
 type Message = { id: number; role: 'user' | 'assistant'; text: string; characterId?: string; finishReason?: string | null }
@@ -960,10 +960,10 @@ function App() {
     if (conversation.kind === 'group') {
       setConversations((current) => current.map((item) => item.id === conversation.id ? { ...item, messages: baseMessages, updatedAt: Date.now() } : item))
       const participantIds = conversation.participantIds || []
-      const mentionedIds = participantIds.filter((id) => {
-        const name = characters.find((item) => item.id === id)?.name
-        return Boolean(name && (text.includes(`@${name}`) || text.includes(`＠${name}`)))
-      })
+      const mentionedIds = findMentionedParticipantIds(text, participantIds.map((id) => {
+        const character = characters.find((item) => item.id === id)
+        return { id, name: character?.name || '' }
+      }))
       const lastSpeakerId = [...baseMessages].reverse().find((item) => item.role === 'assistant')?.characterId
       const speakerIds = selectGroupSpeakerIds({ participantIds, mentionedIds, mode: groupReplyMode, lastSpeakerId, text })
       if (!speakerIds.length) {
