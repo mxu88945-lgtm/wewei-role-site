@@ -134,6 +134,14 @@
 .member-picker-main > button:disabled { color: #aaa3ad; background: #e8e5e9; }
 .member-picker-list label { margin-top: 10px; display: grid; grid-template-columns: auto 1fr; align-items: center; gap: 10px; color: #746d78; font-size: 11px; font-weight: 800; }
 .member-picker-list select { min-width: 0; width: 100%; border: 0; border-radius: 13px; padding: 11px; color: #4a424e; background: rgba(255,255,255,.72); }
+.member-api-binding { margin: 10px 4px 2px 60px; display: grid; gap: 9px; }
+.member-api-binding label { margin: 0; display: grid; grid-template-columns: 72px minmax(0, 1fr); align-items: center; gap: 8px; color: #746d78; font-size: 10px; font-weight: 800; }
+.member-api-binding select, .member-api-binding input { min-width: 0; width: 100%; box-sizing: border-box; border: 0; outline: 0; border-radius: 13px; padding: 11px; color: #4a424e; background: rgba(255,255,255,.76); font: inherit; font-size: 12px; }
+.member-model-field { min-width: 0; display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 7px; }
+.member-model-field button { border: 0; border-radius: 12px; padding: 0 11px; color: #7652a3; background: #e5dceb; font-size: 11px; font-weight: 800; white-space: nowrap; }
+.member-model-field button:disabled { color: #aaa3ad; }
+.member-model-message { margin-left: 80px; color: #8b7b96; font-size: 10px; line-height: 1.4; }
+.member-model-message.error { color: #b45b6b; }
 
 .conversation-menu { position: absolute; z-index: 3; left: 50%; bottom: calc(12px + env(safe-area-inset-bottom)); transform: translateX(-50%); width: min(calc(100% - 24px), 480px); padding: 12px; border-radius: 28px; display: grid; gap: 4px; background: #faf8fb; box-shadow: 0 24px 70px rgba(36, 27, 42, .3); animation: menu-in .18s ease-out; }
 @keyframes menu-in { from { transform: translate(-50%, 24px); opacity: 0; } }
