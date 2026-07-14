@@ -47,6 +47,38 @@ describe('chatApi', () => {
     expect(requestBody.max_tokens).toBeUndefined()
   })
 
+  it('解析使用 delta.text 的兼容流', async () => {
+    vi.stubGlobal('fetch', vi.fn(async () => new Response([
+      'data: {"type":"content_block_delta","delta":{"type":"text_delta","text":"旁白"}}',
+      '',
+      'data: {"type":"content_block_delta","delta":{"type":"text_delta","text":"推进"}}',
+      '',
+    ].join('\n'), { headers: { 'content-type': 'text/event-stream' } })))
+
+    let output = ''
+    await completeChat({
+      api: { baseUrl: 'https://example.com/v1', apiKey: 'test', modelName: 'director-model' },
+      messages: [{ role: 'user', content: '继续' }], temperature: 1, topP: 1, maxTokens: 100, streaming: true,
+      signal: new AbortController().signal, onDelta: (delta) => { output += delta },
+    })
+    expect(output).toBe('旁白推进')
+  })
+
+  it('解析 Responses 风格的 output_text delta', async () => {
+    vi.stubGlobal('fetch', vi.fn(async () => new Response([
+      'data: {"type":"response.output_text.delta","delta":"场景继续。"}',
+      '',
+    ].join('\n'), { headers: { 'content-type': 'text/event-stream' } })))
+
+    let output = ''
+    await completeChat({
+      api: { baseUrl: 'https://example.com/v1', apiKey: 'test', modelName: 'director-model' },
+      messages: [{ role: 'user', content: '继续' }], temperature: 1, topP: 1, maxTokens: 100, streaming: true,
+      signal: new AbortController().signal, onDelta: (delta) => { output += delta },
+    })
+    expect(output).toBe('场景继续。')
+  })
+
   it('连接测试返回服务端错误信息', async () => {
     vi.stubGlobal('fetch', vi.fn(async () => new Response(JSON.stringify({ error: { message: '密钥无效' } }), { status: 401, headers: { 'content-type': 'application/json' } })))
     await expect(testApiConnection({ baseUrl: 'https://example.com/v1', apiKey: 'bad', modelName: 'model' })).rejects.toThrow('密钥无效')
