@@ -81,6 +81,13 @@ export default function CharacterCardManager({ character, onChange, onBack, init
     </nav>
 
     {section === 'overview' && <div className="metadata-stack">
+      <article className="metadata-editor basic-metadata-editor">
+        <div className="editor-heading"><strong>基础资料</strong><small>修改后自动保存，不影响已有聊天和记忆</small></div>
+        <div className="editor-body basic-metadata-fields">
+          <label>角色名称<input value={character.name} onChange={(event) => patch({ name: event.target.value })} placeholder="填写角色名称" /></label>
+          <label>一句话简介<input value={character.tagline} onChange={(event) => patch({ tagline: event.target.value })} placeholder="填写角色身份或一句话简介" /></label>
+        </div>
+      </article>
       <MetadataArea label="角色描述" value={character.description} onChange={(description) => patch({ description })} />
       <MetadataArea label="性格" value={character.personality} onChange={(personality) => patch({ personality })} />
       <MetadataArea label="场景" value={character.scenario} onChange={(scenario) => patch({ scenario })} />
