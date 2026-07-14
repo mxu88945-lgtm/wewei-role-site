@@ -36,6 +36,10 @@ function wrapsWholeMessage(regex: RegExp) {
   return match?.index === 0 && match[0] === sentinel
 }
 
+function usesNativeChatBubble(script: RegexScript) {
+  return script.id === 'pei-chengyan-story-card' || script.id === 'pei-director-story-card'
+}
+
 export function stripPresentationalHtmlForPrompt(value: string) {
   if (!containsPresentationalHtml(value)) return value
 
@@ -70,6 +74,10 @@ export function applyRegexScripts(text: string, scripts: RegexScript[], characte
     try {
       const regex = parseRegex(applyMacros(script.findRegex, character, userName))
       if (!regex) continue
+      // These built-in cards used to paint a second full-message bubble inside
+      // the app's own chat bubble. Keep their scene/status panels, but let the
+      // chat layout own the single outer shell.
+      if (mode === 'display' && usesNativeChatBubble(script) && wrapsWholeMessage(regex)) continue
       // Some imported cards wrap the entire reply. If an older model response
       // already contains a rendered shell, adding another one creates the
       // ever-growing nested bubbles seen in group chat.

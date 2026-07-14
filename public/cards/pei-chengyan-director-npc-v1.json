@@ -326,7 +326,7 @@
           "replaceString": "<div style=\"width:100%;padding:17px 18px 15px;border:1px solid rgba(103,84,125,.15);border-radius:22px;color:#49454e;background:linear-gradient(155deg,rgba(250,249,252,.97),rgba(242,239,246,.96));box-shadow:0 12px 30px rgba(63,48,82,.08);line-height:1.82;white-space:normal;overflow-wrap:anywhere\">$1</div>",
           "trimStrings": [],
           "placement": [2],
-          "disabled": false,
+          "disabled": true,
           "markdownOnly": true,
           "promptOnly": false,
           "runOnEdit": true,

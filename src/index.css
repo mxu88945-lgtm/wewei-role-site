@@ -189,7 +189,7 @@ button { cursor: pointer; }
 .message-row.user .message-content-bubble { border-radius: 20px 20px 7px 20px; color: white; background: linear-gradient(145deg, #8158d7, #bd77c3); }
 .message-content-flat { width: 100%; padding: 3px 0; }
 .message-content-rich { width: 100%; overflow: visible; overflow-anchor: none; }
-.message-layout-bubble .message-content-rich { width: min(78vw, 400px); }
+.message-layout-bubble .message-content-rich { width: min(78vw, 400px); padding: 11px 15px; border-radius: 20px 20px 20px 7px; color: var(--chat-text-color, #4e4852); background: rgba(255,255,255,.88); box-shadow: 0 12px 28px rgba(71,51,82,.08); line-height: 1.65; }
 .chat-layout-setting { margin: 10px 14px 0; padding: 14px; display: grid; gap: 12px; border-radius: 20px; background: #f0ebf4; }
 .chat-layout-setting strong, .chat-layout-setting small { display: block; }
 .chat-layout-setting small { margin-top: 4px; color: #978e9b; font-size: 10px; }
