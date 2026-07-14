@@ -13,7 +13,11 @@
 .metadata-editor textarea:focus, .metadata-editor input:focus, .metadata-editor select:focus { border-color: #a87ed9; box-shadow: 0 0 0 3px rgba(158,108,211,.09); }
 .editor-heading, .manager-intro { display: flex; align-items: center; justify-content: space-between; gap: 14px; }
 .editor-heading { padding: 16px 17px 0; }
+.editor-heading > small { color: #958e99; font-size: 10px; font-weight: 500; text-align: right; }
 .editor-heading + textarea { width: calc(100% - 34px); margin: 12px 17px 17px; }
+.basic-metadata-editor .editor-heading { padding-bottom: 14px; }
+.basic-metadata-fields { padding-top: 0; }
+.basic-metadata-fields label:first-child { margin-top: 0; }
 .manager-intro { padding: 17px; border-radius: 22px; background: #efedf0; }
 .manager-intro strong, .manager-intro small { display: block; }
 .manager-intro small { margin-top: 5px; color: #918a95; line-height: 1.45; }
