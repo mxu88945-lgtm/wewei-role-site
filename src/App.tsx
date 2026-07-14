@@ -491,10 +491,16 @@ function App() {
     if (currentMemoryConfig.useGlobalApi !== false) setGlobalMemoryApi((current) => ({ ...current, ...patch }))
     else updateMemoryConfig({ api: { ...currentMemoryConfig.api, ...patch } })
   }
-  const openCharacter = (id: string) => {
+  const selectLibraryCharacter = (id: string) => {
     setActiveId(id)
+    // Character-library selection is independent from the currently open group chat.
+    // Otherwise the group's lead member keeps overriding every selected card.
+    setActiveConversationId('')
     setMemoryConfigs((current) => current[id] ? current : { ...current, [id]: defaultMemoryConfig() })
     setMemoryEntries((current) => current[id] ? current : { ...current, [id]: [] })
+  }
+  const openCharacter = (id: string) => {
+    selectLibraryCharacter(id)
     navigate('character-detail')
   }
   const createCharacter = () => {
@@ -1215,7 +1221,7 @@ function App() {
 
     {mentionPickerOpen && activeConversation?.kind === 'group' && <div className="mention-picker-layer"><button className="drawer-backdrop" aria-label="关闭角色选择" onClick={() => setMentionPickerOpen(false)} /><section className="mention-picker"><header><strong>选择 @ 的角色</strong><button onClick={() => setMentionPickerOpen(false)}>×</button></header>{groupParticipants.map((member) => <button className="mention-member" key={member.id} onClick={() => insertGroupMention(member.name)}>{member.avatar ? <img src={member.avatar} alt="" /> : <span>{member.name.slice(-1)}</span>}<strong>{member.name}</strong></button>)}</section></div>}
 
-    {menuCharacter && <div className="character-menu-layer"><button className="drawer-backdrop" aria-label="关闭角色菜单" onClick={() => setCharacterMenuId(null)} /><section className="conversation-menu character-action-menu"><header><div><small>角色操作</small><strong>{menuCharacter.name}</strong></div><button onClick={() => setCharacterMenuId(null)}>×</button></header><button onClick={() => { setActiveId(menuCharacter.id); setCharacterMenuId(null); navigate('card-data') }}>编辑角色卡</button><button onClick={() => duplicateCharacter(menuCharacter)}>复制角色</button><button onClick={() => exportCharacter(menuCharacter)}>导出 Character Card V3 JSON</button><button className="danger" onClick={() => deleteCharacter(menuCharacter)}>删除角色及相关数据</button></section></div>}
+    {menuCharacter && <div className="character-menu-layer"><button className="drawer-backdrop" aria-label="关闭角色菜单" onClick={() => setCharacterMenuId(null)} /><section className="conversation-menu character-action-menu"><header><div><small>角色操作</small><strong>{menuCharacter.name}</strong></div><button onClick={() => setCharacterMenuId(null)}>×</button></header><button onClick={() => { selectLibraryCharacter(menuCharacter.id); setCharacterMenuId(null); navigate('card-data') }}>编辑角色卡</button><button onClick={() => duplicateCharacter(menuCharacter)}>复制角色</button><button onClick={() => exportCharacter(menuCharacter)}>导出 Character Card V3 JSON</button><button className="danger" onClick={() => deleteCharacter(menuCharacter)}>删除角色及相关数据</button></section></div>}
 
     {drawer && <div className="drawer-layer" role="presentation">
       <button className="drawer-backdrop" aria-label="关闭抽屉" onClick={() => { setDrawer(null); setConversationMenuId(null) }} />
