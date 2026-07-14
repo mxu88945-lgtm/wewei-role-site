@@ -970,8 +970,20 @@ function App() {
   }
 
   const withdrawMessage = (message: Message) => {
-    if (!activeConversation || !window.confirm('撤回这条模型消息？')) return
-    setConversations((current) => current.map((item) => item.id === activeConversation.id ? { ...item, messages: item.messages.filter((entry) => entry.id !== message.id), updatedAt: Date.now() } : item))
+    if (!activeConversation) return
+    const index = activeConversation.messages.findIndex((entry) => entry.id === message.id)
+    if (index < 0 || !window.confirm('从这条消息开始撤回剧情？这条消息以及后面的全部消息都会移除。')) return
+    setConversations((current) => current.map((item) => item.id === activeConversation.id ? { ...item, messages: item.messages.slice(0, index), memorySummarizedCount: Math.min(item.memorySummarizedCount || 0, index), contextSummary: '', compressedUntil: 0, updatedAt: Date.now() } : item))
+    setMessageMenuId(null)
+  }
+
+  const deleteMessage = (message: Message) => {
+    if (!activeConversation || !window.confirm('只删除这一条消息？前后的剧情都会保留。')) return
+    setConversations((current) => current.map((item) => {
+      if (item.id !== activeConversation.id) return item
+      const nextMessages = item.messages.filter((entry) => entry.id !== message.id)
+      return { ...item, messages: nextMessages, memorySummarizedCount: Math.min(item.memorySummarizedCount || 0, nextMessages.length), updatedAt: Date.now() }
+    }))
     setMessageMenuId(null)
   }
 
@@ -1206,7 +1218,7 @@ function App() {
       return <article className={joined ? 'joined' : ''} key={character.id} onClick={() => { if (!joined) addConversationMember(character.id) }}><div className="member-picker-main"><CharacterPortrait item={character} /><div><strong>{character.name}</strong><small>{joined ? '已在当前会话' : character.tagline}</small></div><button onClick={(event) => { event.stopPropagation(); if (joined) { if (canRemove) removeConversationMember(character.id) } else addConversationMember(character.id) }} disabled={joined && !canRemove}>{joined ? canRemove ? '移除' : '保留' : '＋ 加入'}</button></div>{joined && <div onClick={(event) => event.stopPropagation()}><MemberApiBinding channels={apiChannels} channelId={channel.id} modelName={activeConversation.participantModelNames?.[character.id] || channel.modelName} onChannelChange={(nextChannelId) => updateConversationMemberApi(character.id, nextChannelId)} onModelChange={(modelName) => updateConversationMemberModel(character.id, modelName)} /></div>}</article>
     })}</div><div className="privacy-note">同一渠道可以给不同成员指定不同模型；不单独修改时使用该渠道的默认模型。已有消息与署名不会丢失。</div></section></div>}
 
-    {menuMessage && <div className="message-menu-layer"><button className="drawer-backdrop" aria-label="关闭消息菜单" onClick={() => setMessageMenuId(null)} /><section className="message-action-sheet"><header><div><small>{menuMessage.role === 'assistant' ? '模型消息' : '用户消息'}</small><strong>消息操作</strong></div><button onClick={() => setMessageMenuId(null)}>×</button></header>{menuMessage.role === 'assistant' ? <><button onClick={() => regenerateMessage(menuMessage)} disabled={isGenerating}>重新生成</button><button onClick={() => editAssistantMessage(menuMessage)}>编辑改写</button><button onClick={() => copyMessage(menuMessage)}>复制文本</button><button className="danger" onClick={() => withdrawMessage(menuMessage)}>撤回消息</button></> : <><button onClick={() => editAndResendUserMessage(menuMessage)} disabled={isGenerating}>编辑并重新发送</button><button onClick={() => copyMessage(menuMessage)}>复制文本</button></>}</section></div>}
+    {menuMessage && <div className="message-menu-layer"><button className="drawer-backdrop" aria-label="关闭消息菜单" onClick={() => setMessageMenuId(null)} /><section className="message-action-sheet"><header><div><small>{menuMessage.role === 'assistant' ? '模型消息' : '用户消息'}</small><strong>消息操作</strong></div><button onClick={() => setMessageMenuId(null)}>×</button></header>{menuMessage.role === 'assistant' ? <><button onClick={() => regenerateMessage(menuMessage)} disabled={isGenerating}>重新生成</button><button onClick={() => editAssistantMessage(menuMessage)}>编辑改写</button><button onClick={() => copyMessage(menuMessage)}>复制文本</button><button className="danger" onClick={() => withdrawMessage(menuMessage)}>撤回到这里</button><button className="danger" onClick={() => deleteMessage(menuMessage)}>仅删除此句</button></> : <><button onClick={() => editAndResendUserMessage(menuMessage)} disabled={isGenerating}>编辑并重新发送</button><button onClick={() => copyMessage(menuMessage)}>复制文本</button><button className="danger" onClick={() => deleteMessage(menuMessage)}>仅删除此句</button></>}</section></div>}
   </main></div>
 }
 
