@@ -33,3 +33,8 @@ export function normalizeApiChannels(value: unknown, legacy: ApiConfig): ApiChan
     }
   })
 }
+
+export function withApiModel(channel: ApiChannel, modelName?: string): ApiChannel {
+  const override = modelName?.trim()
+  return override ? { ...channel, modelName: override } : channel
+}
