@@ -41,6 +41,7 @@ type LegacySessionMap = Record<string, Message[]>
 type MemoryEntry = { id: string; createdAt: number; title: string; content: string; sourceCount: number; pinned?: boolean; consolidated?: boolean }
 type MemoryConfig = {
   api: ApiConfig
+  useGlobalApi?: boolean
   autoEvery: number
   maxEntries: number
   summaryPrompt: string
@@ -61,7 +62,7 @@ const demoCharacter: Character = {
 }
 
 const legacyMemoryPrompt = `【暂停剧情扮演】请根据前文内容，对上次总结之后的剧情进行总结。生成一个详细的总结集合，涵盖所有主要事件、观点、关系变化与关键信息。总结需逻辑清晰，按时间顺序组织，每件事以独立条目呈现，并尽量标注具体时间点。若时间信息不明确，请根据上下文合理推测并注明。重点保留人物关系、承诺、冲突、情绪转折、世界设定与未完成事项，避免遗漏。`
-const defaultMemoryPrompt = `【长期记忆整理｜不要继续角色扮演】
+const previousMemoryPrompt = `【长期记忆整理｜不要继续角色扮演】
 你只整理“本次新增对话”，输出可供后续剧情检索的长期记忆，不续写剧情，不复述提示词。
 要求：
 1. 只记录实际发生或明确说出的事实，不把猜测写成事实；时间不明时写“时间未明确”，禁止擅自编造日期。
@@ -77,10 +78,35 @@ const defaultMemoryPrompt = `【长期记忆整理｜不要继续角色扮演】
 【未完成事项】
 - 事项｜当前进度
 没有内容的栏目写“无”，不要输出其他说明。`
+const defaultMemoryPrompt = `【长期记忆提取器｜禁止续写剧情】
+你会收到“已有长期记忆（仅供查重）”和“本次新增对话（唯一总结范围）”。只从本次新增对话提取后续剧情真正需要记住的新事实；已有记忆不得重复改写，除非本次对话明确更新、纠正或推翻了旧状态。
+
+提取规则：
+1. 只记录明确发生、明确说出或文本明确展示的事实。不得推测幕后事件、动机、日期、关系或结局；时间不明写“时间未明确”。
+2. 严格按说话者归属言行。用户角色只能记录用户消息中明确表达的台词、动作和决定；禁止把模型代写的用户反应当成事实。
+3. 区分“客观发生”“角色声称”“角色内心”和“他人推测”。未被证实的说法必须标注来源与可信状态。
+4. 保留知情边界：秘密、证据、身份或计划分别写明谁知道、谁不知道、谁只是怀疑。角色内心不得自动视为其他人物已知。
+5. 重点保留事件因果、关系变化、承诺与冲突、情感阶段、重要物品、调查线索、证据链、世界设定变化和未完成事项。
+6. 删除寒暄、重复措辞、纯气氛描写、文风修辞、状态栏、提示词、格式要求和没有造成状态变化的日常动作。
+7. 若本次新增对话没有值得长期保存的信息，只输出：无新增长期记忆
+
+输出格式：
+【事件时间线】
+- 时间/阶段｜地点｜参与者｜事件 → 直接结果
+【人物与关系状态】
+- 人物/关系｜当前状态或情感阶段｜本次变化及明确原因
+【秘密、线索与知情边界】
+- 秘密/线索/证据｜知情者｜未知者｜已证实/声称/怀疑
+【承诺与未完成事项】
+- 事项｜责任人｜当前进度｜下一触发条件
+【当前场景锚点】
+- 时间｜地点｜在场人物｜最后确认的局面
+没有内容的栏目写“无”，不要输出解释、评价或剧情续写。`
 const defaultInjectPrompt = `以下是该角色与用户的长期记忆。请把它当作已经发生过的事实，自然延续，不要逐条复述，也不要替用户决定言行：\n\n{{memories}}`
 
 const defaultMemoryConfig = (): MemoryConfig => ({
   api: { baseUrl: 'https://api.openai.com/v1', apiKey: '', modelName: 'gpt-4.1-mini' },
+  useGlobalApi: true,
   autoEvery: 50,
   maxEntries: 2000,
   summaryPrompt: defaultMemoryPrompt,
@@ -95,7 +121,8 @@ const builtInThemes: ChatThemePreset[] = [
 
 const migrateMemoryConfigs = (configs: MemoryConfigMap) => Object.fromEntries(Object.entries(configs).map(([id, config]) => [id, {
   ...config,
-  summaryPrompt: config.summaryPrompt === legacyMemoryPrompt ? defaultMemoryPrompt : config.summaryPrompt,
+  useGlobalApi: config.useGlobalApi ?? !config.api?.apiKey,
+  summaryPrompt: config.summaryPrompt === legacyMemoryPrompt || config.summaryPrompt === previousMemoryPrompt ? defaultMemoryPrompt : config.summaryPrompt,
 }]))
 
 const read = <T,>(key: string, fallback: T): T => {
@@ -250,6 +277,7 @@ function App() {
   const [chatBackgroundFrost, setChatBackgroundFrost] = useState(() => read('weijing.chatBackgroundFrost', .72))
   const [chatBackground, setChatBackground] = useState('')
   const [customThemes, setCustomThemes] = useState<ChatThemePreset[]>(() => read('weijing.customThemes', []))
+  const [globalMemoryApi, setGlobalMemoryApi] = useState<ApiConfig>(() => read('weijing.globalMemoryApi', { baseUrl: 'https://api.openai.com/v1', apiKey: '', modelName: 'gpt-4.1-mini' }))
   const [memoryConfigs, setMemoryConfigs] = useState<MemoryConfigMap>(() => migrateMemoryConfigs(read('weijing.memoryConfigs', { [demoCharacter.id]: defaultMemoryConfig() })))
   const [memoryEntries, setMemoryEntries] = useState<MemoryEntryMap>(() => read('weijing.memoryEntries', { [demoCharacter.id]: [] }))
   const [memoryState, setMemoryState] = useState<'idle' | 'summarizing' | 'ok' | 'error'>('idle')
@@ -279,7 +307,12 @@ function App() {
   const restartingGroupConversation = conversations.find((item) => item.id === restartingConversationId && item.kind === 'group')
   const groupGreetingCharacters = (restartingGroupConversation?.participantIds || groupDraft.participantIds).map((id) => characters.find((item) => item.id === id)).filter(Boolean) as Character[]
   const messages = activeConversation?.messages || [{ id: 1, role: 'assistant' as const, text: activeCharacter.greeting }]
+  const memoryConfigFor = (characterId: string) => {
+    const config = memoryConfigs[characterId] || defaultMemoryConfig()
+    return { ...config, api: config.useGlobalApi === false ? config.api : globalMemoryApi }
+  }
   const currentMemoryConfig = memoryConfigs[activeCharacter.id] || defaultMemoryConfig()
+  const currentMemoryApi = currentMemoryConfig.useGlobalApi === false ? currentMemoryConfig.api : globalMemoryApi
   const memoryScopeId = activeConversation?.id || activeCharacter.id
   const currentMemories = memoriesForConversation(memoryEntries, activeConversation?.id, activeCharacter.id) as MemoryEntry[]
   const allThemes = [...builtInThemes, ...customThemes]
@@ -307,8 +340,8 @@ function App() {
     let cancelled = false
     Promise.all([
       durableGet<Partial<Character>[]>('weijing.characters'), durableGet<Conversation[]>('weijing.conversations'),
-      durableGet<UserIdentity[]>('weijing.identities'), durableGet<UserIdentity>('weijing.identity'), durableGet<MemoryConfigMap>('weijing.memoryConfigs'), durableGet<MemoryEntryMap>('weijing.memoryEntries'), durableGet<string>('weijing.chatBackground'),
-    ]).then(([storedCharacters, storedConversations, storedIdentities, storedIdentity, storedConfigs, storedEntries, storedBackground]) => {
+      durableGet<UserIdentity[]>('weijing.identities'), durableGet<UserIdentity>('weijing.identity'), durableGet<MemoryConfigMap>('weijing.memoryConfigs'), durableGet<MemoryEntryMap>('weijing.memoryEntries'), durableGet<string>('weijing.chatBackground'), durableGet<ApiConfig>('weijing.globalMemoryApi'),
+    ]).then(([storedCharacters, storedConversations, storedIdentities, storedIdentity, storedConfigs, storedEntries, storedBackground, storedGlobalMemoryApi]) => {
       if (cancelled) return
       if (storedCharacters?.length) setCharacters(storedCharacters.map(normalizeStoredCharacter))
       if (storedConversations?.length) setConversations(storedConversations)
@@ -317,6 +350,7 @@ function App() {
       if (storedConfigs) setMemoryConfigs(migrateMemoryConfigs(storedConfigs))
       if (storedEntries) setMemoryEntries(storedEntries)
       if (storedBackground) setChatBackground(storedBackground)
+      if (storedGlobalMemoryApi) setGlobalMemoryApi(storedGlobalMemoryApi)
       setPersistenceReady(true)
     }).catch(() => setPersistenceReady(true))
     navigator.storage?.estimate().then(({ usage = 0, quota = 0 }) => setStorageUsage(`${(usage / 1048576).toFixed(1)} MB / ${(quota / 1048576).toFixed(0)} MB`))
@@ -339,6 +373,7 @@ function App() {
   useEffect(() => write('weijing.activeApiChannel', api.id), [api.id])
   useEffect(() => write('weijing.api', { baseUrl: api.baseUrl, apiKey: api.apiKey, modelName: api.modelName, maxTokenField: api.maxTokenField }), [api])
   useEffect(() => { if (persistenceReady) writeDurable('weijing.memoryConfigs', memoryConfigs) }, [memoryConfigs, persistenceReady])
+  useEffect(() => { if (persistenceReady) writeDurable('weijing.globalMemoryApi', globalMemoryApi) }, [globalMemoryApi, persistenceReady])
   useEffect(() => { if (persistenceReady) writeDurable('weijing.memoryEntries', memoryEntries) }, [memoryEntries, persistenceReady])
   useEffect(() => { write('weijing.temperature', temperature); write('weijing.topP', topP); write('weijing.memoryLength', memoryLength); write('weijing.maxTokens', maxTokens); write('weijing.streaming', streaming) }, [temperature, topP, memoryLength, maxTokens, streaming])
   useEffect(() => write('weijing.chatLayout', chatLayout), [chatLayout])
@@ -356,9 +391,9 @@ function App() {
   }, [chatFontSize, chatTextColor, chatNarrationColor, chatQuoteColor, chatBaseColor, chatBackgroundFrost])
   useEffect(() => { if (persistenceReady) void durableSet('weijing.chatBackground', chatBackground) }, [chatBackground, persistenceReady])
   useEffect(() => {
-    const bytes = new Blob([JSON.stringify({ characters, conversations, identities, memoryConfigs, memoryEntries, chatBackground })]).size
+    const bytes = new Blob([JSON.stringify({ characters, conversations, identities, globalMemoryApi, memoryConfigs, memoryEntries, chatBackground })]).size
     setAppDataUsage(bytes < 1048576 ? `${(bytes / 1024).toFixed(0)} KB` : `${(bytes / 1048576).toFixed(2)} MB`)
-  }, [characters, conversations, identities, memoryConfigs, memoryEntries, chatBackground])
+  }, [characters, conversations, identities, globalMemoryApi, memoryConfigs, memoryEntries, chatBackground])
   useEffect(() => {
     document.documentElement.classList.toggle('chat-layout-flat', chatLayout === 'flat')
     return () => document.documentElement.classList.remove('chat-layout-flat')
@@ -452,7 +487,10 @@ function App() {
   }
 
   const updateMemoryConfig = (patch: Partial<MemoryConfig>) => setMemoryConfigs((current) => ({ ...current, [activeCharacter.id]: { ...(current[activeCharacter.id] || defaultMemoryConfig()), ...patch } }))
-  const updateMemoryApi = (patch: Partial<ApiConfig>) => updateMemoryConfig({ api: { ...currentMemoryConfig.api, ...patch } })
+  const updateMemoryApi = (patch: Partial<ApiConfig>) => {
+    if (currentMemoryConfig.useGlobalApi !== false) setGlobalMemoryApi((current) => ({ ...current, ...patch }))
+    else updateMemoryConfig({ api: { ...currentMemoryConfig.api, ...patch } })
+  }
   const openCharacter = (id: string) => {
     setActiveId(id)
     setMemoryConfigs((current) => current[id] ? current : { ...current, [id]: defaultMemoryConfig() })
@@ -752,7 +790,7 @@ function App() {
   }
 
   const summarizeMemory = async (sourceMessages = messages, targetConversation = activeConversation, targetCharacter = activeCharacter) => {
-    const config = memoryConfigs[targetCharacter.id] || defaultMemoryConfig()
+    const config = memoryConfigFor(targetCharacter.id)
     const summarizedCount = Math.min(targetConversation?.memorySummarizedCount || 0, sourceMessages.length)
     const pendingMessages = sourceMessages.slice(summarizedCount)
     if (!targetConversation || !config.api.baseUrl || !config.api.modelName || !config.api.apiKey || pendingMessages.length < 2) { setMemoryState('error'); return }
@@ -779,6 +817,11 @@ function App() {
       const data = await response.json()
       const content = data?.choices?.[0]?.message?.content?.trim()
       if (!content) throw new Error('empty memory')
+      if (/^无新增长期记忆[。！!]?$/.test(content)) {
+        setConversations((current) => current.map((item) => item.id === targetConversation.id ? { ...item, memorySummarizedCount: sourceMessages.length } : item))
+        setMemoryState('ok')
+        return
+      }
       const entry: MemoryEntry = { id: crypto.randomUUID(), createdAt: Date.now(), title: `${new Date().toLocaleDateString()} · 新增 ${pendingMessages.length} 条`, content, sourceCount: pendingMessages.length }
       let nextEntries = [...conversationMemories.filter((item) => item.pinned), ...[...conversationMemories.filter((item) => !item.pinned), entry].slice(-config.maxEntries)]
       const ordinary = nextEntries.filter((item) => !item.pinned)
@@ -821,7 +864,7 @@ function App() {
     if (generationControllers.current.has(conversationId)) return nextMessages
 
     const capturedCharacter = speaker
-    const capturedMemoryConfig = memoryConfigs[capturedCharacter.id] || defaultMemoryConfig()
+    const capturedMemoryConfig = memoryConfigFor(capturedCharacter.id)
     const capturedMemories = memoriesForConversation(memoryEntries, conversation.id, capturedCharacter.id) as MemoryEntry[]
     const assistantMessage: Message = { id: Date.now() + Math.floor(Math.random() * 1000), role: 'assistant', characterId: speaker.id, text: '正在回应…' }
     const pendingMessages = [...nextMessages, assistantMessage]
@@ -944,7 +987,7 @@ function App() {
         groupMessages = await generateAssistant(conversation, groupMessages, speaker, channel)
       }
       const memoryCharacter = characters.find((item) => item.id === participantIds[0]) || activeCharacter
-      const groupMemoryConfig = memoryConfigs[memoryCharacter.id] || defaultMemoryConfig()
+      const groupMemoryConfig = memoryConfigFor(memoryCharacter.id)
       const summarizedCount = Math.min(conversation.memorySummarizedCount || 0, groupMessages.length)
       if (groupMemoryConfig.autoEvery > 0 && groupMessages.length - summarizedCount >= groupMemoryConfig.autoEvery && groupMemoryConfig.api.apiKey) void summarizeMemory(groupMessages, conversation, memoryCharacter)
       return
@@ -1163,9 +1206,9 @@ function App() {
     {page === 'theater-world' && activeConversation && <EditablePage title="本剧场世界观背景" value={activeConversation.theaterWorldBackground || ''} onChange={(value) => setConversations((current) => current.map((item) => item.id === activeConversation.id ? { ...item, theaterWorldBackground: value, updatedAt: Date.now() } : item))} onBack={goBack} fieldLabel="本剧场共用背景与人物关系" description={`这份设定只属于“${activeConversation.title}”。本剧场里的所有角色和 NPC 都会读取；切换到其他对话或群聊时不会带过去。`} note="自动保存并随本剧场独立存放。角色各自的人设、世界书与长期记忆仍会叠加生效。" placeholder="填写本剧场的时代与地点、公共背景、人物关系、共同经历、势力结构和所有成员必须知道的事实……" />}
     {page === 'preset' && <PresetEditor sections={presetSections} onChange={setPresetSections} onBack={goBack} />}
 
-    {page === 'memory' && <><BackHeader title={`${activeCharacter.name} · 长记忆`} onBack={goBack} action={<button className="soft-button" onClick={() => updateMemoryConfig({ ...defaultMemoryConfig(), api: currentMemoryConfig.api })}>恢复默认</button>} /><section className="settings-stack memory-settings"><div className="memory-character-banner"><div className="character-art"><span>{activeCharacter.name.slice(-1)}</span><i>✦</i></div><div><strong>独立记忆库</strong><small>仅属于 {activeCharacter.name}，不会与其他角色混用</small></div></div><button className="memory-api-row" onClick={() => navigate('memory-api')}><div><strong>总结专用 API</strong><small>{currentMemoryConfig.api.modelName || '未设置模型'}</small></div><span>›</span></button><div className="settings-group range-group"><RangeRow label="自动总结" hint={`每 ${currentMemoryConfig.autoEvery} 条消息总结一次，0 为禁用`} value={currentMemoryConfig.autoEvery} min={0} max={200} step={10} onChange={(value) => updateMemoryConfig({ autoEvery: value })} /><RangeRow label="记忆上限" hint={`最多保留 ${currentMemoryConfig.maxEntries} 条长期记忆`} value={currentMemoryConfig.maxEntries} min={100} max={3000} step={100} onChange={(value) => updateMemoryConfig({ maxEntries: value })} /></div><label className="memory-text-card"><strong>记忆总结提示词</strong><textarea rows={10} value={currentMemoryConfig.summaryPrompt} onChange={(e) => updateMemoryConfig({ summaryPrompt: e.target.value })} /><small>发送给记忆模型，用于生成长期记忆。</small></label><label className="memory-select-card"><strong>记忆注入位置</strong><select value={currentMemoryConfig.injectPosition} onChange={(e) => updateMemoryConfig({ injectPosition: e.target.value })}><option value="none">不注入</option><option value="before-main-prompt">↑ Main Prompt</option><option value="after-main-prompt">↓ Main Prompt</option><option value="before-chat-history">↑ Chat History</option><option value="after-chat-history">↓ Chat History</option><option value="depth-system">@Depth · system</option><option value="depth-user">@Depth · user</option><option value="depth-assistant">@Depth · assistant</option></select></label><label className="memory-text-card"><strong>记忆注入提示词</strong><textarea rows={6} value={currentMemoryConfig.injectPrompt} onChange={(e) => updateMemoryConfig({ injectPrompt: e.target.value })} /><small>使用 {'{{memories}}'} 作为记忆内容占位符。</small></label><div className="memory-actions"><button className="primary-button full" onClick={() => summarizeMemory()} disabled={memoryState === 'summarizing'}>{memoryState === 'summarizing' ? '正在总结…' : memoryState === 'error' ? '配置不完整或总结失败，重试' : '立即总结当前对话'}</button><button className="secondary-button" onClick={() => navigate('memory-list')}>查看与管理记忆（{currentMemories.length}）</button></div></section></>}
+    {page === 'memory' && <><BackHeader title={`${activeCharacter.name} · 长记忆`} onBack={goBack} action={<button className="soft-button" onClick={() => updateMemoryConfig({ ...defaultMemoryConfig(), api: currentMemoryConfig.api, useGlobalApi: currentMemoryConfig.useGlobalApi })}>恢复默认</button>} /><section className="settings-stack memory-settings"><div className="memory-character-banner"><div className="character-art"><span>{activeCharacter.name.slice(-1)}</span><i>✦</i></div><div><strong>独立记忆库</strong><small>仅属于 {activeCharacter.name}，不会与其他角色混用</small></div></div><div className="memory-api-mode"><div><strong>记忆 API 来源</strong><small>默认共用全局接口，需要时可为当前角色单独覆盖。</small></div><div><button className={currentMemoryConfig.useGlobalApi !== false ? 'active' : ''} onClick={() => updateMemoryConfig({ useGlobalApi: true })}>全局默认</button><button className={currentMemoryConfig.useGlobalApi === false ? 'active' : ''} onClick={() => updateMemoryConfig({ useGlobalApi: false, api: currentMemoryConfig.api.apiKey ? currentMemoryConfig.api : { ...globalMemoryApi } })}>当前角色独立</button></div></div><button className="memory-api-row" onClick={() => navigate('memory-api')}><div><strong>{currentMemoryConfig.useGlobalApi === false ? '当前角色独立 API' : '全局默认记忆 API'}</strong><small>{currentMemoryApi.modelName || '未设置模型'} · {currentMemoryApi.apiKey ? '已配置' : '未填写密钥'}</small></div><span>›</span></button><div className="settings-group range-group"><RangeRow label="自动总结" hint={`每 ${currentMemoryConfig.autoEvery} 条消息总结一次，0 为禁用`} value={currentMemoryConfig.autoEvery} min={0} max={200} step={10} onChange={(value) => updateMemoryConfig({ autoEvery: value })} /><RangeRow label="记忆上限" hint={`最多保留 ${currentMemoryConfig.maxEntries} 条长期记忆`} value={currentMemoryConfig.maxEntries} min={100} max={3000} step={100} onChange={(value) => updateMemoryConfig({ maxEntries: value })} /></div><label className="memory-text-card"><strong>记忆总结提示词</strong><textarea rows={12} value={currentMemoryConfig.summaryPrompt} onChange={(e) => updateMemoryConfig({ summaryPrompt: e.target.value })} /><small>只总结本轮新增消息；默认模板会保留知情边界、情感阶段、线索与当前场景锚点。</small></label><label className="memory-select-card"><strong>记忆注入位置</strong><select value={currentMemoryConfig.injectPosition} onChange={(e) => updateMemoryConfig({ injectPosition: e.target.value })}><option value="none">不注入</option><option value="before-main-prompt">↑ Main Prompt</option><option value="after-main-prompt">↓ Main Prompt</option><option value="before-chat-history">↑ Chat History</option><option value="after-chat-history">↓ Chat History</option><option value="depth-system">@Depth · system</option><option value="depth-user">@Depth · user</option><option value="depth-assistant">@Depth · assistant</option></select></label><label className="memory-text-card"><strong>记忆注入提示词</strong><textarea rows={6} value={currentMemoryConfig.injectPrompt} onChange={(e) => updateMemoryConfig({ injectPrompt: e.target.value })} /><small>使用 {'{{memories}}'} 作为记忆内容占位符。</small></label><div className="memory-actions"><button className="primary-button full" onClick={() => summarizeMemory()} disabled={memoryState === 'summarizing'}>{memoryState === 'summarizing' ? '正在总结…' : memoryState === 'error' ? '配置不完整或总结失败，重试' : '立即总结当前对话'}</button><button className="secondary-button" onClick={() => navigate('memory-list')}>查看与管理记忆（{currentMemories.length}）</button></div></section></>}
 
-    {page === 'memory-api' && <><BackHeader title="记忆总结 API" onBack={goBack} action={<span className="saved-label">自动保存</span>} /><section className="content-stack form-stack"><div className="api-status"><span className={currentMemoryConfig.api.apiKey ? 'ok' : ''}></span><div><strong>{currentMemoryConfig.api.apiKey ? '已配置独立接口' : '尚未填写密钥'}</strong><small>仅供 {activeCharacter.name} 的记忆总结使用</small></div></div><label>Base URL<input value={currentMemoryConfig.api.baseUrl} onChange={(e) => updateMemoryApi({ baseUrl: e.target.value })} /></label><label>API Key<input type="password" value={currentMemoryConfig.api.apiKey} onChange={(e) => updateMemoryApi({ apiKey: e.target.value })} placeholder="sk-••••••••" /></label><label>模型名称<input value={currentMemoryConfig.api.modelName} onChange={(e) => updateMemoryApi({ modelName: e.target.value })} /></label><div className="privacy-note">此接口独立于聊天 API。密钥只保存在当前设备，不上传仓库。</div></section></>}
+    {page === 'memory-api' && <><BackHeader title={currentMemoryConfig.useGlobalApi === false ? `${activeCharacter.name} · 独立记忆 API` : '全局默认记忆 API'} onBack={goBack} action={<span className="saved-label">自动保存</span>} /><section className="content-stack form-stack" data-memory-api-scope={currentMemoryConfig.useGlobalApi === false ? activeCharacter.id : 'global'}><div className="api-status"><span className={currentMemoryApi.apiKey ? 'ok' : ''}></span><div><strong>{currentMemoryApi.apiKey ? '记忆接口已配置' : '尚未填写密钥'}</strong><small>{currentMemoryConfig.useGlobalApi === false ? `仅覆盖 ${activeCharacter.name}，其他角色仍使用全局接口` : '所有选择“全局默认”的角色与新剧场都会使用此接口'}</small></div></div><label>Base URL<input value={currentMemoryApi.baseUrl} onChange={(e) => updateMemoryApi({ baseUrl: e.target.value })} /></label><label>API Key<input type="password" value={currentMemoryApi.apiKey} onChange={(e) => updateMemoryApi({ apiKey: e.target.value })} placeholder="sk-••••••••" /></label><label>模型名称<input value={currentMemoryApi.modelName} onChange={(e) => updateMemoryApi({ modelName: e.target.value })} /></label><div className="privacy-note">此接口独立于聊天 API。密钥只保存在当前设备，不上传仓库；切回全局接口不会删除当前角色已保存的独立配置。</div></section></>}
 
     {page === 'memory-list' && <><BackHeader title={`${activeConversation?.title || activeCharacter.name} · 记忆库`} onBack={goBack} /><section className="content-stack"><div className="privacy-note">这份记忆只属于当前对话。标为核心后会永久注入，不会被相关性筛选或自动整理移除。</div>{currentMemories.length === 0 ? <div className="empty-memory"><span>✦</span><strong>还没有长期记忆</strong><p>返回上一页，配置总结 API 后可立即总结当前对话。</p></div> : currentMemories.slice().reverse().map((entry) => <article className={`memory-entry ${entry.pinned ? 'pinned' : ''}`} key={entry.id}><div><strong>{entry.pinned ? '★ 核心 · ' : entry.consolidated ? '阶段整理 · ' : ''}{entry.title}</strong><small>{new Date(entry.createdAt).toLocaleString()} · 来源 {entry.sourceCount} 条消息</small></div><textarea rows={8} value={entry.content} onChange={(e) => setMemoryEntries((current) => ({ ...current, [memoryScopeId]: (memoriesForConversation(current, activeConversation?.id, activeCharacter.id) as MemoryEntry[]).map((item) => item.id === entry.id ? { ...item, content: e.target.value } : item) }))} /><div className="memory-entry-actions"><button className="soft-button" onClick={() => setMemoryEntries((current) => ({ ...current, [memoryScopeId]: (memoriesForConversation(current, activeConversation?.id, activeCharacter.id) as MemoryEntry[]).map((item) => item.id === entry.id ? { ...item, pinned: !item.pinned } : item) }))}>{entry.pinned ? '取消核心' : '设为核心记忆'}</button><button className="danger-link" onClick={() => setMemoryEntries((current) => ({ ...current, [memoryScopeId]: (memoriesForConversation(current, activeConversation?.id, activeCharacter.id) as MemoryEntry[]).filter((item) => item.id !== entry.id) }))}>删除</button></div></article>)}</section></>}
 
@@ -1284,7 +1327,7 @@ function UpdateCard() {
     }
   }
 
-  return <section className="update-card"><strong>应用更新</strong><p>主动检查并拉取最新网页版本，不会删除角色、聊天记录或本地设置。</p><small>当前版本：2026.07.13 · 成员独立模型</small><button onClick={refresh} disabled={state === 'checking'}>{state === 'checking' ? '正在检查更新…' : state === 'error' ? '更新失败，点我重试' : '强制刷新到最新版'}</button></section>
+  return <section className="update-card"><strong>应用更新</strong><p>主动检查并拉取最新网页版本，不会删除角色、聊天记录或本地设置。</p><small>当前版本：2026.07.14 · 全局记忆接口</small><button onClick={refresh} disabled={state === 'checking'}>{state === 'checking' ? '正在检查更新…' : state === 'error' ? '更新失败，点我重试' : '强制刷新到最新版'}</button></section>
 }
 
 function PersonaPage({ identities, selectedId, isBound, onSelect, onAdd, onDelete, onUpdate, onBack }: { identities: UserIdentity[]; selectedId: string; isBound: boolean; onSelect: (id: string) => void; onAdd: () => void; onDelete: (id: string) => void; onUpdate: (patch: Partial<UserIdentity>) => void; onBack: () => void }) {
