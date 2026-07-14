@@ -1,4 +1,4 @@
-import { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
+import { useEffect, useId, useLayoutEffect, useMemo, useRef, useState } from 'react'
 import ApiSettingsPage from './ApiSettingsPage'
 import BackupCard from './BackupCard'
 import PresetEditor from './PresetEditor'
@@ -6,9 +6,9 @@ import CharacterCardManager from './CharacterCardManager'
 import { GreetingPicker, GroupGreetingPicker, ImportPreview, type GroupGreetingChoice } from './ImportFlow'
 import MessageContent from './MessageContent'
 import { createBlankCharacter, importCharacterCard, normalizeStoredCharacter, type Character } from './characterCard'
-import { completeChat, testApiConnection, type ApiConfig } from './chatApi'
+import { completeChat, fetchApiModels, testApiConnection, type ApiConfig, type ApiModel } from './chatApi'
 import { buildChatPrompt } from './promptBuilder'
-import { createApiChannel, normalizeApiChannels, type ApiChannel } from './apiChannels'
+import { createApiChannel, normalizeApiChannels, withApiModel, type ApiChannel } from './apiChannels'
 import { enabledPresetText, normalizePresetSections } from './presetConfig'
 import { durableGet, durableSet } from './persistentStore'
 import { sanitizeAssistantOutput } from './outputSanitizer'
@@ -31,6 +31,7 @@ type Conversation = {
   kind?: 'single' | 'group'
   participantIds?: string[]
   participantApiIds?: Record<string, string>
+  participantModelNames?: Record<string, string>
   memorySummarizedCount?: number
   personaId?: string
   themePresetId?: string
@@ -209,7 +210,7 @@ function App() {
   const [messageMenuId, setMessageMenuId] = useState<number | null>(null)
   const [characterMenuId, setCharacterMenuId] = useState<string | null>(null)
   const [characterQuery, setCharacterQuery] = useState('')
-  const [groupDraft, setGroupDraft] = useState<{ title: string; participantIds: string[]; apiIds: Record<string, string> }>({ title: '', participantIds: [], apiIds: {} })
+  const [groupDraft, setGroupDraft] = useState<{ title: string; participantIds: string[]; apiIds: Record<string, string>; modelNames: Record<string, string> }>({ title: '', participantIds: [], apiIds: {}, modelNames: {} })
   const [groupReplyMode, setGroupReplyMode] = useState<GroupReplyMode>(() => read('weijing.groupReplyMode', 'natural'))
   const [mentionPickerOpen, setMentionPickerOpen] = useState(false)
   const [memberPickerOpen, setMemberPickerOpen] = useState(false)
@@ -478,12 +479,16 @@ function App() {
       kind: 'group', characterId: participants[0].id,
       participantIds: participants.map((item) => item.id),
       participantApiIds: Object.fromEntries(participants.map((item) => [item.id, groupDraft.apiIds[item.id] || api.id])),
+      participantModelNames: Object.fromEntries(participants.map((item) => {
+        const channel = apiChannels.find((entry) => entry.id === (groupDraft.apiIds[item.id] || api.id)) || api
+        return [item.id, groupDraft.modelNames[item.id] || channel.modelName]
+      })),
       title: groupDraft.title.trim() || participants.map((item) => item.name).join('、'),
       messages: [{ id: now, role: 'assistant', text: greeting, characterId }], createdAt: now, updatedAt: now, personaId: activePersonaId,
     }
     setConversations((current) => [...current, conversation])
     setActiveId(participants[0].id); setActiveConversationId(conversation.id)
-    setGroupDraft({ title: '', participantIds: [], apiIds: {} }); setGroupReplyMode('natural')
+    setGroupDraft({ title: '', participantIds: [], apiIds: {}, modelNames: {} }); setGroupReplyMode('natural')
     replacePage('chat')
   }
 
@@ -516,6 +521,7 @@ function App() {
       kind: 'group',
       participantIds,
       participantApiIds: { ...(item.participantApiIds || {}), [item.characterId]: item.participantApiIds?.[item.characterId] || api.id, [characterId]: api.id },
+      participantModelNames: { ...(item.participantModelNames || {}), [item.characterId]: item.participantModelNames?.[item.characterId] || apiChannels.find((channel) => channel.id === item.participantApiIds?.[item.characterId])?.modelName || api.modelName, [characterId]: api.modelName },
       title: item.kind === 'group' ? item.title : participantIds.map((id) => characters.find((character) => character.id === id)?.name).filter(Boolean).join('、'),
       updatedAt: Date.now(),
     } : item))
@@ -528,14 +534,20 @@ function App() {
     setConversations((current) => current.map((item) => {
       if (item.id !== activeConversation.id) return item
       const participantApiIds = { ...(item.participantApiIds || {}) }; delete participantApiIds[characterId]
-      if (remaining.length === 1) return { ...item, kind: 'single', characterId: remaining[0], participantIds: undefined, participantApiIds: undefined, title: `与${characters.find((character) => character.id === remaining[0])?.name || '角色'}的对话`, updatedAt: Date.now() }
-      return { ...item, characterId: remaining[0], participantIds: remaining, participantApiIds, updatedAt: Date.now() }
+      const participantModelNames = { ...(item.participantModelNames || {}) }; delete participantModelNames[characterId]
+      if (remaining.length === 1) return { ...item, kind: 'single', characterId: remaining[0], participantIds: undefined, participantApiIds: undefined, participantModelNames: undefined, title: `与${characters.find((character) => character.id === remaining[0])?.name || '角色'}的对话`, updatedAt: Date.now() }
+      return { ...item, characterId: remaining[0], participantIds: remaining, participantApiIds, participantModelNames, updatedAt: Date.now() }
     }))
     setActiveId(remaining[0])
   }
   const updateConversationMemberApi = (characterId: string, channelId: string) => {
     if (!activeConversation) return
-    setConversations((current) => current.map((item) => item.id === activeConversation.id ? { ...item, participantApiIds: { ...(item.participantApiIds || {}), [characterId]: channelId } } : item))
+    const modelName = apiChannels.find((channel) => channel.id === channelId)?.modelName || ''
+    setConversations((current) => current.map((item) => item.id === activeConversation.id ? { ...item, participantApiIds: { ...(item.participantApiIds || {}), [characterId]: channelId }, participantModelNames: { ...(item.participantModelNames || {}), [characterId]: modelName } } : item))
+  }
+  const updateConversationMemberModel = (characterId: string, modelName: string) => {
+    if (!activeConversation) return
+    setConversations((current) => current.map((item) => item.id === activeConversation.id ? { ...item, participantModelNames: { ...(item.participantModelNames || {}), [characterId]: modelName } } : item))
   }
 
   const addImportedCharacter = (character: Character, nextPage: Page = 'character-detail') => {
@@ -924,7 +936,8 @@ function App() {
         const speaker = characters.find((item) => item.id === speakerId)
         if (!speaker) continue
         const channelId = conversation.participantApiIds?.[speakerId]
-        const channel = apiChannels.find((item) => item.id === channelId) || api
+        const baseChannel = apiChannels.find((item) => item.id === channelId) || api
+        const channel = withApiModel(baseChannel, conversation.participantModelNames?.[speakerId])
         groupMessages = await generateAssistant(conversation, groupMessages, speaker, channel)
       }
       const memoryCharacter = characters.find((item) => item.id === participantIds[0]) || activeCharacter
@@ -968,7 +981,8 @@ function App() {
     if (index < 0) return
     setMessageMenuId(null)
     const speaker = characters.find((item) => item.id === message.characterId) || activeCharacter
-    const channel = activeConversation.kind === 'group' ? apiChannels.find((item) => item.id === activeConversation.participantApiIds?.[speaker.id]) || api : api
+    const baseChannel = activeConversation.kind === 'group' ? apiChannels.find((item) => item.id === activeConversation.participantApiIds?.[speaker.id]) || api : api
+    const channel = activeConversation.kind === 'group' ? withApiModel(baseChannel, activeConversation.participantModelNames?.[speaker.id]) : baseChannel
     await generateAssistant(activeConversation, messages.slice(0, index), speaker, channel)
   }
 
@@ -1100,7 +1114,12 @@ function App() {
 
     {page === 'create' && <><BackHeader title="新建角色" onBack={goBack} action={<button className="text-button" onClick={createCharacter}>保存</button>} /><section className="content-stack form-stack"><button className="drop-zone compact" onClick={() => fileInputRef.current?.click()}><span className="drop-plus">＋</span><strong>{importState === 'reading' ? '正在读取角色卡…' : '从文件导入角色卡'}</strong><small>支持带元数据的 PNG 与 JSON</small></button><div className="url-import-card"><div><strong>从 URL 导入角色卡</strong><small>粘贴 PNG 或 JSON 角色卡直链</small></div><div><input type="url" value={characterUrl} onChange={(event) => setCharacterUrl(event.target.value)} onKeyDown={(event) => { if (event.key === 'Enter') { event.preventDefault(); handleCharacterUrl() } }} placeholder="https://…/character.png" /><button onClick={handleCharacterUrl} disabled={!characterUrl.trim() || importState === 'reading'}>{importState === 'reading' ? '读取中' : '导入'}</button></div></div>{importState === 'error' && <div className="import-notice error">{importError}</div>}<div className="form-divider"><span>或者手动创建</span></div><label className="avatar-upload-row"><span className="avatar-upload-preview">{newCharacter.avatar ? <img src={newCharacter.avatar} alt="" /> : '＋'}</span><span><strong>角色头像</strong><small>选择照片并自动裁成方形</small></span><input type="file" accept="image/*" onChange={async (event) => { const file = event.target.files?.[0]; if (file) setNewCharacter({ ...newCharacter, avatar: await imageThumbnail(file) }); event.currentTarget.value = '' }} /></label><label>角色名称<input value={newCharacter.name} onChange={(e) => setNewCharacter({ ...newCharacter, name: e.target.value })} placeholder="例如：霍烬" /></label><label>一句话简介<input value={newCharacter.tagline} onChange={(e) => setNewCharacter({ ...newCharacter, tagline: e.target.value })} /></label><label>角色设定<textarea rows={7} value={newCharacter.description} onChange={(e) => setNewCharacter({ ...newCharacter, description: e.target.value })} /></label><label>开场白<textarea rows={4} value={newCharacter.greeting} onChange={(e) => setNewCharacter({ ...newCharacter, greeting: e.target.value })} /></label><label>标签<input value={newCharacter.tags} onChange={(e) => setNewCharacter({ ...newCharacter, tags: e.target.value })} placeholder="慢热，守护，剧情向" /></label><button className="primary-button full" onClick={createCharacter}>创建并保存</button></section></>}
 
-    {page === 'group-create' && <><BackHeader title="新建群聊" onBack={goBack} action={<span className="saved-label">{groupDraft.participantIds.length} 位成员</span>} /><section className="content-stack group-create-page"><label className="group-title-field">群聊名称<input value={groupDraft.title} onChange={(event) => setGroupDraft({ ...groupDraft, title: event.target.value })} placeholder="例如：雨夜重逢" /></label><div className="privacy-note">选择至少两位角色。每位角色会使用自己的角色卡、世界书、美化和长期记忆，并可绑定不同 API 渠道。</div><div className="group-member-list">{characters.map((character) => { const selected = groupDraft.participantIds.includes(character.id); return <article className={selected ? 'selected' : ''} key={character.id}><button className="group-member-toggle" onClick={() => setGroupDraft((current) => ({ ...current, participantIds: selected ? current.participantIds.filter((id) => id !== character.id) : [...current.participantIds, character.id], apiIds: { ...current.apiIds, [character.id]: current.apiIds[character.id] || api.id } }))}><CharacterPortrait item={character} /><div><strong>{character.name}</strong><small>{character.tagline}</small></div><span>{selected ? '✓' : '＋'}</span></button>{selected && <label>API 渠道<select value={groupDraft.apiIds[character.id] || api.id} onChange={(event) => setGroupDraft((current) => ({ ...current, apiIds: { ...current.apiIds, [character.id]: event.target.value } }))}>{apiChannels.map((channel) => <option key={channel.id} value={channel.id}>{channel.name} · {channel.modelName || '未选模型'}</option>)}</select></label>}</article> })}</div><button className="primary-button full" disabled={groupDraft.participantIds.length < 2} onClick={openGroupGreetingPicker}>下一步：选择开场白</button></section></>}
+    {page === 'group-create' && <><BackHeader title="新建群聊" onBack={goBack} action={<span className="saved-label">{groupDraft.participantIds.length} 位成员</span>} /><section className="content-stack group-create-page"><label className="group-title-field">群聊名称<input value={groupDraft.title} onChange={(event) => setGroupDraft({ ...groupDraft, title: event.target.value })} placeholder="例如：雨夜重逢" /></label><div className="privacy-note">选择至少两位角色。每位角色会使用自己的角色卡、世界书、美化和长期记忆；回复渠道可以相同，模型可以分别指定。</div><div className="group-member-list">{characters.map((character) => {
+      const selected = groupDraft.participantIds.includes(character.id)
+      const channelId = groupDraft.apiIds[character.id] || api.id
+      const channel = apiChannels.find((item) => item.id === channelId) || api
+      return <article className={selected ? 'selected' : ''} key={character.id}><button className="group-member-toggle" onClick={() => setGroupDraft((current) => ({ ...current, participantIds: selected ? current.participantIds.filter((id) => id !== character.id) : [...current.participantIds, character.id], apiIds: { ...current.apiIds, [character.id]: current.apiIds[character.id] || api.id }, modelNames: { ...current.modelNames, [character.id]: current.modelNames[character.id] || api.modelName } }))}><CharacterPortrait item={character} /><div><strong>{character.name}</strong><small>{character.tagline}</small></div><span>{selected ? '✓' : '＋'}</span></button>{selected && <MemberApiBinding channels={apiChannels} channelId={channel.id} modelName={groupDraft.modelNames[character.id] || channel.modelName} onChannelChange={(nextChannelId) => { const nextModelName = apiChannels.find((item) => item.id === nextChannelId)?.modelName || ''; setGroupDraft((current) => ({ ...current, apiIds: { ...current.apiIds, [character.id]: nextChannelId }, modelNames: { ...current.modelNames, [character.id]: nextModelName } })) }} onModelChange={(modelName) => setGroupDraft((current) => ({ ...current, modelNames: { ...current.modelNames, [character.id]: modelName } }))} />}</article>
+    })}</div><button className="primary-button full" disabled={groupDraft.participantIds.length < 2} onClick={openGroupGreetingPicker}>下一步：选择开场白</button></section></>}
 
     {page === 'import-preview' && pendingImport && <ImportPreview character={pendingImport} onCancel={() => { setPendingImport(null); goBack() }} onConfirm={({ includeBook, includeRegex }) => {
     const character = { ...pendingImport, characterBook: includeBook ? pendingImport.characterBook : undefined, regexScripts: includeRegex ? pendingImport.regexScripts : [] }
@@ -1179,10 +1198,54 @@ function App() {
       </section>}
     </div>}
 
-    {memberPickerOpen && activeConversation && <div className="member-picker-layer"><button className="drawer-backdrop" aria-label="关闭成员管理" onClick={() => setMemberPickerOpen(false)} /><section className="member-picker"><header><div><small>当前会话</small><strong>成员与独立 API</strong></div><button onClick={() => setMemberPickerOpen(false)}>×</button></header><div className="member-picker-list">{characters.map((character) => { const joined = conversationMemberIds().includes(character.id); const canRemove = conversationMemberIds().length > 1; return <article className={joined ? 'joined' : ''} key={character.id} onClick={() => { if (!joined) addConversationMember(character.id) }}><div className="member-picker-main"><CharacterPortrait item={character} /><div><strong>{character.name}</strong><small>{joined ? '已在当前会话' : character.tagline}</small></div><button onClick={(event) => { event.stopPropagation(); if (joined) { if (canRemove) removeConversationMember(character.id) } else addConversationMember(character.id) }} disabled={joined && !canRemove}>{joined ? canRemove ? '移除' : '保留' : '＋ 加入'}</button></div>{joined && <label onClick={(event) => event.stopPropagation()}>回复渠道<select value={activeConversation.participantApiIds?.[character.id] || api.id} onChange={(event) => updateConversationMemberApi(character.id, event.target.value)}>{apiChannels.map((channel) => <option key={channel.id} value={channel.id}>{channel.name} · {channel.modelName || '未选模型'}</option>)}</select></label>}</article> })}</div><div className="privacy-note">单聊加入第二位角色后会原地变成群聊；移除到只剩一位时恢复 1v1。已有消息与署名不会丢失。</div></section></div>}
+    {memberPickerOpen && activeConversation && <div className="member-picker-layer"><button className="drawer-backdrop" aria-label="关闭成员管理" onClick={() => setMemberPickerOpen(false)} /><section className="member-picker"><header><div><small>当前会话</small><strong>成员与独立 API</strong></div><button onClick={() => setMemberPickerOpen(false)}>×</button></header><div className="member-picker-list">{characters.map((character) => {
+      const joined = conversationMemberIds().includes(character.id)
+      const canRemove = conversationMemberIds().length > 1
+      const channelId = activeConversation.participantApiIds?.[character.id] || api.id
+      const channel = apiChannels.find((item) => item.id === channelId) || api
+      return <article className={joined ? 'joined' : ''} key={character.id} onClick={() => { if (!joined) addConversationMember(character.id) }}><div className="member-picker-main"><CharacterPortrait item={character} /><div><strong>{character.name}</strong><small>{joined ? '已在当前会话' : character.tagline}</small></div><button onClick={(event) => { event.stopPropagation(); if (joined) { if (canRemove) removeConversationMember(character.id) } else addConversationMember(character.id) }} disabled={joined && !canRemove}>{joined ? canRemove ? '移除' : '保留' : '＋ 加入'}</button></div>{joined && <div onClick={(event) => event.stopPropagation()}><MemberApiBinding channels={apiChannels} channelId={channel.id} modelName={activeConversation.participantModelNames?.[character.id] || channel.modelName} onChannelChange={(nextChannelId) => updateConversationMemberApi(character.id, nextChannelId)} onModelChange={(modelName) => updateConversationMemberModel(character.id, modelName)} /></div>}</article>
+    })}</div><div className="privacy-note">同一渠道可以给不同成员指定不同模型；不单独修改时使用该渠道的默认模型。已有消息与署名不会丢失。</div></section></div>}
 
     {menuMessage && <div className="message-menu-layer"><button className="drawer-backdrop" aria-label="关闭消息菜单" onClick={() => setMessageMenuId(null)} /><section className="message-action-sheet"><header><div><small>{menuMessage.role === 'assistant' ? '模型消息' : '用户消息'}</small><strong>消息操作</strong></div><button onClick={() => setMessageMenuId(null)}>×</button></header>{menuMessage.role === 'assistant' ? <><button onClick={() => regenerateMessage(menuMessage)} disabled={isGenerating}>重新生成</button><button onClick={() => editAssistantMessage(menuMessage)}>编辑改写</button><button onClick={() => copyMessage(menuMessage)}>复制文本</button><button className="danger" onClick={() => withdrawMessage(menuMessage)}>撤回消息</button></> : <><button onClick={() => editAndResendUserMessage(menuMessage)} disabled={isGenerating}>编辑并重新发送</button><button onClick={() => copyMessage(menuMessage)}>复制文本</button></>}</section></div>}
   </main></div>
+}
+
+function MemberApiBinding({ channels, channelId, modelName, onChannelChange, onModelChange }: { channels: ApiChannel[]; channelId: string; modelName: string; onChannelChange: (id: string) => void; onModelChange: (modelName: string) => void }) {
+  const channel = channels.find((item) => item.id === channelId) || channels[0]
+  const modelListId = useId()
+  const [models, setModels] = useState<ApiModel[]>([])
+  const [modelState, setModelState] = useState<'idle' | 'loading' | 'ready' | 'error'>('idle')
+  const [modelMessage, setModelMessage] = useState('')
+
+  useEffect(() => {
+    setModels([])
+    setModelState('idle')
+    setModelMessage('')
+  }, [channelId])
+
+  const loadModels = async () => {
+    if (!channel) return
+    setModelState('loading')
+    setModelMessage('正在获取模型…')
+    try {
+      const nextModels = await fetchApiModels(channel)
+      setModels(nextModels)
+      setModelState('ready')
+      setModelMessage(nextModels.length ? `已获取 ${nextModels.length} 个模型` : '接口没有返回可用模型，可继续手动填写。')
+    } catch (error) {
+      setModelState('error')
+      setModelMessage(error instanceof Error ? error.message : '获取模型失败，可继续手动填写。')
+    }
+  }
+
+  if (!channel) return null
+  return <div className="member-api-binding">
+    <label><span>回复渠道</span><select value={channel.id} onChange={(event) => onChannelChange(event.target.value)}>{channels.map((item) => <option key={item.id} value={item.id}>{item.name}</option>)}</select></label>
+    <label><span>回复模型</span><div className="member-model-field"><input list={modelListId} value={modelName} onChange={(event) => onModelChange(event.target.value)} placeholder={channel.modelName || '手动填写模型名称'} autoCapitalize="none" autoCorrect="off" /><button type="button" onClick={loadModels} disabled={modelState === 'loading'}>{modelState === 'loading' ? '获取中…' : '获取模型'}</button></div></label>
+    <datalist id={modelListId}>{models.map((model) => <option value={model.id} key={model.id} />)}</datalist>
+    {models.length > 0 && <label><span>模型列表</span><select value={models.some((model) => model.id === modelName) ? modelName : ''} onChange={(event) => { if (event.target.value) onModelChange(event.target.value) }}><option value="">从 {models.length} 个模型中选择</option>{models.map((model) => <option value={model.id} key={model.id}>{model.id}</option>)}</select></label>}
+    {modelMessage && <small className={`member-model-message${modelState === 'error' ? ' error' : ''}`}>{modelMessage}</small>}
+  </div>
 }
 
 function UpdateCard() {
@@ -1206,7 +1269,7 @@ function UpdateCard() {
     }
   }
 
-  return <section className="update-card"><strong>应用更新</strong><p>主动检查并拉取最新网页版本，不会删除角色、聊天记录或本地设置。</p><small>当前版本：2026.07.12 · 双布局渲染</small><button onClick={refresh} disabled={state === 'checking'}>{state === 'checking' ? '正在检查更新…' : state === 'error' ? '更新失败，点我重试' : '强制刷新到最新版'}</button></section>
+  return <section className="update-card"><strong>应用更新</strong><p>主动检查并拉取最新网页版本，不会删除角色、聊天记录或本地设置。</p><small>当前版本：2026.07.13 · 成员独立模型</small><button onClick={refresh} disabled={state === 'checking'}>{state === 'checking' ? '正在检查更新…' : state === 'error' ? '更新失败，点我重试' : '强制刷新到最新版'}</button></section>
 }
 
 function PersonaPage({ identities, selectedId, isBound, onSelect, onAdd, onDelete, onUpdate, onBack }: { identities: UserIdentity[]; selectedId: string; isBound: boolean; onSelect: (id: string) => void; onAdd: () => void; onDelete: (id: string) => void; onUpdate: (patch: Partial<UserIdentity>) => void; onBack: () => void }) {
