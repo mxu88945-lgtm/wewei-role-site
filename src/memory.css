@@ -8,6 +8,12 @@
 .memory-api-row strong, .memory-api-row small { display: block; }
 .memory-api-row small { margin-top: 6px; color: #96909a; }
 .memory-api-row > span { color: #aaa3ad; font-size: 28px; }
+.memory-api-mode { padding: 15px; border-radius: 20px; display: grid; gap: 13px; background: #efedf0; }
+.memory-api-mode > div:first-child strong, .memory-api-mode > div:first-child small { display: block; }
+.memory-api-mode > div:first-child small { margin-top: 5px; color: #96909a; line-height: 1.45; }
+.memory-api-mode > div:last-child { padding: 4px; border-radius: 14px; display: grid; grid-template-columns: 1fr 1fr; gap: 4px; background: #e4dfe7; }
+.memory-api-mode button { min-height: 38px; border: 0; border-radius: 11px; color: #827a86; background: transparent; font-size: 11px; font-weight: 700; }
+.memory-api-mode button.active { color: #7348b5; background: #faf8fb; box-shadow: 0 6px 16px rgba(74, 48, 89, .08); }
 .memory-text-card, .memory-select-card { display: grid; gap: 9px; padding: 15px; border-radius: 20px; color: #5e5762; background: #efedf0; }
 .memory-text-card textarea { width: 100%; max-height: 300px; border: 1px solid rgba(71,55,80,.08); outline: none; border-radius: 15px; padding: 12px 13px; color: #2e2931; background: #f8f6f9; resize: vertical; font-size: 13px; line-height: 1.6; }
 .memory-text-card textarea:focus { border-color: #aa83de; box-shadow: 0 0 0 4px rgba(158,108,211,.1); }
