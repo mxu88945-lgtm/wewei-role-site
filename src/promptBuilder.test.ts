@@ -86,4 +86,32 @@ describe('buildChatPrompt', () => {
     expect(spacePrompt).toContain('星舰剧场：所有成员正在木卫二执行任务。')
     expect(spacePrompt).not.toContain('雨夜剧场')
   })
+
+  it('清理助手旧消息里的展示气泡，不再让模型模仿并逐轮套壳', () => {
+    const result = buildChatPrompt({
+      character: {
+        ...character,
+        regexScripts: [
+          ...character.regexScripts,
+          {
+            id: 'story-card', scriptName: '全文气泡', findRegex: '/^([\\s\\S]+)$/g', replaceString: '<div class="story-card">$1</div>', trimStrings: [], placement: [2], disabled: false,
+            markdownOnly: false, promptOnly: false, runOnEdit: true, substituteRegex: 0, minDepth: null, maxDepth: null,
+          },
+        ],
+      },
+      user: { name: '惟惟', description: '' },
+      messages: [{ role: 'assistant', text: '<style>.story-card{padding:1rem}</style><div class="story-card">【旁白】<div>会议开始。</div></div>' }],
+      preset: '',
+      globalWorldbook: '',
+      memory: { entries: [], injectPosition: 'none', injectPrompt: '{{memories}}' },
+      memoryLength: 20,
+    })
+
+    const history = result.find((message) => message.role === 'assistant')?.content || ''
+    expect(history).toContain('【旁白】')
+    expect(history).toContain('会议开始。')
+    expect(history).not.toContain('story-card')
+    expect(history).not.toContain('<div')
+    expect(history).not.toContain('<style')
+  })
 })
