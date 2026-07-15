@@ -59,7 +59,8 @@ type MemoryConfig = {
 type MemoryConfigMap = Record<string, MemoryConfig>
 type MemoryEntryMap = Record<string, MemoryEntry[]>
 type UserIdentity = { id: string; name: string; description: string; avatar?: string }
-type ChatThemePreset = { id: string; name: string; mode: 'mist' | 'pearl'; baseColor: string; textColor: string; narrationColor: string; quoteColor: string; frost: number; custom?: boolean }
+type ChatThemeMode = 'mist' | 'pearl' | 'sage'
+type ChatThemePreset = { id: string; name: string; mode: ChatThemeMode; baseColor: string; textColor: string; narrationColor: string; quoteColor: string; frost: number; custom?: boolean }
 
 const demoCharacter: Character = {
   id: 'huo-jin', name: '霍烬', tagline: '沉稳克制的守护者',
@@ -124,6 +125,7 @@ const defaultMemoryConfig = (): MemoryConfig => ({
 const builtInThemes: ChatThemePreset[] = [
   { id: 'mist', name: '惟境紫雾', mode: 'mist', baseColor: '#f5f1f8', textColor: '#4e4852', narrationColor: '#7f7089', quoteColor: '#7b4d67', frost: .72 },
   { id: 'pearl', name: '月光珍珠', mode: 'pearl', baseColor: '#f8f7f5', textColor: '#403d42', narrationColor: '#716d74', quoteColor: '#6a5360', frost: .68 },
+  { id: 'sage', name: '青瓷薄荷', mode: 'sage', baseColor: '#e8f2ee', textColor: '#354b45', narrationColor: '#718a82', quoteColor: '#47776d', frost: .66 },
 ]
 
 const migrateMemoryConfigs = (configs: MemoryConfigMap) => Object.fromEntries(Object.entries(configs).map(([id, config]) => [id, {
@@ -283,7 +285,7 @@ function App() {
   const [chatNarrationColor, setChatNarrationColor] = useState(() => read('weijing.chatNarrationColor', '#7f7089'))
   const [chatQuoteColor, setChatQuoteColor] = useState(() => read('weijing.chatQuoteColor', '#7b4d67'))
   const [chatBaseColor, setChatBaseColor] = useState(() => read('weijing.chatBaseColor', '#f5f1f8'))
-  const [chatTheme, setChatTheme] = useState<'mist' | 'pearl'>(() => read('weijing.chatTheme', 'mist'))
+  const [chatTheme, setChatTheme] = useState<ChatThemeMode>(() => read('weijing.chatTheme', 'mist'))
   const [chatBackgroundFrost, setChatBackgroundFrost] = useState(() => read('weijing.chatBackgroundFrost', .72))
   const [chatBackground, setChatBackground] = useState('')
   const [petEnabled, setPetEnabled] = useState(() => read('weijing.petEnabled', true))
