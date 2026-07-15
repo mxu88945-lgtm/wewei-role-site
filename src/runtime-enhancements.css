@@ -16,8 +16,8 @@
   border-radius: 15px;
   padding: 0 14px;
   color: white;
-  background: linear-gradient(135deg, #8150e7, #ce7fc4);
-  box-shadow: 0 8px 20px rgba(67, 39, 107, .12);
+  background: linear-gradient(135deg, var(--theme-accent-strong), var(--theme-accent-end));
+  box-shadow: 0 8px 20px var(--theme-accent-shadow);
   font-size: 12px;
   font-weight: 800;
 }
