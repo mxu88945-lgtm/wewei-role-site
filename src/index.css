@@ -154,7 +154,7 @@ button { cursor: pointer; }
 .chat-header > * { position: relative; z-index: 1; }
 .theme-pearl.chat-canvas .chat-header { border-bottom-color: rgba(255,255,255,.66); background: linear-gradient(180deg,rgba(255,255,255,.58),rgba(241,240,237,.27)); box-shadow: inset 0 1px 0 rgba(255,255,255,.82), 0 10px 30px rgba(44,42,48,.07); }
 .theme-pearl .chat-background::after { background: rgba(255,255,255,var(--chat-background-frost,.72)); }
-.theme-pearl .composer { background: transparent; }
+.theme-pearl .composer { background: linear-gradient(180deg,rgba(247,246,243,.94),rgba(247,246,243,.995) 38%); }
 .chat-identity { border: 0; display: flex; align-items: center; justify-content: center; gap: 10px; color: inherit; background: transparent; text-align: left; }
 .chat-identity > span { width: 40px; height: 40px; display: grid; place-items: center; border-radius: 14px; color: white; font-weight: 800; background: linear-gradient(145deg, #8561dc, #e099c1); }
 .chat-identity > img { width: 40px; height: 40px; border-radius: 14px; object-fit: cover; }
@@ -341,12 +341,20 @@ button { cursor: pointer; }
 .mention-picker header button { border: 0; color: #817986; background: transparent; font-size: 22px; }
 .mention-member { width: 100%; display: flex; align-items: center; gap: 13px; padding: 12px 8px; border: 0; color: #423d46; background: transparent; text-align: left; }
 .mention-member img, .mention-member span { width: 48px; height: 48px; flex: 0 0 48px; display: grid; place-items: center; object-fit: cover; border-radius: 16px; color: white; background: linear-gradient(145deg,#8b5ce0,#cf85bd); }
-.composer { position: fixed; z-index: 35; left: 50%; bottom: 0; transform: translateX(-50%); width: min(100%, 520px); min-height: calc(66px + env(safe-area-inset-bottom)); padding: 8px 12px max(8px, env(safe-area-inset-bottom)); display: grid; grid-template-columns: 40px minmax(0, 1fr) 42px; align-items: end; gap: 6px; border-top: 0; background: transparent; box-shadow: none; backdrop-filter: none; }
+.composer { position: fixed; z-index: 35; left: 50%; bottom: 0; transform: translateX(-50%); width: min(100%, 520px); min-height: calc(66px + env(safe-area-inset-bottom)); padding: 10px 12px max(10px, env(safe-area-inset-bottom)); display: grid; grid-template-columns: 40px minmax(0, 1fr) 42px; align-items: end; gap: 6px; border-top: 1px solid rgba(255,255,255,.74); background: linear-gradient(180deg,rgba(246,242,248,.94),rgba(246,242,248,.995) 38%); box-shadow: 0 -10px 26px rgba(57,41,67,.06); -webkit-backdrop-filter: blur(24px) saturate(1.3); backdrop-filter: blur(24px) saturate(1.3); }
 .composer textarea { width: 100%; min-height: 40px; max-height: 144px; border: 0; outline: 0; padding: 9px 10px; overflow-y: auto; resize: none; color: #3e3842; background: rgba(239,234,243,.94); box-shadow: inset 0 0 0 1px rgba(105,82,116,.04); border-radius: 16px; line-height: 1.45; }
 .composer-plus, .send-button { width: 40px; height: 40px; border: 0; border-radius: 15px; }
 .composer-plus { color: #8f68c5; background: #ece7f1; font-size: 24px; }
 .send-button { color: white; background: linear-gradient(145deg, #7e52dc, #d382bd); font-size: 22px; font-weight: 800; }
 .send-button.stop { background: linear-gradient(145deg, #b45d75, #db8894); font-size: 13px; }
+.display-reply-page { padding-bottom: 28px; }
+.display-reply-card { overflow: hidden; border-radius: 22px; background: #f0edf3; }
+.display-reply-card > .drawer-section-title { padding: 15px 16px 7px; }
+.display-reply-card .drawer-inline-setting { min-height: 58px; padding: 9px 15px 12px; }
+.display-reply-card .drawer-color-setting { padding: 12px 14px 15px; }
+.display-reply-card .drawer-color-setting label { min-height: 42px; padding: 7px 9px; border-radius: 12px; font-size: 11px; }
+.display-reply-card .drawer-color-setting input { width: 29px; height: 29px; }
+.display-reply-note { padding: 14px 16px 16px; color: #908795; font-size: 11px; line-height: 1.55; }
 @media (min-width: 700px) { .app-shell { padding: 28px 0; } .phone-canvas { min-height: calc(100vh - 56px); border-radius: 38px; box-shadow: 0 35px 90px rgba(48,37,56,.18); } .chat-canvas { overflow: hidden; } }
 
 /* 惟境桌宠：固定在应用列内，不参与页面滚动，也不挤压聊天布局。 */
