@@ -1,4 +1,4 @@
-const CACHE_NAME = 'weijing-shell-v8'
+const CACHE_NAME = 'weijing-shell-v9'
 const APP_ROOT = '/wewei-role-site/'
 
 self.addEventListener('install', () => {
