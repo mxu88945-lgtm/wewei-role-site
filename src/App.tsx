@@ -16,8 +16,10 @@ import { memoriesForConversation } from './memoryEngine'
 import { findMentionedParticipantIds, selectGroupSpeakerIds, type GroupReplyMode } from './groupReplyRouting'
 import Pet from './Pet'
 import PetCritter, { PET_CHOICES, type PetVariant } from './PetCritter'
+import DirectorTemplateEditor from './DirectorTemplateEditor'
+import { buildSharedTheaterBackground, createDirectorCharacter, createDirectorTemplateConfig, type DirectorTemplateConfig } from './directorTemplate'
 
-type Page = 'home' | 'characters' | 'create' | 'group-create' | 'group-greeting-picker' | 'import-preview' | 'character-detail' | 'card-data' | 'card-worldbook' | 'card-regex' | 'greeting-picker' | 'chat' | 'more' | 'api' | 'model' | 'settings' | 'appearance' | 'font' | 'display-reply' | 'identity' | 'worldbook' | 'theater-world' | 'preset' | 'memory' | 'memory-api' | 'memory-list'
+type Page = 'home' | 'characters' | 'create' | 'group-create' | 'director-template' | 'group-greeting-picker' | 'import-preview' | 'character-detail' | 'card-data' | 'card-worldbook' | 'card-regex' | 'greeting-picker' | 'chat' | 'more' | 'api' | 'model' | 'settings' | 'appearance' | 'font' | 'display-reply' | 'identity' | 'worldbook' | 'theater-world' | 'preset' | 'memory' | 'memory-api' | 'memory-list'
 type Message = { id: number; role: 'user' | 'assistant'; text: string; characterId?: string; finishReason?: string | null }
 type MessageEditor = { mode: 'assistant' | 'resend'; messageId: number; text: string }
 type Drawer = 'left' | 'right'
@@ -39,6 +41,8 @@ type Conversation = {
   personaId?: string
   themePresetId?: string
   theaterWorldBackground?: string
+  directorCharacterId?: string
+  directorConfig?: DirectorTemplateConfig
 }
 type LegacySessionMap = Record<string, Message[]>
 type MemoryEntry = { id: string; createdAt: number; title: string; content: string; sourceCount: number; pinned?: boolean; consolidated?: boolean }
@@ -242,6 +246,8 @@ function App() {
   const [characterMenuId, setCharacterMenuId] = useState<string | null>(null)
   const [characterQuery, setCharacterQuery] = useState('')
   const [groupDraft, setGroupDraft] = useState<{ title: string; participantIds: string[]; apiIds: Record<string, string>; modelNames: Record<string, string> }>({ title: '', participantIds: [], apiIds: {}, modelNames: {} })
+  const [groupDirectorDraft, setGroupDirectorDraft] = useState<DirectorTemplateConfig>(() => createDirectorTemplateConfig())
+  const [directorEditorTarget, setDirectorEditorTarget] = useState<'draft' | 'conversation'>('draft')
   const [groupReplyMode, setGroupReplyMode] = useState<GroupReplyMode>(() => read('weijing.groupReplyMode', 'natural'))
   const [mentionPickerOpen, setMentionPickerOpen] = useState(false)
   const [memberPickerOpen, setMemberPickerOpen] = useState(false)
@@ -526,30 +532,82 @@ function App() {
   }
 
   const createGroupConversation = ({ characterId, greeting }: GroupGreetingChoice) => {
-    if (groupDraft.participantIds.length < 2) { window.alert('群聊至少选择两个角色。'); return }
+    const minimum = groupDirectorDraft.enabled ? 1 : 2
+    if (groupDraft.participantIds.length < minimum) { window.alert(groupDirectorDraft.enabled ? '请至少选择一张独立角色卡；导演会作为第二位成员自动加入。' : '群聊至少选择两个角色。'); return }
     const now = Date.now()
-    const participants = groupDraft.participantIds.map((id) => characters.find((item) => item.id === id)).filter(Boolean) as Character[]
+    const independentParticipants = groupDraft.participantIds.map((id) => characters.find((item) => item.id === id)).filter(Boolean) as Character[]
+    const directorConfig = groupDirectorDraft.enabled ? {
+      ...groupDirectorDraft,
+      storyTitle: groupDirectorDraft.storyTitle.trim() || groupDraft.title.trim(),
+      userProtagonist: groupDirectorDraft.userProtagonist.trim() || `${identity.name}：${identity.description}`,
+      independentRoles: groupDirectorDraft.independentRoles.trim() || independentParticipants.map((item) => `${item.name}｜${item.tagline || item.description}｜由独立角色卡控制，导演不得代演`).join('\n'),
+      apiId: groupDirectorDraft.apiId || api.id,
+      modelName: groupDirectorDraft.modelName || api.modelName,
+    } : undefined
+    const director = directorConfig ? createDirectorCharacter(directorConfig) : undefined
+    const participants = director ? [...independentParticipants, director] : independentParticipants
+    if (director) {
+      setCharacters((current) => [...current, director])
+      setMemoryConfigs((current) => ({ ...current, [director.id]: defaultMemoryConfig() }))
+      setMemoryEntries((current) => ({ ...current, [director.id]: [] }))
+    }
     const conversation: Conversation = {
       id: `group-${now}-${Math.random().toString(36).slice(2, 8)}`,
       kind: 'group', characterId: participants[0].id,
       participantIds: participants.map((item) => item.id),
-      participantApiIds: Object.fromEntries(participants.map((item) => [item.id, groupDraft.apiIds[item.id] || api.id])),
+      participantApiIds: Object.fromEntries(participants.map((item) => [item.id, item.id === director?.id ? directorConfig?.apiId || api.id : groupDraft.apiIds[item.id] || api.id])),
       participantModelNames: Object.fromEntries(participants.map((item) => {
+        if (item.id === director?.id) return [item.id, directorConfig?.modelName || api.modelName]
         const channel = apiChannels.find((entry) => entry.id === (groupDraft.apiIds[item.id] || api.id)) || api
         return [item.id, groupDraft.modelNames[item.id] || channel.modelName]
       })),
-      title: groupDraft.title.trim() || participants.map((item) => item.name).join('、'),
+      title: groupDraft.title.trim() || independentParticipants.map((item) => item.name).join('、'),
       messages: [{ id: now, role: 'assistant', text: greeting, characterId }], createdAt: now, updatedAt: now, personaId: activePersonaId,
+      directorCharacterId: director?.id,
+      directorConfig,
+      theaterWorldBackground: directorConfig ? buildSharedTheaterBackground(directorConfig) : undefined,
     }
     setConversations((current) => [...current, conversation])
     setActiveId(participants[0].id); setActiveConversationId(conversation.id)
-    setGroupDraft({ title: '', participantIds: [], apiIds: {}, modelNames: {} }); setGroupReplyMode('natural')
+    setGroupDraft({ title: '', participantIds: [], apiIds: {}, modelNames: {} }); setGroupDirectorDraft(createDirectorTemplateConfig()); setGroupReplyMode('natural')
     replacePage('chat')
   }
 
   const openGroupGreetingPicker = () => {
-    if (groupDraft.participantIds.length < 2) { window.alert('群聊至少选择两个角色。'); return }
+    const minimum = groupDirectorDraft.enabled ? 1 : 2
+    if (groupDraft.participantIds.length < minimum) { window.alert(groupDirectorDraft.enabled ? '请至少选择一张独立角色卡。旁白导演会在建群时自动加入。' : '群聊至少选择两个角色。'); return }
     navigate('group-greeting-picker')
+  }
+
+  const openDraftDirectorEditor = () => {
+    const selected = groupDraft.participantIds.map((id) => characters.find((item) => item.id === id)).filter(Boolean) as Character[]
+    const currentIdentity = identities.find((item) => item.id === activePersonaId) || identity
+    setGroupDirectorDraft((current) => ({
+      ...current,
+      storyTitle: current.storyTitle || groupDraft.title,
+      userProtagonist: current.userProtagonist || `${currentIdentity.name}：${currentIdentity.description}`,
+      independentRoles: current.independentRoles || selected.map((item) => `${item.name}｜${item.tagline || item.description}｜由独立角色卡控制，导演不得代演`).join('\n'),
+      apiId: current.apiId || api.id,
+      modelName: current.modelName || api.modelName,
+    }))
+    setDirectorEditorTarget('draft')
+    navigate('director-template')
+  }
+
+  const saveConversationDirector = (config: DirectorTemplateConfig) => {
+    if (!activeConversation?.directorCharacterId) return
+    const existing = characters.find((item) => item.id === activeConversation.directorCharacterId)
+    const nextDirector = { ...createDirectorCharacter(config, activeConversation.directorCharacterId), avatar: existing?.avatar }
+    setCharacters((current) => current.map((item) => item.id === nextDirector.id ? nextDirector : item))
+    setConversations((current) => current.map((item) => item.id === activeConversation.id ? {
+      ...item,
+      directorConfig: config,
+      theaterWorldBackground: buildSharedTheaterBackground(config),
+      participantApiIds: { ...item.participantApiIds, [nextDirector.id]: config.apiId || item.participantApiIds?.[nextDirector.id] || api.id },
+      participantModelNames: { ...item.participantModelNames, [nextDirector.id]: config.modelName || item.participantModelNames?.[nextDirector.id] || api.modelName },
+      updatedAt: Date.now(),
+    } : item))
+    replacePage('chat')
   }
 
   const beginGroupWithGreeting = (choice: GroupGreetingChoice) => {
@@ -1194,12 +1252,19 @@ function App() {
 
     {page === 'create' && <><BackHeader title="新建角色" onBack={goBack} action={<button className="text-button" onClick={createCharacter}>保存</button>} /><section className="content-stack form-stack"><button className="drop-zone compact" onClick={() => fileInputRef.current?.click()}><span className="drop-plus">＋</span><strong>{importState === 'reading' ? '正在读取角色卡…' : '从文件导入角色卡'}</strong><small>支持带元数据的 PNG 与 JSON</small></button><div className="url-import-card"><div><strong>从 URL 导入角色卡</strong><small>粘贴 PNG 或 JSON 角色卡直链</small></div><div><input type="url" value={characterUrl} onChange={(event) => setCharacterUrl(event.target.value)} onKeyDown={(event) => { if (event.key === 'Enter') { event.preventDefault(); handleCharacterUrl() } }} placeholder="https://…/character.png" /><button onClick={handleCharacterUrl} disabled={!characterUrl.trim() || importState === 'reading'}>{importState === 'reading' ? '读取中' : '导入'}</button></div></div>{importState === 'error' && <div className="import-notice error">{importError}</div>}<div className="form-divider"><span>或者手动创建</span></div><label className="avatar-upload-row"><span className="avatar-upload-preview">{newCharacter.avatar ? <img src={newCharacter.avatar} alt="" /> : '＋'}</span><span><strong>角色头像</strong><small>选择照片并自动裁成方形</small></span><input type="file" accept="image/*" onChange={async (event) => { const file = event.target.files?.[0]; if (file) setNewCharacter({ ...newCharacter, avatar: await imageThumbnail(file) }); event.currentTarget.value = '' }} /></label><label>角色名称<input value={newCharacter.name} onChange={(e) => setNewCharacter({ ...newCharacter, name: e.target.value })} placeholder="例如：霍烬" /></label><label>一句话简介<input value={newCharacter.tagline} onChange={(e) => setNewCharacter({ ...newCharacter, tagline: e.target.value })} /></label><label>角色设定<textarea rows={7} value={newCharacter.description} onChange={(e) => setNewCharacter({ ...newCharacter, description: e.target.value })} /></label><label>开场白<textarea rows={4} value={newCharacter.greeting} onChange={(e) => setNewCharacter({ ...newCharacter, greeting: e.target.value })} /></label><label>标签<input value={newCharacter.tags} onChange={(e) => setNewCharacter({ ...newCharacter, tags: e.target.value })} placeholder="慢热，守护，剧情向" /></label><button className="primary-button full" onClick={createCharacter}>创建并保存</button></section></>}
 
-    {page === 'group-create' && <><BackHeader title="新建群聊" onBack={goBack} action={<span className="saved-label">{groupDraft.participantIds.length} 位成员</span>} /><section className="content-stack group-create-page"><label className="group-title-field">群聊名称<input value={groupDraft.title} onChange={(event) => setGroupDraft({ ...groupDraft, title: event.target.value })} placeholder="例如：雨夜重逢" /></label><div className="privacy-note">选择至少两位角色。每位角色会使用自己的角色卡、世界书、美化和长期记忆；回复渠道可以相同，模型可以分别指定。</div><div className="group-member-list">{characters.map((character) => {
+    {page === 'group-create' && <><BackHeader title="新建群聊" onBack={goBack} action={<span className="saved-label">{groupDraft.participantIds.length + (groupDirectorDraft.enabled ? 1 : 0)} 位成员</span>} /><section className="content-stack group-create-page"><label className="group-title-field">群聊名称<input value={groupDraft.title} onChange={(event) => setGroupDraft({ ...groupDraft, title: event.target.value })} placeholder="例如：雨夜重逢" /></label>
+      <article className={`director-template-card ${groupDirectorDraft.enabled ? 'enabled' : ''}`}>
+        <div className="director-template-heading"><div><strong>内置共演导演</strong><small>每个群聊生成独立导演与私有世界书</small></div><button className={groupDirectorDraft.enabled ? 'toggle active' : 'toggle'} onClick={() => setGroupDirectorDraft((current) => ({ ...current, enabled: !current.enabled }))}><i /></button></div>
+        {groupDirectorDraft.enabled && <><div className="director-boundaries"><span>不演用户</span><span>不演独立卡</span><span>只演 NPC 与剧情</span></div><button className="director-edit-link" onClick={openDraftDirectorEditor}><div><strong>{groupDirectorDraft.directorName || '共演厅·旁白导演'}</strong><small>{groupDirectorDraft.worldBackground.trim() || groupDirectorDraft.plotThreads.trim() ? '资料已填写，可继续修改' : '填写世界、NPC、秘密和剧情阶段'}</small></div><i>›</i></button><MemberApiBinding channels={apiChannels} channelId={groupDirectorDraft.apiId || api.id} modelName={groupDirectorDraft.modelName || (apiChannels.find((item) => item.id === groupDirectorDraft.apiId)?.modelName || api.modelName)} onChannelChange={(apiId) => setGroupDirectorDraft((current) => ({ ...current, apiId, modelName: apiChannels.find((item) => item.id === apiId)?.modelName || '' }))} onModelChange={(modelName) => setGroupDirectorDraft((current) => ({ ...current, modelName }))} /></>}
+      </article>
+      <div className="privacy-note">{groupDirectorDraft.enabled ? '选择至少一张独立角色卡；导演会自动作为另一位成员加入。每张独立卡仍使用自己的人设、世界书、记忆和模型。' : '选择至少两位角色。每位角色会使用自己的角色卡、世界书、美化和长期记忆。'}</div><div className="group-member-list">{characters.filter((character) => character.creator !== '惟境内置导演模板').map((character) => {
       const selected = groupDraft.participantIds.includes(character.id)
       const channelId = groupDraft.apiIds[character.id] || api.id
       const channel = apiChannels.find((item) => item.id === channelId) || api
       return <article className={selected ? 'selected' : ''} key={character.id}><button className="group-member-toggle" onClick={() => setGroupDraft((current) => ({ ...current, participantIds: selected ? current.participantIds.filter((id) => id !== character.id) : [...current.participantIds, character.id], apiIds: { ...current.apiIds, [character.id]: current.apiIds[character.id] || api.id }, modelNames: { ...current.modelNames, [character.id]: current.modelNames[character.id] || api.modelName } }))}><CharacterPortrait item={character} /><div><strong>{character.name}</strong><small>{character.tagline}</small></div><span>{selected ? '✓' : '＋'}</span></button>{selected && <MemberApiBinding channels={apiChannels} channelId={channel.id} modelName={groupDraft.modelNames[character.id] || channel.modelName} onChannelChange={(nextChannelId) => { const nextModelName = apiChannels.find((item) => item.id === nextChannelId)?.modelName || ''; setGroupDraft((current) => ({ ...current, apiIds: { ...current.apiIds, [character.id]: nextChannelId }, modelNames: { ...current.modelNames, [character.id]: nextModelName } })) }} onModelChange={(modelName) => setGroupDraft((current) => ({ ...current, modelNames: { ...current.modelNames, [character.id]: modelName } }))} />}</article>
-    })}</div><button className="primary-button full" disabled={groupDraft.participantIds.length < 2} onClick={openGroupGreetingPicker}>下一步：选择开场白</button></section></>}
+    })}</div><button className="primary-button full" disabled={groupDraft.participantIds.length < (groupDirectorDraft.enabled ? 1 : 2)} onClick={openGroupGreetingPicker}>下一步：选择开场白</button></section></>}
+
+    {page === 'director-template' && <DirectorTemplateEditor value={directorEditorTarget === 'conversation' ? (activeConversation?.directorConfig || createDirectorTemplateConfig()) : groupDirectorDraft} existing={directorEditorTarget === 'conversation'} onCancel={goBack} onSave={(config) => { if (directorEditorTarget === 'conversation') saveConversationDirector(config); else { setGroupDirectorDraft(config); goBack() } }} />}
 
     {page === 'import-preview' && pendingImport && <ImportPreview character={pendingImport} onCancel={() => { setPendingImport(null); goBack() }} onConfirm={({ includeBook, includeRegex }) => {
     const character = { ...pendingImport, characterBook: includeBook ? pendingImport.characterBook : undefined, regexScripts: includeRegex ? pendingImport.regexScripts : [] }
@@ -1264,7 +1329,7 @@ function App() {
         <header className="drawer-character compact"><div><small>{activeConversation?.kind === 'group' ? '群聊设置' : '聊天设置'}</small><h2>{activeConversation?.title || activeCharacter.name}</h2></div><button onClick={() => setDrawer(null)}>×</button></header>
         <div className="right-drawer-scroll">
           <section className="drawer-members-section"><div className="drawer-section-title"><strong>成员（{conversationMemberIds().length}）</strong><button onClick={() => { setDrawer(null); setMemberPickerOpen(true) }}>＋ 添加 / 配置 API</button></div><div className="drawer-member-row">{conversationMemberIds().map((id) => { const member = characters.find((item) => item.id === id); if (!member) return null; return <div className="drawer-member-chip" key={id}>{member.avatar ? <img src={member.avatar} alt="" /> : <span>{member.name.slice(-1)}</span>}<small>{member.name}</small>{conversationMemberIds().length > 1 && <button aria-label={`移除${member.name}`} onClick={() => removeConversationMember(id)}>×</button>}</div> })}</div></section>
-          <section className="drawer-compact-group"><div className="drawer-section-title"><strong>聊天设置</strong></div>{[['情景与角色资料', 'card-data'], [`本剧场世界观背景 · ${activeConversation?.theaterWorldBackground?.trim() ? '已填写' : '未填写'}`, 'theater-world'], ['用户身份', 'identity'], ['主题与背景', 'appearance'], ['字体与文字颜色', 'font'], ['显示与回复', 'display-reply']].map(([label, target]) => <button key={label} onClick={() => navigate(target as Page, 'right')}><span>{label}</span><i>›</i></button>)}</section>
+          <section className="drawer-compact-group"><div className="drawer-section-title"><strong>聊天设置</strong></div>{activeConversation?.directorCharacterId && <button onClick={() => { setDirectorEditorTarget('conversation'); navigate('director-template', 'right') }}><span>共演导演资料 · 已启用</span><i>›</i></button>}{[['情景与角色资料', 'card-data'], [`本剧场世界观背景 · ${activeConversation?.theaterWorldBackground?.trim() ? '已填写' : '未填写'}`, 'theater-world'], ['用户身份', 'identity'], ['主题与背景', 'appearance'], ['字体与文字颜色', 'font'], ['显示与回复', 'display-reply']].map(([label, target]) => <button key={label} onClick={() => navigate(target as Page, 'right')}><span>{label}</span><i>›</i></button>)}</section>
           <section className="drawer-compact-group"><div className="drawer-section-title"><strong>角色与高级设置</strong></div>{[['世界书', 'card-worldbook'], ['正则与美化', 'card-regex'], ['长期记忆', 'memory'], [`API · ${api.name || '当前渠道'}`, 'api'], ['模型设置', 'model'], ['预设', 'preset'], ['应用设置', 'settings']].map(([label, target]) => <button key={label} onClick={() => navigate(target as Page, 'right')}><span>{label}</span><i>›</i></button>)}</section>
           <section className="drawer-compact-group drawer-actions-group"><button onClick={() => navigate('character-detail', 'right')}><span>查看角色详情</span><i>›</i></button><button onClick={compressOldContext} disabled={compressingContext || messages.length < 16}><span>{compressingContext ? '正在压缩旧上下文…' : activeConversation?.contextSummary ? `更新上下文摘要 · 已压缩 ${activeConversation.compressedUntil || 0} 条` : '压缩旧上下文'}</span><i>⌁</i></button><button onClick={exportConversationTxt}><span>导出当前对话 TXT</span><i>↓</i></button></section>
         </div>
