@@ -35,3 +35,4 @@
 .message-plain-text { overflow-wrap: anywhere; }
 .message-plain-text p { margin: 0 0 .82em; }
 .message-plain-text p:last-child { margin-bottom: 0; }
+.message-plain-text-user p { white-space: pre-wrap; }
