@@ -138,6 +138,16 @@ const read = <T,>(key: string, fallback: T): T => {
   try { const value = localStorage.getItem(key); return value ? JSON.parse(value) as T : fallback } catch { return fallback }
 }
 const write = (key: string, value: unknown) => localStorage.setItem(key, JSON.stringify(value))
+const syncPwaThemeColor = (color: string) => {
+  if (!/^#[0-9a-f]{6}$/i.test(color)) return
+  try { localStorage.setItem('weijing.pwaThemeColor', color) } catch {}
+  document.documentElement.style.backgroundColor = color
+  document.querySelectorAll('meta[name="theme-color"]').forEach((element) => element.remove())
+  const themeMeta = document.createElement('meta')
+  themeMeta.setAttribute('name', 'theme-color')
+  themeMeta.setAttribute('content', color)
+  document.head.appendChild(themeMeta)
+}
 const writeDurable = (key: string, value: unknown) => {
   try { write(key, value) } catch (error) { console.warn('本地轻量储存已满，继续写入 IndexedDB', error) }
   void durableSet(key, value).catch((error) => console.error('IndexedDB 写入失败', error))
@@ -403,6 +413,7 @@ function App() {
   useEffect(() => write('weijing.chatLayout', chatLayout), [chatLayout])
   useEffect(() => { write('weijing.uiFontScale', uiFontScale); write('weijing.uiFontWeight', uiFontWeight) }, [uiFontScale, uiFontWeight])
   useEffect(() => write('weijing.chatTheme', chatTheme), [chatTheme])
+  useEffect(() => syncPwaThemeColor(chatBaseColor), [chatBaseColor])
   useEffect(() => write('weijing.customThemes', customThemes), [customThemes])
   useEffect(() => { write('weijing.petEnabled', petEnabled); write('weijing.petVariant', petVariant); write('weijing.petPosition', petPosition) }, [petEnabled, petVariant, petPosition])
   useEffect(() => write('weijing.groupReplyMode', groupReplyMode), [groupReplyMode])
