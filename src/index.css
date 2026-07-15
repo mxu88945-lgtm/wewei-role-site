@@ -178,7 +178,7 @@ button { cursor: pointer; }
 .chat-error { align-self: center; width: min(calc(100% - 36px), 440px); margin: 10px 0 0; padding: 12px 14px; border: 0; border-radius: 17px; display: grid; gap: 3px; color: #874355; background: #f4e3e8; text-align: left; font-size: 11px; line-height: 1.45; }
 .chat-error span { font-weight: 800; }
 .chat-error i { color: #9c6070; font-style: normal; font-weight: 700; }
-.message-list { min-height: 0; flex: 1; padding: calc(88px + env(safe-area-inset-top)) 18px calc(150px + env(safe-area-inset-bottom)); display: flex; flex-direction: column; gap: 16px; overflow-y: auto; overflow-anchor: none; overscroll-behavior-y: none; }
+.message-list { min-height: 0; flex: 1; padding: calc(88px + env(safe-area-inset-top)) 18px calc(122px + env(safe-area-inset-bottom)); display: flex; flex-direction: column; gap: 16px; overflow-y: auto; overflow-anchor: none; overscroll-behavior-y: none; }
 .message-row { display: flex; flex-direction: column; align-items: flex-start; }
 .message-row.user { align-items: flex-end; }
 .message-row.message-layout-flat { width: 100%; }
@@ -397,9 +397,9 @@ button { cursor: pointer; }
 .mention-picker header button { border: 0; color: #817986; background: transparent; font-size: 22px; }
 .mention-member { width: 100%; display: flex; align-items: center; gap: 13px; padding: 12px 8px; border: 0; color: #423d46; background: transparent; text-align: left; }
 .mention-member img, .mention-member span { width: 48px; height: 48px; flex: 0 0 48px; display: grid; place-items: center; object-fit: cover; border-radius: 16px; color: white; background: linear-gradient(145deg,#8b5ce0,#cf85bd); }
-.composer { position: fixed; z-index: 35; isolation: isolate; left: 50%; bottom: calc(8px + env(safe-area-inset-bottom)); transform: translateX(-50%); width: min(calc(100% - 32px), 488px); min-height: 104px; padding: 10px 11px; display: grid; grid-template-columns: 42px minmax(0, 1fr) 42px; grid-template-areas: "input input input" "plus . send"; align-items: end; gap: 6px; border: 1px solid rgba(255,255,255,.78); border-radius: 27px; background: rgba(246,242,248,.86); box-shadow: inset 0 1px 0 rgba(255,255,255,.74), 0 10px 28px rgba(57,41,67,.12); -webkit-backdrop-filter: blur(28px) saturate(1.35); backdrop-filter: blur(28px) saturate(1.35); }
+.composer { position: fixed; z-index: 35; isolation: isolate; left: 50%; bottom: calc(8px + env(safe-area-inset-bottom)); transform: translateX(-50%); width: min(calc(100% - 32px), 488px); min-height: 60px; padding: 8px 9px; display: grid; grid-template-columns: 42px minmax(0, 1fr) 42px; grid-template-areas: "plus input send"; align-items: end; gap: 7px; border: 1px solid rgba(255,255,255,.78); border-radius: 22px; background: rgba(246,242,248,.86); box-shadow: inset 0 1px 0 rgba(255,255,255,.74), 0 10px 28px rgba(57,41,67,.12); -webkit-backdrop-filter: blur(28px) saturate(1.35); backdrop-filter: blur(28px) saturate(1.35); }
 .composer::before { content: ''; position: absolute; z-index: -1; pointer-events: none; top: -26px; right: -16px; bottom: calc(-8px - env(safe-area-inset-bottom)); left: -16px; background: linear-gradient(180deg, rgba(var(--composer-dock-rgb),0), rgba(var(--composer-dock-rgb),.82) 24px, rgba(var(--composer-dock-rgb),.94) 52px); -webkit-backdrop-filter: blur(24px) saturate(1.18); backdrop-filter: blur(24px) saturate(1.18); }
-.composer textarea { grid-area: input; width: 100%; min-height: 34px; max-height: 128px; border: 0; outline: 0; padding: 3px 6px; overflow-y: auto; resize: none; color: #3e3842; background: transparent; box-shadow: none; border-radius: 11px; line-height: 1.4; }
+.composer textarea { grid-area: input; align-self: center; width: 100%; min-height: 34px; max-height: 96px; border: 0; outline: 0; padding: 7px 3px 5px; overflow-y: auto; resize: none; color: #3e3842; background: transparent; box-shadow: none; border-radius: 11px; line-height: 1.4; }
 .composer-plus, .send-button { width: 42px; height: 42px; border: 0; border-radius: 15px; }
 .composer-plus { grid-area: plus; }
 .send-button { grid-area: send; }
