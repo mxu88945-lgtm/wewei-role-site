@@ -28,7 +28,7 @@ describe('裴成砚极慢热阶段锁迁移', () => {
     const lock = result.characterBook?.entries.find((entry) => entry.comment.includes('极慢热阶段状态机'))
 
     expect(result.id).toBe('pei-test')
-    expect(result.characterVersion).toContain('1.3')
+    expect(result.characterVersion).toContain('1.4')
     expect(result.personality).not.toContain('把关注、维护、占有和不安解释成')
     expect(result.mesExample).not.toContain('我不喜欢他靠你太近')
     expect(result.postHistoryInstructions).toContain('裴成砚极慢热阶段锁 v3')
@@ -37,15 +37,16 @@ describe('裴成砚极慢热阶段锁迁移', () => {
     expect(lock?.content).toContain('陆景澄')
     expect(lock?.position).toBe('after_char')
     expect(lock?.extensions.position).toBe(1)
-    const npcIndex = result.characterBook?.entries.find((entry) => entry.comment.includes('NPC综合关系索引'))
+    const npcIndex = result.characterBook?.entries.find((entry) => entry.comment.includes('角色分工与关系索引'))
     expect(npcIndex?.content).toContain('江叙川')
     expect(npcIndex?.content).toContain('杨颖')
+    expect(npcIndex?.content).toContain('陆景澄由独立男二角色卡扮演')
     expect(npcIndex?.constant).toBe(true)
     expect(npcIndex?.position).toBe('before_char')
 
     const normalizedAgain = normalizeStoredCharacter(result)
     expect(normalizedAgain.postHistoryInstructions.match(/裴成砚极慢热阶段锁 v3/g)).toHaveLength(1)
-    expect(normalizedAgain.characterBook?.entries.filter((entry) => entry.comment.includes('NPC综合关系索引'))).toHaveLength(1)
+    expect(normalizedAgain.characterBook?.entries.filter((entry) => entry.comment.includes('角色分工与关系索引'))).toHaveLength(1)
   })
 
   it('不会迁移其他角色', () => {
