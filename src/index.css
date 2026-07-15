@@ -384,7 +384,7 @@ button { cursor: pointer; }
 .pet-toggle span { width:18px; height:18px; display:block; border-radius:50%; background:white; box-shadow:0 2px 6px rgba(55,39,63,.18); transition:transform .2s ease; }
 .pet-toggle.active { background:linear-gradient(145deg,#8a61dc,#cd83bd); }
 .pet-toggle.active span { transform:translateX(18px); }
-.pet-choice-grid { display:grid; grid-template-columns:repeat(3,1fr); gap:9px; }
+.pet-choice-grid { display:grid; grid-template-columns:repeat(4,1fr); gap:7px; }
 .pet-choice-grid button { min-width:0; min-height:88px; padding:9px 5px 8px; display:grid; place-items:center; gap:4px; border:1px solid transparent; border-radius:17px; color:#6d6471; background:rgba(255,255,255,.52); }
 .pet-choice-grid button.active { border-color:rgba(133,87,190,.38); background:#eee5f5; box-shadow:inset 0 0 0 1px rgba(133,87,190,.12); }
 .pet-choice-grid svg { width:48px; height:42px; }
