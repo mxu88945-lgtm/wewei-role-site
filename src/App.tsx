@@ -1098,10 +1098,8 @@ function App() {
       const lastSpeakerId = [...baseMessages].reverse().find((item) => item.role === 'assistant')?.characterId
       const speakerIds = selectGroupSpeakerIds({ participantIds, mentionedIds, mode: groupReplyMode, lastSpeakerId, text })
       if (!speakerIds.length) {
-        // The composer already explains that specified mode requires an @ mention.
-        // Reopen the picker instead of leaving a persistent connection-error banner.
+        // Specified mode waits silently until the user explicitly chooses a speaker with @.
         setChatError('')
-        setMentionPickerOpen(true)
         return
       }
       setChatError('')
