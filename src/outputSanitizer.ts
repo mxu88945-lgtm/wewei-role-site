@@ -12,3 +12,22 @@ export function sanitizeAssistantOutput(value: string) {
   const start = plotIndex >= 0 ? plotIndex : fenceIndex >= 0 ? fenceIndex : storyIndex
   return value.slice(start).trimStart()
 }
+
+function escapeRegex(value: string) {
+  return value.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
+}
+
+/** Remove repeated model-authored speaker headings when the UI already shows an author. */
+export function stripLeadingSpeakerLabels(value: string, speakerNames: string[]) {
+  const names = Array.from(new Set(speakerNames.map((name) => name.trim()).filter(Boolean)))
+  if (!names.length) return value
+  const alternatives = names.map(escapeRegex).join('|')
+  const heading = new RegExp(`^\\s*(?:【\\s*(?:${alternatives})\\s*】|\\[\\s*(?:${alternatives})\\s*\\]|［\\s*(?:${alternatives})\\s*］)\\s*(?:[·•・:：—-]\\s*)?`, 'i')
+  let output = value
+  for (let index = 0; index < 6; index += 1) {
+    const next = output.replace(heading, '')
+    if (next === output) break
+    output = next
+  }
+  return output.trimStart()
+}

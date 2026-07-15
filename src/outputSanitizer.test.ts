@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { sanitizeAssistantOutput } from './outputSanitizer'
+import { sanitizeAssistantOutput, stripLeadingSpeakerLabels } from './outputSanitizer'
 
 describe('assistant prompt-leak sanitizer', () => {
   it('removes leaked status instructions and keeps the real formatted reply', () => {
@@ -31,5 +31,16 @@ describe('assistant prompt-leak sanitizer', () => {
     expect(result).not.toContain('1000美元')
     expect(result).toContain('⏰时间')
     expect(result).toContain('真正剧情')
+  })
+})
+
+describe('stripLeadingSpeakerLabels', () => {
+  it('removes repeated group speaker headings and their trailing separator', () => {
+    expect(stripLeadingSpeakerLabels('【旁白】 ·\n【 旁白 】\n<scene>时间</scene>正文', ['旁白'])).toBe('<scene>时间</scene>正文')
+  })
+
+  it('only removes known participant names', () => {
+    expect(stripLeadingSpeakerLabels('【时间】\n正文', ['旁白', '裴成砚'])).toBe('【时间】\n正文')
+    expect(stripLeadingSpeakerLabels('[裴成砚]\n正文', ['旁白', '裴成砚'])).toBe('正文')
   })
 })
