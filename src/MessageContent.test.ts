@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { isFullHtmlDocument, normalizeMixedMarkup, plainTextParagraphs } from './MessageContent'
+import { isFullHtmlDocument, normalizeMixedMarkup, plainTextParagraphs, userTextParagraphs } from './MessageContent'
 
 describe('character-card mixed markup', () => {
   it('renders Tavo-style plot fences, inline thoughts and paragraph spacing', () => {
@@ -24,6 +24,12 @@ describe('character-card mixed markup', () => {
 
   it('leaves short bubble messages as one paragraph', () => {
     expect(plainTextParagraphs('妈在？')).toEqual(['妈在？'])
+  })
+
+  it('does not auto-split a long user message and preserves only explicit line breaks', () => {
+    const source = '刚踏入江氏就被亲哥迎面截胡，递见了陆景澄的一瞬尴尬，随即把手里的资料往江叙川身上一塞，带着点娇嗔。小嘴撇了撇后看向陆景澄，然后转过头看向江叙川。'
+    expect(userTextParagraphs(source)).toEqual([source])
+    expect(userTextParagraphs('第一行\n第二行\n\n下一段')).toEqual(['第一行\n第二行', '下一段'])
   })
 
   it('adds visual paragraph breaks to long narrative inside inline character-card markup', () => {

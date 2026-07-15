@@ -83,6 +83,12 @@ export function plainTextParagraphs(value: string) {
   return blocks.flatMap(segmentLongChineseParagraph)
 }
 
+/** Keep the user's own message intact; only their explicit blank lines start a new paragraph. */
+export function userTextParagraphs(value: string) {
+  const blocks = value.replace(/\r\n?/g, '\n').split(/\n{2,}/).map((block) => block.trim()).filter(Boolean)
+  return blocks.length ? blocks : ['']
+}
+
 /**
  * Character cards commonly mix raw HTML, Markdown and plain-text line breaks.
  * Preserve existing HTML while converting only the text between tags.
@@ -231,7 +237,8 @@ function MessageContent({ text, role, character, userName, layout = 'bubble' }: 
 
   if (hasExecutableScript(rendered) || isFullHtmlDocument(rendered)) return <div className="message-content message-content-rich"><SandboxHtml html={rendered} /></div>
   if (looksLikeHtml(rendered)) return <div className="message-content message-content-rich"><SafeInlineHtml html={rendered} /></div>
-  return <div className={`message-content message-content-plain ${layout === 'bubble' ? 'message-content-bubble' : 'message-content-flat'}`}><div className="message-plain-text">{plainTextParagraphs(rendered).map((paragraph, index) => <p key={`${index}-${paragraph.slice(0, 12)}`}>{styledPlainText(paragraph)}</p>)}</div></div>
+  const paragraphs = role === 'user' ? userTextParagraphs(rendered) : plainTextParagraphs(rendered)
+  return <div className={`message-content message-content-plain ${layout === 'bubble' ? 'message-content-bubble' : 'message-content-flat'}`}><div className={`message-plain-text ${role === 'user' ? 'message-plain-text-user' : ''}`}>{paragraphs.map((paragraph, index) => <p key={`${index}-${paragraph.slice(0, 12)}`}>{styledPlainText(paragraph)}</p>)}</div></div>
 }
 
 export default memo(MessageContent)
