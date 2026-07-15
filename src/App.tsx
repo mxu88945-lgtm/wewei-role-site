@@ -139,6 +139,7 @@ const read = <T,>(key: string, fallback: T): T => {
   try { const value = localStorage.getItem(key); return value ? JSON.parse(value) as T : fallback } catch { return fallback }
 }
 const write = (key: string, value: unknown) => localStorage.setItem(key, JSON.stringify(value))
+const conversationFrostKey = (conversationId: string) => `weijing.chatBackgroundFrost.${conversationId}`
 const syncPwaThemeColor = (color: string) => {
   if (!/^#[0-9a-f]{6}$/i.test(color)) return
   try { localStorage.setItem('weijing.pwaThemeColor', color) } catch {}
@@ -349,11 +350,21 @@ function App() {
     setChatTheme(preset.mode); setChatBaseColor(preset.baseColor); setChatTextColor(preset.textColor)
     setChatNarrationColor(preset.narrationColor); setChatQuoteColor(preset.quoteColor)
     setChatBackgroundFrost(preset.frost)
-    if (bind && activeConversation) setConversations((current) => current.map((item) => item.id === activeConversation.id ? { ...item, themePresetId: preset.id, themeFrost: preset.frost } : item))
+    if (bind && activeConversation) {
+      write(conversationFrostKey(activeConversation.id), preset.frost)
+      setConversations((current) => current.map((item) => item.id === activeConversation.id ? { ...item, themePresetId: preset.id, themeFrost: preset.frost } : item))
+    }
   }
   const updateChatBackgroundFrost = (value: number) => {
     setChatBackgroundFrost(value)
-    if (activeConversation) setConversations((current) => current.map((item) => item.id === activeConversation.id ? { ...item, themeFrost: value } : item))
+    write('weijing.chatBackgroundFrost', value)
+    if (activeConversation) {
+      // Keep the frequently adjusted slider value synchronous. Conversation records
+      // are persisted asynchronously and rapid range updates can otherwise be read
+      // back out of order after leaving the appearance page.
+      write(conversationFrostKey(activeConversation.id), value)
+      setConversations((current) => current.map((item) => item.id === activeConversation.id ? { ...item, themeFrost: value } : item))
+    }
   }
   const duplicateCurrentTheme = () => {
     const preset: ChatThemePreset = { id: `theme-${Date.now()}`, name: `我的主题 ${customThemes.length + 1}`, mode: chatTheme, baseColor: chatBaseColor, textColor: chatTextColor, narrationColor: chatNarrationColor, quoteColor: chatQuoteColor, frost: chatBackgroundFrost, custom: true }
@@ -393,7 +404,9 @@ function App() {
     const preset = allThemes.find((item) => item.id === activeConversation?.themePresetId)
     if (preset) {
       applyThemePreset(preset, false)
-      if (typeof activeConversation?.themeFrost === 'number') setChatBackgroundFrost(activeConversation.themeFrost)
+      const savedFrost = activeConversation ? read<number | undefined>(conversationFrostKey(activeConversation.id), undefined) : undefined
+      if (typeof savedFrost === 'number') setChatBackgroundFrost(savedFrost)
+      else if (typeof activeConversation?.themeFrost === 'number') setChatBackgroundFrost(activeConversation.themeFrost)
     }
   }, [activeConversation?.id, activeConversation?.themePresetId, persistenceReady])
   useEffect(() => { if (persistenceReady) writeDurable('weijing.characters', characters) }, [characters, persistenceReady])
