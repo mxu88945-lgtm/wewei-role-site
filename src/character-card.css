@@ -31,6 +31,11 @@
 .metadata-area-heading small { max-width: 100%; margin-top: 6px; overflow: hidden; color: #958e99; font-size: 11px; line-height: 1.45; text-overflow: ellipsis; white-space: nowrap; }
 .metadata-area-heading > span { flex: 0 0 auto; color: #825bb4; font-size: 11px; font-weight: 800; }
 .metadata-area > textarea { width: calc(100% - 32px); margin: 0 16px 16px; }
+.metadata-full-page { position: fixed; z-index: 80; inset: 0; width: min(100%,520px); height: 100dvh; margin: 0 auto; padding: max(20px,env(safe-area-inset-top)) 20px calc(18px + env(safe-area-inset-bottom)); display: flex; flex-direction: column; color: #332e36; background: rgba(250,249,251,.98); }
+.metadata-full-page .page-header { flex: 0 0 auto; }
+.metadata-full-hint { flex: 0 0 auto; margin: -4px 2px 12px; color: #958e99; font-size: 11px; }
+.metadata-full-page > textarea { flex: 1; min-height: 0; width: 100%; border: 1px solid rgba(71,55,80,.08); outline: 0; border-radius: 20px; padding: 17px; color: #332e36; background: #f5f2f6; resize: none; font-size: 16px; line-height: 1.72; -webkit-overflow-scrolling: touch; }
+.metadata-full-page > textarea:focus { border-color: var(--theme-accent); box-shadow: 0 0 0 4px var(--theme-accent-soft); }
 .status-dot { width: 9px; height: 9px; border-radius: 50%; background: #c0bac3; }
 .status-dot.on { background: #67c990; box-shadow: 0 0 0 5px rgba(103,201,144,.12); }
 .editor-body { display: grid; gap: 14px; padding: 2px 16px 16px; border-top: 1px solid rgba(75,61,83,.05); }
