@@ -164,7 +164,7 @@ button { cursor: pointer; }
 .chat-error { align-self: center; width: min(calc(100% - 36px), 440px); margin: 10px 0 0; padding: 12px 14px; border: 0; border-radius: 17px; display: grid; gap: 3px; color: #874355; background: #f4e3e8; text-align: left; font-size: 11px; line-height: 1.45; }
 .chat-error span { font-weight: 800; }
 .chat-error i { color: #9c6070; font-style: normal; font-weight: 700; }
-.message-list { min-height: 0; flex: 1; padding: calc(88px + env(safe-area-inset-top)) 18px calc(184px + env(safe-area-inset-bottom)); display: flex; flex-direction: column; gap: 16px; overflow-y: auto; overflow-anchor: none; }
+.message-list { min-height: 0; flex: 1; padding: calc(88px + env(safe-area-inset-top)) 18px calc(150px + env(safe-area-inset-bottom)); display: flex; flex-direction: column; gap: 16px; overflow-y: auto; overflow-anchor: none; overscroll-behavior-y: none; }
 .message-row { display: flex; flex-direction: column; align-items: flex-start; }
 .message-row.user { align-items: flex-end; }
 .message-row.message-layout-flat { width: 100%; }
@@ -226,7 +226,7 @@ button { cursor: pointer; }
 .message-tools button { border: 0; padding: 5px 8px; border-radius: 999px; color: #918997; background: transparent; font-size: 10px; }
 .message-action-trigger { margin-top: 4px; border: 0; padding: 3px 8px; color: #aaa2ad; background: transparent; font-size: 12px; letter-spacing: 1px; }
 .message-row.user .message-action-trigger { align-self: flex-end; }
-.chat-jump-controls { position: fixed; z-index: 34; right: max(16px, calc((100vw - 520px) / 2 + 16px)); bottom: calc(158px + env(safe-area-inset-bottom)); display: grid; gap: 7px; }
+.chat-jump-controls { position: fixed; z-index: 34; right: max(16px, calc((100vw - 520px) / 2 + 16px)); bottom: calc(128px + env(safe-area-inset-bottom)); display: grid; gap: 7px; }
 .chat-jump-controls button { width: 34px; height: 34px; border: 1px solid rgba(93,69,108,.08); border-radius: 50%; color: #79569f; background: rgba(248,244,250,.9); box-shadow: 0 8px 22px rgba(62,43,75,.14); backdrop-filter: blur(16px); font-size: 16px; font-weight: 800; }
 .message-menu-layer { position: fixed; z-index: 90; inset: 0; display: flex; justify-content: center; align-items: flex-end; }
 .message-action-sheet { position: relative; z-index: 2; width: min(100%, 520px); padding: 18px 18px calc(18px + env(safe-area-inset-bottom)); display: grid; gap: 8px; border-radius: 28px 28px 0 0; background: rgba(250,248,251,.98); box-shadow: 0 -24px 70px rgba(48,37,56,.2); backdrop-filter: blur(24px); }
@@ -381,9 +381,9 @@ button { cursor: pointer; }
 .mention-picker header button { border: 0; color: #817986; background: transparent; font-size: 22px; }
 .mention-member { width: 100%; display: flex; align-items: center; gap: 13px; padding: 12px 8px; border: 0; color: #423d46; background: transparent; text-align: left; }
 .mention-member img, .mention-member span { width: 48px; height: 48px; flex: 0 0 48px; display: grid; place-items: center; object-fit: cover; border-radius: 16px; color: white; background: linear-gradient(145deg,#8b5ce0,#cf85bd); }
-.composer { position: fixed; z-index: 35; left: 50%; bottom: calc(10px + env(safe-area-inset-bottom)); transform: translateX(-50%); width: min(calc(100% - 24px), 496px); min-height: 132px; padding: 14px; display: grid; grid-template-columns: 46px minmax(0, 1fr) 46px; grid-template-areas: "input input input" "plus . send"; align-items: end; gap: 8px; border: 1px solid rgba(255,255,255,.78); border-radius: 30px; background: rgba(246,242,248,.86); box-shadow: inset 0 1px 0 rgba(255,255,255,.74), 0 12px 34px rgba(57,41,67,.13); -webkit-backdrop-filter: blur(28px) saturate(1.35); backdrop-filter: blur(28px) saturate(1.35); }
-.composer textarea { grid-area: input; width: 100%; min-height: 40px; max-height: 144px; border: 0; outline: 0; padding: 5px 7px; overflow-y: auto; resize: none; color: #3e3842; background: transparent; box-shadow: none; border-radius: 12px; line-height: 1.45; }
-.composer-plus, .send-button { width: 46px; height: 46px; border: 0; border-radius: 17px; }
+.composer { position: fixed; z-index: 35; left: 50%; bottom: calc(8px + env(safe-area-inset-bottom)); transform: translateX(-50%); width: min(calc(100% - 32px), 488px); min-height: 104px; padding: 10px 11px; display: grid; grid-template-columns: 42px minmax(0, 1fr) 42px; grid-template-areas: "input input input" "plus . send"; align-items: end; gap: 6px; border: 1px solid rgba(255,255,255,.78); border-radius: 27px; background: rgba(246,242,248,.86); box-shadow: inset 0 1px 0 rgba(255,255,255,.74), 0 10px 28px rgba(57,41,67,.12); -webkit-backdrop-filter: blur(28px) saturate(1.35); backdrop-filter: blur(28px) saturate(1.35); }
+.composer textarea { grid-area: input; width: 100%; min-height: 34px; max-height: 128px; border: 0; outline: 0; padding: 3px 6px; overflow-y: auto; resize: none; color: #3e3842; background: transparent; box-shadow: none; border-radius: 11px; line-height: 1.4; }
+.composer-plus, .send-button { width: 42px; height: 42px; border: 0; border-radius: 15px; }
 .composer-plus { grid-area: plus; }
 .send-button { grid-area: send; }
 .composer-plus { color: #8f68c5; background: #ece7f1; font-size: 24px; }

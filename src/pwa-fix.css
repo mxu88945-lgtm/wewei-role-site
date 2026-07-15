@@ -89,7 +89,7 @@ select {
 .message-list {
   min-height: 0;
   overflow-y: auto;
-  overscroll-behavior-y: contain;
+  overscroll-behavior-y: none;
   -webkit-overflow-scrolling: touch;
   overflow-anchor: none;
 }
