@@ -431,7 +431,7 @@ function App() {
     const textarea = composerRef.current
     if (!textarea) return
     textarea.style.height = 'auto'
-    textarea.style.height = `${Math.min(Math.max(textarea.scrollHeight, 40), 144)}px`
+    textarea.style.height = `${Math.min(Math.max(textarea.scrollHeight, 34), 128)}px`
   }, [draft])
   useLayoutEffect(() => {
     phoneCanvasRef.current?.scrollTo({ top: 0, left: 0 })
