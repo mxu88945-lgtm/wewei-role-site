@@ -1098,7 +1098,10 @@ function App() {
       const lastSpeakerId = [...baseMessages].reverse().find((item) => item.role === 'assistant')?.characterId
       const speakerIds = selectGroupSpeakerIds({ participantIds, mentionedIds, mode: groupReplyMode, lastSpeakerId, text })
       if (!speakerIds.length) {
-        setChatError('指定发言模式需要在消息里写 @角色名，例如“@顾荒 你怎么看？”')
+        // The composer already explains that specified mode requires an @ mention.
+        // Reopen the picker instead of leaving a persistent connection-error banner.
+        setChatError('')
+        setMentionPickerOpen(true)
         return
       }
       setChatError('')
