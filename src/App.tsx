@@ -308,6 +308,9 @@ function App() {
   const composerRef = useRef<HTMLTextAreaElement>(null)
   const messageListRef = useRef<HTMLDivElement>(null)
   const streamScrollLockRef = useRef<{ top: number; version: number } | null>(null)
+  const scrollUiFrameRef = useRef<number | null>(null)
+  const manualScrollTimerRef = useRef<number | null>(null)
+  const userBrowsingMessagesRef = useRef(false)
   const generationControllers = useRef(new Map<string, AbortController>())
 
   const explicitConversation = conversations.find((item) => item.id === activeConversationId)
@@ -376,7 +379,13 @@ function App() {
   useEffect(() => { if (persistenceReady) writeDurable('weijing.characters', characters) }, [characters, persistenceReady])
   useEffect(() => write('weijing.activeCharacter', activeId), [activeId])
   useEffect(() => setCharacterIntroExpanded(false), [activeId])
-  useEffect(() => { if (persistenceReady) writeDurable('weijing.conversations', conversations) }, [conversations, persistenceReady])
+  useEffect(() => {
+    if (!persistenceReady) return
+    // Streaming used to serialize the entire conversation into localStorage + IndexedDB
+    // for every token. Keep durability, but coalesce the hot stream into one final write.
+    const timer = window.setTimeout(() => writeDurable('weijing.conversations', conversations), generatingIds.length ? 800 : 0)
+    return () => window.clearTimeout(timer)
+  }, [conversations, persistenceReady, generatingIds.length])
   useEffect(() => write('weijing.activeConversation', activeConversation?.id || ''), [activeConversation?.id])
   useEffect(() => { if (persistenceReady) writeDurable('weijing.identities', identities) }, [identities, persistenceReady])
   useEffect(() => { write('weijing.activePersona', activePersonaId) }, [activePersonaId])
@@ -412,7 +421,11 @@ function App() {
     document.documentElement.classList.toggle('chat-layout-flat', chatLayout === 'flat')
     return () => document.documentElement.classList.remove('chat-layout-flat')
   }, [chatLayout])
-  useEffect(() => () => generationControllers.current.forEach((controller) => controller.abort()), [])
+  useEffect(() => () => {
+    generationControllers.current.forEach((controller) => controller.abort())
+    if (scrollUiFrameRef.current !== null) window.cancelAnimationFrame(scrollUiFrameRef.current)
+    if (manualScrollTimerRef.current !== null) window.clearTimeout(manualScrollTimerRef.current)
+  }, [])
   useEffect(() => { if (activeApiId !== api.id) setActiveApiId(api.id) }, [activeApiId, api.id])
   useLayoutEffect(() => {
     const textarea = composerRef.current
@@ -433,17 +446,13 @@ function App() {
   useLayoutEffect(() => {
     const lock = streamScrollLockRef.current
     const list = messageListRef.current
-    if (!lock || !list) return
+    if (!lock || !list || userBrowsingMessagesRef.current) return
     const restore = () => {
       if (streamScrollLockRef.current?.version === lock.version) list.scrollTop = lock.top
     }
     restore()
-    window.requestAnimationFrame(() => {
-      restore()
-      window.requestAnimationFrame(restore)
-    })
-    const timer = window.setTimeout(restore, 80)
-    return () => window.clearTimeout(timer)
+    const frame = window.requestAnimationFrame(restore)
+    return () => window.cancelAnimationFrame(frame)
   }, [messages])
 
   const pageTitle = useMemo(() => page === 'home' ? '惟境' : page === 'characters' ? '角色' : '', [page])
@@ -951,6 +960,19 @@ function App() {
     generationControllers.current.set(conversationId, controller)
     setGeneratingIds((current) => [...current.filter((id) => id !== conversationId), conversationId])
     let output = ''
+    let stagedVisibleOutput = ''
+    let streamRenderTimer: number | null = null
+    const commitStreamOutput = () => {
+      streamRenderTimer = null
+      const list = messageListRef.current
+      if (list && !userBrowsingMessagesRef.current) streamScrollLockRef.current = { top: list.scrollTop, version: (streamScrollLockRef.current?.version || 0) + 1 }
+      const text = stagedVisibleOutput || '正在整理回复…'
+      setConversations((current) => current.map((item) => item.id === conversationId ? { ...item, messages: item.messages.map((message) => message.id === assistantMessage.id ? { ...message, text } : message) } : item))
+    }
+    const cancelQueuedStreamRender = () => {
+      if (streamRenderTimer !== null) window.clearTimeout(streamRenderTimer)
+      streamRenderTimer = null
+    }
 
     try {
       const isGroup = conversation.kind === 'group'
@@ -975,13 +997,14 @@ function App() {
         streaming,
         signal: controller.signal,
         onDelta: (delta) => {
-          const list = messageListRef.current
-          if (list) streamScrollLockRef.current = { top: list.scrollTop, version: (streamScrollLockRef.current?.version || 0) + 1 }
           output += delta
-          const visibleOutput = sanitizeAssistantOutput(output)
-          setConversations((current) => current.map((item) => item.id === conversationId ? { ...item, messages: item.messages.map((message) => message.id === assistantMessage.id ? { ...message, text: visibleOutput || '正在整理回复…' } : message), updatedAt: Date.now() } : item))
+          stagedVisibleOutput = sanitizeAssistantOutput(output)
+          // About 20 visual updates per second still looks fluid, while avoiding a full
+          // React + regex + HTML sanitization pass for every tiny network chunk.
+          if (streamRenderTimer === null) streamRenderTimer = window.setTimeout(commitStreamOutput, 48)
         },
       })
+      cancelQueuedStreamRender()
       if (!output.trim()) throw new Error('模型没有返回内容')
       if (completion.finishReason) {
         setConversations((current) => current.map((item) => item.id === conversationId ? { ...item, messages: item.messages.map((message) => message.id === assistantMessage.id ? { ...message, finishReason: completion.finishReason } : message) } : item))
@@ -994,6 +1017,7 @@ function App() {
       if (!isGroup && capturedMemoryConfig.autoEvery > 0 && completed.length - summarizedCount >= capturedMemoryConfig.autoEvery && capturedMemoryConfig.api.apiKey) summarizeMemory(completed, conversation, capturedCharacter)
       return completed
     } catch (error) {
+      cancelQueuedStreamRender()
       if (controller.signal.aborted) {
         const partialOutput = sanitizeAssistantOutput(output)
         setConversations((current) => current.map((item) => item.id === conversationId ? {
@@ -1010,6 +1034,7 @@ function App() {
         return nextMessages
       }
     } finally {
+      cancelQueuedStreamRender()
       if (generationControllers.current.get(conversationId) === controller) {
         generationControllers.current.delete(conversationId)
         setGeneratingIds((current) => current.filter((id) => id !== conversationId))
@@ -1166,9 +1191,35 @@ function App() {
   }
 
   const updateChatJump = () => {
-    const list = messageListRef.current; if (!list) return
-    const distanceToBottom = list.scrollHeight - list.scrollTop - list.clientHeight
-    setChatJump({ up: list.scrollTop > 280, down: distanceToBottom > 280 })
+    if (userBrowsingMessagesRef.current) {
+      if (manualScrollTimerRef.current !== null) window.clearTimeout(manualScrollTimerRef.current)
+      manualScrollTimerRef.current = window.setTimeout(() => {
+        userBrowsingMessagesRef.current = false
+        manualScrollTimerRef.current = null
+      }, 180)
+    }
+    if (scrollUiFrameRef.current !== null) return
+    scrollUiFrameRef.current = window.requestAnimationFrame(() => {
+      scrollUiFrameRef.current = null
+      const list = messageListRef.current; if (!list) return
+      const distanceToBottom = list.scrollHeight - list.scrollTop - list.clientHeight
+      const next = { up: list.scrollTop > 280, down: distanceToBottom > 280 }
+      setChatJump((current) => current.up === next.up && current.down === next.down ? current : next)
+    })
+  }
+
+  const beginManualMessageBrowse = () => {
+    userBrowsingMessagesRef.current = true
+    streamScrollLockRef.current = null
+    if (manualScrollTimerRef.current !== null) window.clearTimeout(manualScrollTimerRef.current)
+  }
+
+  const endManualMessageBrowse = () => {
+    if (manualScrollTimerRef.current !== null) window.clearTimeout(manualScrollTimerRef.current)
+    manualScrollTimerRef.current = window.setTimeout(() => {
+      userBrowsingMessagesRef.current = false
+      manualScrollTimerRef.current = null
+    }, 180)
   }
 
   const jumpChat = (edge: 'top' | 'bottom') => {
@@ -1282,7 +1333,7 @@ function App() {
 
     {page === 'group-greeting-picker' && <GroupGreetingPicker characters={groupGreetingCharacters} userName={(identities.find((item) => item.id === activePersonaId) || identity).name} onCancel={() => { const restarting = Boolean(restartingConversationId); setRestartingConversationId(null); restarting ? replacePage('chat') : goBack() }} onConfirm={beginGroupWithGreeting} />}
 
-    {page === 'chat' && <section className="chat-page"><header className="chat-header"><button className="icon-button drawer-trigger" aria-label="打开对话列表" onClick={() => setDrawer('left')}>☰</button><button className="chat-identity" onClick={() => navigate('character-detail')}>{activeCharacter.avatar ? <img src={activeCharacter.avatar} alt="" /> : <span>{activeCharacter.name.slice(-1)}</span>}<div><strong>{activeConversation?.kind === 'group' ? activeConversation.title : activeCharacter.name}</strong><small>{isGenerating ? '正在回应…' : activeConversation?.title || `${identity.name} · 沉浸共演中`}</small></div></button><button className="more-button" aria-label="打开聊天设置" onClick={() => setDrawer('right')}>•••</button></header>{chatError && <button className="chat-error" onClick={() => navigate('api')}><span>连接提示</span>{chatError}<i>前往 API 设置 ›</i></button>}<div ref={messageListRef} className="message-list" onScroll={updateChatJump}>{messages.map(renderChatMessage)}</div>{(chatJump.up || chatJump.down) && <nav className="chat-jump-controls" aria-label="快速浏览对话">{chatJump.up && <button onClick={() => jumpChat('top')} aria-label="回到对话顶部">↑</button>}{chatJump.down && <button onClick={() => jumpChat('bottom')} aria-label="跳到最新消息">↓</button>}</nav>}<div className="composer"><button className="composer-plus">＋</button><textarea ref={composerRef} rows={1} value={draft} onChange={(e) => { setDraft(e.target.value); if (activeConversation?.kind === 'group' && /[@＠][^@＠\s]*$/.test(e.target.value)) setMentionPickerOpen(true) }} placeholder={isGenerating ? '可以先写下一条，停止后再发送' : groupReplyMode === 'specified' && activeConversation?.kind === 'group' ? '输入 @ 选择回答的角色……' : '写下你的回应……'} /><button className={`send-button ${isGenerating ? 'stop' : ''}`} aria-label={isGenerating ? '停止生成' : '发送'} onClick={() => isGenerating && activeConversation ? abortConversation(activeConversation.id) : sendMessage()}>{isGenerating ? '■' : '↑'}</button></div></section>}
+    {page === 'chat' && <section className="chat-page"><header className="chat-header"><button className="icon-button drawer-trigger" aria-label="打开对话列表" onClick={() => setDrawer('left')}>☰</button><button className="chat-identity" onClick={() => navigate('character-detail')}>{activeCharacter.avatar ? <img src={activeCharacter.avatar} alt="" /> : <span>{activeCharacter.name.slice(-1)}</span>}<div><strong>{activeConversation?.kind === 'group' ? activeConversation.title : activeCharacter.name}</strong><small>{isGenerating ? '正在回应…' : activeConversation?.title || `${identity.name} · 沉浸共演中`}</small></div></button><button className="more-button" aria-label="打开聊天设置" onClick={() => setDrawer('right')}>•••</button></header>{chatError && <button className="chat-error" onClick={() => navigate('api')}><span>连接提示</span>{chatError}<i>前往 API 设置 ›</i></button>}<div ref={messageListRef} className="message-list" onScroll={updateChatJump} onTouchStart={beginManualMessageBrowse} onTouchEnd={endManualMessageBrowse} onTouchCancel={endManualMessageBrowse} onPointerDown={beginManualMessageBrowse} onPointerUp={endManualMessageBrowse} onPointerCancel={endManualMessageBrowse}>{messages.map(renderChatMessage)}</div>{(chatJump.up || chatJump.down) && <nav className="chat-jump-controls" aria-label="快速浏览对话">{chatJump.up && <button onClick={() => jumpChat('top')} aria-label="回到对话顶部">↑</button>}{chatJump.down && <button onClick={() => jumpChat('bottom')} aria-label="跳到最新消息">↓</button>}</nav>}<div className="composer"><button className="composer-plus">＋</button><textarea ref={composerRef} rows={1} value={draft} onChange={(e) => { setDraft(e.target.value); if (activeConversation?.kind === 'group' && /[@＠][^@＠\s]*$/.test(e.target.value)) setMentionPickerOpen(true) }} placeholder={isGenerating ? '可以先写下一条，停止后再发送' : groupReplyMode === 'specified' && activeConversation?.kind === 'group' ? '输入 @ 选择回答的角色……' : '写下你的回应……'} /><button className={`send-button ${isGenerating ? 'stop' : ''}`} aria-label={isGenerating ? '停止生成' : '发送'} onClick={() => isGenerating && activeConversation ? abortConversation(activeConversation.id) : sendMessage()}>{isGenerating ? '■' : '↑'}</button></div></section>}
 
     {page === 'more' && <><BackHeader title="设置" onBack={goBack} /><section className="settings-stack compact-settings">{[[['API 连接', 'api'], ['用户身份', 'identity']], [['模型设置', 'model'], ['全局预设', 'preset'], ['全局世界书', 'worldbook'], ['长记忆', 'memory']], [['应用设置', 'settings']]].map((group, index) => <div className="settings-group" key={index}>{group.map(([label, target]) => <button key={label} onClick={() => navigate(target as Page)}><span>{label}</span><span>›</span></button>)}</div>)}</section></>}
 

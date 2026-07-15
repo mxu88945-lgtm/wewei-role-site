@@ -1,4 +1,4 @@
-import { useLayoutEffect, useMemo, useRef, useState } from 'react'
+import { memo, useLayoutEffect, useMemo, useRef, useState } from 'react'
 import DOMPurify from 'dompurify'
 import type { Character } from './characterCard'
 import { applyMacros, applyRegexScripts } from './regexEngine'
@@ -221,7 +221,7 @@ function SandboxHtml({ html }: { html: string }) {
   return <iframe ref={frameRef} className={`message-script-frame ${fullDocument ? 'full-document' : 'inline-script'}`} title="角色卡互动内容" sandbox="allow-scripts" srcDoc={source} style={{ height }} />
 }
 
-export default function MessageContent({ text, role, character, userName, layout = 'bubble' }: { text: string; role: 'user' | 'assistant'; character: Character; userName: string; layout?: 'bubble' | 'flat' }) {
+function MessageContent({ text, role, character, userName, layout = 'bubble' }: { text: string; role: 'user' | 'assistant'; character: Character; userName: string; layout?: 'bubble' | 'flat' }) {
   const rendered = useMemo(() => {
     const visibleText = role === 'assistant' ? sanitizeAssistantOutput(text) : text
     return role === 'assistant'
@@ -233,3 +233,5 @@ export default function MessageContent({ text, role, character, userName, layout
   if (looksLikeHtml(rendered)) return <div className="message-content message-content-rich"><SafeInlineHtml html={rendered} /></div>
   return <div className={`message-content message-content-plain ${layout === 'bubble' ? 'message-content-bubble' : 'message-content-flat'}`}><div className="message-plain-text">{plainTextParagraphs(rendered).map((paragraph, index) => <p key={`${index}-${paragraph.slice(0, 12)}`}>{styledPlainText(paragraph)}</p>)}</div></div>
 }
+
+export default memo(MessageContent)
