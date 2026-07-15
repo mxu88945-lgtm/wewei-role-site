@@ -7,6 +7,26 @@
     <meta name="apple-mobile-web-app-capable" content="yes" />
     <meta name="apple-mobile-web-app-status-bar-style" content="default" />
     <meta name="apple-mobile-web-app-title" content="惟境" />
+    <script>
+      /* iOS standalone reads the status-bar color while the app is launching.
+         Restore the last theme before React and CSS paint; keep the status-bar
+         style on `default` so the page does not extend into the notch or the
+         home-indicator safe area. */
+      (() => {
+        try {
+          const storedPwaColor = localStorage.getItem('weijing.pwaThemeColor')
+          const storedChatColor = localStorage.getItem('weijing.chatBaseColor')
+          let themeColor = storedPwaColor
+          if (!themeColor && storedChatColor) {
+            try { themeColor = JSON.parse(storedChatColor) } catch { themeColor = storedChatColor }
+          }
+          if (typeof themeColor === 'string' && /^#[0-9a-f]{6}$/i.test(themeColor)) {
+            document.documentElement.style.backgroundColor = themeColor
+            document.querySelector('meta[name="theme-color"]')?.setAttribute('content', themeColor)
+          }
+        } catch {}
+      })()
+    </script>
     <link rel="icon" type="image/png" href="/wewei-role-site/apple-touch-icon.png" />
     <link rel="apple-touch-icon" sizes="180x180" href="/wewei-role-site/apple-touch-icon.png" />
     <link rel="manifest" href="/wewei-role-site/manifest.webmanifest" />
