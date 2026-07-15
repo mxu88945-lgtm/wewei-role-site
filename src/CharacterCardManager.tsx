@@ -2,6 +2,23 @@ import { useState } from 'react'
 import type { Character, RegexScript, WorldBookEntry } from './characterCard'
 
 export type CharacterCardSection = 'overview' | 'greetings' | 'worldbook' | 'regex'
+type LongCharacterField = 'description' | 'personality' | 'scenario' | 'systemPrompt' | 'postHistoryInstructions' | 'mesExample' | 'creatorNotes'
+type FullEditorField = LongCharacterField | 'greeting'
+
+const longCharacterFields: Array<{ key: LongCharacterField; label: string }> = [
+  { key: 'description', label: '角色描述' },
+  { key: 'personality', label: '性格' },
+  { key: 'scenario', label: '场景' },
+  { key: 'systemPrompt', label: '系统提示词' },
+  { key: 'postHistoryInstructions', label: '历史后置指令' },
+  { key: 'mesExample', label: '示例对话' },
+  { key: 'creatorNotes', label: '作者备注' },
+]
+
+const fullEditorLabels: Record<FullEditorField, string> = Object.fromEntries([
+  ...longCharacterFields.map((field) => [field.key, field.label]),
+  ['greeting', '主开场白'],
+]) as Record<FullEditorField, string>
 
 function nextEntryId(entries: WorldBookEntry[]) {
   return Math.max(-1, ...entries.map((entry) => Number(entry.id) || 0)) + 1
@@ -57,6 +74,7 @@ export default function CharacterCardManager({ character, onChange, onBack, init
   const [section, setSection] = useState<CharacterCardSection>(initialSection)
   const [expandedWorld, setExpandedWorld] = useState<number | null>(null)
   const [expandedRegex, setExpandedRegex] = useState<string | null>(null)
+  const [fullEditorField, setFullEditorField] = useState<FullEditorField | null>(null)
   const entries = character.characterBook?.entries || []
 
   const patch = (value: Partial<Character>) => onChange({ ...character, ...value })
@@ -66,6 +84,15 @@ export default function CharacterCardManager({ character, onChange, onBack, init
   const updateEntry = (id: number, value: Partial<WorldBookEntry>) => setEntries(entries.map((entry) => entry.id === id ? { ...entry, ...value } : entry))
   const updateEntryExtensions = (id: number, value: Record<string, unknown>) => setEntries(entries.map((entry) => entry.id === id ? { ...entry, extensions: { ...entry.extensions, ...value } } : entry))
   const updateRegex = (id: string, value: Partial<RegexScript>) => setRegexScripts(character.regexScripts.map((script) => script.id === id ? { ...script, ...value } : script))
+
+  if (fullEditorField) {
+    const fieldLabel = fullEditorLabels[fullEditorField]
+    return <section className="metadata-full-page" aria-label={`${fieldLabel}整页编辑`}>
+      <header className="page-header"><button className="icon-button" onClick={() => setFullEditorField(null)}>‹</button><h1>{fieldLabel}</h1><div className="header-action"><span className="saved-label">自动保存</span></div></header>
+      <div className="metadata-full-hint">完整内容 · 可直接查看与修改</div>
+      <textarea value={character[fullEditorField]} onChange={(event) => patch({ [fullEditorField]: event.target.value })} placeholder={`填写${fieldLabel}`} />
+    </section>
+  }
 
   return <section className="card-manager">
     <header className="page-header"><button className="icon-button" onClick={onBack}>‹</button><h1>角色卡数据</h1><div className="header-action"><span className="saved-label">自动保存</span></div></header>
@@ -88,17 +115,11 @@ export default function CharacterCardManager({ character, onChange, onBack, init
           <label>一句话简介<input value={character.tagline} onChange={(event) => patch({ tagline: event.target.value })} placeholder="填写角色身份或一句话简介" /></label>
         </div>
       </article>
-      <MetadataArea label="角色描述" value={character.description} onChange={(description) => patch({ description })} />
-      <MetadataArea label="性格" value={character.personality} onChange={(personality) => patch({ personality })} />
-      <MetadataArea label="场景" value={character.scenario} onChange={(scenario) => patch({ scenario })} />
-      <MetadataArea label="系统提示词" value={character.systemPrompt} onChange={(systemPrompt) => patch({ systemPrompt })} />
-      <MetadataArea label="历史后置指令" value={character.postHistoryInstructions} onChange={(postHistoryInstructions) => patch({ postHistoryInstructions })} />
-      <MetadataArea label="示例对话" value={character.mesExample} onChange={(mesExample) => patch({ mesExample })} />
-      <MetadataArea label="作者备注" value={character.creatorNotes} onChange={(creatorNotes) => patch({ creatorNotes })} />
+      {longCharacterFields.map((field) => <MetadataArea key={field.key} label={field.label} value={character[field.key]} onOpenFull={() => setFullEditorField(field.key)} />)}
     </div>}
 
     {section === 'greetings' && <div className="metadata-stack">
-      <MetadataArea label="主开场白" value={character.greeting} onChange={(greeting) => patch({ greeting })} />
+      <MetadataArea label="主开场白" value={character.greeting} onOpenFull={() => setFullEditorField('greeting')} />
       {character.alternateGreetings.map((greeting, index) => <article className="metadata-editor" key={index}><div className="editor-heading"><strong>备用开场 {index + 1}</strong><button className="danger-link" onClick={() => patch({ alternateGreetings: character.alternateGreetings.filter((_, itemIndex) => itemIndex !== index) })}>删除</button></div><textarea rows={8} value={greeting} onChange={(event) => patch({ alternateGreetings: character.alternateGreetings.map((item, itemIndex) => itemIndex === index ? event.target.value : item) })} /></article>)}
       <button className="secondary-button" onClick={() => patch({ alternateGreetings: [...character.alternateGreetings, ''] })}>＋ 添加备用开场</button>
     </div>}
@@ -138,9 +159,8 @@ export default function CharacterCardManager({ character, onChange, onBack, init
   </section>
 }
 
-function MetadataArea({ label, value, onChange }: { label: string; value: string; onChange: (value: string) => void }) {
-  const [expanded, setExpanded] = useState(false)
-  return <article className={`metadata-editor metadata-area ${expanded ? 'expanded' : ''}`}><button className="metadata-area-heading" onClick={() => setExpanded(!expanded)}><div><strong>{label}</strong><small>{value.trim() ? `${value.trim().slice(0, 72)}${value.trim().length > 72 ? '…' : ''}` : '暂无内容'}</small></div><span>{expanded ? '收起⌃' : '展开⌄'}</span></button>{expanded && <textarea rows={10} value={value} onChange={(event) => onChange(event.target.value)} />}</article>
+function MetadataArea({ label, value, onOpenFull }: { label: string; value: string; onOpenFull: () => void }) {
+  return <article className="metadata-editor metadata-area"><button className="metadata-area-heading" onClick={onOpenFull}><div><strong>{label}</strong><small>{value.trim() ? `${value.trim().slice(0, 72)}${value.trim().length > 72 ? '…' : ''}` : '暂无内容'}</small></div><span>整页 ›</span></button></article>
 }
 
 function Toggle({ label, value, onChange }: { label: string; value: boolean; onChange: (value: boolean) => void }) {
