@@ -46,6 +46,7 @@
 .cockpit-title-card small{color:rgba(255,255,255,.7);font-size:9px;font-weight:800;letter-spacing:.1em}
 .cockpit-title-card strong{margin-top:5px;font-size:19px}
 .cockpit-title-card p{margin:7px 0 0;color:rgba(255,255,255,.76);font-size:10px;line-height:1.5}
+.cockpit-project-edit{margin-top:12px;border:1px solid rgba(255,255,255,.3);border-radius:999px;padding:7px 11px;color:white;background:rgba(255,255,255,.14);font-size:9px;font-weight:850;backdrop-filter:blur(10px)}
 .cockpit-assistant-card{padding:14px;border:1px solid rgba(127,79,190,.12);border-radius:21px;display:grid;grid-template-columns:40px minmax(0,1fr) auto;align-items:center;gap:11px;background:linear-gradient(145deg,#f0e9f7,#f7eef5);box-shadow:0 10px 26px rgba(74,48,91,.07)}
 .cockpit-assistant-card>span{width:40px;height:40px;border-radius:14px;display:grid;place-items:center;color:white;background:linear-gradient(145deg,var(--theme-accent-strong),var(--theme-accent-end));font-size:17px;box-shadow:0 8px 18px var(--theme-accent-shadow)}
 .cockpit-assistant-card strong,.cockpit-assistant-card small{display:block}
