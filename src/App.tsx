@@ -1287,7 +1287,7 @@ function App() {
 
   return <div className="app-shell"><main ref={phoneCanvasRef} className={`phone-canvas theme-${chatTheme} ${page === 'chat' ? 'chat-canvas' : ''}`} style={{ '--ui-font-scale': uiFontScale / 100, '--ui-font-weight': uiFontWeight, '--ui-heading-font-weight': Math.min(800, uiFontWeight + 100), '--chat-font-size': `${chatFontSize}px`, '--chat-text-color': chatTextColor, '--chat-narration-color': chatNarrationColor, '--chat-quote-color': chatQuoteColor, '--chat-base-color': chatBaseColor } as React.CSSProperties}>
     <input ref={fileInputRef} className="hidden-file-input" type="file" accept="image/png,.png,application/json,.json" onChange={(event) => handleCharacterFile(event.target.files?.[0])} />
-    {page === 'story-projects' && <StoryProjectManager projects={storyProjects} characters={characters} conversations={conversations} identities={identities} onBack={goBack} onChange={setStoryProjects} />}
+    {page === 'story-projects' && <StoryProjectManager projects={storyProjects} characters={characters} conversations={conversations} identities={identities} api={api} apiChannels={apiChannels} onBack={goBack} onChange={setStoryProjects} />}
     {page === 'chat' && <div className="chat-background" style={{ backgroundImage: chatBackground ? `url(${JSON.stringify(chatBackground)})` : undefined, '--chat-background-frost': chatBackgroundFrost } as React.CSSProperties} />}
     {page === 'home' && <section className="home-dashboard">
       <header className="home-heading"><p className="eyebrow">WeiWei Role</p><h1>{pageTitle}</h1><p>选择今天要进入的空间。</p></header>
