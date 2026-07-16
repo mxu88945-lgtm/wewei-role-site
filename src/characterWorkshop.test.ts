@@ -70,11 +70,12 @@ describe('character workshop', () => {
       draft,
       request: '气泡再冷一点',
       memory: '用户偏爱冷灰玻璃感。',
-      messages: [{ id: '1', role: 'assistant', content: '上一版用了暖金色。' }],
+      messages: [{ id: '1', role: 'assistant', content: '上一版用了暖金色。', images: [{ id: 'shot', name: '效果图.jpg', dataUrl: 'data:image/jpeg;base64,thumb' }] }],
       pendingPatch: null,
     })
     expect(prompt).toContain('用户偏爱冷灰玻璃感')
     expect(prompt).toContain('上一版用了暖金色')
+    expect(prompt).toContain('本轮附有 1 张截图')
     expect(prompt).toContain('气泡再冷一点')
     expect(prompt).toContain('陆景澄')
   })
