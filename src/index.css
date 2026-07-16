@@ -241,7 +241,8 @@ button { cursor: pointer; }
 .message-tools button { border: 0; padding: 5px 8px; border-radius: 999px; color: #918997; background: transparent; font-size: 10px; }
 .message-action-trigger { margin-top: 4px; border: 0; padding: 3px 8px; color: #aaa2ad; background: transparent; font-size: 12px; letter-spacing: 1px; }
 .message-row.user .message-action-trigger { align-self: flex-end; }
-.chat-jump-controls { position: fixed; z-index: 34; right: max(16px, calc((100vw - 520px) / 2 + 16px)); bottom: calc(128px + env(safe-area-inset-bottom)); display: grid; gap: 7px; }
+.chat-jump-controls { position: fixed; z-index: 34; right: max(16px, calc((100vw - 520px) / 2 + 16px)); bottom: calc(128px + env(safe-area-inset-bottom)); display: grid; gap: 7px; opacity: 0; transform: translateX(8px) scale(.94); pointer-events: none; transition: opacity .18s ease,transform .18s ease; }
+.chat-jump-controls.visible { opacity: 1; transform: translateX(0) scale(1); pointer-events: auto; }
 .chat-jump-controls button { width: 34px; height: 34px; border: 1px solid rgba(93,69,108,.08); border-radius: 50%; color: #79569f; background: rgba(248,244,250,.9); box-shadow: 0 8px 22px rgba(62,43,75,.14); backdrop-filter: blur(16px); font-size: 16px; font-weight: 800; }
 .message-menu-layer { position: fixed; z-index: 90; inset: 0; display: flex; justify-content: center; align-items: flex-end; }
 .message-action-sheet { position: relative; z-index: 2; width: min(100%, 520px); padding: 18px 18px calc(18px + env(safe-area-inset-bottom)); display: grid; gap: 8px; border-radius: 28px 28px 0 0; background: rgba(250,248,251,.98); box-shadow: 0 -24px 70px rgba(48,37,56,.2); backdrop-filter: blur(24px); }
