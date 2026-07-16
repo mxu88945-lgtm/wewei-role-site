@@ -31,6 +31,7 @@ button { cursor: pointer; }
 .section-heading p { margin: 6px 0 0; color: #9a949e; font-size: 13px; }
 .section-heading button { border: 0; background: transparent; color: var(--theme-accent); font-weight: 700; }
 .library-actions { display: flex; align-items: center; gap: 10px; }
+.library-actions .workshop-entry-button { padding: 9px 12px; border-radius: 13px; color: white; background: linear-gradient(145deg,var(--theme-accent-strong),var(--theme-accent-end)); box-shadow: 0 8px 18px var(--theme-accent-shadow); }
 .character-search { min-height: 52px; padding: 0 14px; border-radius: 18px; display: grid; grid-template-columns: 24px 1fr 32px; align-items: center; color: #9b929f; background: #efedf0; }
 .character-search input { min-width: 0; border: 0; outline: 0; color: #332d37; background: transparent; }
 .character-search button { width: 30px; height: 30px; border: 0; border-radius: 10px; color: #827987; background: #e3dfe6; font-size: 18px; }
