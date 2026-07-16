@@ -21,6 +21,7 @@ import { buildSharedTheaterBackground, createDirectorCharacter, createDirectorTe
 import CharacterWorkshop from './CharacterWorkshop'
 import StoryProjectManager from './StoryProjectManager'
 import { normalizeStoryProjects, type StoryProject } from './storyProject'
+import { buildAutomaticContinuityInput, captureAssistantMessageIds, hasUnprocessedAssistantMessages, mergeAutomaticContinuity, parseAutomaticContinuityResponse } from './storyContinuity'
 
 type Page = 'home' | 'story-projects' | 'characters' | 'create' | 'character-workshop' | 'group-create' | 'director-template' | 'group-greeting-picker' | 'import-preview' | 'character-detail' | 'card-data' | 'card-worldbook' | 'card-regex' | 'greeting-picker' | 'chat' | 'more' | 'api' | 'model' | 'settings' | 'appearance' | 'font' | 'display-reply' | 'identity' | 'worldbook' | 'theater-world' | 'preset' | 'memory' | 'memory-api' | 'memory-list'
 type Message = { id: number; role: 'user' | 'assistant'; text: string; characterId?: string; finishReason?: string | null }
@@ -327,6 +328,7 @@ function App() {
   const messageListRef = useRef<HTMLDivElement>(null)
   const scrollUiFrameRef = useRef<number | null>(null)
   const generationControllers = useRef(new Map<string, AbortController>())
+  const continuityRunningProjectIds = useRef(new Set<string>())
 
   const explicitConversation = conversations.find((item) => item.id === activeConversationId)
   const groupLeadId = explicitConversation?.kind === 'group' ? explicitConversation.participantIds?.[0] : undefined
@@ -346,6 +348,47 @@ function App() {
   const currentMemoryApi = currentMemoryConfig.useGlobalApi === false ? currentMemoryConfig.api : globalMemoryApi
   const memoryScopeId = activeConversation?.id || activeCharacter.id
   const currentMemories = memoriesForConversation(memoryEntries, activeConversation?.id, activeCharacter.id) as MemoryEntry[]
+  const runAutomaticContinuity = async (project: StoryProject) => {
+    if (continuityRunningProjectIds.current.has(project.id)) return
+    continuityRunningProjectIds.current.add(project.id)
+    const checkpoint = captureAssistantMessageIds(project, conversations)
+    const directorConversation = conversations.find((conversation) => project.conversationIds.includes(conversation.id) && conversation.directorCharacterId === project.directorCharacterId)
+    const directorApiId = project.directorCharacterId ? directorConversation?.participantApiIds?.[project.directorCharacterId] : undefined
+    const baseChannel = apiChannels.find((channel) => channel.id === directorApiId) || api
+    const storyApi = project.directorCharacterId && directorConversation?.participantModelNames?.[project.directorCharacterId]
+      ? withApiModel(baseChannel, directorConversation.participantModelNames[project.directorCharacterId])
+      : baseChannel
+    setStoryProjects((current) => current.map((item) => item.id === project.id ? { ...item, autoContinuity: { ...item.autoContinuity, lastSummary: '自动场记正在整理本轮进展…', lastError: undefined } } : item))
+    try {
+      if (!storyApi?.apiKey?.trim() || !storyApi.baseUrl?.trim() || !storyApi.modelName?.trim()) throw new Error('导演 API 尚未配置完整')
+      const userName = identities.find((item) => item.id === project.personaId)?.name || identities[0]?.name || '用户'
+      const projectCharacters = project.characterIds.filter((id) => id !== project.directorCharacterId).map((id) => characters.find((item) => item.id === id)).filter(Boolean) as Character[]
+      const input = buildAutomaticContinuityInput({ project, characters: projectCharacters, conversations, userName })
+      let response = ''
+      await completeChat({
+        api: storyApi,
+        messages: [
+          { role: 'system', content: '你是严谨的自动场记。只输出合法 JSON，不续写剧情，不替用户主角作决定，不把猜测或模型代写写成事实。' },
+          { role: 'user', content: input },
+        ],
+        temperature: .1, topP: 1, maxTokens: 8000, streaming: false, signal: new AbortController().signal,
+        onDelta: (delta) => { response += delta },
+      })
+      const result = parseAutomaticContinuityResponse(response, projectCharacters.map((character) => character.id))
+      setStoryProjects((current) => current.map((item) => item.id === project.id ? {
+        ...item,
+        cockpit: mergeAutomaticContinuity(item.cockpit, result),
+        autoContinuity: { ...item.autoContinuity, lastProcessedAssistantMessageIds: checkpoint, lastRunAt: Date.now(), lastError: undefined, lastSummary: result.changeSummary },
+        updatedAt: Date.now(),
+      } : item))
+    } catch (error) {
+      const message = error instanceof Error ? error.message : '自动场记更新失败'
+      console.error('自动场记更新失败', error)
+      setStoryProjects((current) => current.map((item) => item.id === project.id ? { ...item, autoContinuity: { ...item.autoContinuity, lastProcessedAssistantMessageIds: checkpoint, lastRunAt: Date.now(), lastError: message, lastSummary: undefined } } : item))
+    } finally {
+      continuityRunningProjectIds.current.delete(project.id)
+    }
+  }
   const allThemes = [...builtInThemes, ...customThemes]
   const applyThemePreset = (preset: ChatThemePreset, bind = true) => {
     setChatTheme(preset.mode); setChatBaseColor(preset.baseColor); setChatTextColor(preset.textColor)
@@ -413,6 +456,12 @@ function App() {
   }, [activeConversation?.id, activeConversation?.themePresetId, persistenceReady])
   useEffect(() => { if (persistenceReady) writeDurable('weijing.characters', characters) }, [characters, persistenceReady])
   useEffect(() => { if (persistenceReady) writeDurable('weijing.storyProjects', storyProjects) }, [storyProjects, persistenceReady])
+  useEffect(() => {
+    if (!persistenceReady || generatingIds.length) return
+    storyProjects
+      .filter((project) => project.status === 'active' && project.autoContinuity.enabled && hasUnprocessedAssistantMessages(project, conversations))
+      .forEach((project) => { void runAutomaticContinuity(project) })
+  }, [conversations, storyProjects, generatingIds.length, persistenceReady])
   useEffect(() => write('weijing.activeCharacter', activeId), [activeId])
   useEffect(() => setCharacterIntroExpanded(false), [activeId])
   useEffect(() => {
