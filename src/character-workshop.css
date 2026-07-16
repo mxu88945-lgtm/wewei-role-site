@@ -68,6 +68,9 @@
 .copilot-message.user { align-self: flex-end; }
 .copilot-message.user > span { text-align: right; }
 .copilot-message.user p { border-radius: 16px 16px 5px 16px; color: #fff; background: linear-gradient(145deg,var(--theme-accent-strong),var(--theme-accent-end)); }
+.copilot-message-images { display: grid; grid-template-columns: repeat(2,minmax(0,1fr)); gap: 5px; padding: 5px; border-radius: 15px 15px 5px 15px; background: color-mix(in srgb,var(--theme-accent) 14%,#fff); }
+.copilot-message-images img { width: 100%; max-height: 180px; display: block; object-fit: cover; border-radius: 11px; }
+.copilot-message-images img:only-child { grid-column: 1 / -1; max-height: 250px; object-fit: contain; background: rgba(255,255,255,.55); }
 .copilot-message.thinking p { color: #887d8b; }
 .copilot-dots { margin-left: 5px; letter-spacing: 2px; animation: copilot-pulse 1.1s infinite alternate; }
 @keyframes copilot-pulse { to { opacity: .25; } }
@@ -84,8 +87,16 @@
 .copilot-undo { margin: 10px 15px 0; padding: 9px 11px; display: flex; align-items: center; justify-content: space-between; gap: 10px; border-radius: 14px; color: #64746b; background: #e9f3ed; font-size: 9px; }
 .copilot-undo button { min-height: auto; padding: 7px 9px; color: #4f765f; background: rgba(255,255,255,.7); }
 .workshop-copilot > .workshop-error { margin: 11px 15px 0; }
+.copilot-image-preview { padding: 12px 15px 0; display: flex; gap: 8px; overflow-x: auto; }
+.copilot-image-preview > div { width: 72px; height: 72px; position: relative; flex: 0 0 72px; }
+.copilot-image-preview img { width: 100%; height: 100%; display: block; object-fit: cover; border: 2px solid rgba(255,255,255,.9); border-radius: 15px; box-shadow: 0 5px 14px rgba(53,38,62,.12); }
+.copilot-image-preview button { width: 23px; height: 23px; position: absolute; top: -6px; right: -6px; display: grid; place-items: center; border: 2px solid #f6f3f7; border-radius: 50%; color: #fff; background: #756b79; font-size: 16px; line-height: 1; }
 .copilot-composer { padding: 13px 15px 8px; display: grid; grid-template-columns: minmax(0,1fr) auto; gap: 9px; align-items: end; }
-.workshop-card .copilot-composer textarea { min-height: 70px; max-height: 150px; padding: 11px 12px; border-radius: 17px; background: rgba(255,255,255,.83); font-size: 11px; }
+.copilot-input-wrap { min-width: 0; position: relative; }
+.workshop-card .copilot-composer textarea { min-height: 78px; max-height: 150px; padding: 11px 12px 34px; border-radius: 17px; background: rgba(255,255,255,.83); font-size: 11px; }
+.copilot-image-button { position: absolute; left: 9px; bottom: 8px; border: 0; border-radius: 999px; padding: 5px 9px; color: var(--theme-accent-text); background: var(--theme-accent-soft); font-size: 9px; font-weight: 850; }
+.copilot-image-button:disabled { opacity: .45; }
+.copilot-image-input { display: none; }
 .copilot-send { width: 54px; height: 42px; border: 0; border-radius: 14px; color: #fff; background: linear-gradient(145deg,var(--theme-accent-strong),var(--theme-accent-end)); font-size: 10px; font-weight: 850; }
 .copilot-send:disabled { opacity: .42; }
 .copilot-send.stop { color: #9c596d; background: #f7e5ea; }
