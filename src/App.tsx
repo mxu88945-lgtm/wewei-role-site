@@ -19,8 +19,10 @@ import PetCritter, { PET_CHOICES, type PetVariant } from './PetCritter'
 import DirectorTemplateEditor from './DirectorTemplateEditor'
 import { buildSharedTheaterBackground, createDirectorCharacter, createDirectorTemplateConfig, type DirectorTemplateConfig } from './directorTemplate'
 import CharacterWorkshop from './CharacterWorkshop'
+import StoryProjectManager from './StoryProjectManager'
+import { normalizeStoryProjects, type StoryProject } from './storyProject'
 
-type Page = 'home' | 'characters' | 'create' | 'character-workshop' | 'group-create' | 'director-template' | 'group-greeting-picker' | 'import-preview' | 'character-detail' | 'card-data' | 'card-worldbook' | 'card-regex' | 'greeting-picker' | 'chat' | 'more' | 'api' | 'model' | 'settings' | 'appearance' | 'font' | 'display-reply' | 'identity' | 'worldbook' | 'theater-world' | 'preset' | 'memory' | 'memory-api' | 'memory-list'
+type Page = 'home' | 'story-projects' | 'characters' | 'create' | 'character-workshop' | 'group-create' | 'director-template' | 'group-greeting-picker' | 'import-preview' | 'character-detail' | 'card-data' | 'card-worldbook' | 'card-regex' | 'greeting-picker' | 'chat' | 'more' | 'api' | 'model' | 'settings' | 'appearance' | 'font' | 'display-reply' | 'identity' | 'worldbook' | 'theater-world' | 'preset' | 'memory' | 'memory-api' | 'memory-list'
 type Message = { id: number; role: 'user' | 'assistant'; text: string; characterId?: string; finishReason?: string | null }
 type MessageEditor = { mode: 'assistant' | 'resend'; messageId: number; text: string }
 type Drawer = 'left' | 'right'
@@ -270,6 +272,7 @@ function App() {
   const [characters, setCharacters] = useState<Character[]>(() => read<Partial<Character>[]>('weijing.characters', [demoCharacter]).map(normalizeStoredCharacter))
   const [activeId, setActiveId] = useState(() => read('weijing.activeCharacter', demoCharacter.id))
   const [conversations, setConversations] = useState<Conversation[]>(() => loadConversations(read<Partial<Character>[]>('weijing.characters', [demoCharacter]).map(normalizeStoredCharacter)))
+  const [storyProjects, setStoryProjects] = useState<StoryProject[]>(() => normalizeStoryProjects(read('weijing.storyProjects', [])))
   const [activeConversationId, setActiveConversationId] = useState(() => read('weijing.activeConversation', ''))
   const [draft, setDraft] = useState('')
   const [newCharacter, setNewCharacter] = useState({ name: '', tagline: '', description: '', greeting: '', tags: '', avatar: '' })
@@ -382,8 +385,8 @@ function App() {
     let cancelled = false
     Promise.all([
       durableGet<Partial<Character>[]>('weijing.characters'), durableGet<Conversation[]>('weijing.conversations'),
-      durableGet<UserIdentity[]>('weijing.identities'), durableGet<UserIdentity>('weijing.identity'), durableGet<MemoryConfigMap>('weijing.memoryConfigs'), durableGet<MemoryEntryMap>('weijing.memoryEntries'), durableGet<string>('weijing.chatBackground'), durableGet<ApiConfig>('weijing.globalMemoryApi'),
-    ]).then(([storedCharacters, storedConversations, storedIdentities, storedIdentity, storedConfigs, storedEntries, storedBackground, storedGlobalMemoryApi]) => {
+      durableGet<UserIdentity[]>('weijing.identities'), durableGet<UserIdentity>('weijing.identity'), durableGet<MemoryConfigMap>('weijing.memoryConfigs'), durableGet<MemoryEntryMap>('weijing.memoryEntries'), durableGet<string>('weijing.chatBackground'), durableGet<ApiConfig>('weijing.globalMemoryApi'), durableGet<StoryProject[]>('weijing.storyProjects'),
+    ]).then(([storedCharacters, storedConversations, storedIdentities, storedIdentity, storedConfigs, storedEntries, storedBackground, storedGlobalMemoryApi, storedStoryProjects]) => {
       if (cancelled) return
       if (storedCharacters?.length) setCharacters(storedCharacters.map(normalizeStoredCharacter))
       if (storedConversations?.length) setConversations(storedConversations)
@@ -393,6 +396,7 @@ function App() {
       if (storedEntries) setMemoryEntries(storedEntries)
       if (storedBackground) setChatBackground(storedBackground)
       if (storedGlobalMemoryApi) setGlobalMemoryApi(storedGlobalMemoryApi)
+      if (storedStoryProjects) setStoryProjects(normalizeStoryProjects(storedStoryProjects))
       setPersistenceReady(true)
     }).catch(() => setPersistenceReady(true))
     navigator.storage?.estimate().then(({ usage = 0, quota = 0 }) => setStorageUsage(`${(usage / 1048576).toFixed(1)} MB / ${(quota / 1048576).toFixed(0)} MB`))
@@ -408,6 +412,7 @@ function App() {
     }
   }, [activeConversation?.id, activeConversation?.themePresetId, persistenceReady])
   useEffect(() => { if (persistenceReady) writeDurable('weijing.characters', characters) }, [characters, persistenceReady])
+  useEffect(() => { if (persistenceReady) writeDurable('weijing.storyProjects', storyProjects) }, [storyProjects, persistenceReady])
   useEffect(() => write('weijing.activeCharacter', activeId), [activeId])
   useEffect(() => setCharacterIntroExpanded(false), [activeId])
   useEffect(() => {
@@ -446,9 +451,9 @@ function App() {
   }, [chatFontSize, chatTextColor, chatNarrationColor, chatQuoteColor, chatBaseColor, chatBackgroundFrost])
   useEffect(() => { if (persistenceReady) void durableSet('weijing.chatBackground', chatBackground) }, [chatBackground, persistenceReady])
   useEffect(() => {
-    const bytes = new Blob([JSON.stringify({ characters, conversations, identities, globalMemoryApi, memoryConfigs, memoryEntries, chatBackground })]).size
+    const bytes = new Blob([JSON.stringify({ characters, conversations, identities, storyProjects, globalMemoryApi, memoryConfigs, memoryEntries, chatBackground })]).size
     setAppDataUsage(bytes < 1048576 ? `${(bytes / 1024).toFixed(0)} KB` : `${(bytes / 1048576).toFixed(2)} MB`)
-  }, [characters, conversations, identities, globalMemoryApi, memoryConfigs, memoryEntries, chatBackground])
+  }, [characters, conversations, identities, storyProjects, globalMemoryApi, memoryConfigs, memoryEntries, chatBackground])
   useEffect(() => {
     document.documentElement.classList.toggle('chat-layout-flat', chatLayout === 'flat')
     return () => document.documentElement.classList.remove('chat-layout-flat')
@@ -1282,11 +1287,13 @@ function App() {
 
   return <div className="app-shell"><main ref={phoneCanvasRef} className={`phone-canvas theme-${chatTheme} ${page === 'chat' ? 'chat-canvas' : ''}`} style={{ '--ui-font-scale': uiFontScale / 100, '--ui-font-weight': uiFontWeight, '--ui-heading-font-weight': Math.min(800, uiFontWeight + 100), '--chat-font-size': `${chatFontSize}px`, '--chat-text-color': chatTextColor, '--chat-narration-color': chatNarrationColor, '--chat-quote-color': chatQuoteColor, '--chat-base-color': chatBaseColor } as React.CSSProperties}>
     <input ref={fileInputRef} className="hidden-file-input" type="file" accept="image/png,.png,application/json,.json" onChange={(event) => handleCharacterFile(event.target.files?.[0])} />
+    {page === 'story-projects' && <StoryProjectManager projects={storyProjects} characters={characters} conversations={conversations} identities={identities} onBack={goBack} onChange={setStoryProjects} />}
     {page === 'chat' && <div className="chat-background" style={{ backgroundImage: chatBackground ? `url(${JSON.stringify(chatBackground)})` : undefined, '--chat-background-frost': chatBackgroundFrost } as React.CSSProperties} />}
     {page === 'home' && <section className="home-dashboard">
       <header className="home-heading"><p className="eyebrow">WeiWei Role</p><h1>{pageTitle}</h1><p>选择今天要进入的空间。</p></header>
       <div className="home-entrances">
         <button onClick={() => continueConversation()}><span className="home-icon">✦</span><strong>聊天</strong><small>{activeConversation ? `继续「${activeConversation.title}」` : '开始一段新的共演'}</small><i>›</i></button>
+        <button onClick={() => navigate('story-projects')}><span className="home-icon">◈</span><strong>剧本项目</strong><small>{storyProjects.some((project) => project.status === 'active') ? `${storyProjects.filter((project) => project.status === 'active').length} 部戏正在进行` : '组织角色、对话与世界背景'}</small><i>›</i></button>
         <button onClick={() => navigate('characters')}><span className="home-icon">◉</span><strong>角色库</strong><small>导入、创建与管理角色</small><i>›</i></button>
         <button onClick={() => navigate('group-create')}><span className="home-icon">◎</span><strong>群聊共演</strong><small>多个角色 · 独立模型 · 共享剧情</small><i>›</i></button>
         <button onClick={() => navigate('more')}><span className="home-icon">⌘</span><strong>设置</strong><small>API、模型、身份与应用</small><i>›</i></button>
