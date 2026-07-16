@@ -4,6 +4,7 @@ import type { ApiConfig } from './chatApi'
 import type { ApiChannel } from './apiChannels'
 import { createStoryProject, type StoryProject } from './storyProject'
 import StoryCockpitEditor from './StoryCockpitEditor'
+import { captureAssistantMessageIds } from './storyContinuity'
 import './story-project.css'
 
 type ProjectConversation = {
@@ -14,7 +15,7 @@ type ProjectConversation = {
   directorCharacterId?: string
   participantApiIds?: Record<string, string>
   participantModelNames?: Record<string, string>
-  messages: { role: 'user' | 'assistant'; text: string; characterId?: string }[]
+  messages: { id: number; role: 'user' | 'assistant'; text: string; characterId?: string }[]
 }
 
 type ProjectIdentity = { id: string; name: string; description: string }
@@ -74,7 +75,10 @@ export default function StoryProjectManager({ projects, characters, conversation
   const cockpitDirectorApiId = cockpitProject?.directorCharacterId ? cockpitConversation?.participantApiIds?.[cockpitProject.directorCharacterId] : undefined
   const cockpitBaseApi = apiChannels.find((channel) => channel.id === cockpitDirectorApiId) || api
   const cockpitApi = cockpitProject?.directorCharacterId && cockpitConversation?.participantModelNames?.[cockpitProject.directorCharacterId] ? { ...cockpitBaseApi, modelName: cockpitConversation.participantModelNames[cockpitProject.directorCharacterId] } : cockpitBaseApi
-  if (cockpitProject) return <StoryCockpitEditor project={cockpitProject} characters={characters} conversations={conversations} userName={identities.find((identity) => identity.id === cockpitProject.personaId)?.name || identities[0]?.name || '用户'} api={cockpitApi} onBack={() => setCockpitProjectId(null)} onSave={(cockpit) => {
+  if (cockpitProject) return <StoryCockpitEditor project={cockpitProject} characters={characters} conversations={conversations} userName={identities.find((identity) => identity.id === cockpitProject.personaId)?.name || identities[0]?.name || '用户'} api={cockpitApi} onBack={() => setCockpitProjectId(null)} onSetAutoContinuity={(enabled) => {
+    const checkpoint = enabled ? captureAssistantMessageIds(cockpitProject, conversations) : cockpitProject.autoContinuity.lastProcessedAssistantMessageIds
+    onChange(projects.map((project) => project.id === cockpitProject.id ? { ...project, autoContinuity: { ...project.autoContinuity, enabled, lastProcessedAssistantMessageIds: checkpoint, lastError: undefined, lastSummary: enabled ? '自动场记已开启，将从下一轮完整回复开始更新。' : project.autoContinuity.lastSummary }, updatedAt: Date.now() } : project))
+  }} onSave={(cockpit) => {
     onChange(projects.map((project) => project.id === cockpitProject.id ? { ...project, cockpit, updatedAt: Date.now() } : project))
     setCockpitProjectId(null)
   }} />
@@ -99,7 +103,7 @@ export default function StoryProjectManager({ projects, characters, conversation
     <section className="content-stack story-project-page">
       <div className="story-project-hero"><span>◈</span><div><strong>把一整部戏收进同一个项目</strong><small>角色、NPC、身份、对话与世界背景集中绑定；现有数据保持原样。</small></div></div>
       <div className="story-project-filter"><span>{projects.filter((project) => project.status === 'active').length} 个进行中</span>{projects.some((project) => project.status === 'archived') && <button onClick={() => setShowArchived(!showArchived)}>{showArchived ? '隐藏归档' : `查看归档（${projects.filter((project) => project.status === 'archived').length}）`}</button>}</div>
-      {visibleProjects.map((project) => <article className={`story-project-card ${project.status}`} key={project.id}><button className="story-project-main" onClick={() => setCockpitProjectId(project.id)}><div><small>{project.status === 'archived' ? '已归档' : project.cockpit.currentLocation || project.cockpit.relationshipStage ? '驾驶舱已启用' : '正在共演'}</small><strong>{project.title}</strong><p>{project.cockpit.currentLocation ? `${project.cockpit.currentTime || '时间未定'} · ${project.cockpit.currentLocation}` : project.summary || '还没有填写项目简介。'}</p></div><i>›</i></button><div className="story-project-meta"><span>{project.characterIds.length} 个角色</span><span>{project.conversationIds.length} 段对话</span><span>{project.cockpit.openHooks.length} 个未完成钩子</span></div><footer><button className="cockpit-entry" onClick={() => setCockpitProjectId(project.id)}>进入驾驶舱</button><button onClick={() => beginEdit(project)}>项目资料</button><button onClick={() => archive(project)}>{project.status === 'archived' ? '恢复' : '归档'}</button><button className="danger" onClick={() => remove(project)}>删除</button></footer></article>)}
+      {visibleProjects.map((project) => <article className={`story-project-card ${project.status}`} key={project.id}><button className="story-project-main" onClick={() => setCockpitProjectId(project.id)}><div><small>{project.status === 'archived' ? '已归档' : project.autoContinuity.enabled ? '自动场记已开启' : project.cockpit.currentLocation || project.cockpit.relationshipStage ? '驾驶舱已启用' : '正在共演'}</small><strong>{project.title}</strong><p>{project.cockpit.currentLocation ? `${project.cockpit.currentTime || '时间未定'} · ${project.cockpit.currentLocation}` : project.summary || '还没有填写项目简介。'}</p></div><i>›</i></button><div className="story-project-meta"><span>{project.characterIds.length} 个角色</span><span>{project.conversationIds.length} 段对话</span><span>{project.cockpit.openHooks.length} 个未完成钩子</span>{project.autoContinuity.enabled && <span>自动更新中</span>}</div><footer><button className="cockpit-entry" onClick={() => setCockpitProjectId(project.id)}>进入驾驶舱</button><button onClick={() => beginEdit(project)}>项目资料</button><button onClick={() => archive(project)}>{project.status === 'archived' ? '恢复' : '归档'}</button><button className="danger" onClick={() => remove(project)}>删除</button></footer></article>)}
       {!visibleProjects.length && <div className="story-project-empty"><span>✦</span><strong>{projects.length ? '进行中的项目都已归档' : '还没有剧本项目'}</strong><p>新建后再选择要绑定的角色和已有对话，不会自动迁移任何资料。</p><button className="primary-button" onClick={beginCreate}>建立第一部戏</button></div>}
     </section>
   </>
