@@ -1,13 +1,19 @@
 import { useEffect, useRef, useState } from 'react'
 import { completeChat } from './chatApi'
 import type { ApiChannel } from './apiChannels'
-import { createCharacterCardPng, type Character } from './characterCard'
+import { createCharacterCardPng, type Character, type RegexScript } from './characterCard'
 import { buildCharacterWorkshopPrompt, characterFromWorkshopDraft, parseCharacterWorkshopDraft, type CharacterWorkshopBrief, type CharacterWorkshopDraft } from './characterWorkshop'
 import './character-workshop.css'
 
 type SavedWorkshop = { brief: CharacterWorkshopBrief; result: CharacterWorkshopDraft | null; avatar?: string }
 
 const initialBrief: CharacterWorkshopBrief = { concept: '', name: '', relationship: '', tone: '细腻、自然、剧情向', pace: '慢热，靠事件逐步递进', boundaries: '不替用户决定言行、心理与关键选择' }
+const blankWorldEntry = () => ({ title: '新世界书条目', keywords: [] as string[], content: '', constant: false })
+const blankRegex = (): RegexScript => ({
+  id: crypto.randomUUID(), scriptName: '新 UI 美化', findRegex: '', replaceString: '', trimStrings: [],
+  placement: [1, 2], disabled: false, markdownOnly: false, promptOnly: false, runOnEdit: false,
+  substituteRegex: 0, minDepth: null, maxDepth: null,
+})
 const loadSaved = (): SavedWorkshop => {
   try { return JSON.parse(localStorage.getItem('weijing.characterWorkshop') || '') as SavedWorkshop } catch { return { brief: initialBrief, result: null } }
 }
@@ -26,7 +32,7 @@ export default function CharacterWorkshop({ channels, defaultChannelId, onBack, 
 }) {
   const saved = useRef(loadSaved()).current
   const [brief, setBrief] = useState(saved.brief || initialBrief)
-  const [result, setResult] = useState<CharacterWorkshopDraft | null>(saved.result || null)
+  const [result, setResult] = useState<CharacterWorkshopDraft | null>(saved.result ? { ...saved.result, worldbook: saved.result.worldbook || [], regexScripts: saved.result.regexScripts || [] } : null)
   const [avatar, setAvatar] = useState(saved.avatar || '')
   const [cardImage, setCardImage] = useState('')
   const [channelId, setChannelId] = useState(defaultChannelId || channels[0]?.id || '')
@@ -123,7 +129,16 @@ export default function CharacterWorkshop({ channels, defaultChannelId, onBack, 
           <TextArea label="开场白" rows={10} value={result.greeting} onChange={(greeting) => patchResult({ greeting })} />
           <details><summary>高级提示词与示例对话</summary><TextArea label="系统提示词" rows={10} value={result.systemPrompt} onChange={(systemPrompt) => patchResult({ systemPrompt })} /><TextArea label="历史后置指令" rows={8} value={result.postHistoryInstructions} onChange={(postHistoryInstructions) => patchResult({ postHistoryInstructions })} /><TextArea label="示例对话" rows={8} value={result.mesExample} onChange={(mesExample) => patchResult({ mesExample })} /><TextArea label="作者说明" rows={6} value={result.creatorNotes} onChange={(creatorNotes) => patchResult({ creatorNotes })} /></details>
         </div>
-        <div className="workshop-card worldbook-preview"><div><strong>自动世界书</strong><small>{result.worldbook.length} 条 · 加入角色库后仍可逐条编辑</small></div>{result.worldbook.map((entry, index) => <details key={`${entry.title}-${index}`}><summary>{entry.title}</summary><label><span>关键词</span><input value={entry.keywords.join('，')} onChange={(event) => patchResult({ worldbook: result.worldbook.map((item, itemIndex) => itemIndex === index ? { ...item, keywords: event.target.value.split(/[,，]/).map((value) => value.trim()).filter(Boolean) } : item) })} /></label><TextArea label="正文" value={entry.content} onChange={(content) => patchResult({ worldbook: result.worldbook.map((item, itemIndex) => itemIndex === index ? { ...item, content } : item) })} /></details>)}</div>
+        <div className="workshop-card worldbook-preview">
+          <div className="workshop-section-heading"><div><strong>世界书小项目</strong><small>{result.worldbook.length} 条 · 可自行添加、删除和逐条编辑</small></div><button onClick={() => patchResult({ worldbook: [...result.worldbook, blankWorldEntry()] })}>＋ 添加</button></div>
+          {result.worldbook.length === 0 && <div className="workshop-empty">还没有世界书，点右上角添加一条。</div>}
+          {result.worldbook.map((entry, index) => <details key={index}><summary>{entry.title || `条目 ${index + 1}`}</summary><label><span>标题</span><input value={entry.title} onChange={(event) => patchResult({ worldbook: result.worldbook.map((item, itemIndex) => itemIndex === index ? { ...item, title: event.target.value } : item) })} /></label><label><span>关键词</span><input value={entry.keywords.join('，')} onChange={(event) => patchResult({ worldbook: result.worldbook.map((item, itemIndex) => itemIndex === index ? { ...item, keywords: event.target.value.split(/[,，]/).map((value) => value.trim()).filter(Boolean) } : item) })} /></label><TextArea label="正文" value={entry.content} onChange={(content) => patchResult({ worldbook: result.worldbook.map((item, itemIndex) => itemIndex === index ? { ...item, content } : item) })} /><label className="workshop-check"><input type="checkbox" checked={entry.constant === true} onChange={(event) => patchResult({ worldbook: result.worldbook.map((item, itemIndex) => itemIndex === index ? { ...item, constant: event.target.checked } : item) })} /><span>常驻（无需关键词也会发送给模型）</span></label><button className="workshop-delete" onClick={() => patchResult({ worldbook: result.worldbook.filter((_, itemIndex) => itemIndex !== index) })}>删除这条世界书</button></details>)}
+        </div>
+        <div className="workshop-card worldbook-preview">
+          <div className="workshop-section-heading"><div><strong>正则与 UI 美化</strong><small>{result.regexScripts.length} 条 · 可粘贴 HTML/CSS 替换模板</small></div><button onClick={() => patchResult({ regexScripts: [...result.regexScripts, blankRegex()] })}>＋ 添加</button></div>
+          {result.regexScripts.length === 0 && <div className="workshop-empty">普通角色卡不必填写；需要状态栏、消息框等美化时再添加。</div>}
+          {result.regexScripts.map((script, index) => <details key={script.id}><summary>{script.scriptName || `UI 美化 ${index + 1}`}</summary><label><span>名称</span><input value={script.scriptName} onChange={(event) => patchResult({ regexScripts: result.regexScripts.map((item) => item.id === script.id ? { ...item, scriptName: event.target.value } : item) })} /></label><TextArea label="查找正则" rows={4} value={script.findRegex} onChange={(findRegex) => patchResult({ regexScripts: result.regexScripts.map((item) => item.id === script.id ? { ...item, findRegex } : item) })} /><TextArea label="替换内容（支持 HTML/CSS）" rows={8} value={script.replaceString} onChange={(replaceString) => patchResult({ regexScripts: result.regexScripts.map((item) => item.id === script.id ? { ...item, replaceString } : item) })} /><label className="workshop-check"><input type="checkbox" checked={!script.disabled} onChange={(event) => patchResult({ regexScripts: result.regexScripts.map((item) => item.id === script.id ? { ...item, disabled: !event.target.checked } : item) })} /><span>启用这条美化</span></label><button className="workshop-delete" onClick={() => patchResult({ regexScripts: result.regexScripts.filter((item) => item.id !== script.id) })}>删除这条美化</button></details>)}
+        </div>
         <div className="workshop-actions"><button onClick={() => { const character = makeCharacter(); if (character) onExport(character) }}>导出 V3 JSON</button><button disabled={!avatar || pngExporting} onClick={exportPng}>{pngExporting ? '正在写入元数据…' : avatar ? '导出元数据 PNG' : '上传立绘后导出 PNG'}</button><button className="primary" onClick={() => { const character = makeCharacter(); if (character) onSave(character) }}>加入角色库</button></div>
       </>}
     </section>
