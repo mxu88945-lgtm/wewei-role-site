@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState } from 'react'
 import { completeChat } from './chatApi'
 import type { ApiChannel } from './apiChannels'
-import { createCharacterCardPng, type Character, type RegexScript } from './characterCard'
+import { createCharacterCardPng, importCharacterCard, type Character, type RegexScript } from './characterCard'
 import { buildCharacterWorkshopPrompt, characterFromWorkshopDraft, parseCharacterWorkshopDraft, type CharacterWorkshopBrief, type CharacterWorkshopDraft } from './characterWorkshop'
 import './character-workshop.css'
 
@@ -39,6 +39,7 @@ export default function CharacterWorkshop({ channels, defaultChannelId, onBack, 
   const [state, setState] = useState<'idle' | 'generating' | 'error'>('idle')
   const [error, setError] = useState('')
   const [pngExporting, setPngExporting] = useState(false)
+  const [exportNotice, setExportNotice] = useState('')
   const controllerRef = useRef<AbortController | null>(null)
   const channel = channels.find((item) => item.id === channelId) || channels[0]
 
@@ -85,22 +86,35 @@ export default function CharacterWorkshop({ channels, defaultChannelId, onBack, 
     const character = makeCharacter()
     const imageSource = cardImage || avatar
     if (!character || !imageSource) { setError('先点右侧头像位置，上传一张角色立绘。'); return }
-    setPngExporting(true); setError('')
+    setPngExporting(true); setError(''); setExportNotice('')
     try {
       const blob = await createCharacterCardPng(character, imageSource)
-      const url = URL.createObjectURL(blob)
-      const anchor = document.createElement('a')
-      anchor.href = url
-      anchor.download = `${character.name || '角色卡'}-CardV3.png`.replace(/[\\/:*?"<>|]/g, '_')
+      const filename = `${character.name || '角色卡'}-CardV3.png`.replace(/[\\/:*?"<>|]/g, '_')
+      const file = new File([blob], filename, { type: 'image/png' })
+      const verified = await importCharacterCard(file)
+      if (verified.name !== character.name || (verified.characterBook?.entries.length || 0) !== (character.characterBook?.entries.length || 0)) throw new Error('导出自检未通过，请不要使用这张 PNG')
+      const shareData = { files: [file], title: `${character.name} · Card V3` }
+      if (navigator.share && (!navigator.canShare || navigator.canShare(shareData))) {
+        try {
+          await navigator.share(shareData)
+          setExportNotice('角色卡已通过自检。iPhone 请在分享面板选择“存储到文件”，不要“存储图像”到相册。')
+          return
+        } catch (cause) {
+          if (cause instanceof DOMException && cause.name === 'AbortError') { setExportNotice('已取消分享，角色卡没有损坏。再次点击即可重新导出。'); return }
+        }
+      }
+      const url = URL.createObjectURL(file)
+      const anchor = document.createElement('a'); anchor.href = url; anchor.download = filename
       document.body.append(anchor); anchor.click(); anchor.remove()
-      window.setTimeout(() => URL.revokeObjectURL(url), 1200)
+      window.setTimeout(() => URL.revokeObjectURL(url), 4000)
+      setExportNotice('角色卡已通过自检并下载。请从“文件/下载项”导入，不要转存到照片 App。')
     } catch (cause) {
       setError(cause instanceof Error ? cause.message : '带元数据 PNG 导出失败。')
     } finally { setPngExporting(false) }
   }
   const clear = () => {
     controllerRef.current?.abort()
-    setBrief(initialBrief); setResult(null); setAvatar(''); setCardImage(''); setError(''); setState('idle')
+    setBrief(initialBrief); setResult(null); setAvatar(''); setCardImage(''); setError(''); setExportNotice(''); setState('idle')
     localStorage.removeItem('weijing.characterWorkshop')
   }
 
@@ -139,7 +153,7 @@ export default function CharacterWorkshop({ channels, defaultChannelId, onBack, 
           {result.regexScripts.length === 0 && <div className="workshop-empty">普通角色卡不必填写；需要状态栏、消息框等美化时再添加。</div>}
           {result.regexScripts.map((script, index) => <details key={script.id}><summary>{script.scriptName || `UI 美化 ${index + 1}`}</summary><label><span>名称</span><input value={script.scriptName} onChange={(event) => patchResult({ regexScripts: result.regexScripts.map((item) => item.id === script.id ? { ...item, scriptName: event.target.value } : item) })} /></label><TextArea label="查找正则" rows={4} value={script.findRegex} onChange={(findRegex) => patchResult({ regexScripts: result.regexScripts.map((item) => item.id === script.id ? { ...item, findRegex } : item) })} /><TextArea label="替换内容（支持 HTML/CSS）" rows={8} value={script.replaceString} onChange={(replaceString) => patchResult({ regexScripts: result.regexScripts.map((item) => item.id === script.id ? { ...item, replaceString } : item) })} /><label className="workshop-check"><input type="checkbox" checked={!script.disabled} onChange={(event) => patchResult({ regexScripts: result.regexScripts.map((item) => item.id === script.id ? { ...item, disabled: !event.target.checked } : item) })} /><span>启用这条美化</span></label><button className="workshop-delete" onClick={() => patchResult({ regexScripts: result.regexScripts.filter((item) => item.id !== script.id) })}>删除这条美化</button></details>)}
         </div>
-        <div className="workshop-actions"><button onClick={() => { const character = makeCharacter(); if (character) onExport(character) }}>导出 V3 JSON</button><button disabled={!avatar || pngExporting} onClick={exportPng}>{pngExporting ? '正在写入元数据…' : avatar ? '导出元数据 PNG' : '上传立绘后导出 PNG'}</button><button className="primary" onClick={() => { const character = makeCharacter(); if (character) onSave(character) }}>加入角色库</button></div>
+        <div className="workshop-export-block"><div className="workshop-actions"><button onClick={() => { const character = makeCharacter(); if (character) onExport(character) }}>导出 V3 JSON</button><button disabled={!avatar || pngExporting} onClick={exportPng}>{pngExporting ? '正在生成并自检…' : avatar ? '导出／分享元数据 PNG' : '上传立绘后导出 PNG'}</button><button className="primary" onClick={() => { const character = makeCharacter(); if (character) onSave(character) }}>加入角色库</button></div>{exportNotice && <div className="workshop-export-notice">✓ {exportNotice}</div>}<div className="workshop-export-tip">iPhone：请选择“存储到文件”，再从文件 App 导入。存进相册会被系统洗掉角色卡元数据。</div></div>
       </>}
     </section>
   </div>
