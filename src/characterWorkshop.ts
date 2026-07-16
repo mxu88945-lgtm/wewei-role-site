@@ -1,4 +1,4 @@
-import { normalizeStoredCharacter, type Character, type CharacterBook, type WorldBookEntry } from './characterCard'
+import { normalizeStoredCharacter, type Character, type CharacterBook, type RegexScript, type WorldBookEntry } from './characterCard'
 
 export type CharacterWorkshopBrief = {
   concept: string
@@ -23,11 +23,12 @@ export type CharacterWorkshopDraft = {
   postHistoryInstructions: string
   tags: string[]
   worldbook: Array<{ title: string; keywords: string[]; content: string; constant?: boolean }>
+  regexScripts: RegexScript[]
 }
 
 const emptyDraft = (): CharacterWorkshopDraft => ({
   name: '', tagline: '', description: '', personality: '', scenario: '', greeting: '', alternateGreetings: [],
-  mesExample: '', creatorNotes: '', systemPrompt: '', postHistoryInstructions: '', tags: [], worldbook: [],
+  mesExample: '', creatorNotes: '', systemPrompt: '', postHistoryInstructions: '', tags: [], worldbook: [], regexScripts: [],
 })
 
 const text = (value: unknown) => typeof value === 'string' ? value.trim() : ''
@@ -93,7 +94,7 @@ export function parseCharacterWorkshopDraft(raw: string): CharacterWorkshopDraft
     personality: text(source.personality), scenario: text(source.scenario), greeting: text(source.greeting),
     alternateGreetings: texts(source.alternateGreetings), mesExample: text(source.mesExample),
     creatorNotes: text(source.creatorNotes), systemPrompt: text(source.systemPrompt),
-    postHistoryInstructions: text(source.postHistoryInstructions), tags: texts(source.tags), worldbook,
+    postHistoryInstructions: text(source.postHistoryInstructions), tags: texts(source.tags), worldbook, regexScripts: [],
   }
   if (!draft.name || !draft.description || !draft.greeting) throw new Error('生成结果缺少姓名、角色描述或开场白，请重试。')
   return draft
@@ -130,7 +131,6 @@ export function characterFromWorkshopDraft(draft: CharacterWorkshopDraft, avatar
     cardSpec: 'chara_card_v3',
     cardSpecVersion: '3.0',
     characterBook: characterBook(draft.name, draft.worldbook),
-    regexScripts: [],
+    regexScripts: draft.regexScripts,
   })
 }
-
