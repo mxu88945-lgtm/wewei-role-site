@@ -28,6 +28,14 @@ export type StoryCockpit = {
   nextDirections: string[]
 }
 
+export type StoryAutoContinuity = {
+  enabled: boolean
+  lastProcessedAssistantMessageIds: Record<string, number>
+  lastRunAt?: number
+  lastError?: string
+  lastSummary?: string
+}
+
 export type StoryProject = {
   id: string
   version: 1
@@ -40,6 +48,7 @@ export type StoryProject = {
   personaId?: string
   worldBackground: string
   cockpit: StoryCockpit
+  autoContinuity: StoryAutoContinuity
   createdAt: number
   updatedAt: number
 }
@@ -52,6 +61,24 @@ export function createStoryCockpit(): StoryCockpit {
   return {
     currentTime: '', currentLocation: '', presentCharacterIds: [], relationshipStage: '', currentTask: '',
     completedEvents: [], openHooks: [], evidence: [], characterKnowledge: [], nextDirections: [],
+  }
+}
+
+export function createStoryAutoContinuity(): StoryAutoContinuity {
+  return { enabled: false, lastProcessedAssistantMessageIds: {} }
+}
+
+function normalizeStoryAutoContinuity(value: Partial<StoryAutoContinuity> | undefined): StoryAutoContinuity {
+  const source = value?.lastProcessedAssistantMessageIds
+  const lastProcessedAssistantMessageIds = source && typeof source === 'object'
+    ? Object.fromEntries(Object.entries(source).filter((entry): entry is [string, number] => Boolean(entry[0]) && typeof entry[1] === 'number' && Number.isFinite(entry[1])))
+    : {}
+  return {
+    enabled: value?.enabled === true,
+    lastProcessedAssistantMessageIds,
+    lastRunAt: typeof value?.lastRunAt === 'number' ? value.lastRunAt : undefined,
+    lastError: typeof value?.lastError === 'string' && value.lastError ? value.lastError : undefined,
+    lastSummary: typeof value?.lastSummary === 'string' && value.lastSummary ? value.lastSummary : undefined,
   }
 }
 
@@ -94,6 +121,7 @@ export function createStoryProject(now = Date.now()): StoryProject {
     conversationIds: [],
     worldBackground: '',
     cockpit: createStoryCockpit(),
+    autoContinuity: createStoryAutoContinuity(),
     createdAt: now,
     updatedAt: now,
   }
@@ -113,6 +141,7 @@ export function normalizeStoryProject(value: Partial<StoryProject>): StoryProjec
     personaId: typeof value.personaId === 'string' && value.personaId ? value.personaId : undefined,
     worldBackground: typeof value.worldBackground === 'string' ? value.worldBackground : '',
     cockpit: normalizeStoryCockpit(value.cockpit),
+    autoContinuity: normalizeStoryAutoContinuity(value.autoContinuity),
     createdAt: typeof value.createdAt === 'number' ? value.createdAt : now,
     updatedAt: typeof value.updatedAt === 'number' ? value.updatedAt : now,
   }
