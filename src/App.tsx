@@ -21,6 +21,7 @@ import { buildSharedTheaterBackground, createDirectorCharacter, createDirectorTe
 import CharacterWorkshop from './CharacterWorkshop'
 import StoryProjectManager from './StoryProjectManager'
 import { normalizeStoryProjects, type StoryProject } from './storyProject'
+import { buildStoryProjectPrompt, selectConversationStoryProject } from './storyProjectPrompt'
 import { buildAutomaticContinuityInput, captureAssistantMessageIds, hasUnprocessedAssistantMessages, mergeAutomaticContinuity, parseAutomaticContinuityResponse } from './storyContinuity'
 
 type Page = 'home' | 'story-projects' | 'characters' | 'create' | 'character-workshop' | 'group-create' | 'director-template' | 'group-greeting-picker' | 'import-preview' | 'character-detail' | 'card-data' | 'card-worldbook' | 'card-regex' | 'greeting-picker' | 'chat' | 'more' | 'api' | 'model' | 'settings' | 'appearance' | 'font' | 'display-reply' | 'identity' | 'worldbook' | 'theater-world' | 'preset' | 'memory' | 'memory-api' | 'memory-list'
@@ -1048,6 +1049,8 @@ function App() {
     try {
       const isGroup = conversation.kind === 'group'
       const groupNames = (conversation.participantIds || []).map((id) => characters.find((item) => item.id === id)?.name).filter(Boolean)
+      const storyProject = selectConversationStoryProject(storyProjects, conversation.id)
+      const storyProjectContext = storyProject ? buildStoryProjectPrompt({ project: storyProject, speakerId: speaker.id, characters }) : ''
       const promptMessages = buildChatPrompt({
         character: capturedCharacter,
         user: identity,
@@ -1055,6 +1058,7 @@ function App() {
         preset: [enabledPresetText(presetSections), isGroup && `【群聊发言边界｜最高优先级】\n本轮你只能扮演 ${speaker.name}。群聊成员为：${groupNames.join('、')}。不得替用户发言、行动或思考；不得代替其他群聊角色说话、行动或决定。你可以观察并回应其他成员，但本轮输出只能属于 ${speaker.name}。`].filter(Boolean).join('\n\n'),
         globalWorldbook: worldbook,
         theaterWorldBackground: conversation.theaterWorldBackground || '',
+        storyProjectContext,
         memory: { entries: capturedMemories, injectPosition: capturedMemoryConfig.injectPosition, injectPrompt: capturedMemoryConfig.injectPrompt },
         memoryLength,
         contextSummary: conversation.contextSummary,
