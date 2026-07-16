@@ -179,7 +179,7 @@ button { cursor: pointer; }
 .chat-error { align-self: center; width: min(calc(100% - 36px), 440px); margin: 10px 0 0; padding: 12px 14px; border: 0; border-radius: 17px; display: grid; gap: 3px; color: #874355; background: #f4e3e8; text-align: left; font-size: 11px; line-height: 1.45; }
 .chat-error span { font-weight: 800; }
 .chat-error i { color: #9c6070; font-style: normal; font-weight: 700; }
-.message-list { min-height: 0; flex: 1; padding: calc(88px + env(safe-area-inset-top)) 18px calc(122px + env(safe-area-inset-bottom)); display: flex; flex-direction: column; gap: 16px; overflow-y: auto; overflow-anchor: none; overscroll-behavior-y: none; }
+.message-list { min-height: 0; flex: 1; padding: calc(88px + env(safe-area-inset-top)) 18px calc(122px + env(safe-area-inset-bottom)); display: flex; flex-direction: column; gap: 16px; overflow-y: auto; overflow-anchor: none; overscroll-behavior-y: contain; touch-action: pan-y; }
 .message-row { display: flex; flex-direction: column; align-items: flex-start; }
 .message-row.user { align-items: flex-end; }
 .message-row.message-layout-flat { width: 100%; }
