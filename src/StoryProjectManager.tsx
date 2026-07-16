@@ -1,6 +1,7 @@
 import { useMemo, useState } from 'react'
 import type { Character } from './characterCard'
 import { createStoryProject, type StoryProject } from './storyProject'
+import StoryCockpitEditor from './StoryCockpitEditor'
 import './story-project.css'
 
 type ProjectConversation = {
@@ -28,6 +29,7 @@ export default function StoryProjectManager({ projects, characters, conversation
   const [editingId, setEditingId] = useState<string | null>(null)
   const [draft, setDraft] = useState<StoryProject | null>(null)
   const [showArchived, setShowArchived] = useState(false)
+  const [cockpitProjectId, setCockpitProjectId] = useState<string | null>(null)
   const visibleProjects = useMemo(() => projects.filter((project) => showArchived || project.status === 'active').sort((a, b) => b.updatedAt - a.updatedAt), [projects, showArchived])
   const directorCandidates = characters
 
@@ -60,10 +62,16 @@ export default function StoryProjectManager({ projects, characters, conversation
     onChange(projects.filter((item) => item.id !== project.id))
   }
 
+  const cockpitProject = projects.find((project) => project.id === cockpitProjectId)
+  if (cockpitProject) return <StoryCockpitEditor project={cockpitProject} characters={characters} onBack={() => setCockpitProjectId(null)} onSave={(cockpit) => {
+    onChange(projects.map((project) => project.id === cockpitProject.id ? { ...project, cockpit, updatedAt: Date.now() } : project))
+    setCockpitProjectId(null)
+  }} />
+
   if (editingId && draft) return <>
     <header className="page-header"><button className="icon-button" onClick={() => { setEditingId(null); setDraft(null) }}>‹</button><h1>{projects.some((project) => project.id === editingId) ? '编辑剧本项目' : '新建剧本项目'}</h1><div className="header-action"><button className="text-button" disabled={!draft.title.trim()} onClick={save}>保存</button></div></header>
     <section className="content-stack story-project-editor">
-      <div className="story-project-note"><strong>项目只负责把资料组织在一起</strong><small>不会迁移、复制或改写已有角色和聊天。之后的剧情驾驶舱会继续接在这里。</small></div>
+      <div className="story-project-note"><strong>项目只负责把资料组织在一起</strong><small>不会迁移、复制或改写已有角色和聊天；剧情进度在驾驶舱独立维护。</small></div>
       <label>项目名称<input value={draft.title} onChange={(event) => setDraft({ ...draft, title: event.target.value })} placeholder="例如：裴成砚 · 落水真相" /></label>
       <label>一句话简介<textarea rows={3} value={draft.summary} onChange={(event) => setDraft({ ...draft, summary: event.target.value })} placeholder="这部戏的核心矛盾与当前方向" /></label>
       <label>用户身份<select value={draft.personaId || ''} onChange={(event) => setDraft({ ...draft, personaId: event.target.value || undefined })}><option value="">暂不指定</option>{identities.map((identity) => <option value={identity.id} key={identity.id}>{identity.name}</option>)}</select></label>
@@ -80,7 +88,7 @@ export default function StoryProjectManager({ projects, characters, conversation
     <section className="content-stack story-project-page">
       <div className="story-project-hero"><span>◈</span><div><strong>把一整部戏收进同一个项目</strong><small>角色、NPC、身份、对话与世界背景集中绑定；现有数据保持原样。</small></div></div>
       <div className="story-project-filter"><span>{projects.filter((project) => project.status === 'active').length} 个进行中</span>{projects.some((project) => project.status === 'archived') && <button onClick={() => setShowArchived(!showArchived)}>{showArchived ? '隐藏归档' : `查看归档（${projects.filter((project) => project.status === 'archived').length}）`}</button>}</div>
-      {visibleProjects.map((project) => <article className={`story-project-card ${project.status}`} key={project.id}><button className="story-project-main" onClick={() => beginEdit(project)}><div><small>{project.status === 'archived' ? '已归档' : '正在共演'}</small><strong>{project.title}</strong><p>{project.summary || '还没有填写项目简介。'}</p></div><i>›</i></button><div className="story-project-meta"><span>{project.characterIds.length} 个角色</span><span>{project.conversationIds.length} 段对话</span><span>{project.worldBackground ? '世界背景已写' : '待补世界背景'}</span></div><footer><button onClick={() => archive(project)}>{project.status === 'archived' ? '恢复项目' : '归档'}</button><button className="danger" onClick={() => remove(project)}>删除项目</button></footer></article>)}
+      {visibleProjects.map((project) => <article className={`story-project-card ${project.status}`} key={project.id}><button className="story-project-main" onClick={() => setCockpitProjectId(project.id)}><div><small>{project.status === 'archived' ? '已归档' : project.cockpit.currentLocation || project.cockpit.relationshipStage ? '驾驶舱已启用' : '正在共演'}</small><strong>{project.title}</strong><p>{project.cockpit.currentLocation ? `${project.cockpit.currentTime || '时间未定'} · ${project.cockpit.currentLocation}` : project.summary || '还没有填写项目简介。'}</p></div><i>›</i></button><div className="story-project-meta"><span>{project.characterIds.length} 个角色</span><span>{project.conversationIds.length} 段对话</span><span>{project.cockpit.openHooks.length} 个未完成钩子</span></div><footer><button className="cockpit-entry" onClick={() => setCockpitProjectId(project.id)}>进入驾驶舱</button><button onClick={() => beginEdit(project)}>项目资料</button><button onClick={() => archive(project)}>{project.status === 'archived' ? '恢复' : '归档'}</button><button className="danger" onClick={() => remove(project)}>删除</button></footer></article>)}
       {!visibleProjects.length && <div className="story-project-empty"><span>✦</span><strong>{projects.length ? '进行中的项目都已归档' : '还没有剧本项目'}</strong><p>新建后再选择要绑定的角色和已有对话，不会自动迁移任何资料。</p><button className="primary-button" onClick={beginCreate}>建立第一部戏</button></div>}
     </section>
   </>
