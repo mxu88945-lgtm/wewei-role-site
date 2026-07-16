@@ -34,5 +34,8 @@ describe('character workshop', () => {
     expect(raw.data?.name).toBe('沈砚')
     expect(raw.data?.system_prompt).toBe('不代演用户')
     expect(raw.data?.character_book?.entries[0].content).toBe('三年前未结案。')
+    const bytes = new TextDecoder('latin1').decode(embedded)
+    expect(bytes).toContain('chara\0')
+    expect(bytes).toContain('ccv3\0')
   })
 })

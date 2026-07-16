@@ -139,6 +139,30 @@ export function characterCardV3Payload(character: Character): RawCard {
   }
 }
 
+export function characterCardV2Payload(character: Character): RawCard {
+  return {
+    spec: 'chara_card_v2',
+    spec_version: '2.0',
+    data: {
+      name: character.name,
+      description: character.description,
+      personality: character.personality,
+      scenario: character.scenario,
+      first_mes: character.greeting,
+      alternate_greetings: character.alternateGreetings,
+      mes_example: character.mesExample,
+      creator_notes: character.creatorNotes,
+      system_prompt: character.systemPrompt,
+      post_history_instructions: character.postHistoryInstructions,
+      tags: character.tags,
+      creator: character.creator,
+      character_version: character.characterVersion,
+      character_book: character.characterBook,
+      extensions: { regex_scripts: character.regexScripts },
+    },
+  }
+}
+
 const textDecoder = new TextDecoder()
 const latinDecoder = new TextDecoder('latin1')
 
@@ -245,10 +269,14 @@ export function embedCharacterCardMetadata(png: Uint8Array, character: Character
   }
   if (iendOffset < 0) throw new Error('PNG 缺少结束标记，无法写入角色卡')
   const type = new TextEncoder().encode('tEXt')
-  const data = new TextEncoder().encode(`ccv3\0${encodeBase64Json(characterCardV3Payload(character))}`)
-  const chunkBody = joinBytes(type, data)
-  const chunk = joinBytes(uint32(data.length), chunkBody, uint32(crc32(chunkBody)))
-  return joinBytes(png.subarray(0, iendOffset), chunk, png.subarray(iendOffset))
+  const makeTextChunk = (keyword: string, payload: RawCard) => {
+    const data = new TextEncoder().encode(`${keyword}\0${encodeBase64Json(payload)}`)
+    const chunkBody = joinBytes(type, data)
+    return joinBytes(uint32(data.length), chunkBody, uint32(crc32(chunkBody)))
+  }
+  const legacyChunk = makeTextChunk('chara', characterCardV2Payload(character))
+  const v3Chunk = makeTextChunk('ccv3', characterCardV3Payload(character))
+  return joinBytes(png.subarray(0, iendOffset), legacyChunk, v3Chunk, png.subarray(iendOffset))
 }
 
 export async function readEmbeddedCharacterCard(png: ArrayBuffer) {
