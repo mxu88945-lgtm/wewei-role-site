@@ -1,5 +1,7 @@
 import { useMemo, useState } from 'react'
 import type { Character } from './characterCard'
+import type { ApiConfig } from './chatApi'
+import type { ApiChannel } from './apiChannels'
 import { createStoryProject, type StoryProject } from './storyProject'
 import StoryCockpitEditor from './StoryCockpitEditor'
 import './story-project.css'
@@ -10,6 +12,9 @@ type ProjectConversation = {
   characterId: string
   participantIds?: string[]
   directorCharacterId?: string
+  participantApiIds?: Record<string, string>
+  participantModelNames?: Record<string, string>
+  messages: { role: 'user' | 'assistant'; text: string; characterId?: string }[]
 }
 
 type ProjectIdentity = { id: string; name: string; description: string }
@@ -19,13 +24,15 @@ type Props = {
   characters: Character[]
   conversations: ProjectConversation[]
   identities: ProjectIdentity[]
+  api: ApiConfig
+  apiChannels: ApiChannel[]
   onBack: () => void
   onChange: (projects: StoryProject[]) => void
 }
 
 const toggleId = (ids: string[], id: string) => ids.includes(id) ? ids.filter((item) => item !== id) : [...ids, id]
 
-export default function StoryProjectManager({ projects, characters, conversations, identities, onBack, onChange }: Props) {
+export default function StoryProjectManager({ projects, characters, conversations, identities, api, apiChannels, onBack, onChange }: Props) {
   const [editingId, setEditingId] = useState<string | null>(null)
   const [draft, setDraft] = useState<StoryProject | null>(null)
   const [showArchived, setShowArchived] = useState(false)
@@ -63,7 +70,11 @@ export default function StoryProjectManager({ projects, characters, conversation
   }
 
   const cockpitProject = projects.find((project) => project.id === cockpitProjectId)
-  if (cockpitProject) return <StoryCockpitEditor project={cockpitProject} characters={characters} onBack={() => setCockpitProjectId(null)} onSave={(cockpit) => {
+  const cockpitConversation = cockpitProject && conversations.find((conversation) => cockpitProject.conversationIds.includes(conversation.id) && conversation.directorCharacterId === cockpitProject.directorCharacterId)
+  const cockpitDirectorApiId = cockpitProject?.directorCharacterId ? cockpitConversation?.participantApiIds?.[cockpitProject.directorCharacterId] : undefined
+  const cockpitBaseApi = apiChannels.find((channel) => channel.id === cockpitDirectorApiId) || api
+  const cockpitApi = cockpitProject?.directorCharacterId && cockpitConversation?.participantModelNames?.[cockpitProject.directorCharacterId] ? { ...cockpitBaseApi, modelName: cockpitConversation.participantModelNames[cockpitProject.directorCharacterId] } : cockpitBaseApi
+  if (cockpitProject) return <StoryCockpitEditor project={cockpitProject} characters={characters} conversations={conversations} userName={identities.find((identity) => identity.id === cockpitProject.personaId)?.name || identities[0]?.name || '用户'} api={cockpitApi} onBack={() => setCockpitProjectId(null)} onSave={(cockpit) => {
     onChange(projects.map((project) => project.id === cockpitProject.id ? { ...project, cockpit, updatedAt: Date.now() } : project))
     setCockpitProjectId(null)
   }} />
