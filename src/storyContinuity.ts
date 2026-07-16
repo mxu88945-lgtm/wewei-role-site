@@ -65,11 +65,13 @@ export function buildAutomaticContinuityInput({ project, characters, conversatio
 1. 只把新增对话中已经实际发生的事情记为完成事件。计划、预告、威胁、猜测与下一步意图不是已完成事件。
 2. 用户主角 ${userName} 的事实只采信用户消息；模型替她描写的心理、动作、接受、原谅、恋爱、离开或选择一律忽略。
 3. 已完成事件永久保留。旧钩子只有在新增对话明确完成或失效时才能消耗；消耗时必须原样复制到 consumedOpenHooks。
-4. 消耗一个钩子后，将最近且因果相连的未完成节点接成 currentTask，并给出 1—3 条 nextDirections。不得一次跨越多个阶段。
-5. 关系阶段只依据明确发生的互动更新；不得替用户确认感情，不得把暧昧、沉默或模型代写当作恋爱确认。
-6. 客观事实、角色已知、仍未知、误解与隐藏真相分别维护。某角色听到传闻不代表传闻为真。
-7. 不删除仍有效的旧事实、证据或知情边界。新信息不足以更新某字段时，原样保留。
-8. 旁白或导演不是在场人物，不建立角色知情边界。
+4. currentTask 表示当前最需要查清、取得或验证的核心证据节点。尚未完成时原样保留；只有它已经完成、失效，或现值只是乘车、递物、安抚、回忆、约会、闲聊等非证据动作时，才根据未完成钩子与证据缺口修正。
+5. 更新 nextDirections 时必须综合 currentTask、全部未完成钩子、公开/隐藏证据和角色知情边界，选择离证据闭环最近的 1—3 个行动。每条使用“线索目标｜行动者与动作｜预计新增信息｜如何衔接下一节点”的格式，每次最多推进一个证据节点，不得一次跨越多个阶段或直接揭晓真相。
+6. 角色反应、结束行程、日常陪伴与感情互动本身不算推进方向；只有它会造成证据交付、隐瞒暴露、立场变化或调查阻碍时才能记录，并须明确它如何服务当前证据链。
+7. 关系阶段只依据明确发生的互动更新；不得替用户确认感情，不得把暧昧、沉默或模型代写当作恋爱确认。
+8. 客观事实、角色已知、仍未知、误解与隐藏真相分别维护。某角色听到传闻不代表传闻为真。
+9. 不删除仍有效的旧事实、证据或知情边界。新信息不足以更新某字段时，原样保留。
+10. 旁白或导演不是在场人物，不建立角色知情边界。
 
 【当前项目与驾驶舱】
 ${JSON.stringify({ title: project.title, summary: project.summary, worldBackground: project.worldBackground, cockpit: project.cockpit }, null, 2)}
@@ -89,7 +91,7 @@ ${JSON.stringify(newDialogue, null, 2)}
     "relationshipStage": "", "currentTask": "", "completedEvents": [], "openHooks": [],
     "evidence": [{ "id": "保留已有id或为新增证据留空", "title": "", "detail": "", "visibility": "public或hidden", "knownByCharacterIds": [] }],
     "characterKnowledge": [{ "characterId": "", "knownFacts": [], "unknownFacts": [], "mistakenBeliefs": [] }],
-    "nextDirections": []
+    "nextDirections": ["线索目标｜行动者与动作｜预计新增信息｜如何衔接下一节点"]
   }
 }`
 }
