@@ -41,6 +41,7 @@ describe('buildChatPrompt', () => {
       preset: '细腻慢热。',
       globalWorldbook: '现代都市。',
       theaterWorldBackground: '本剧场发生在雨夜后台，顾荒与陆时宴彼此敌视。',
+      storyProjectContext: '【剧本项目场记切片】当前关系阶段：克制试探。',
       memory: { entries: [{ content: '两人曾在雨夜见面。' }], injectPosition: 'after-main-prompt', injectPrompt: '长期记忆：\n{{memories}}' },
       memoryLength: 20,
       contextSummary: '此前两人已经约定共同保守钥匙的秘密。',
@@ -53,6 +54,7 @@ describe('buildChatPrompt', () => {
     expect(all.match(/现代都市/g)).toHaveLength(1)
     expect(all).toContain('【本剧场世界观背景｜本剧场所有角色与 NPC 共用】')
     expect(all).toContain('本剧场发生在雨夜后台，顾荒与陆时宴彼此敌视。')
+    expect(all).toContain('【剧本项目场记切片】当前关系阶段：克制试探。')
     expect(all).toContain('顾荒在后台留了一把钥匙')
     expect(all).not.toContain('这段不应出现')
     expect(all).toContain('两人曾在雨夜见面')
