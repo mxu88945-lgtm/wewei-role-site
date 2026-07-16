@@ -44,6 +44,9 @@ describe('story project prompt injection', () => {
     expect(prompt).toContain('真正收款人是霍启铭')
     expect(prompt).toContain('霍启铭正在调查他')
     expect(prompt).toContain('禁止重演')
+    expect(prompt).toContain('离证据闭环最近的一个缺口')
+    expect(prompt).toContain('每轮最多推进一个证据节点')
+    expect(prompt).toContain('材料如何留存')
   })
 
   it('gives an independent actor only its safe knowledge slice', () => {
