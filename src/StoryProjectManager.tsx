@@ -2,7 +2,7 @@ import { useMemo, useState } from 'react'
 import type { Character } from './characterCard'
 import type { ApiConfig } from './chatApi'
 import type { ApiChannel } from './apiChannels'
-import { createStoryProject, type StoryProject } from './storyProject'
+import { createStoryProject, normalizeStoryCockpit, type StoryProject } from './storyProject'
 import StoryCockpitEditor from './StoryCockpitEditor'
 import { captureAssistantMessageIds } from './storyContinuity'
 import './story-project.css'
@@ -48,13 +48,20 @@ export default function StoryProjectManager({ projects, characters, conversation
   }
 
   const beginEdit = (project: StoryProject) => {
-    setDraft({ ...project, characterIds: [...project.characterIds], conversationIds: [...project.conversationIds] })
+    setDraft({
+      ...project,
+      characterIds: [...project.characterIds],
+      conversationIds: [...project.conversationIds],
+      cockpit: normalizeStoryCockpit(project.cockpit),
+      autoContinuity: { ...project.autoContinuity, lastProcessedAssistantMessageIds: { ...project.autoContinuity.lastProcessedAssistantMessageIds } },
+    })
     setEditingId(project.id)
   }
 
   const save = () => {
     if (!draft?.title.trim()) return
-    const next = { ...draft, title: draft.title.trim(), summary: draft.summary.trim(), worldBackground: draft.worldBackground.trim(), updatedAt: Date.now() }
+    const latest = projects.find((project) => project.id === draft.id)
+    const next = { ...draft, cockpit: latest?.cockpit || draft.cockpit, autoContinuity: latest?.autoContinuity || draft.autoContinuity, title: draft.title.trim(), summary: draft.summary.trim(), worldBackground: draft.worldBackground.trim(), updatedAt: Date.now() }
     onChange(projects.some((project) => project.id === next.id) ? projects.map((project) => project.id === next.id ? next : project) : [...projects, next])
     setDraft(null)
     setEditingId(null)
@@ -75,7 +82,7 @@ export default function StoryProjectManager({ projects, characters, conversation
   const cockpitDirectorApiId = cockpitProject?.directorCharacterId ? cockpitConversation?.participantApiIds?.[cockpitProject.directorCharacterId] : undefined
   const cockpitBaseApi = apiChannels.find((channel) => channel.id === cockpitDirectorApiId) || api
   const cockpitApi = cockpitProject?.directorCharacterId && cockpitConversation?.participantModelNames?.[cockpitProject.directorCharacterId] ? { ...cockpitBaseApi, modelName: cockpitConversation.participantModelNames[cockpitProject.directorCharacterId] } : cockpitBaseApi
-  if (cockpitProject) return <StoryCockpitEditor project={cockpitProject} characters={characters} conversations={conversations} userName={identities.find((identity) => identity.id === cockpitProject.personaId)?.name || identities[0]?.name || '用户'} api={cockpitApi} onBack={() => setCockpitProjectId(null)} onSetAutoContinuity={(enabled) => {
+  if (cockpitProject) return <StoryCockpitEditor project={cockpitProject} characters={characters} conversations={conversations} userName={identities.find((identity) => identity.id === cockpitProject.personaId)?.name || identities[0]?.name || '用户'} api={cockpitApi} onBack={() => setCockpitProjectId(null)} onEditProject={() => { setCockpitProjectId(null); beginEdit(cockpitProject) }} onSetAutoContinuity={(enabled) => {
     const checkpoint = enabled ? captureAssistantMessageIds(cockpitProject, conversations) : cockpitProject.autoContinuity.lastProcessedAssistantMessageIds
     onChange(projects.map((project) => project.id === cockpitProject.id ? { ...project, autoContinuity: { ...project.autoContinuity, enabled, lastProcessedAssistantMessageIds: checkpoint, lastError: undefined, lastSummary: enabled ? '自动场记已开启，将从下一轮完整回复开始更新。' : project.autoContinuity.lastSummary }, updatedAt: Date.now() } : project))
   }} onSave={(cockpit) => {
@@ -84,7 +91,7 @@ export default function StoryProjectManager({ projects, characters, conversation
   }} />
 
   if (editingId && draft) return <>
-    <header className="page-header"><button className="icon-button" onClick={() => { setEditingId(null); setDraft(null) }}>‹</button><h1>{projects.some((project) => project.id === editingId) ? '编辑剧本项目' : '新建剧本项目'}</h1><div className="header-action"><button className="text-button" disabled={!draft.title.trim()} onClick={save}>保存</button></div></header>
+    <header className="page-header"><button className="icon-button" onClick={() => { setEditingId(null); setDraft(null) }}>‹</button><h1>{projects.some((project) => project.id === editingId) ? '编辑剧本项目' : '新建剧本项目'}</h1><div className="header-action"><button className="text-button" disabled={!draft.title.trim()} onClick={save}>保存并返回</button></div></header>
     <section className="content-stack story-project-editor">
       <div className="story-project-note"><strong>项目只负责把资料组织在一起</strong><small>不会迁移、复制或改写已有角色和聊天；剧情进度在驾驶舱独立维护。</small></div>
       <label>项目名称<input value={draft.title} onChange={(event) => setDraft({ ...draft, title: event.target.value })} placeholder="例如：裴成砚 · 落水真相" /></label>
