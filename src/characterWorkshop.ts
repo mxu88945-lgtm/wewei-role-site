@@ -30,6 +30,7 @@ export type WorkshopCopilotMessage = {
   id: string
   role: 'user' | 'assistant'
   content: string
+  images?: Array<{ id: string; name: string; dataUrl: string }>
 }
 
 export type WorkshopCopilotPatch = {
@@ -85,7 +86,7 @@ export function buildWorkshopCopilotPrompt({ draft, request, messages, memory, p
   memory?: string
   pendingPatch?: WorkshopCopilotPatch | null
 }) {
-  const recent = messages.slice(-10).map(({ role, content }) => `${role === 'user' ? '用户' : '助手'}：${content}`).join('\n') || '暂无'
+  const recent = messages.slice(-10).map(({ role, content, images }) => `${role === 'user' ? '用户' : '助手'}：${content}${images?.length ? `\n[本轮附有 ${images.length} 张截图；视觉细节以助手随后写出的文字结论为准]` : ''}`).join('\n') || '暂无'
   return `你是“惟境 AI 角色卡工坊助手”，在一个持续对话窗口中协助用户维护整张 Character Card V3 草稿。你既能讨论，也能在用户需要时提出可直接写入工坊的结构化改动。
 
 工作方式：
@@ -126,7 +127,7 @@ ${request.trim()}`
 }
 
 export function buildWorkshopCopilotCompressionPrompt(messages: WorkshopCopilotMessage[], previousMemory = '') {
-  return `请把这段“AI 角色卡工坊助手”对话压缩成可供后续继续工作的长期记忆。保留：用户审美偏好、已经确认的角色设定、正则/UI 约定、仍未解决的问题、明确禁区。删除寒暄、重复过程和已被推翻的方案。不要替用户补充未确认事实。只输出中文摘要，不要标题和解释。\n\n已有长期记忆：\n${previousMemory || '暂无'}\n\n待压缩对话：\n${messages.map(({ role, content }) => `${role === 'user' ? '用户' : '助手'}：${content}`).join('\n')}`
+  return `请把这段“AI 角色卡工坊助手”对话压缩成可供后续继续工作的长期记忆。保留：用户审美偏好、已经确认的角色设定、正则/UI 约定、截图中已经由助手明确识别的视觉问题、仍未解决的问题、明确禁区。删除寒暄、重复过程、原始图片和已被推翻的方案；截图没有被文字确认的细节不得猜测。不要替用户补充未确认事实。只输出中文摘要，不要标题和解释。\n\n已有长期记忆：\n${previousMemory || '暂无'}\n\n待压缩对话：\n${messages.map(({ role, content, images }) => `${role === 'user' ? '用户' : '助手'}：${content}${images?.length ? ` [附过 ${images.length} 张截图]` : ''}`).join('\n')}`
 }
 
 function parseCopilotFields(value: unknown): WorkshopCopilotPatch['fields'] {
