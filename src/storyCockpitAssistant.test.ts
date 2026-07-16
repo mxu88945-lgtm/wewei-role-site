@@ -14,6 +14,9 @@ describe('story cockpit assistant', () => {
     expect(input).toContain('江黎姿走进展厅')
     expect(input).toContain('不得虚构日期')
     expect(input).toContain('旁白导演是后台控制者')
+    expect(input).toContain('离形成证据闭环最近的缺口')
+    expect(input).toContain('线索目标｜行动者与动作｜预计新增信息｜如何衔接下一节点')
+    expect(input).toContain('不得只写角色反应')
   })
 
   it('parses JSON while rejecting unknown or director-like ids outside the allowlist', () => {

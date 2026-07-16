@@ -356,10 +356,12 @@ export default function CharacterWorkshop({ channels, defaultChannelId, onBack, 
         <div className="copilot-composer">
           <div className="copilot-input-wrap">
             <textarea rows={3} value={copilotInput} disabled={copilotState !== 'idle'} onChange={(event) => setCopilotInput(event.target.value)} onKeyDown={(event) => { if (event.key === 'Enter' && !event.shiftKey) { event.preventDefault(); void askCopilot() } }} placeholder={result ? '说说哪里不满意，也可以附截图让它直接看…' : '先聊角色构想，或附参考图从零开始建立草稿…'} />
-            <button type="button" className="copilot-image-button" disabled={copilotState !== 'idle' || copilotImageBusy || copilotImages.length >= 3} onClick={() => copilotImageInputRef.current?.click()}>{copilotImageBusy ? '处理中…' : '＋ 图片'}</button>
             <input ref={copilotImageInputRef} className="copilot-image-input" type="file" accept="image/*" multiple onChange={(event) => void addCopilotImages(event.currentTarget.files)} />
           </div>
-          {copilotState === 'thinking' ? <button className="copilot-send stop" onClick={() => copilotControllerRef.current?.abort()}>停止</button> : <button className="copilot-send" disabled={copilotImageBusy || (!copilotInput.trim() && !copilotImages.length)} onClick={() => askCopilot()}>发送</button>}
+          <div className="copilot-actions">
+            <button type="button" className="copilot-image-button" disabled={copilotState !== 'idle' || copilotImageBusy || copilotImages.length >= 3} onClick={() => copilotImageInputRef.current?.click()}>{copilotImageBusy ? '处理中' : '＋ 图片'}</button>
+            {copilotState === 'thinking' ? <button className="copilot-send stop" onClick={() => copilotControllerRef.current?.abort()}>停止</button> : <button className="copilot-send" disabled={copilotImageBusy || (!copilotInput.trim() && !copilotImages.length)} onClick={() => askCopilot()}>发送</button>}
+          </div>
         </div>
         <div className="copilot-hint">可同时发送文字与最多 3 张截图。助手只提交改动提案；必须由你点“写入整个工坊”才会真的修改。压缩上下文后仅保留截图结论，不保留旧图片。</div>
       </div>
