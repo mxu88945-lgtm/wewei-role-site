@@ -4,6 +4,24 @@ import { completeChat, testApiConnection } from './chatApi'
 afterEach(() => vi.unstubAllGlobals())
 
 describe('chatApi', () => {
+  it('原样发送 OpenAI 兼容的图文消息数组', async () => {
+    let requestBody: { messages?: unknown[] } = {}
+    vi.stubGlobal('fetch', vi.fn(async (_url: string, init?: RequestInit) => {
+      requestBody = JSON.parse(String(init?.body))
+      return new Response(JSON.stringify({ choices: [{ message: { content: '看到了截图。' } }] }), { headers: { 'content-type': 'application/json' } })
+    }))
+    let output = ''
+    const imageUrl = 'data:image/jpeg;base64,abc'
+    await completeChat({
+      api: { baseUrl: 'https://example.com/v1', apiKey: 'test', modelName: 'vision-model' },
+      messages: [{ role: 'user', content: [{ type: 'text', text: '哪里不对？' }, { type: 'image_url', image_url: { url: imageUrl, detail: 'high' } }] }],
+      temperature: 1, topP: 1, maxTokens: 100, streaming: false,
+      signal: new AbortController().signal, onDelta: (delta) => { output += delta },
+    })
+    expect(output).toBe('看到了截图。')
+    expect(requestBody.messages).toEqual([{ role: 'user', content: [{ type: 'text', text: '哪里不对？' }, { type: 'image_url', image_url: { url: imageUrl, detail: 'high' } }] }])
+  })
+
   it('解析 OpenAI 兼容的 SSE 流', async () => {
     vi.stubGlobal('fetch', vi.fn(async () => new Response([
       'data: {"choices":[{"delta":{"content":"你"}}]}',

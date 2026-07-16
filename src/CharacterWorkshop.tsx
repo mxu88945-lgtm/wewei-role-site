@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from 'react'
-import { completeChat } from './chatApi'
+import { completeChat, type ChatApiContentPart } from './chatApi'
 import type { ApiChannel } from './apiChannels'
 import { createCharacterCardPng, importCharacterCard, type Character, type RegexScript } from './characterCard'
 import {
@@ -27,6 +27,42 @@ const blankRegex = (): RegexScript => ({
   placement: [1, 2], disabled: false, markdownOnly: false, promptOnly: false, runOnEdit: false,
   substituteRegex: 0, minDepth: null, maxDepth: null,
 })
+
+type PendingCopilotImage = { id: string; name: string; dataUrl: string; thumbnailUrl: string }
+
+const readImage = (file: File) => new Promise<HTMLImageElement>((resolve, reject) => {
+  const reader = new FileReader()
+  reader.onerror = () => reject(new Error(`读取“${file.name}”失败。`))
+  reader.onload = () => {
+    const image = new Image()
+    image.onerror = () => reject(new Error(`“${file.name}”不是可识别的图片。`))
+    image.onload = () => resolve(image)
+    image.src = String(reader.result || '')
+  }
+  reader.readAsDataURL(file)
+})
+
+const renderImage = (image: HTMLImageElement, maxSide: number, quality: number) => {
+  const scale = Math.min(1, maxSide / Math.max(image.naturalWidth, image.naturalHeight))
+  const canvas = document.createElement('canvas')
+  canvas.width = Math.max(1, Math.round(image.naturalWidth * scale))
+  canvas.height = Math.max(1, Math.round(image.naturalHeight * scale))
+  const context = canvas.getContext('2d')
+  if (!context) throw new Error('浏览器暂时无法处理这张图片。')
+  context.drawImage(image, 0, 0, canvas.width, canvas.height)
+  return canvas.toDataURL('image/jpeg', quality)
+}
+
+const prepareCopilotImage = async (file: File): Promise<PendingCopilotImage> => {
+  if (!file.type.startsWith('image/')) throw new Error(`“${file.name}”不是图片。`)
+  if (file.size > 15 * 1024 * 1024) throw new Error(`“${file.name}”超过 15MB，请先裁小一点。`)
+  const image = await readImage(file)
+  return {
+    id: crypto.randomUUID(), name: file.name,
+    dataUrl: renderImage(image, 1600, .86),
+    thumbnailUrl: renderImage(image, 420, .78),
+  }
+}
 const loadSaved = (): SavedWorkshop => {
   try { return JSON.parse(localStorage.getItem('weijing.characterWorkshop') || '') as SavedWorkshop } catch { return { brief: initialBrief, result: null } }
 }
@@ -58,11 +94,14 @@ export default function CharacterWorkshop({ channels, defaultChannelId, onBack, 
   const [pendingCopilotPatch, setPendingCopilotPatch] = useState<WorkshopCopilotPatch | null>(saved.pendingCopilotPatch || null)
   const [copilotUndoSnapshot, setCopilotUndoSnapshot] = useState<CharacterWorkshopDraft | null>(saved.copilotUndoSnapshot || null)
   const [copilotInput, setCopilotInput] = useState('')
+  const [copilotImages, setCopilotImages] = useState<PendingCopilotImage[]>([])
+  const [copilotImageBusy, setCopilotImageBusy] = useState(false)
   const [copilotState, setCopilotState] = useState<'idle' | 'thinking' | 'compressing'>('idle')
   const [copilotError, setCopilotError] = useState('')
   const controllerRef = useRef<AbortController | null>(null)
   const copilotControllerRef = useRef<AbortController | null>(null)
   const copilotEndRef = useRef<HTMLDivElement | null>(null)
+  const copilotImageInputRef = useRef<HTMLInputElement | null>(null)
   const channel = channels.find((item) => item.id === channelId) || channels[0]
 
   useEffect(() => {
@@ -105,30 +144,38 @@ export default function CharacterWorkshop({ channels, defaultChannelId, onBack, 
     }
   }
 
-  const appendCopilotMessage = (role: WorkshopCopilotMessage['role'], content: string) => {
-    const message = { id: crypto.randomUUID(), role, content }
+  const appendCopilotMessage = (role: WorkshopCopilotMessage['role'], content: string, images?: WorkshopCopilotMessage['images']) => {
+    const message = { id: crypto.randomUUID(), role, content, ...(images?.length ? { images } : {}) }
     setCopilotMessages((current) => [...current, message])
     return message
   }
 
   const askCopilot = async (quickRequest?: string) => {
-    const request = (quickRequest ?? copilotInput).trim()
-    if (!request || copilotState !== 'idle') return
+    const typedRequest = (quickRequest ?? copilotInput).trim()
+    const request = typedRequest || (copilotImages.length ? '请查看我附上的截图，结合当前工坊草稿和已有正则，指出画面里不对的地方，并给出可以写入工坊的修正方案。' : '')
+    if (!request || copilotState !== 'idle' || copilotImageBusy) return
     if (!channel?.apiKey.trim() || !channel.modelName.trim()) { setCopilotError('当前 API 渠道还没有可用的密钥或模型，请先去 API 设置。'); return }
     const draft = result || createEmptyCharacterWorkshopDraft()
     copilotControllerRef.current?.abort()
     const controller = new AbortController()
     copilotControllerRef.current = controller
     const history = copilotMessages
-    appendCopilotMessage('user', request)
-    setCopilotInput(''); setCopilotError(''); setCopilotState('thinking')
+    const images = copilotImages
+    const displayImages = images.map(({ id, name, thumbnailUrl }) => ({ id, name, dataUrl: thumbnailUrl }))
+    const userMessage = appendCopilotMessage('user', request, displayImages)
+    setCopilotInput(''); setCopilotImages([]); setCopilotError(''); setCopilotState('thinking')
     let raw = ''
     try {
+      const prompt = buildWorkshopCopilotPrompt({ draft, request, messages: history, memory: copilotMemory, pendingPatch: pendingCopilotPatch })
+      const content: ChatApiContentPart[] = [
+        { type: 'text', text: prompt },
+        ...images.map((image): ChatApiContentPart => ({ type: 'image_url', image_url: { url: image.dataUrl, detail: 'high' } })),
+      ]
       await completeChat({
         api: channel,
         messages: [
           { role: 'system', content: '你是可持续对话的角色卡工坊助手。严格按用户提示输出单个 JSON 对象，不要 Markdown。' },
-          { role: 'user', content: buildWorkshopCopilotPrompt({ draft, request, messages: history, memory: copilotMemory, pendingPatch: pendingCopilotPatch }) },
+          { role: 'user', content },
         ],
         temperature: .66, topP: .9, maxTokens: 16000, streaming: false, signal: controller.signal,
         onDelta: (delta) => { raw += delta },
@@ -138,6 +185,9 @@ export default function CharacterWorkshop({ channels, defaultChannelId, onBack, 
       if (response.patch) setPendingCopilotPatch(response.patch)
       setCopilotState('idle')
     } catch (cause) {
+      setCopilotMessages((current) => current.filter((message) => message.id !== userMessage.id))
+      setCopilotInput(typedRequest)
+      setCopilotImages(images)
       if (controller.signal.aborted) { setCopilotState('idle'); return }
       setCopilotError(cause instanceof Error ? cause.message : '工坊助手暂时没接住，请重试。')
       setCopilotState('idle')
@@ -166,7 +216,7 @@ export default function CharacterWorkshop({ channels, defaultChannelId, onBack, 
       const memory = raw.trim().replace(/^```\w*\s*/i, '').replace(/\s*```$/i, '')
       if (!memory) throw new Error('模型没有返回摘要。')
       setCopilotMemory(memory)
-      setCopilotMessages(keep)
+      setCopilotMessages(keep.map(({ images: _images, ...message }) => message))
       setCopilotState('idle')
     } catch (cause) {
       if (controller.signal.aborted) { setCopilotState('idle'); return }
@@ -194,7 +244,25 @@ export default function CharacterWorkshop({ channels, defaultChannelId, onBack, 
   const clearCopilotConversation = () => {
     copilotControllerRef.current?.abort()
     setCopilotMessages([]); setCopilotMemory(''); setPendingCopilotPatch(null); setCopilotUndoSnapshot(null)
-    setCopilotInput(''); setCopilotError(''); setCopilotState('idle')
+    setCopilotInput(''); setCopilotImages([]); setCopilotError(''); setCopilotState('idle')
+  }
+
+  const addCopilotImages = async (files: FileList | null) => {
+    if (!files?.length || copilotImageBusy) return
+    const room = 3 - copilotImages.length
+    if (room <= 0) { setCopilotError('一次最多附 3 张截图，先删掉一张再选。'); return }
+    setCopilotImageBusy(true); setCopilotError('')
+    try {
+      const selected = Array.from(files).slice(0, room)
+      const prepared = await Promise.all(selected.map(prepareCopilotImage))
+      setCopilotImages((current) => [...current, ...prepared].slice(0, 3))
+      if (files.length > room) setCopilotError(`一次最多附 3 张截图，已保留前 ${room} 张。`)
+    } catch (cause) {
+      setCopilotError(cause instanceof Error ? cause.message : '图片处理失败，请换一张再试。')
+    } finally {
+      setCopilotImageBusy(false)
+      if (copilotImageInputRef.current) copilotImageInputRef.current.value = ''
+    }
   }
 
   const makeCharacter = () => result ? characterFromWorkshopDraft(result, avatar) : null
@@ -266,7 +334,11 @@ export default function CharacterWorkshop({ channels, defaultChannelId, onBack, 
         </div>
         <div className="copilot-chat" aria-live="polite">
           {copilotMessages.length === 0 && <div className="copilot-welcome"><strong>你可以像聊天一样慢慢说。</strong><p>比如“状态栏想要冷灰玻璃感，先别动气泡”“这个正则为什么没生效”“把现有开场栏改成可折叠”。我会读当前草稿，和你讨论，再把确认的方案写进去。</p></div>}
-          {copilotMessages.map((message) => <div key={message.id} className={`copilot-message ${message.role}`}><span>{message.role === 'user' ? '你' : '工坊助手'}</span><p>{message.content}</p></div>)}
+          {copilotMessages.map((message) => <div key={message.id} className={`copilot-message ${message.role}`}>
+            <span>{message.role === 'user' ? '你' : '工坊助手'}</span>
+            {!!message.images?.length && <div className="copilot-message-images">{message.images.map((image) => <img key={image.id} src={image.dataUrl} alt={image.name || '用户截图'} />)}</div>}
+            <p>{message.content}</p>
+          </div>)}
           {copilotState === 'thinking' && <div className="copilot-message assistant thinking"><span>工坊助手</span><p>正在查看草稿和已有正则<span className="copilot-dots">•••</span></p></div>}
           <div ref={copilotEndRef} />
         </div>
@@ -278,11 +350,18 @@ export default function CharacterWorkshop({ channels, defaultChannelId, onBack, 
         </div>}
         {copilotUndoSnapshot && <div className="copilot-undo"><span>上一次改动已写入草稿</span><button onClick={undoCopilotApply}>撤销这次写入</button></div>}
         {copilotError && <div className="workshop-error">{copilotError}</div>}
+        {!!copilotImages.length && <div className="copilot-image-preview">
+          {copilotImages.map((image) => <div key={image.id}><img src={image.thumbnailUrl} alt={image.name} /><button type="button" aria-label={`移除 ${image.name}`} onClick={() => setCopilotImages((current) => current.filter((item) => item.id !== image.id))}>×</button></div>)}
+        </div>}
         <div className="copilot-composer">
-          <textarea rows={3} value={copilotInput} disabled={copilotState !== 'idle'} onChange={(event) => setCopilotInput(event.target.value)} onKeyDown={(event) => { if (event.key === 'Enter' && !event.shiftKey) { event.preventDefault(); void askCopilot() } }} placeholder={result ? '告诉它你想怎么改；可以反复讨论，Enter 发送…' : '先聊角色构想，或让它从零开始建立整张草稿…'} />
-          {copilotState === 'thinking' ? <button className="copilot-send stop" onClick={() => copilotControllerRef.current?.abort()}>停止</button> : <button className="copilot-send" disabled={!copilotInput.trim()} onClick={() => askCopilot()}>发送</button>}
+          <div className="copilot-input-wrap">
+            <textarea rows={3} value={copilotInput} disabled={copilotState !== 'idle'} onChange={(event) => setCopilotInput(event.target.value)} onKeyDown={(event) => { if (event.key === 'Enter' && !event.shiftKey) { event.preventDefault(); void askCopilot() } }} placeholder={result ? '说说哪里不满意，也可以附截图让它直接看…' : '先聊角色构想，或附参考图从零开始建立草稿…'} />
+            <button type="button" className="copilot-image-button" disabled={copilotState !== 'idle' || copilotImageBusy || copilotImages.length >= 3} onClick={() => copilotImageInputRef.current?.click()}>{copilotImageBusy ? '处理中…' : '＋ 图片'}</button>
+            <input ref={copilotImageInputRef} className="copilot-image-input" type="file" accept="image/*" multiple onChange={(event) => void addCopilotImages(event.currentTarget.files)} />
+          </div>
+          {copilotState === 'thinking' ? <button className="copilot-send stop" onClick={() => copilotControllerRef.current?.abort()}>停止</button> : <button className="copilot-send" disabled={copilotImageBusy || (!copilotInput.trim() && !copilotImages.length)} onClick={() => askCopilot()}>发送</button>}
         </div>
-        <div className="copilot-hint">助手只提交改动提案；必须由你点“写入整个工坊”才会真的修改，未提到的栏目保持原样。</div>
+        <div className="copilot-hint">可同时发送文字与最多 3 张截图。助手只提交改动提案；必须由你点“写入整个工坊”才会真的修改。压缩上下文后仅保留截图结论，不保留旧图片。</div>
       </div>
 
       {result && <>

@@ -1,5 +1,8 @@
 export type ApiConfig = { baseUrl: string; apiKey: string; modelName: string; maxTokenField?: 'auto' | 'max_tokens' | 'max_completion_tokens' }
-export type ChatApiMessage = { role: 'system' | 'user' | 'assistant'; content: string }
+export type ChatApiContentPart =
+  | { type: 'text'; text: string }
+  | { type: 'image_url'; image_url: { url: string; detail?: 'auto' | 'low' | 'high' } }
+export type ChatApiMessage = { role: 'system' | 'user' | 'assistant'; content: string | ChatApiContentPart[] }
 export type CompletionResult = { finishReason: string | null }
 
 export type ApiModel = {
