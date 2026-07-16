@@ -1,22 +1,44 @@
 import { useState } from 'react'
 import type { Character } from './characterCard'
+import { completeChat, type ApiConfig } from './chatApi'
 import { normalizeStoryCockpit, type CharacterKnowledge, type StoryCockpit, type StoryEvidence, type StoryProject } from './storyProject'
+import { buildCockpitAssistantInput, parseCockpitAssistantResponse, type CockpitSourceConversation } from './storyCockpitAssistant'
 
 const lines = (value: string) => value.split('\n').map((item) => item.trim()).filter(Boolean)
 const text = (value: string[]) => value.join('\n')
 const evidenceId = () => `evidence-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`
 
-export default function StoryCockpitEditor({ project, characters, onBack, onSave }: { project: StoryProject; characters: Character[]; onBack: () => void; onSave: (cockpit: StoryCockpit) => void }) {
+export default function StoryCockpitEditor({ project, characters, conversations, userName, api, onBack, onSave }: { project: StoryProject; characters: Character[]; conversations: CockpitSourceConversation[]; userName: string; api: ApiConfig; onBack: () => void; onSave: (cockpit: StoryCockpit) => void }) {
   const [draft, setDraft] = useState(() => normalizeStoryCockpit(project.cockpit))
-  const projectCharacters = project.characterIds.map((id) => characters.find((item) => item.id === id)).filter(Boolean) as Character[]
+  const [assistantState, setAssistantState] = useState<'idle' | 'working' | 'done' | 'error'>('idle')
+  const [assistantMessage, setAssistantMessage] = useState('')
+  const projectCharacters = project.characterIds.filter((id) => id !== project.directorCharacterId).map((id) => characters.find((item) => item.id === id)).filter(Boolean) as Character[]
+  const boundConversations = conversations.filter((conversation) => project.conversationIds.includes(conversation.id))
   const updateEvidence = (id: string, patch: Partial<StoryEvidence>) => setDraft((current) => ({ ...current, evidence: current.evidence.map((item) => item.id === id ? { ...item, ...patch } : item) }))
   const knowledgeFor = (characterId: string) => draft.characterKnowledge.find((item) => item.characterId === characterId) || { characterId, knownFacts: [], unknownFacts: [], mistakenBeliefs: [] }
   const updateKnowledge = (next: CharacterKnowledge) => setDraft((current) => ({ ...current, characterKnowledge: current.characterKnowledge.some((item) => item.characterId === next.characterId) ? current.characterKnowledge.map((item) => item.characterId === next.characterId ? next : item) : [...current.characterKnowledge, next] }))
+
+  const autoFill = async () => {
+    if (!api?.apiKey?.trim() || !api.baseUrl?.trim() || !api.modelName?.trim()) { setAssistantState('error'); setAssistantMessage('当前 API 还没有可用的密钥或模型，请先去 API 设置。'); return }
+    setAssistantState('working'); setAssistantMessage('正在读项目资料、角色卡和绑定对话…')
+    let response = ''
+    try {
+      const input = buildCockpitAssistantInput({ project: { ...project, cockpit: draft }, characters: projectCharacters, conversations: boundConversations, userName })
+      await completeChat({
+        api, messages: [{ role: 'system', content: '你是严谨的剧情场记与信息边界审计员。必须只输出合法 JSON，不续写剧情，不替用户主角作决定，不把猜测写成事实。' }, { role: 'user', content: input }],
+        temperature: .1, topP: 1, maxTokens: 8000, streaming: false, signal: new AbortController().signal,
+        onDelta: (delta) => { response += delta },
+      })
+      setDraft(parseCockpitAssistantResponse(response, projectCharacters.map((character) => character.id)))
+      setAssistantState('done'); setAssistantMessage('草稿已填好。下面所有字段仍可修改，点“保存驾驶舱”后才会写入项目。')
+    } catch (error) { setAssistantState('error'); setAssistantMessage(error instanceof Error ? error.message : '自动整理失败，请重试。') }
+  }
 
   return <>
     <header className="page-header"><button className="icon-button" onClick={onBack}>‹</button><h1>剧情驾驶舱</h1><div className="header-action"><button className="text-button" onClick={() => onSave(draft)}>保存</button></div></header>
     <section className="content-stack story-cockpit-page">
       <div className="cockpit-title-card"><small>当前剧本项目</small><strong>{project.title}</strong><p>所有内容都由你确认后保存，暂不让模型自动改写。</p></div>
+      <div className={`cockpit-assistant-card ${assistantState}`}><span>✦</span><div><strong>AI 打工助手</strong><small>{assistantMessage || `使用 ${api?.modelName || '当前聊天模型'}，自动读取 ${boundConversations.length} 段绑定对话并填写整张驾驶舱。`}</small></div><button disabled={assistantState === 'working'} onClick={autoFill}>{assistantState === 'working' ? '正在整理…' : assistantState === 'done' ? '重新分析' : '一键自动填写'}</button></div>
 
       <section className="cockpit-panel"><header><span>01</span><div><strong>当前场景</strong><small>钉住这一幕的时间、地点与在场人物</small></div></header><div className="cockpit-two-fields"><label>当前时间<input value={draft.currentTime} onChange={(event) => setDraft({ ...draft, currentTime: event.target.value })} placeholder="例如：回国第三天 · 深夜" /></label><label>当前地点<input value={draft.currentLocation} onChange={(event) => setDraft({ ...draft, currentLocation: event.target.value })} placeholder="例如：裴氏集团顶层" /></label></div><div className="cockpit-character-grid">{projectCharacters.map((character) => <button className={draft.presentCharacterIds.includes(character.id) ? 'selected' : ''} key={character.id} onClick={() => setDraft({ ...draft, presentCharacterIds: draft.presentCharacterIds.includes(character.id) ? draft.presentCharacterIds.filter((id) => id !== character.id) : [...draft.presentCharacterIds, character.id] })}><span>{character.avatar ? <img src={character.avatar} alt="" /> : character.name.slice(-1)}</span><small>{character.name}</small><i>{draft.presentCharacterIds.includes(character.id) ? '在场' : '离场'}</i></button>)}</div>{!projectCharacters.length && <p className="cockpit-empty-note">先回项目资料绑定角色，再维护在场人物。</p>}</section>
 
