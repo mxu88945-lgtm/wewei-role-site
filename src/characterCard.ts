@@ -115,6 +115,30 @@ type RawCard = Record<string, unknown> & {
   data?: CardData
 }
 
+export function characterCardV3Payload(character: Character): RawCard {
+  return {
+    spec: 'chara_card_v3',
+    spec_version: character.cardSpecVersion || '3.0',
+    data: {
+      name: character.name,
+      description: character.description,
+      personality: character.personality,
+      scenario: character.scenario,
+      first_mes: character.greeting,
+      alternate_greetings: character.alternateGreetings,
+      mes_example: character.mesExample,
+      creator_notes: character.creatorNotes,
+      system_prompt: character.systemPrompt,
+      post_history_instructions: character.postHistoryInstructions,
+      tags: character.tags,
+      creator: character.creator,
+      character_version: character.characterVersion,
+      character_book: character.characterBook,
+      extensions: { regex_scripts: character.regexScripts },
+    },
+  }
+}
+
 const textDecoder = new TextDecoder()
 const latinDecoder = new TextDecoder('latin1')
 
@@ -176,6 +200,83 @@ function decodeBase64Json(value: string) {
   } catch {
     throw new Error('角色卡元数据存在，但 Base64 JSON 无法解析')
   }
+}
+
+function encodeBase64Json(value: unknown) {
+  const bytes = new TextEncoder().encode(JSON.stringify(value))
+  let binary = ''
+  for (let offset = 0; offset < bytes.length; offset += 0x8000) binary += String.fromCharCode(...bytes.subarray(offset, offset + 0x8000))
+  return btoa(binary)
+}
+
+function crc32(bytes: Uint8Array) {
+  let crc = 0xffffffff
+  for (const byte of bytes) {
+    crc ^= byte
+    for (let bit = 0; bit < 8; bit += 1) crc = (crc >>> 1) ^ (crc & 1 ? 0xedb88320 : 0)
+  }
+  return (crc ^ 0xffffffff) >>> 0
+}
+
+function uint32(value: number) {
+  const bytes = new Uint8Array(4)
+  new DataView(bytes.buffer).setUint32(0, value)
+  return bytes
+}
+
+function joinBytes(...parts: Uint8Array[]) {
+  const output = new Uint8Array(parts.reduce((sum, part) => sum + part.length, 0))
+  let offset = 0
+  for (const part of parts) { output.set(part, offset); offset += part.length }
+  return output
+}
+
+export function embedCharacterCardMetadata(png: Uint8Array, character: Character) {
+  const signature = [137, 80, 78, 71, 13, 10, 26, 10]
+  if (!signature.every((value, index) => png[index] === value)) throw new Error('立绘没有转换成有效 PNG')
+  const view = new DataView(png.buffer, png.byteOffset, png.byteLength)
+  let offset = 8
+  let iendOffset = -1
+  while (offset + 12 <= png.length) {
+    const length = view.getUint32(offset)
+    const type = latinDecoder.decode(png.subarray(offset + 4, offset + 8))
+    if (type === 'IEND') { iendOffset = offset; break }
+    offset += length + 12
+  }
+  if (iendOffset < 0) throw new Error('PNG 缺少结束标记，无法写入角色卡')
+  const type = new TextEncoder().encode('tEXt')
+  const data = new TextEncoder().encode(`ccv3\0${encodeBase64Json(characterCardV3Payload(character))}`)
+  const chunkBody = joinBytes(type, data)
+  const chunk = joinBytes(uint32(data.length), chunkBody, uint32(crc32(chunkBody)))
+  return joinBytes(png.subarray(0, iendOffset), chunk, png.subarray(iendOffset))
+}
+
+export async function readEmbeddedCharacterCard(png: ArrayBuffer) {
+  const chunks = await readPngTextChunks(png)
+  const encoded = chunks.get('ccv3') || chunks.get('chara')
+  if (!encoded) throw new Error('图片里没有角色卡元数据')
+  return decodeBase64Json(encoded)
+}
+
+export async function createCharacterCardPng(character: Character, imageSource: string, size = 768) {
+  if (!imageSource) throw new Error('请先上传角色立绘')
+  const source = await fetch(imageSource).then((response) => response.blob())
+  const bitmap = await createImageBitmap(source)
+  const canvas = document.createElement('canvas')
+  canvas.width = size
+  canvas.height = size
+  const context = canvas.getContext('2d')
+  if (!context) { bitmap.close(); throw new Error('当前浏览器无法处理角色立绘') }
+  const scale = Math.max(size / bitmap.width, size / bitmap.height)
+  const width = bitmap.width * scale
+  const height = bitmap.height * scale
+  context.fillStyle = '#f3eef4'
+  context.fillRect(0, 0, size, size)
+  context.drawImage(bitmap, (size - width) / 2, (size - height) / 2, width, height)
+  bitmap.close()
+  const pngBlob = await new Promise<Blob>((resolve, reject) => canvas.toBlob((blob) => blob ? resolve(blob) : reject(new Error('立绘转换 PNG 失败')), 'image/png'))
+  const encoded = embedCharacterCardMetadata(new Uint8Array(await pngBlob.arrayBuffer()), character)
+  return new Blob([encoded], { type: 'image/png' })
 }
 
 function stringValue(value: unknown) {
