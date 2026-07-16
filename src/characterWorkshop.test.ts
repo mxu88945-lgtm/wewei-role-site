@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import { buildCharacterWorkshopPrompt, characterFromWorkshopDraft, parseCharacterWorkshopDraft } from './characterWorkshop'
+import { embedCharacterCardMetadata, readEmbeddedCharacterCard } from './characterCard'
 
 describe('character workshop', () => {
   it('parses fenced JSON and worldbook entries', () => {
@@ -19,5 +20,19 @@ describe('character workshop', () => {
     const prompt = buildCharacterWorkshopPrompt({ concept: '年下珠宝设计师', name: '', relationship: '海外旧识', tone: '明朗', pace: '极慢热', boundaries: '不代演用户' })
     expect(prompt).toContain('年下珠宝设计师')
     expect(prompt).toContain('极慢热')
+  })
+
+  it('writes a complete V3 card into PNG metadata and reads it back', async () => {
+    const draft = parseCharacterWorkshopDraft('{"name":"沈砚","description":"调查员","greeting":"你来了。","systemPrompt":"不代演用户","worldbook":[{"title":"旧案","keywords":["旧案"],"content":"三年前未结案。"}]}')
+    const character = characterFromWorkshopDraft(draft)
+    const base64Png = 'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNk+A8AAQUBAScY42YAAAAASUVORK5CYII='
+    const source = Uint8Array.from(atob(base64Png), (value) => value.charCodeAt(0))
+    const embedded = embedCharacterCardMetadata(source, character)
+    const raw = await readEmbeddedCharacterCard(embedded.buffer as ArrayBuffer)
+
+    expect(raw.spec).toBe('chara_card_v3')
+    expect(raw.data?.name).toBe('沈砚')
+    expect(raw.data?.system_prompt).toBe('不代演用户')
+    expect(raw.data?.character_book?.entries[0].content).toBe('三年前未结案。')
   })
 })

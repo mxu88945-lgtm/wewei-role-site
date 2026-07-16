@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState } from 'react'
 import { completeChat } from './chatApi'
 import type { ApiChannel } from './apiChannels'
-import type { Character } from './characterCard'
+import { createCharacterCardPng, type Character } from './characterCard'
 import { buildCharacterWorkshopPrompt, characterFromWorkshopDraft, parseCharacterWorkshopDraft, type CharacterWorkshopBrief, type CharacterWorkshopDraft } from './characterWorkshop'
 import './character-workshop.css'
 
@@ -28,9 +28,11 @@ export default function CharacterWorkshop({ channels, defaultChannelId, onBack, 
   const [brief, setBrief] = useState(saved.brief || initialBrief)
   const [result, setResult] = useState<CharacterWorkshopDraft | null>(saved.result || null)
   const [avatar, setAvatar] = useState(saved.avatar || '')
+  const [cardImage, setCardImage] = useState('')
   const [channelId, setChannelId] = useState(defaultChannelId || channels[0]?.id || '')
   const [state, setState] = useState<'idle' | 'generating' | 'error'>('idle')
   const [error, setError] = useState('')
+  const [pngExporting, setPngExporting] = useState(false)
   const controllerRef = useRef<AbortController | null>(null)
   const channel = channels.find((item) => item.id === channelId) || channels[0]
 
@@ -73,9 +75,26 @@ export default function CharacterWorkshop({ channels, defaultChannelId, onBack, 
   }
 
   const makeCharacter = () => result ? characterFromWorkshopDraft(result, avatar) : null
+  const exportPng = async () => {
+    const character = makeCharacter()
+    const imageSource = cardImage || avatar
+    if (!character || !imageSource) { setError('先点右侧头像位置，上传一张角色立绘。'); return }
+    setPngExporting(true); setError('')
+    try {
+      const blob = await createCharacterCardPng(character, imageSource)
+      const url = URL.createObjectURL(blob)
+      const anchor = document.createElement('a')
+      anchor.href = url
+      anchor.download = `${character.name || '角色卡'}-CardV3.png`.replace(/[\\/:*?"<>|]/g, '_')
+      document.body.append(anchor); anchor.click(); anchor.remove()
+      window.setTimeout(() => URL.revokeObjectURL(url), 1200)
+    } catch (cause) {
+      setError(cause instanceof Error ? cause.message : '带元数据 PNG 导出失败。')
+    } finally { setPngExporting(false) }
+  }
   const clear = () => {
     controllerRef.current?.abort()
-    setBrief(initialBrief); setResult(null); setAvatar(''); setError(''); setState('idle')
+    setBrief(initialBrief); setResult(null); setAvatar(''); setCardImage(''); setError(''); setState('idle')
     localStorage.removeItem('weijing.characterWorkshop')
   }
 
@@ -94,7 +113,7 @@ export default function CharacterWorkshop({ channels, defaultChannelId, onBack, 
       </div>
 
       {result && <>
-        <div className="workshop-result-heading"><div><small>CHARACTER CARD 3.0</small><h2>{result.name}</h2><p>{result.tagline}</p></div><label className="workshop-avatar">{avatar ? <img src={avatar} alt="" /> : <span>＋头像</span>}<input type="file" accept="image/*" onChange={async (event) => { const file = event.target.files?.[0]; if (file) setAvatar(await onAvatar(file)); event.currentTarget.value = '' }} /></label></div>
+        <div className="workshop-result-heading"><div><small>CHARACTER CARD 3.0</small><h2>{result.name}</h2><p>{result.tagline}</p></div><label className="workshop-avatar">{avatar ? <img src={avatar} alt="" /> : <span>＋立绘</span>}<input type="file" accept="image/*" onChange={async (event) => { const file = event.target.files?.[0]; if (file) { setCardImage(await new Promise<string>((resolve, reject) => { const reader = new FileReader(); reader.onload = () => resolve(String(reader.result || '')); reader.onerror = () => reject(new Error('读取立绘失败')); reader.readAsDataURL(file) })); setAvatar(await onAvatar(file)) } event.currentTarget.value = '' }} /></label></div>
         <div className="workshop-card result-card">
           <div className="workshop-two"><label><span>姓名</span><input value={result.name} onChange={(event) => patchResult({ name: event.target.value })} /></label><label><span>标签</span><input value={result.tags.join('，')} onChange={(event) => patchResult({ tags: event.target.value.split(/[,，]/).map((item) => item.trim()).filter(Boolean) })} /></label></div>
           <label><span>一句话简介</span><input value={result.tagline} onChange={(event) => patchResult({ tagline: event.target.value })} /></label>
@@ -105,9 +124,8 @@ export default function CharacterWorkshop({ channels, defaultChannelId, onBack, 
           <details><summary>高级提示词与示例对话</summary><TextArea label="系统提示词" rows={10} value={result.systemPrompt} onChange={(systemPrompt) => patchResult({ systemPrompt })} /><TextArea label="历史后置指令" rows={8} value={result.postHistoryInstructions} onChange={(postHistoryInstructions) => patchResult({ postHistoryInstructions })} /><TextArea label="示例对话" rows={8} value={result.mesExample} onChange={(mesExample) => patchResult({ mesExample })} /><TextArea label="作者说明" rows={6} value={result.creatorNotes} onChange={(creatorNotes) => patchResult({ creatorNotes })} /></details>
         </div>
         <div className="workshop-card worldbook-preview"><div><strong>自动世界书</strong><small>{result.worldbook.length} 条 · 加入角色库后仍可逐条编辑</small></div>{result.worldbook.map((entry, index) => <details key={`${entry.title}-${index}`}><summary>{entry.title}</summary><label><span>关键词</span><input value={entry.keywords.join('，')} onChange={(event) => patchResult({ worldbook: result.worldbook.map((item, itemIndex) => itemIndex === index ? { ...item, keywords: event.target.value.split(/[,，]/).map((value) => value.trim()).filter(Boolean) } : item) })} /></label><TextArea label="正文" value={entry.content} onChange={(content) => patchResult({ worldbook: result.worldbook.map((item, itemIndex) => itemIndex === index ? { ...item, content } : item) })} /></details>)}</div>
-        <div className="workshop-actions"><button onClick={() => { const character = makeCharacter(); if (character) onExport(character) }}>导出 V3 JSON</button><button className="primary" onClick={() => { const character = makeCharacter(); if (character) onSave(character) }}>加入角色库</button></div>
+        <div className="workshop-actions"><button onClick={() => { const character = makeCharacter(); if (character) onExport(character) }}>导出 V3 JSON</button><button disabled={!avatar || pngExporting} onClick={exportPng}>{pngExporting ? '正在写入元数据…' : avatar ? '导出元数据 PNG' : '上传立绘后导出 PNG'}</button><button className="primary" onClick={() => { const character = makeCharacter(); if (character) onSave(character) }}>加入角色库</button></div>
       </>}
     </section>
   </div>
 }
-
