@@ -13,6 +13,7 @@ type PromptInput = {
   preset: string
   globalWorldbook: string
   theaterWorldBackground?: string
+  storyProjectContext?: string
   memory: MemoryInput
   memoryLength: number
   contextSummary?: string
@@ -97,6 +98,7 @@ export function buildChatPrompt(input: PromptInput): ChatApiMessage[] {
     input.preset && `【全局预设】\n${input.preset}`,
     input.globalWorldbook && `【全局世界书】\n${input.globalWorldbook}`,
     input.theaterWorldBackground && `【本剧场世界观背景｜本剧场所有角色与 NPC 共用】\n${input.theaterWorldBackground}`,
+    input.storyProjectContext,
     `【角色】${character.name}`,
     character.description && `【角色描述】\n${character.description}`,
     character.personality && `【性格】\n${character.personality}`,
