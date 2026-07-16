@@ -2,10 +2,23 @@ import { useEffect, useRef, useState } from 'react'
 import { completeChat } from './chatApi'
 import type { ApiChannel } from './apiChannels'
 import { createCharacterCardPng, importCharacterCard, type Character, type RegexScript } from './characterCard'
-import { buildCharacterWorkshopPrompt, characterFromWorkshopDraft, parseCharacterWorkshopDraft, type CharacterWorkshopBrief, type CharacterWorkshopDraft } from './characterWorkshop'
+import {
+  applyWorkshopCopilotPatch, buildCharacterWorkshopPrompt, buildWorkshopCopilotCompressionPrompt,
+  buildWorkshopCopilotPrompt, characterFromWorkshopDraft, createEmptyCharacterWorkshopDraft,
+  describeWorkshopCopilotPatch, parseCharacterWorkshopDraft, parseWorkshopCopilotResponse,
+  type CharacterWorkshopBrief, type CharacterWorkshopDraft, type WorkshopCopilotMessage, type WorkshopCopilotPatch,
+} from './characterWorkshop'
 import './character-workshop.css'
 
-type SavedWorkshop = { brief: CharacterWorkshopBrief; result: CharacterWorkshopDraft | null; avatar?: string }
+type SavedWorkshop = {
+  brief: CharacterWorkshopBrief
+  result: CharacterWorkshopDraft | null
+  avatar?: string
+  copilotMessages?: WorkshopCopilotMessage[]
+  copilotMemory?: string
+  pendingCopilotPatch?: WorkshopCopilotPatch | null
+  copilotUndoSnapshot?: CharacterWorkshopDraft | null
+}
 
 const initialBrief: CharacterWorkshopBrief = { concept: '', name: '', relationship: '', tone: '细腻、自然、剧情向', pace: '慢热，靠事件逐步递进', boundaries: '不替用户决定言行、心理与关键选择' }
 const blankWorldEntry = () => ({ title: '新世界书条目', keywords: [] as string[], content: '', constant: false })
@@ -40,12 +53,23 @@ export default function CharacterWorkshop({ channels, defaultChannelId, onBack, 
   const [error, setError] = useState('')
   const [pngExporting, setPngExporting] = useState(false)
   const [exportNotice, setExportNotice] = useState('')
+  const [copilotMessages, setCopilotMessages] = useState<WorkshopCopilotMessage[]>(saved.copilotMessages || [])
+  const [copilotMemory, setCopilotMemory] = useState(saved.copilotMemory || '')
+  const [pendingCopilotPatch, setPendingCopilotPatch] = useState<WorkshopCopilotPatch | null>(saved.pendingCopilotPatch || null)
+  const [copilotUndoSnapshot, setCopilotUndoSnapshot] = useState<CharacterWorkshopDraft | null>(saved.copilotUndoSnapshot || null)
+  const [copilotInput, setCopilotInput] = useState('')
+  const [copilotState, setCopilotState] = useState<'idle' | 'thinking' | 'compressing'>('idle')
+  const [copilotError, setCopilotError] = useState('')
   const controllerRef = useRef<AbortController | null>(null)
+  const copilotControllerRef = useRef<AbortController | null>(null)
+  const copilotEndRef = useRef<HTMLDivElement | null>(null)
   const channel = channels.find((item) => item.id === channelId) || channels[0]
 
   useEffect(() => {
-    try { localStorage.setItem('weijing.characterWorkshop', JSON.stringify({ brief, result, avatar })) } catch {}
-  }, [brief, result, avatar])
+    try { localStorage.setItem('weijing.characterWorkshop', JSON.stringify({ brief, result, avatar, copilotMessages, copilotMemory, pendingCopilotPatch, copilotUndoSnapshot })) } catch {}
+  }, [brief, result, avatar, copilotMessages, copilotMemory, pendingCopilotPatch, copilotUndoSnapshot])
+
+  useEffect(() => { copilotEndRef.current?.scrollIntoView({ block: 'nearest', behavior: 'smooth' }) }, [copilotMessages, copilotState])
 
   const patchBrief = (patch: Partial<CharacterWorkshopBrief>) => setBrief((current) => ({ ...current, ...patch }))
   const patchResult = (patch: Partial<CharacterWorkshopDraft>) => setResult((current) => current ? { ...current, ...patch } : current)
@@ -81,6 +105,98 @@ export default function CharacterWorkshop({ channels, defaultChannelId, onBack, 
     }
   }
 
+  const appendCopilotMessage = (role: WorkshopCopilotMessage['role'], content: string) => {
+    const message = { id: crypto.randomUUID(), role, content }
+    setCopilotMessages((current) => [...current, message])
+    return message
+  }
+
+  const askCopilot = async (quickRequest?: string) => {
+    const request = (quickRequest ?? copilotInput).trim()
+    if (!request || copilotState !== 'idle') return
+    if (!channel?.apiKey.trim() || !channel.modelName.trim()) { setCopilotError('当前 API 渠道还没有可用的密钥或模型，请先去 API 设置。'); return }
+    const draft = result || createEmptyCharacterWorkshopDraft()
+    copilotControllerRef.current?.abort()
+    const controller = new AbortController()
+    copilotControllerRef.current = controller
+    const history = copilotMessages
+    appendCopilotMessage('user', request)
+    setCopilotInput(''); setCopilotError(''); setCopilotState('thinking')
+    let raw = ''
+    try {
+      await completeChat({
+        api: channel,
+        messages: [
+          { role: 'system', content: '你是可持续对话的角色卡工坊助手。严格按用户提示输出单个 JSON 对象，不要 Markdown。' },
+          { role: 'user', content: buildWorkshopCopilotPrompt({ draft, request, messages: history, memory: copilotMemory, pendingPatch: pendingCopilotPatch }) },
+        ],
+        temperature: .66, topP: .9, maxTokens: 16000, streaming: false, signal: controller.signal,
+        onDelta: (delta) => { raw += delta },
+      })
+      const response = parseWorkshopCopilotResponse(raw)
+      appendCopilotMessage('assistant', response.reply)
+      if (response.patch) setPendingCopilotPatch(response.patch)
+      setCopilotState('idle')
+    } catch (cause) {
+      if (controller.signal.aborted) { setCopilotState('idle'); return }
+      setCopilotError(cause instanceof Error ? cause.message : '工坊助手暂时没接住，请重试。')
+      setCopilotState('idle')
+    }
+  }
+
+  const compressCopilotContext = async () => {
+    if (copilotState !== 'idle' || copilotMessages.length < 6) { setCopilotError('至少聊满 6 条消息后再压缩，短对话不用压。'); return }
+    if (!channel?.apiKey.trim() || !channel.modelName.trim()) { setCopilotError('当前 API 渠道还没有可用的密钥或模型。'); return }
+    const keep = copilotMessages.slice(-4)
+    const compress = copilotMessages.slice(0, -4)
+    const controller = new AbortController()
+    copilotControllerRef.current = controller
+    setCopilotError(''); setCopilotState('compressing')
+    let raw = ''
+    try {
+      await completeChat({
+        api: channel,
+        messages: [
+          { role: 'system', content: '你只输出忠实、精简的中文长期记忆摘要，不添加解释。' },
+          { role: 'user', content: buildWorkshopCopilotCompressionPrompt(compress, copilotMemory) },
+        ],
+        temperature: .2, topP: .8, maxTokens: 3000, streaming: false, signal: controller.signal,
+        onDelta: (delta) => { raw += delta },
+      })
+      const memory = raw.trim().replace(/^```\w*\s*/i, '').replace(/\s*```$/i, '')
+      if (!memory) throw new Error('模型没有返回摘要。')
+      setCopilotMemory(memory)
+      setCopilotMessages(keep)
+      setCopilotState('idle')
+    } catch (cause) {
+      if (controller.signal.aborted) { setCopilotState('idle'); return }
+      setCopilotError(cause instanceof Error ? cause.message : '压缩失败，请重试。')
+      setCopilotState('idle')
+    }
+  }
+
+  const applyCopilotProposal = () => {
+    if (!pendingCopilotPatch) return
+    const before = result || createEmptyCharacterWorkshopDraft()
+    setCopilotUndoSnapshot(before)
+    setResult(applyWorkshopCopilotPatch(before, pendingCopilotPatch))
+    setPendingCopilotPatch(null)
+    appendCopilotMessage('assistant', '已经按你确认的方案写进工坊草稿了。之后还想换颜色、改气泡或调整规则，继续在这里告诉我就行。')
+  }
+
+  const undoCopilotApply = () => {
+    if (!copilotUndoSnapshot) return
+    setResult(copilotUndoSnapshot)
+    setCopilotUndoSnapshot(null)
+    appendCopilotMessage('assistant', '刚才那次写入已经撤销，工坊恢复到修改前。')
+  }
+
+  const clearCopilotConversation = () => {
+    copilotControllerRef.current?.abort()
+    setCopilotMessages([]); setCopilotMemory(''); setPendingCopilotPatch(null); setCopilotUndoSnapshot(null)
+    setCopilotInput(''); setCopilotError(''); setCopilotState('idle')
+  }
+
   const makeCharacter = () => result ? characterFromWorkshopDraft(result, avatar) : null
   const exportPng = async () => {
     const character = makeCharacter()
@@ -114,7 +230,9 @@ export default function CharacterWorkshop({ channels, defaultChannelId, onBack, 
   }
   const clear = () => {
     controllerRef.current?.abort()
+    copilotControllerRef.current?.abort()
     setBrief(initialBrief); setResult(null); setAvatar(''); setCardImage(''); setError(''); setExportNotice(''); setState('idle')
+    setCopilotMessages([]); setCopilotMemory(''); setPendingCopilotPatch(null); setCopilotUndoSnapshot(null); setCopilotInput(''); setCopilotError(''); setCopilotState('idle')
     localStorage.removeItem('weijing.characterWorkshop')
   }
 
@@ -130,6 +248,41 @@ export default function CharacterWorkshop({ channels, defaultChannelId, onBack, 
         {error && <div className="workshop-error">{error}</div>}
         <button className="workshop-generate" disabled={state === 'generating'} onClick={generate}>{state === 'generating' ? '正在认真捏人…' : result ? '重新生成整张卡' : '✦ 生成角色卡'}</button>
         {state === 'generating' && <button className="workshop-stop" onClick={() => controllerRef.current?.abort()}>停止生成</button>}
+      </div>
+
+      <div className="workshop-card workshop-copilot">
+        <div className="copilot-heading">
+          <div className="copilot-avatar">✦</div>
+          <div><strong>AI 工坊助手</strong><small>持续对话 · 可操作整张草稿</small></div>
+          <div className="copilot-live"><i />{channel?.modelName || '未选择模型'}</div>
+        </div>
+        <div className="copilot-toolbar">
+          <button disabled={copilotState !== 'idle' || copilotMessages.length < 6} onClick={compressCopilotContext}>{copilotState === 'compressing' ? '压缩中…' : '压缩上下文'}</button>
+          <button disabled={!copilotMessages.length && !copilotMemory && !pendingCopilotPatch} onClick={clearCopilotConversation}>清空会话</button>
+        </div>
+        {copilotMemory && <details className="copilot-memory"><summary>已压缩的长期记忆</summary><p>{copilotMemory}</p></details>}
+        <div className="copilot-quick">
+          {['帮我设计开场栏美化', '检查并修好现有正则', '把消息气泡换一种风格', '陪我继续调整整张卡'].map((request) => <button key={request} disabled={copilotState !== 'idle'} onClick={() => askCopilot(request)}>{request}</button>)}
+        </div>
+        <div className="copilot-chat" aria-live="polite">
+          {copilotMessages.length === 0 && <div className="copilot-welcome"><strong>你可以像聊天一样慢慢说。</strong><p>比如“状态栏想要冷灰玻璃感，先别动气泡”“这个正则为什么没生效”“把现有开场栏改成可折叠”。我会读当前草稿，和你讨论，再把确认的方案写进去。</p></div>}
+          {copilotMessages.map((message) => <div key={message.id} className={`copilot-message ${message.role}`}><span>{message.role === 'user' ? '你' : '工坊助手'}</span><p>{message.content}</p></div>)}
+          {copilotState === 'thinking' && <div className="copilot-message assistant thinking"><span>工坊助手</span><p>正在查看草稿和已有正则<span className="copilot-dots">•••</span></p></div>}
+          <div ref={copilotEndRef} />
+        </div>
+        {pendingCopilotPatch && <div className="copilot-proposal">
+          <div><small>待确认改动</small><strong>{pendingCopilotPatch.summary}</strong></div>
+          <ul>{describeWorkshopCopilotPatch(pendingCopilotPatch).map((item) => <li key={item}>{item}</li>)}</ul>
+          <p>你可以继续聊天让它调整这份方案，满意后再写入。</p>
+          <div><button onClick={() => setPendingCopilotPatch(null)}>放弃</button><button className="primary" onClick={applyCopilotProposal}>写入整个工坊</button></div>
+        </div>}
+        {copilotUndoSnapshot && <div className="copilot-undo"><span>上一次改动已写入草稿</span><button onClick={undoCopilotApply}>撤销这次写入</button></div>}
+        {copilotError && <div className="workshop-error">{copilotError}</div>}
+        <div className="copilot-composer">
+          <textarea rows={3} value={copilotInput} disabled={copilotState !== 'idle'} onChange={(event) => setCopilotInput(event.target.value)} onKeyDown={(event) => { if (event.key === 'Enter' && !event.shiftKey) { event.preventDefault(); void askCopilot() } }} placeholder={result ? '告诉它你想怎么改；可以反复讨论，Enter 发送…' : '先聊角色构想，或让它从零开始建立整张草稿…'} />
+          {copilotState === 'thinking' ? <button className="copilot-send stop" onClick={() => copilotControllerRef.current?.abort()}>停止</button> : <button className="copilot-send" disabled={!copilotInput.trim()} onClick={() => askCopilot()}>发送</button>}
+        </div>
+        <div className="copilot-hint">助手只提交改动提案；必须由你点“写入整个工坊”才会真的修改，未提到的栏目保持原样。</div>
       </div>
 
       {result && <>
