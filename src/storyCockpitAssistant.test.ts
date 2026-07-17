@@ -19,6 +19,19 @@ describe('story cockpit assistant', () => {
     expect(input).toContain('不得只写角色反应')
   })
 
+  it('rebuilds from retained dialogue without trusting the stale cockpit', () => {
+    const project = { ...createStoryProject(1), title: '改写分支' }
+    project.cockpit.completedEvents = ['已被撤回的求婚']
+    project.autoContinuity.needsReview = true
+    const input = buildCockpitAssistantInput({
+      project, userName: '江黎姿', characters: [],
+      conversations: [{ id: 'chat', title: '新分支', messages: [{ role: 'user', text: '江黎姿离开了餐厅。' }] }],
+    })
+    expect(input).toContain('旧驾驶舱不是事实来源')
+    expect(input).toContain('禁止作为重建依据')
+    expect(input).not.toContain('已被撤回的求婚')
+  })
+
   it('parses JSON while rejecting unknown or director-like ids outside the allowlist', () => {
     const result = parseCockpitAssistantResponse('```json\n{"currentTime":"第三天","presentCharacterIds":["pei","director","fake"],"evidence":[{"title":"胎记","visibility":"hidden","knownByCharacterIds":["pei","director"]}],"characterKnowledge":[{"characterId":"pei","knownFacts":["见过照片"]},{"characterId":"director","knownFacts":["全部真相"]}]}\n```', ['pei'])
     expect(result.presentCharacterIds).toEqual(['pei'])
