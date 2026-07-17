@@ -2,6 +2,7 @@ const DB_NAME = 'weijing-core'
 const STORE_NAME = 'state'
 
 type StoredValue<T> = { value: T; savedAt: number }
+const pendingWrites = new Map<string, Promise<void>>()
 
 function openDatabase() {
   return new Promise<IDBDatabase>((resolve, reject) => {
@@ -21,7 +22,7 @@ export async function durableGet<T>(key: string) {
   }).finally(() => database.close())
 }
 
-export async function durableSet(key: string, value: unknown) {
+async function durableSetNow(key: string, value: unknown) {
   const database = await openDatabase()
   return new Promise<void>((resolve, reject) => {
     const transaction = database.transaction(STORE_NAME, 'readwrite')
@@ -43,4 +44,14 @@ export async function durableSet(key: string, value: unknown) {
       writeRequest.onerror = () => reject(writeRequest.error)
     }
   }).finally(() => database.close())
+}
+
+/** Serialize writes per key so an older, slower transaction cannot overwrite newer state. */
+export function durableSet(key: string, value: unknown) {
+  const previous = pendingWrites.get(key) || Promise.resolve()
+  const next = previous.catch(() => undefined).then(() => durableSetNow(key, value))
+  pendingWrites.set(key, next)
+  return next.finally(() => {
+    if (pendingWrites.get(key) === next) pendingWrites.delete(key)
+  })
 }

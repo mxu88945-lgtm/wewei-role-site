@@ -161,8 +161,15 @@ const syncPwaThemeColor = (color: string) => {
   document.head.appendChild(themeMeta)
 }
 const writeDurable = (key: string, value: unknown) => {
-  try { write(key, value) } catch (error) { console.warn('本地轻量储存已满，继续写入 IndexedDB', error) }
-  void durableSet(key, value).catch((error) => console.error('IndexedDB 写入失败', error))
+  // Existing installs may still have a localStorage copy. Keep it as a fallback
+  // until IndexedDB succeeds once, then remove the duplicate large payload.
+  const hasLegacyCopy = localStorage.getItem(key) !== null
+  if (hasLegacyCopy) {
+    try { write(key, value) } catch (error) { console.warn('本地轻量储存已满，继续写入 IndexedDB', error) }
+  }
+  void durableSet(key, value)
+    .then(() => { try { localStorage.removeItem(key) } catch {} })
+    .catch((error) => console.error('IndexedDB 写入失败', error))
 }
 
 const nextMessageId = (messages: Message[]) => Math.max(
@@ -521,7 +528,7 @@ function App() {
     write('weijing.chatBaseColor', chatBaseColor)
     write('weijing.chatBackgroundFrost', chatBackgroundFrost)
   }, [chatFontSize, chatTextColor, chatNarrationColor, chatQuoteColor, chatBaseColor, chatBackgroundFrost])
-  useEffect(() => { if (persistenceReady) void durableSet('weijing.chatBackground', chatBackground) }, [chatBackground, persistenceReady])
+  useEffect(() => { if (persistenceReady) writeDurable('weijing.chatBackground', chatBackground) }, [chatBackground, persistenceReady])
   useEffect(() => {
     const bytes = new Blob([JSON.stringify({ characters, conversations, identities, storyProjects, globalMemoryApi, memoryConfigs, memoryEntries, chatBackground })]).size
     setAppDataUsage(bytes < 1048576 ? `${(bytes / 1024).toFixed(0)} KB` : `${(bytes / 1048576).toFixed(2)} MB`)
@@ -852,13 +859,34 @@ function App() {
   const deleteCharacter = (character: Character) => {
     if (characters.length <= 1) { window.alert('至少保留一个角色。'); return }
     if (!window.confirm(`删除角色“${character.name}”以及他的全部会话和记忆？`)) return
-    conversations.filter((item) => item.characterId === character.id || item.participantIds?.includes(character.id)).forEach((item) => abortConversation(item.id))
+    const deletedConversations = conversations.filter((item) => item.characterId === character.id || item.participantIds?.includes(character.id))
+    const deletedConversationIds = new Set(deletedConversations.map((item) => item.id))
+    deletedConversations.forEach((item) => abortConversation(item.id))
     const nextCharacters = characters.filter((item) => item.id !== character.id)
     const nextConversations = conversations.filter((item) => item.characterId !== character.id && !item.participantIds?.includes(character.id))
     setCharacters(nextCharacters)
     setConversations(nextConversations)
     setMemoryConfigs((current) => { const next = { ...current }; delete next[character.id]; return next })
-    setMemoryEntries((current) => { const next = { ...current }; delete next[character.id]; return next })
+    setMemoryEntries((current) => {
+      const next = { ...current }
+      delete next[character.id]
+      deletedConversationIds.forEach((id) => delete next[id])
+      return next
+    })
+    setStoryProjects((current) => current.map((project) => {
+      const touched = project.characterIds.includes(character.id) || project.conversationIds.some((id) => deletedConversationIds.has(id)) || project.directorCharacterId === character.id
+      if (!touched) return project
+      const checkpoints = { ...project.autoContinuity.lastProcessedAssistantMessageIds }
+      deletedConversationIds.forEach((id) => delete checkpoints[id])
+      return {
+        ...project,
+        characterIds: project.characterIds.filter((id) => id !== character.id),
+        conversationIds: project.conversationIds.filter((id) => !deletedConversationIds.has(id)),
+        directorCharacterId: project.directorCharacterId === character.id ? undefined : project.directorCharacterId,
+        autoContinuity: { ...project.autoContinuity, needsReview: true, lastProcessedAssistantMessageIds: checkpoints, lastError: '角色或绑定对话已删除，请复核驾驶舱。', lastSummary: undefined },
+        updatedAt: Date.now(),
+      }
+    }))
     setCharacterMenuId(null)
     if (activeId === character.id) {
       const nextCharacter = nextCharacters[0]
@@ -975,6 +1003,18 @@ function App() {
     abortConversation(conversation.id)
     const remaining = conversations.filter((item) => item.id !== conversation.id)
     setConversations(remaining)
+    setMemoryEntries((current) => { const next = { ...current }; delete next[conversation.id]; return next })
+    setStoryProjects((current) => current.map((project) => {
+      if (!project.conversationIds.includes(conversation.id)) return project
+      const checkpoints = { ...project.autoContinuity.lastProcessedAssistantMessageIds }
+      delete checkpoints[conversation.id]
+      return {
+        ...project,
+        conversationIds: project.conversationIds.filter((id) => id !== conversation.id),
+        autoContinuity: { ...project.autoContinuity, needsReview: true, lastProcessedAssistantMessageIds: checkpoints, lastError: '绑定对话已删除，请复核驾驶舱。', lastSummary: undefined },
+        updatedAt: Date.now(),
+      }
+    }))
     setConversationMenuId(null)
     if (activeConversation?.id === conversation.id) {
       const next = remaining.slice().sort((a, b) => b.updatedAt - a.updatedAt)[0]
