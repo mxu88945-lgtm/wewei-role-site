@@ -31,7 +31,9 @@ export function captureAssistantMessageIds(project: StoryProject, conversations:
 
 export function hasUnprocessedAssistantMessages(project: StoryProject, conversations: ContinuityConversation[]) {
   const latest = captureAssistantMessageIds(project, conversations)
-  return Object.entries(latest).some(([conversationId, messageId]) => messageId > (project.autoContinuity.lastProcessedAssistantMessageIds[conversationId] || 0))
+  return Object.entries(latest).some(([conversationId, messageId]) => (
+    messageId !== 0 && messageId !== (project.autoContinuity.lastProcessedAssistantMessageIds[conversationId] || 0)
+  ))
 }
 
 export function buildAutomaticContinuityInput({ project, characters, conversations, userName }: {
@@ -45,10 +47,14 @@ export function buildAutomaticContinuityInput({ project, characters, conversatio
     .filter((conversation) => project.conversationIds.includes(conversation.id))
     .map((conversation) => {
       const afterId = project.autoContinuity.lastProcessedAssistantMessageIds[conversation.id] || 0
+      const checkpointIndex = afterId ? conversation.messages.findIndex((message) => message.id === afterId) : -1
       return {
         id: conversation.id,
         title: conversation.title,
-        messages: conversation.messages.filter((message) => message.id > afterId).slice(-20).map((message) => ({
+        // Message ids identify a cursor; they are not a sortable clock. Older
+        // builds mixed timestamps and randomized ids, so numeric comparison can
+        // permanently skip a later message whose id happens to be smaller.
+        messages: conversation.messages.slice(checkpointIndex + 1).slice(-20).map((message) => ({
           messageId: message.id,
           role: message.role,
           speaker: message.role === 'user' ? userName : characterNames.get(message.characterId || '') || '未标明的角色',
