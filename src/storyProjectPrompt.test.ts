@@ -39,6 +39,11 @@ describe('story project prompt injection', () => {
   it('gives the director the complete cockpit and consumption rules', () => {
     const prompt = buildStoryProjectPrompt({ project: project(), speakerId: 'director', characters })
     expect(prompt).toContain('旁白导演专用')
+    expect(prompt).toContain('用户与独立角色控制权 > 当前场景与知情边界 > 证据推进')
+    expect(prompt).toContain('驾驶舱只提供状态、证据和目标，不授予导演扮演任何主角的权限')
+    expect(prompt).toContain('都是禁演名单，但不是禁止入镜')
+    expect(prompt).toContain('可见静态神态')
+    expect(prompt).toContain('不得替他们新增任何台词')
     expect(prompt).toContain('画展试探已经结束')
     expect(prompt).toContain('慈善晚宴尚未发生')
     expect(prompt).toContain('真正收款人是霍启铭')
