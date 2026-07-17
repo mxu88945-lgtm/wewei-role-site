@@ -13,8 +13,11 @@ describe('built-in director template', () => {
     const config = { ...createDirectorTemplateConfig(), hiddenTruths: '秘密证据', plotThreads: '阶段一不得动心' }
     const director = createDirectorCharacter(config, 'director-fixed')
     expect(director.id).toBe('director-fixed')
-    expect(director.systemPrompt).toContain('禁止替用户写台词、动作、心理')
-    expect(director.systemPrompt).toContain('禁止替它们说话、行动、思考')
+    expect(director.systemPrompt).toContain('权限优先级固定为：角色控制权')
+    expect(director.systemPrompt).toContain('镜头语言描写在场用户主角或独立角色')
+    expect(director.systemPrompt).toContain('禁止替用户新增台词')
+    expect(director.systemPrompt).toContain('禁止替它们新增台词')
+    expect(director.systemPrompt).toContain('不能成为你新编台词、有意图动作、心理、决定或关键反应的执行者')
     expect(director.systemPrompt).toContain('禁止续演已经结束或离开的旧场景')
     expect(director.postHistoryInstructions).toContain('输出前逐句核对主语')
     expect(director.characterBook?.entries.some((entry) => entry.content.includes('秘密证据'))).toBe(true)
