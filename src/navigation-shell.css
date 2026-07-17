@@ -106,6 +106,12 @@
 .drawer-member-chip small { width: 58px; overflow: hidden; color: #827a87; text-align: center; text-overflow: ellipsis; white-space: nowrap; font-size: 9px; }
 .drawer-member-chip > button { position: absolute; top: -5px; right: -2px; width: 19px; height: 19px; padding: 0; border: 2px solid #f0edf2; border-radius: 50%; color: white; background: #8c858f; font-size: 11px; line-height: 14px; }
 .drawer-compact-group > .drawer-section-title { padding: 8px 14px 4px; }
+.reply-helper-settings > .drawer-section-title { padding: 11px 14px 6px; }
+.reply-helper-settings .drawer-section-title div strong, .reply-helper-settings .drawer-section-title div small { display: block; }
+.reply-helper-settings .drawer-section-title div small { margin-top: 3px; color: #948b98; font-size: 8px; }
+.reply-helper-settings .drawer-section-title > span { padding: 5px 8px; border-radius: 999px; color: var(--theme-accent-text); background: var(--theme-accent-soft); font-size: 8px; font-weight: 850; }
+.reply-helper-settings .member-api-binding { margin: 5px 12px 12px; padding: 10px; border-radius: 14px; background: rgba(255,255,255,.46); }
+.reply-helper-settings .member-api-binding label { grid-template-columns: 58px minmax(0,1fr); }
 .drawer-compact-group > button { width: 100%; min-height: 46px; padding: 0 14px; border: 0; display: flex; align-items: center; justify-content: space-between; color: #49434d; background: transparent; text-align: left; font-size: 12px; }
 .drawer-compact-group > button + button, .drawer-inline-setting + .drawer-inline-setting { border-top: 1px solid rgba(75,61,83,.06); }
 .drawer-compact-group i { color: #aaa2ad; font-style: normal; font-size: 18px; }
