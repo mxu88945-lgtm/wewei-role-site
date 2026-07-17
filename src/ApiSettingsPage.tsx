@@ -17,6 +17,9 @@ type ApiSettingsPageProps = {
   onConnectionReset: () => void
   onBack: () => void
   onTest: () => void
+  replyHelperChannelName: string
+  replyHelperModelName: string
+  onOpenReplyHelper: () => void
 }
 
 export default function ApiSettingsPage({
@@ -31,6 +34,9 @@ export default function ApiSettingsPage({
   onConnectionReset,
   onBack,
   onTest,
+  replyHelperChannelName,
+  replyHelperModelName,
+  onOpenReplyHelper,
 }: ApiSettingsPageProps) {
   const [expandedIds, setExpandedIds] = useState<string[]>([api.id])
   const [modelsByChannel, setModelsByChannel] = useState<Record<string, ApiModel[]>>({})
@@ -102,6 +108,11 @@ export default function ApiSettingsPage({
     </header>
 
     <div className="api-page-scroll content-stack form-stack">
+      <button type="button" className="api-feature-binding" onClick={onOpenReplyHelper}>
+        <span className="api-feature-binding-icon">✦</span>
+        <span className="api-feature-binding-copy"><small>专用功能绑定</small><strong>AI 帮答</strong><em>{replyHelperChannelName || '未选择渠道'} · {replyHelperModelName || '未选择模型'}</em></span>
+        <i>›</i>
+      </button>
       <section className="api-channels-panel">
         <div className="api-channels-summary">
           <span><strong>已有渠道 <i>({channels.length})</i></strong><small>当前 · {api.name || '未命名渠道'} · {api.modelName || '未选择模型'}</small></span>
