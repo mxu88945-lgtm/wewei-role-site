@@ -6,12 +6,23 @@ export type LongMemoryEntry = {
   sourceCount?: number
   pinned?: boolean
   consolidated?: boolean
+  historyRevision?: number
 }
 
 export type LongMemoryMap = Record<string, LongMemoryEntry[]>
 
-export function memoriesForConversation(map: LongMemoryMap, conversationId: string | undefined, legacyCharacterId: string) {
-  return (conversationId && map[conversationId]) || map[legacyCharacterId] || []
+const revisionOf = (entry: LongMemoryEntry) => entry.historyRevision || 0
+
+export function memoriesForConversation(map: LongMemoryMap, conversationId: string | undefined, legacyCharacterId: string, historyRevision?: number) {
+  const entries = (conversationId && map[conversationId]) || map[legacyCharacterId] || []
+  return typeof historyRevision === 'number' ? entries.filter((entry) => revisionOf(entry) === historyRevision) : entries
+}
+
+/** Replace one branch's memories without deleting archived memories from older branches. */
+export function replaceConversationMemories(map: LongMemoryMap, conversationId: string | undefined, legacyCharacterId: string, historyRevision: number, entries: LongMemoryEntry[]) {
+  const key = conversationId || legacyCharacterId
+  const source = map[key] || []
+  return { ...map, [key]: [...source.filter((entry) => revisionOf(entry) !== historyRevision), ...entries] }
 }
 
 function searchTerms(value: string) {
