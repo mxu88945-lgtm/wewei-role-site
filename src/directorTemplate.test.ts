@@ -15,6 +15,8 @@ describe('built-in director template', () => {
     expect(director.id).toBe('director-fixed')
     expect(director.systemPrompt).toContain('禁止替用户写台词、动作、心理')
     expect(director.systemPrompt).toContain('禁止替它们说话、行动、思考')
+    expect(director.systemPrompt).toContain('禁止续演已经结束或离开的旧场景')
+    expect(director.postHistoryInstructions).toContain('输出前逐句核对主语')
     expect(director.characterBook?.entries.some((entry) => entry.content.includes('秘密证据'))).toBe(true)
     expect(director.characterBook?.entries.some((entry) => entry.content.includes('阶段一不得动心'))).toBe(true)
   })
