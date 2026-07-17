@@ -18,6 +18,39 @@ describe('automatic story continuity', () => {
     expect(hasUnprocessedAssistantMessages(project, conversations)).toBe(false)
   })
 
+  it('treats message ids as cursors instead of numeric timestamps', () => {
+    const outOfOrderIds = [{
+      id: 'chat-one', title: '画展', messages: [
+        { id: 9000, role: 'assistant' as const, characterId: 'lu', text: '上一轮。' },
+        { id: 100, role: 'user' as const, text: '用户继续调查。' },
+        { id: 101, role: 'assistant' as const, characterId: 'lu', text: '侦探送来了新材料。' },
+      ],
+    }]
+    const project = { ...createStoryProject(1), conversationIds: ['chat-one'] }
+    project.autoContinuity.lastProcessedAssistantMessageIds = { 'chat-one': 9000 }
+
+    expect(hasUnprocessedAssistantMessages(project, outOfOrderIds)).toBe(true)
+    const input = buildAutomaticContinuityInput({ project, conversations: outOfOrderIds, userName: '江黎姿', characters: [{ id: 'lu', name: '陆景澄' }] })
+    expect(input).toContain('用户继续调查')
+    expect(input).toContain('侦探送来了新材料')
+    expect(input).not.toContain('上一轮。')
+  })
+
+  it('replays the current history when a saved cursor disappeared after a rewind', () => {
+    const rewound = [{
+      id: 'chat-one', title: '画展', messages: [
+        { id: 20, role: 'user' as const, text: '改写后的选择。' },
+        { id: 21, role: 'assistant' as const, characterId: 'lu', text: '从新分支继续。' },
+      ],
+    }]
+    const project = { ...createStoryProject(1), conversationIds: ['chat-one'] }
+    project.autoContinuity.lastProcessedAssistantMessageIds = { 'chat-one': 9999 }
+
+    const input = buildAutomaticContinuityInput({ project, conversations: rewound, userName: '江黎姿', characters: [{ id: 'lu', name: '陆景澄' }] })
+    expect(input).toContain('改写后的选择')
+    expect(input).toContain('从新分支继续')
+  })
+
   it('sends only incremental dialogue and protects the user protagonist', () => {
     const project = { ...createStoryProject(1), title: '落水真相', conversationIds: ['chat-one'] }
     project.autoContinuity.lastProcessedAssistantMessageIds = { 'chat-one': 9 }
