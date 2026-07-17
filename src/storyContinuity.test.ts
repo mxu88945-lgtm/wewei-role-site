@@ -28,6 +28,7 @@ describe('automatic story continuity', () => {
     expect(input).toContain('核心证据节点')
     expect(input).toContain('线索目标｜行动者与动作｜预计新增信息｜如何衔接下一节点')
     expect(input).toContain('角色反应、结束行程')
+    expect(input).toContain('个人历史锚点，不代表全剧时间倒退')
   })
 
   it('consumes only an exact existing hook and permanently preserves completed events', () => {

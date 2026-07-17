@@ -3,7 +3,7 @@ import type { ChatApiMessage } from './chatApi'
 import { applyMacros, applyRegexScripts, stripPresentationalHtmlForPrompt } from './regexEngine'
 import { selectRelevantMemories, type LongMemoryEntry } from './memoryEngine'
 
-type SourceMessage = { role: 'user' | 'assistant'; text: string }
+type SourceMessage = { role: 'user' | 'assistant'; text: string; characterId?: string }
 type MemoryInput = { entries: LongMemoryEntry[]; injectPosition: string; injectPrompt: string }
 
 type PromptInput = {
@@ -14,6 +14,7 @@ type PromptInput = {
   globalWorldbook: string
   theaterWorldBackground?: string
   storyProjectContext?: string
+  actorContinuityAnchor?: string
   memory: MemoryInput
   memoryLength: number
   contextSummary?: string
@@ -106,6 +107,11 @@ export function buildChatPrompt(input: PromptInput): ChatApiMessage[] {
     // The live project snapshot must follow persisted card instructions so an
     // older director card cannot override the newest scene and role boundary.
     input.storyProjectContext,
+    input.actorContinuityAnchor && `【${character.name}个人连续性锚点｜不得回退或重演】
+以下是该角色在本群上一次完成的本人回复。它只用于保留该角色已经形成的认知、关系阶段、阶段锚点与已经结束的本人事件；即使中间由其他角色演了很多轮，也不得把锚点清零、降低阶段、遗忘已完成事件或再次演一遍。
+其中的时间、地点、“当前事件”和动作都属于当时的历史截面，旧地点只算历史，不是现在的场景指令；现在时必须服从最新剧本项目锚点与最近对话。续写时从最新全剧时点接上，只延续该角色的个人状态。
+
+${input.actorContinuityAnchor}`,
     `【用户身份】${user.name}\n${user.description}`,
     USER_AGENCY_GUARD,
   ].filter(Boolean).join('\n\n'), character, user.name))

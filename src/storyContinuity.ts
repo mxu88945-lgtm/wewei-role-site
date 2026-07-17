@@ -72,6 +72,7 @@ export function buildAutomaticContinuityInput({ project, characters, conversatio
 8. 客观事实、角色已知、仍未知、误解与隐藏真相分别维护。某角色听到传闻不代表传闻为真。
 9. 不删除仍有效的旧事实、证据或知情边界。新信息不足以更新某字段时，原样保留。
 10. 旁白或导演不是在场人物，不建立角色知情边界。
+11. 独立角色重新出场时，其状态栏可能引用本人上次离场前的旧地点与旧事件；那是个人历史锚点，不代表全剧时间倒退。除非最新用户消息或客观事件明确切换场景，不得把 currentTime、currentLocation、在场人物或已完成事件回滚到旧餐聚、旧住所、旧会议等历史截面。
 
 【当前项目与驾驶舱】
 ${JSON.stringify({ title: project.title, summary: project.summary, worldBackground: project.worldBackground, cockpit: project.cockpit }, null, 2)}

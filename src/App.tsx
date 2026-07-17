@@ -24,6 +24,7 @@ import { normalizeStoryProjects, type StoryProject } from './storyProject'
 import { buildStoryProjectPrompt, selectConversationStoryProject } from './storyProjectPrompt'
 import { buildAutomaticContinuityInput, captureAssistantMessageIds, hasUnprocessedAssistantMessages, mergeAutomaticContinuity, parseAutomaticContinuityResponse } from './storyContinuity'
 import { buildReplyHelperMessages, cleanReplyHelperDraft } from './replyHelper'
+import { findLatestActorContinuityAnchor } from './actorContinuity'
 import ReplyHelperSettingsPage from './ReplyHelperSettingsPage'
 
 type Page = 'home' | 'story-projects' | 'characters' | 'create' | 'character-workshop' | 'group-create' | 'director-template' | 'group-greeting-picker' | 'import-preview' | 'character-detail' | 'card-data' | 'card-worldbook' | 'card-regex' | 'greeting-picker' | 'chat' | 'more' | 'api' | 'reply-helper-api' | 'model' | 'settings' | 'appearance' | 'font' | 'display-reply' | 'identity' | 'worldbook' | 'theater-world' | 'preset' | 'memory' | 'memory-api' | 'memory-list'
@@ -1115,6 +1116,7 @@ function App() {
       const groupNames = (conversation.participantIds || []).map((id) => characters.find((item) => item.id === id)?.name).filter(Boolean)
       const storyProject = selectConversationStoryProject(storyProjects, conversation.id)
       const storyProjectContext = storyProject ? buildStoryProjectPrompt({ project: storyProject, speakerId: speaker.id, characters }) : ''
+      const actorContinuityAnchor = isGroup ? findLatestActorContinuityAnchor(nextMessages, speaker.id, speaker.name) : ''
       const promptMessages = buildChatPrompt({
         character: capturedCharacter,
         user: identity,
@@ -1123,6 +1125,7 @@ function App() {
         globalWorldbook: worldbook,
         theaterWorldBackground: conversation.theaterWorldBackground || '',
         storyProjectContext,
+        actorContinuityAnchor,
         memory: { entries: capturedMemories, injectPosition: capturedMemoryConfig.injectPosition, injectPrompt: capturedMemoryConfig.injectPrompt },
         memoryLength,
         contextSummary: conversation.contextSummary,
