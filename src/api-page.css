@@ -27,6 +27,26 @@
   padding: 4px 0 22px;
 }
 
+.api-feature-binding {
+  width: 100%;
+  border: 1px solid rgba(118, 77, 147, .12);
+  border-radius: 20px;
+  padding: 14px 15px;
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 12px;
+  color: inherit;
+  background: linear-gradient(135deg, rgba(238,232,246,.96), rgba(248,239,247,.94));
+  text-align: left;
+}
+.api-feature-binding-icon { width: 40px; height: 40px; border-radius: 14px; display: grid; place-items: center; color: #fff; background: linear-gradient(135deg, #8054d8, #c77cbb); box-shadow: 0 9px 22px rgba(92,55,143,.16); }
+.api-feature-binding-copy, .api-feature-binding-copy small, .api-feature-binding-copy strong, .api-feature-binding-copy em { min-width: 0; display: block; }
+.api-feature-binding-copy small { color: #9a8ca3; font-size: 9px; font-weight: 750; }
+.api-feature-binding-copy strong { margin-top: 2px; font-size: 14px; }
+.api-feature-binding-copy em { margin-top: 4px; overflow: hidden; color: #8c8191; text-overflow: ellipsis; white-space: nowrap; font-size: 10px; font-style: normal; }
+.api-feature-binding > i { color: #9a8fa0; font-size: 22px; font-style: normal; }
+
 .api-channels-panel {
   overflow: visible;
   border: 1px solid rgba(91, 72, 101, .08);
