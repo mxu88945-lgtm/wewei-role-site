@@ -152,7 +152,9 @@ const write = (key: string, value: unknown) => localStorage.setItem(key, JSON.st
 const conversationFrostKey = (conversationId: string) => `weijing.chatBackgroundFrost.${conversationId}`
 const syncPwaThemeColor = (color: string) => {
   if (!/^#[0-9a-f]{6}$/i.test(color)) return
-  try { localStorage.setItem('weijing.pwaThemeColor', color) } catch {}
+  try { localStorage.setItem('weijing.pwaThemeColor', color) } catch {
+    // Theme application still works when private browsing blocks localStorage.
+  }
   document.documentElement.style.backgroundColor = color
   document.querySelectorAll('meta[name="theme-color"]').forEach((element) => element.remove())
   const themeMeta = document.createElement('meta')
@@ -168,7 +170,11 @@ const writeDurable = (key: string, value: unknown) => {
     try { write(key, value) } catch (error) { console.warn('本地轻量储存已满，继续写入 IndexedDB', error) }
   }
   void durableSet(key, value)
-    .then(() => { try { localStorage.removeItem(key) } catch {} })
+    .then(() => {
+      try { localStorage.removeItem(key) } catch {
+        // IndexedDB is already authoritative; a blocked legacy cleanup is harmless.
+      }
+    })
     .catch((error) => console.error('IndexedDB 写入失败', error))
 }
 
@@ -482,6 +488,9 @@ function App() {
       if (typeof savedFrost === 'number') setChatBackgroundFrost(savedFrost)
       else if (typeof activeConversation?.themeFrost === 'number') setChatBackgroundFrost(activeConversation.themeFrost)
     }
+    // Theme helpers are recreated with theme state; rerunning for those identities would
+    // overwrite an in-progress edit. Conversation/preset changes are the intended trigger.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [activeConversation?.id, activeConversation?.themePresetId, persistenceReady])
   useEffect(() => { if (persistenceReady) writeDurable('weijing.characters', characters) }, [characters, persistenceReady])
   useEffect(() => { if (persistenceReady) writeDurable('weijing.storyProjects', storyProjects) }, [storyProjects, persistenceReady])
@@ -490,6 +499,9 @@ function App() {
     storyProjects
       .filter((project) => project.status === 'active' && project.autoContinuity.enabled && !project.autoContinuity.needsReview && hasUnprocessedAssistantMessages(project, conversations))
       .forEach((project) => { void runAutomaticContinuity(project) })
+    // The project/message state drives this scheduler. Including the callback identity would
+    // retrigger it while a continuity run updates state; the runner has its own re-entry guard.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [conversations, storyProjects, generatingIds.length, persistenceReady])
   useEffect(() => write('weijing.activeCharacter', activeId), [activeId])
   useEffect(() => setCharacterIntroExpanded(false), [activeId])
@@ -1552,9 +1564,9 @@ function App() {
     {page === 'card-worldbook' && <CharacterCardManager character={activeCharacter} onChange={updateActiveCharacter} onBack={goBack} initialSection="worldbook" />}
     {page === 'card-regex' && <CharacterCardManager character={activeCharacter} onChange={updateActiveCharacter} onBack={goBack} initialSection="regex" />}
 
-    {page === 'greeting-picker' && <GreetingPicker character={activeCharacter} userName={identity.name} onCancel={() => { const restarting = Boolean(restartingConversationId); setRestartingConversationId(null); restarting ? replacePage('chat') : goBack() }} onConfirm={beginWithGreeting} />}
+    {page === 'greeting-picker' && <GreetingPicker character={activeCharacter} userName={identity.name} onCancel={() => { const restarting = Boolean(restartingConversationId); setRestartingConversationId(null); if (restarting) replacePage('chat'); else goBack() }} onConfirm={beginWithGreeting} />}
 
-    {page === 'group-greeting-picker' && <GroupGreetingPicker characters={groupGreetingCharacters} userName={(identities.find((item) => item.id === activePersonaId) || identity).name} onCancel={() => { const restarting = Boolean(restartingConversationId); setRestartingConversationId(null); restarting ? replacePage('chat') : goBack() }} onConfirm={beginGroupWithGreeting} />}
+    {page === 'group-greeting-picker' && <GroupGreetingPicker characters={groupGreetingCharacters} userName={(identities.find((item) => item.id === activePersonaId) || identity).name} onCancel={() => { const restarting = Boolean(restartingConversationId); setRestartingConversationId(null); if (restarting) replacePage('chat'); else goBack() }} onConfirm={beginGroupWithGreeting} />}
 
     {page === 'chat' && <section className="chat-page"><header className="chat-header"><button className="icon-button drawer-trigger" aria-label="打开对话列表" onClick={() => setDrawer('left')}>☰</button><button className="chat-identity" onClick={() => navigate('character-detail')}>{activeCharacter.avatar ? <img src={activeCharacter.avatar} alt="" /> : <span>{activeCharacter.name.slice(-1)}</span>}<div><strong>{activeConversation?.kind === 'group' ? activeConversation.title : activeCharacter.name}</strong><small>{isGenerating ? '正在回应…' : activeConversation?.title || `${identity.name} · 沉浸共演中`}</small></div></button><button className="more-button" aria-label="打开聊天设置" onClick={() => setDrawer('right')}>•••</button></header>{chatError && <button className="chat-error" onClick={() => navigate('api')}><span>连接提示</span>{chatError}<i>前往 API 设置 ›</i></button>}<div ref={messageListRef} className="message-list" onScroll={updateChatJump}>{messages.map(renderChatMessage)}</div>{(chatJump.up || chatJump.down) && <nav className={`chat-jump-controls ${chatJump.visible ? 'visible' : ''}`} aria-label="快速浏览对话" aria-hidden={!chatJump.visible}>{chatJump.up && <button tabIndex={chatJump.visible ? 0 : -1} onClick={() => jumpChat('top')} aria-label="回到对话顶部">↑</button>}{chatJump.down && <button tabIndex={chatJump.visible ? 0 : -1} onClick={() => jumpChat('bottom')} aria-label="跳到最新消息">↓</button>}</nav>}<div className="composer"><button className="composer-plus" aria-label="打开输入工具" onClick={() => setComposerToolsOpen(true)}>{replyHelperState === 'generating' ? '…' : '＋'}</button><textarea ref={composerRef} rows={1} value={draft} onChange={(event) => { const value = event.target.value; setDraft(value); if (activeConversation?.kind === 'group' && /[@＠][^@＠\s]*$/.test(value)) { event.currentTarget.blur(); setMentionPickerOpen(true) } }} placeholder={replyHelperState === 'generating' ? 'AI 帮答正在起草…' : isGenerating ? '可以先写下一条，停止后再发送' : groupReplyMode === 'specified' && activeConversation?.kind === 'group' ? '输入 @ 选择回答的角色……' : '写下你的回应……'} /><button className={`send-button ${isGenerating ? 'stop' : ''}`} aria-label={isGenerating ? '停止生成' : '发送'} onClick={() => isGenerating && activeConversation ? abortConversation(activeConversation.id) : sendMessage()}>{isGenerating ? '■' : '↑'}</button></div></section>}
 

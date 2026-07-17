@@ -50,12 +50,12 @@ export default function ApiSettingsPage({
   }, [api.id])
 
   const pickerChannel = channels.find((channel) => channel.id === pickerChannelId)
-  const pickerModels = pickerChannelId ? modelsByChannel[pickerChannelId] ?? [] : []
   const filteredModels = useMemo(() => {
+    const pickerModels = pickerChannelId ? modelsByChannel[pickerChannelId] ?? [] : []
     const keyword = query.trim().toLowerCase()
     if (!keyword) return pickerModels
     return pickerModels.filter((model) => model.id.toLowerCase().includes(keyword) || model.ownedBy?.toLowerCase().includes(keyword))
-  }, [pickerModels, query])
+  }, [modelsByChannel, pickerChannelId, query])
 
   const updateChannel = (channel: ApiChannel, patch: Partial<ApiChannel>) => {
     onApiChange({ ...channel, ...patch })

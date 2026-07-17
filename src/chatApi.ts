@@ -137,7 +137,7 @@ async function consumeEventStream(response: Response, onDelta: (delta: string) =
 
 function tokenField(api: ApiConfig) {
   if (api.maxTokenField && api.maxTokenField !== 'auto') return api.maxTokenField
-  return /(^|[\/_-])(?:o[1-9]|gpt-5)(?:$|[\/_-])/i.test(api.modelName) ? 'max_completion_tokens' : 'max_tokens'
+  return /(^|[/_-])(?:o[1-9]|gpt-5)(?:$|[/_-])/i.test(api.modelName) ? 'max_completion_tokens' : 'max_tokens'
 }
 
 export async function completeChat(options: CompletionOptions) {

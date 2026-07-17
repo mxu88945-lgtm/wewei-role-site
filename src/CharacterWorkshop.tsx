@@ -105,7 +105,9 @@ export default function CharacterWorkshop({ channels, defaultChannelId, onBack, 
   const channel = channels.find((item) => item.id === channelId) || channels[0]
 
   useEffect(() => {
-    try { localStorage.setItem('weijing.characterWorkshop', JSON.stringify({ brief, result, avatar, copilotMessages, copilotMemory, pendingCopilotPatch, copilotUndoSnapshot })) } catch {}
+    try { localStorage.setItem('weijing.characterWorkshop', JSON.stringify({ brief, result, avatar, copilotMessages, copilotMemory, pendingCopilotPatch, copilotUndoSnapshot })) } catch {
+      // The workshop remains usable when storage is unavailable; this draft is best-effort.
+    }
   }, [brief, result, avatar, copilotMessages, copilotMemory, pendingCopilotPatch, copilotUndoSnapshot])
 
   useEffect(() => { copilotEndRef.current?.scrollIntoView({ block: 'nearest', behavior: 'smooth' }) }, [copilotMessages, copilotState])
