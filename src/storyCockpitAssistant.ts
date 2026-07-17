@@ -57,10 +57,10 @@ export function buildCockpitAssistantInput({ project, characters, conversations,
 10. 角色知情边界必须有来源。某角色的内心、旁白资料或隐藏真相，不代表其他角色自动知道。
 11. 当前时间、地点或在场人物无法确认时留空，不得猜测。
 12. 旁白导演是后台控制者，不是在场角色，也不需要角色知情边界。
-13. 保留现有驾驶舱中仍然有效的事实；只有来源明确更新、完成或推翻时才修改。
+13. ${project.autoContinuity.needsReview ? '对话历史已改写，必须从当前保留的对话重建驾驶舱；旧驾驶舱不是事实来源，不得保留其中未被当前对话支持的事件、阶段、证据或知情边界。' : '保留现有驾驶舱中仍然有效的事实；只有来源明确更新、完成或推翻时才修改。'}
 
 【项目资料】
-${JSON.stringify({ title: project.title, summary: project.summary, worldBackground: project.worldBackground, currentCockpit: project.cockpit }, null, 2)}
+${JSON.stringify({ title: project.title, summary: project.summary, worldBackground: project.worldBackground, currentCockpit: project.autoContinuity.needsReview ? '历史已改写，禁止作为重建依据' : project.cockpit }, null, 2)}
 
 【用户身份】
 ${userName}

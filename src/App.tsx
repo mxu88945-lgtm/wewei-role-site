@@ -12,7 +12,7 @@ import { createApiChannel, normalizeApiChannels, withApiModel, type ApiChannel }
 import { enabledPresetText, normalizePresetSections } from './presetConfig'
 import { durableGet, durableSet } from './persistentStore'
 import { sanitizeAssistantOutput, stripLeadingSpeakerLabels } from './outputSanitizer'
-import { memoriesForConversation } from './memoryEngine'
+import { memoriesForConversation, replaceConversationMemories } from './memoryEngine'
 import { findMentionedParticipantIds, selectGroupSpeakerIds, type GroupReplyMode } from './groupReplyRouting'
 import Pet from './Pet'
 import PetCritter, { PET_CHOICES, type PetVariant } from './PetCritter'
@@ -40,7 +40,9 @@ type Conversation = {
   createdAt: number
   updatedAt: number
   contextSummary?: string
+  contextSummaryRevision?: number
   compressedUntil?: number
+  historyRevision?: number
   kind?: 'single' | 'group'
   participantIds?: string[]
   participantApiIds?: Record<string, string>
@@ -54,7 +56,7 @@ type Conversation = {
   directorConfig?: DirectorTemplateConfig
 }
 type LegacySessionMap = Record<string, Message[]>
-type MemoryEntry = { id: string; createdAt: number; title: string; content: string; sourceCount: number; pinned?: boolean; consolidated?: boolean }
+type MemoryEntry = { id: string; createdAt: number; title: string; content: string; sourceCount: number; pinned?: boolean; consolidated?: boolean; historyRevision?: number }
 type MemoryConfig = {
   api: ApiConfig
   useGlobalApi?: boolean
@@ -360,8 +362,12 @@ function App() {
   }
   const currentMemoryConfig = memoryConfigs[activeCharacter.id] || defaultMemoryConfig()
   const currentMemoryApi = currentMemoryConfig.useGlobalApi === false ? currentMemoryConfig.api : globalMemoryApi
-  const memoryScopeId = activeConversation?.id || activeCharacter.id
-  const currentMemories = memoriesForConversation(memoryEntries, activeConversation?.id, activeCharacter.id) as MemoryEntry[]
+  const activeHistoryRevision = activeConversation?.historyRevision || 0
+  const currentMemories = memoriesForConversation(memoryEntries, activeConversation?.id, activeCharacter.id, activeHistoryRevision) as MemoryEntry[]
+  const updateCurrentMemories = (transform: (entries: MemoryEntry[]) => MemoryEntry[]) => setMemoryEntries((current) => {
+    const entries = memoriesForConversation(current, activeConversation?.id, activeCharacter.id, activeHistoryRevision) as MemoryEntry[]
+    return replaceConversationMemories(current, activeConversation?.id, activeCharacter.id, activeHistoryRevision, transform(entries)) as MemoryEntryMap
+  })
   const runAutomaticContinuity = async (project: StoryProject) => {
     if (continuityRunningProjectIds.current.has(project.id)) return
     continuityRunningProjectIds.current.add(project.id)
@@ -475,7 +481,7 @@ function App() {
   useEffect(() => {
     if (!persistenceReady || generatingIds.length) return
     storyProjects
-      .filter((project) => project.status === 'active' && project.autoContinuity.enabled && hasUnprocessedAssistantMessages(project, conversations))
+      .filter((project) => project.status === 'active' && project.autoContinuity.enabled && !project.autoContinuity.needsReview && hasUnprocessedAssistantMessages(project, conversations))
       .forEach((project) => { void runAutomaticContinuity(project) })
   }, [conversations, storyProjects, generatingIds.length, persistenceReady])
   useEffect(() => write('weijing.activeCharacter', activeId), [activeId])
@@ -576,6 +582,27 @@ function App() {
     generationControllers.current.delete(conversationId)
     setGeneratingIds((current) => current.filter((id) => id !== conversationId))
   }
+
+  const markStoryHistoryForReview = (conversationId: string) => {
+    setStoryProjects((current) => current.map((project) => project.conversationIds.includes(conversationId) ? {
+      ...project,
+      autoContinuity: {
+        ...project.autoContinuity,
+        needsReview: true,
+        lastError: '已检测到对话历史改写，旧驾驶舱已暂停注入。请重新分析并保存驾驶舱。',
+        lastSummary: undefined,
+      },
+      updatedAt: Date.now(),
+    } : project))
+  }
+
+  const rewriteConversationHistory = (conversation: Conversation, nextMessages: Message[]) => ({
+    ...conversation,
+    messages: nextMessages,
+    historyRevision: (conversation.historyRevision || 0) + 1,
+    memorySummarizedCount: 0,
+    updatedAt: Date.now(),
+  })
 
   const resetApiConnection = () => {
     setConnection('idle')
@@ -712,11 +739,10 @@ function App() {
     if (!restartingConversationId) { createGroupConversation(choice); return }
     const id = restartingConversationId
     const now = Date.now()
-    setConversations((current) => current.map((item) => item.id === id ? {
-      ...item,
-      messages: [{ id: now, role: 'assistant', text: choice.greeting, characterId: choice.characterId }],
-      contextSummary: '', compressedUntil: 0, updatedAt: now,
-    } : item))
+    markStoryHistoryForReview(id)
+    setConversations((current) => current.map((item) => item.id === id
+      ? rewriteConversationHistory(item, [{ id: now, role: 'assistant', text: choice.greeting, characterId: choice.characterId }])
+      : item))
     setActiveConversationId(id)
     setActiveId(choice.characterId)
     setRestartingConversationId(null)
@@ -849,7 +875,10 @@ function App() {
   const beginWithGreeting = (greeting: string) => {
     if (restartingConversationId) {
       const id = restartingConversationId
-      setConversations((current) => current.map((item) => item.id === id ? { ...item, messages: [{ id: Date.now(), role: 'assistant', text: greeting }], updatedAt: Date.now() } : item))
+      markStoryHistoryForReview(id)
+      setConversations((current) => current.map((item) => item.id === id
+        ? rewriteConversationHistory(item, [{ id: Date.now(), role: 'assistant', text: greeting }])
+        : item))
       setActiveConversationId(id)
       setRestartingConversationId(null)
     } else {
@@ -961,13 +990,14 @@ function App() {
 
   const summarizeMemory = async (sourceMessages = messages, targetConversation = activeConversation, targetCharacter = activeCharacter) => {
     const config = memoryConfigFor(targetCharacter.id)
+    const targetRevision = targetConversation?.historyRevision || 0
     const summarizedCount = Math.min(targetConversation?.memorySummarizedCount || 0, sourceMessages.length)
     const pendingMessages = sourceMessages.slice(summarizedCount)
     if (!targetConversation || !config.api.baseUrl || !config.api.modelName || !config.api.apiKey || pendingMessages.length < 2) { setMemoryState('error'); return }
     setMemoryState('summarizing')
     const scopeId = targetConversation.id
     const transcript = pendingMessages.map((item) => `${item.role === 'user' ? identity.name : characters.find((character) => character.id === item.characterId)?.name || targetCharacter.name}：${item.text}`).join('\n')
-    const conversationMemories = memoriesForConversation(memoryEntries, scopeId, targetCharacter.id) as MemoryEntry[]
+    const conversationMemories = memoriesForConversation(memoryEntries, scopeId, targetCharacter.id, targetRevision) as MemoryEntry[]
     const previous = [...conversationMemories.filter((item) => item.pinned), ...conversationMemories.filter((item) => !item.pinned).slice(-6)].map((item) => item.content).join('\n\n').slice(-12000)
     try {
       const endpoint = `${config.api.baseUrl.replace(/\/$/, '')}/chat/completions`
@@ -988,11 +1018,11 @@ function App() {
       const content = data?.choices?.[0]?.message?.content?.trim()
       if (!content) throw new Error('empty memory')
       if (/^无新增长期记忆[。！!]?$/.test(content)) {
-        setConversations((current) => current.map((item) => item.id === targetConversation.id ? { ...item, memorySummarizedCount: sourceMessages.length } : item))
+        setConversations((current) => current.map((item) => item.id === targetConversation.id && (item.historyRevision || 0) === targetRevision ? { ...item, memorySummarizedCount: sourceMessages.length } : item))
         setMemoryState('ok')
         return
       }
-      const entry: MemoryEntry = { id: crypto.randomUUID(), createdAt: Date.now(), title: `${new Date().toLocaleDateString()} · 新增 ${pendingMessages.length} 条`, content, sourceCount: pendingMessages.length }
+      const entry: MemoryEntry = { id: crypto.randomUUID(), createdAt: Date.now(), title: `${new Date().toLocaleDateString()} · 新增 ${pendingMessages.length} 条`, content, sourceCount: pendingMessages.length, historyRevision: targetRevision }
       let nextEntries = [...conversationMemories.filter((item) => item.pinned), ...[...conversationMemories.filter((item) => !item.pinned), entry].slice(-config.maxEntries)]
       const ordinary = nextEntries.filter((item) => !item.pinned)
       if (ordinary.length >= 12) {
@@ -1012,12 +1042,12 @@ function App() {
           if (consolidationResponse.ok) {
             const consolidationData = await consolidationResponse.json()
             const consolidated = consolidationData?.choices?.[0]?.message?.content?.trim()
-            if (consolidated) nextEntries = [...nextEntries.filter((item) => item.pinned), { id: crypto.randomUUID(), createdAt: Date.now(), title: `${new Date().toLocaleDateString()} · 阶段记忆整理`, content: consolidated, sourceCount: ordinary.reduce((sum, item) => sum + item.sourceCount, 0), consolidated: true }]
+            if (consolidated) nextEntries = [...nextEntries.filter((item) => item.pinned), { id: crypto.randomUUID(), createdAt: Date.now(), title: `${new Date().toLocaleDateString()} · 阶段记忆整理`, content: consolidated, sourceCount: ordinary.reduce((sum, item) => sum + item.sourceCount, 0), consolidated: true, historyRevision: targetRevision }]
           }
         } catch (error) { console.warn('自动整理长期记忆失败，保留原记忆', error) }
       }
-      setMemoryEntries((current) => ({ ...current, [scopeId]: nextEntries }))
-      setConversations((current) => current.map((item) => item.id === targetConversation.id ? { ...item, memorySummarizedCount: sourceMessages.length } : item))
+      setMemoryEntries((current) => replaceConversationMemories(current, scopeId, targetCharacter.id, targetRevision, nextEntries) as MemoryEntryMap)
+      setConversations((current) => current.map((item) => item.id === targetConversation.id && (item.historyRevision || 0) === targetRevision ? { ...item, memorySummarizedCount: sourceMessages.length } : item))
       setMemoryState('ok')
     } catch (error) {
       console.error('记忆总结失败', error)
@@ -1043,9 +1073,9 @@ function App() {
       userDescription: identity.description,
       conversationTitle: activeConversation.title,
       currentDraft: draft,
-      contextSummary: activeConversation.contextSummary,
+      contextSummary: (activeConversation.contextSummaryRevision || 0) === (activeConversation.historyRevision || 0) ? activeConversation.contextSummary : undefined,
       recentMessages: messages.slice(-Math.min(30, memoryLength)).map((message) => ({ author: authorOf(message), text: message.text })),
-      project: project ? {
+      project: project && !project.autoContinuity.needsReview ? {
         title: project.title,
         worldBackground: project.worldBackground || project.summary,
         currentTime: project.cockpit.currentTime,
@@ -1092,7 +1122,7 @@ function App() {
 
     const capturedCharacter = speaker
     const capturedMemoryConfig = memoryConfigFor(capturedCharacter.id)
-    const capturedMemories = memoriesForConversation(memoryEntries, conversation.id, capturedCharacter.id) as MemoryEntry[]
+    const capturedMemories = memoriesForConversation(memoryEntries, conversation.id, capturedCharacter.id, conversation.historyRevision || 0) as MemoryEntry[]
     const assistantMessage: Message = { id: nextMessageId(nextMessages), role: 'assistant', characterId: speaker.id, text: '正在回应…' }
     const pendingMessages = [...nextMessages, assistantMessage]
     setConversations((current) => {
@@ -1135,7 +1165,7 @@ function App() {
         actorContinuityAnchor,
         memory: { entries: capturedMemories, injectPosition: capturedMemoryConfig.injectPosition, injectPrompt: capturedMemoryConfig.injectPrompt },
         memoryLength,
-        contextSummary: conversation.contextSummary,
+        contextSummary: (conversation.contextSummaryRevision || 0) === (conversation.historyRevision || 0) ? conversation.contextSummary : undefined,
       })
       const completion = await completeChat({
         api: speakerApi,
@@ -1191,9 +1221,9 @@ function App() {
     }
   }
 
-  const sendMessage = async (textOverride?: string, historyOverride?: Message[]) => {
+  const sendMessage = async (textOverride?: string, historyOverride?: Message[], conversationOverride?: Conversation) => {
     const text = (textOverride ?? draft).trim(); if (!text) return
-    let conversation = activeConversation
+    let conversation = conversationOverride || activeConversation
     if (!conversation) {
       conversation = { ...createConversation(activeCharacter), personaId: activePersonaId }
       setConversations((current) => [...current, conversation!])
@@ -1260,16 +1290,18 @@ function App() {
     if (!activeConversation) return
     const index = activeConversation.messages.findIndex((entry) => entry.id === message.id)
     if (index < 0 || !window.confirm('从这条消息开始撤回剧情？这条消息以及后面的全部消息都会移除。')) return
-    setConversations((current) => current.map((item) => item.id === activeConversation.id ? { ...item, messages: item.messages.slice(0, index), memorySummarizedCount: Math.min(item.memorySummarizedCount || 0, index), contextSummary: '', compressedUntil: 0, updatedAt: Date.now() } : item))
+    markStoryHistoryForReview(activeConversation.id)
+    setConversations((current) => current.map((item) => item.id === activeConversation.id ? rewriteConversationHistory(item, item.messages.slice(0, index)) : item))
     setMessageMenuId(null)
   }
 
   const deleteMessage = (message: Message) => {
     if (!activeConversation || !window.confirm('只删除这一条消息？前后的剧情都会保留。')) return
+    markStoryHistoryForReview(activeConversation.id)
     setConversations((current) => current.map((item) => {
       if (item.id !== activeConversation.id) return item
       const nextMessages = item.messages.filter((entry) => entry.id !== message.id)
-      return { ...item, messages: nextMessages, memorySummarizedCount: Math.min(item.memorySummarizedCount || 0, nextMessages.length), updatedAt: Date.now() }
+      return rewriteConversationHistory(item, nextMessages)
     }))
     setMessageMenuId(null)
   }
@@ -1282,7 +1314,11 @@ function App() {
     const speaker = characters.find((item) => item.id === message.characterId) || activeCharacter
     const baseChannel = activeConversation.kind === 'group' ? apiChannels.find((item) => item.id === activeConversation.participantApiIds?.[speaker.id]) || api : api
     const channel = activeConversation.kind === 'group' ? withApiModel(baseChannel, activeConversation.participantModelNames?.[speaker.id]) : baseChannel
-    await generateAssistant(activeConversation, messages.slice(0, index), speaker, channel)
+    const nextMessages = messages.slice(0, index)
+    const rewritten = rewriteConversationHistory(activeConversation, nextMessages)
+    markStoryHistoryForReview(activeConversation.id)
+    setConversations((current) => current.map((item) => item.id === activeConversation.id ? rewritten : item))
+    await generateAssistant(rewritten, nextMessages, speaker, channel)
   }
 
   const editAndResendUserMessage = (message: Message) => {
@@ -1296,15 +1332,20 @@ function App() {
     const text = messageEditor.text.trim()
     if (!text) return
     if (messageEditor.mode === 'assistant') {
-      setConversations((current) => current.map((item) => item.id === activeConversation.id ? { ...item, messages: item.messages.map((entry) => entry.id === messageEditor.messageId ? { ...entry, text, finishReason: null } : entry), updatedAt: Date.now() } : item))
+      markStoryHistoryForReview(activeConversation.id)
+      setConversations((current) => current.map((item) => item.id === activeConversation.id ? rewriteConversationHistory(item, item.messages.map((entry) => entry.id === messageEditor.messageId ? { ...entry, text, finishReason: null } : entry)) : item))
       setMessageEditor(null)
       return
     }
     if (isGenerating) return
     const index = messages.findIndex((entry) => entry.id === messageEditor.messageId)
     if (index < 0) return
+    const nextMessages = messages.slice(0, index)
+    const rewritten = rewriteConversationHistory(activeConversation, nextMessages)
+    markStoryHistoryForReview(activeConversation.id)
+    setConversations((current) => current.map((item) => item.id === activeConversation.id ? rewritten : item))
     setMessageEditor(null)
-    await sendMessage(text, messages.slice(0, index))
+    await sendMessage(text, nextMessages, rewritten)
   }
 
   const exportConversationTxt = () => {
@@ -1322,6 +1363,8 @@ function App() {
     const keepRecent = Math.max(10, Math.floor(memoryLength / 2))
     const oldMessages = messages.slice(0, Math.max(0, messages.length - keepRecent))
     if (oldMessages.length < 6) return
+    const targetRevision = activeConversation.historyRevision || 0
+    const currentSummary = (activeConversation.contextSummaryRevision || 0) === targetRevision ? activeConversation.contextSummary : ''
     setCompressingContext(true); setDrawer(null); let summary = ''
     try {
       const controller = new AbortController()
@@ -1330,12 +1373,12 @@ function App() {
         signal: controller.signal,
         messages: [
           { role: 'system', content: '你是剧情上下文压缩器。只总结已经发生的事实，保留时间、地点、人物关系、承诺、冲突、情绪转折、重要物品、未完成事项和角色状态。不得续写剧情，不得虚构，不得省略影响后续扮演的信息。' },
-          { role: 'user', content: `${activeConversation.contextSummary ? `此前摘要：\n${activeConversation.contextSummary}\n\n` : ''}待压缩对话：\n${oldMessages.map((item) => `${item.role === 'user' ? identity.name : characters.find((character) => character.id === item.characterId)?.name || activeCharacter.name}：${item.text}`).join('\n\n')}` },
+          { role: 'user', content: `${currentSummary ? `此前摘要：\n${currentSummary}\n\n` : ''}待压缩对话：\n${oldMessages.map((item) => `${item.role === 'user' ? identity.name : characters.find((character) => character.id === item.characterId)?.name || activeCharacter.name}：${item.text}`).join('\n\n')}` },
         ],
         onDelta: (delta) => { summary += delta },
       })
       if (!summary.trim()) throw new Error('模型没有生成摘要')
-      setConversations((current) => current.map((item) => item.id === activeConversation.id ? { ...item, contextSummary: summary.trim(), compressedUntil: oldMessages.length, updatedAt: Date.now() } : item))
+      setConversations((current) => current.map((item) => item.id === activeConversation.id && (item.historyRevision || 0) === targetRevision ? { ...item, contextSummary: summary.trim(), contextSummaryRevision: targetRevision, compressedUntil: oldMessages.length, updatedAt: Date.now() } : item))
     } catch (error) { setChatError(error instanceof Error ? error.message : '上下文压缩失败') }
     finally { setCompressingContext(false) }
   }
@@ -1489,7 +1532,7 @@ function App() {
 
     {page === 'memory-api' && <><BackHeader title={currentMemoryConfig.useGlobalApi === false ? `${activeCharacter.name} · 独立记忆 API` : '全局默认记忆 API'} onBack={goBack} action={<span className="saved-label">自动保存</span>} /><section className="content-stack form-stack" data-memory-api-scope={currentMemoryConfig.useGlobalApi === false ? activeCharacter.id : 'global'}><div className="api-status"><span className={currentMemoryApi.apiKey ? 'ok' : ''}></span><div><strong>{currentMemoryApi.apiKey ? '记忆接口已配置' : '尚未填写密钥'}</strong><small>{currentMemoryConfig.useGlobalApi === false ? `仅覆盖 ${activeCharacter.name}，其他角色仍使用全局接口` : '所有选择“全局默认”的角色与新剧场都会使用此接口'}</small></div></div><label>Base URL<input value={currentMemoryApi.baseUrl} onChange={(e) => updateMemoryApi({ baseUrl: e.target.value })} /></label><label>API Key<input type="password" value={currentMemoryApi.apiKey} onChange={(e) => updateMemoryApi({ apiKey: e.target.value })} placeholder="sk-••••••••" /></label><label>模型名称<input value={currentMemoryApi.modelName} onChange={(e) => updateMemoryApi({ modelName: e.target.value })} /></label><div className="privacy-note">此接口独立于聊天 API。密钥只保存在当前设备，不上传仓库；切回全局接口不会删除当前角色已保存的独立配置。</div></section></>}
 
-    {page === 'memory-list' && <><BackHeader title={`${activeConversation?.title || activeCharacter.name} · 记忆库`} onBack={goBack} /><section className="content-stack"><div className="privacy-note">这份记忆只属于当前对话。标为核心后会永久注入，不会被相关性筛选或自动整理移除。</div>{currentMemories.length === 0 ? <div className="empty-memory"><span>✦</span><strong>还没有长期记忆</strong><p>返回上一页，配置总结 API 后可立即总结当前对话。</p></div> : currentMemories.slice().reverse().map((entry) => <article className={`memory-entry ${entry.pinned ? 'pinned' : ''}`} key={entry.id}><div><strong>{entry.pinned ? '★ 核心 · ' : entry.consolidated ? '阶段整理 · ' : ''}{entry.title}</strong><small>{new Date(entry.createdAt).toLocaleString()} · 来源 {entry.sourceCount} 条消息</small></div><textarea rows={8} value={entry.content} onChange={(e) => setMemoryEntries((current) => ({ ...current, [memoryScopeId]: (memoriesForConversation(current, activeConversation?.id, activeCharacter.id) as MemoryEntry[]).map((item) => item.id === entry.id ? { ...item, content: e.target.value } : item) }))} /><div className="memory-entry-actions"><button className="soft-button" onClick={() => setMemoryEntries((current) => ({ ...current, [memoryScopeId]: (memoriesForConversation(current, activeConversation?.id, activeCharacter.id) as MemoryEntry[]).map((item) => item.id === entry.id ? { ...item, pinned: !item.pinned } : item) }))}>{entry.pinned ? '取消核心' : '设为核心记忆'}</button><button className="danger-link" onClick={() => setMemoryEntries((current) => ({ ...current, [memoryScopeId]: (memoriesForConversation(current, activeConversation?.id, activeCharacter.id) as MemoryEntry[]).filter((item) => item.id !== entry.id) }))}>删除</button></div></article>)}</section></>}
+    {page === 'memory-list' && <><BackHeader title={`${activeConversation?.title || activeCharacter.name} · 记忆库`} onBack={goBack} /><section className="content-stack"><div className="privacy-note">这份记忆只属于当前对话。历史改写后，旧分支记忆会保留但不再注入新分支。</div>{currentMemories.length === 0 ? <div className="empty-memory"><span>✦</span><strong>还没有长期记忆</strong><p>返回上一页，配置总结 API 后可立即总结当前对话。</p></div> : currentMemories.slice().reverse().map((entry) => <article className={`memory-entry ${entry.pinned ? 'pinned' : ''}`} key={entry.id}><div><strong>{entry.pinned ? '★ 核心 · ' : entry.consolidated ? '阶段整理 · ' : ''}{entry.title}</strong><small>{new Date(entry.createdAt).toLocaleString()} · 来源 {entry.sourceCount} 条消息</small></div><textarea rows={8} value={entry.content} onChange={(e) => updateCurrentMemories((entries) => entries.map((item) => item.id === entry.id ? { ...item, content: e.target.value } : item))} /><div className="memory-entry-actions"><button className="soft-button" onClick={() => updateCurrentMemories((entries) => entries.map((item) => item.id === entry.id ? { ...item, pinned: !item.pinned } : item))}>{entry.pinned ? '取消核心' : '设为核心记忆'}</button><button className="danger-link" onClick={() => updateCurrentMemories((entries) => entries.filter((item) => item.id !== entry.id))}>删除</button></div></article>)}</section></>}
 
     {page === 'model' && <><BackHeader title="模型设置" onBack={goBack} /><section className="settings-stack compact-settings"><div className="settings-group range-group"><RangeRow label="记忆长度" value={memoryLength} min={10} max={100} step={1} onChange={setMemoryLength} /><RangeRow label="回复令牌限制" hint={`当前最多请求 ${maxTokens} 个输出令牌`} value={maxTokens} min={1000} max={64000} step={1000} onChange={setMaxTokens} /></div><div className="settings-group range-group"><RangeRow label="温度" value={temperature} min={0} max={2} step={0.05} onChange={setTemperature} /><RangeRow label="Top-P" value={topP} min={0} max={1} step={0.05} onChange={setTopP} /></div><div className="settings-group toggle-row"><div><strong>流式传输</strong><small>立即逐字显示回复</small></div><button className={`switch ${streaming ? 'on' : ''}`} onClick={() => setStreaming(!streaming)}><span /></button></div></section></>}
     {page === 'settings' && <><BackHeader title="应用设置" onBack={goBack} /><section className="settings-stack compact-settings"><div className="storage-health-card"><div><strong>本地数据保险库</strong><small>惟境真实数据：{appDataUsage}</small><small>Safari 站点总占用：{storageUsage}（含 PWA 缓存与系统预留，刷新波动不代表聊天重复增长）</small></div><span>{appDataUsage}</span></div><div className="settings-group"><button onClick={() => navigate('appearance')}><span>外观 · 自定义主题</span><span>›</span></button><button><span>语言 · 简体中文</span><span>›</span></button><button onClick={() => navigate('font')}><span>字体 · 界面 {uiFontScale}% / 正文 {chatFontSize}px</span><span>›</span></button></div><BackupCard /><UpdateCard /></section></>}
@@ -1525,7 +1568,7 @@ function App() {
           <section className="drawer-members-section"><div className="drawer-section-title"><strong>成员（{conversationMemberIds().length}）</strong><button onClick={() => { setDrawer(null); setMemberPickerOpen(true) }}>＋ 添加 / 配置 API</button></div><div className="drawer-member-row">{conversationMemberIds().map((id) => { const member = characters.find((item) => item.id === id); if (!member) return null; return <div className="drawer-member-chip" key={id}>{member.avatar ? <img src={member.avatar} alt="" /> : <span>{member.name.slice(-1)}</span>}<small>{member.name}</small>{conversationMemberIds().length > 1 && <button aria-label={`移除${member.name}`} onClick={() => removeConversationMember(id)}>×</button>}</div> })}</div></section>
           <section className="drawer-compact-group"><div className="drawer-section-title"><strong>聊天设置</strong></div>{activeConversation?.directorCharacterId && <button onClick={() => { setDirectorEditorTarget('conversation'); navigate('director-template', 'right') }}><span>共演导演资料 · 已启用</span><i>›</i></button>}{[['情景与角色资料', 'card-data'], [`本剧场世界观背景 · ${activeConversation?.theaterWorldBackground?.trim() ? '已填写' : '未填写'}`, 'theater-world'], ['用户身份', 'identity'], ['主题与背景', 'appearance'], ['字体与文字颜色', 'font'], ['显示与回复', 'display-reply']].map(([label, target]) => <button key={label} onClick={() => navigate(target as Page, 'right')}><span>{label}</span><i>›</i></button>)}</section>
           <section className="drawer-compact-group"><div className="drawer-section-title"><strong>角色与高级设置</strong></div>{[['世界书', 'card-worldbook'], ['正则与美化', 'card-regex'], ['长期记忆', 'memory'], [`AI 帮答 · ${(apiChannels.find((item) => item.id === replyHelperApiId) || api).name || '未配置'}`, 'reply-helper-api'], [`API · ${api.name || '当前渠道'}`, 'api'], ['模型设置', 'model'], ['预设', 'preset'], ['应用设置', 'settings']].map(([label, target]) => <button key={label} onClick={() => navigate(target as Page, 'right')}><span>{label}</span><i>›</i></button>)}</section>
-          <section className="drawer-compact-group drawer-actions-group"><button onClick={() => navigate('character-detail', 'right')}><span>查看角色详情</span><i>›</i></button><button onClick={compressOldContext} disabled={compressingContext || messages.length < 16}><span>{compressingContext ? '正在压缩旧上下文…' : activeConversation?.contextSummary ? `更新上下文摘要 · 已压缩 ${activeConversation.compressedUntil || 0} 条` : '压缩旧上下文'}</span><i>⌁</i></button><button onClick={exportConversationTxt}><span>导出当前对话 TXT</span><i>↓</i></button></section>
+          <section className="drawer-compact-group drawer-actions-group"><button onClick={() => navigate('character-detail', 'right')}><span>查看角色详情</span><i>›</i></button><button onClick={compressOldContext} disabled={compressingContext || messages.length < 16}><span>{compressingContext ? '正在压缩旧上下文…' : activeConversation?.contextSummary && (activeConversation.contextSummaryRevision || 0) === (activeConversation.historyRevision || 0) ? `更新上下文摘要 · 已压缩 ${activeConversation.compressedUntil || 0} 条` : '压缩旧上下文'}</span><i>⌁</i></button><button onClick={exportConversationTxt}><span>导出当前对话 TXT</span><i>↓</i></button></section>
         </div>
       </aside>}
 

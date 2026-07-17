@@ -74,6 +74,16 @@ describe('story project prompt injection', () => {
     expect(prompt).not.toContain('mistakenBeliefs')
   })
 
+  it('quarantines a stale cockpit after dialogue history is rewritten', () => {
+    const stale = project()
+    stale.autoContinuity.needsReview = true
+    const prompt = buildStoryProjectPrompt({ project: stale, speakerId: 'director', characters })
+    expect(prompt).toContain('驾驶舱暂停注入')
+    expect(prompt).toContain('只依据最近对话')
+    expect(prompt).not.toContain('真正收款人是霍启铭')
+    expect(prompt).not.toContain('画展试探已经结束')
+  })
+
   it('selects only the newest active project bound to a conversation', () => {
     const archived = { ...project(), id: 'archived', status: 'archived' as const, updatedAt: 999 }
     const old = { ...project(), id: 'old', updatedAt: 200 }

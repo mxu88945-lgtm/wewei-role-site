@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { memoriesForConversation, selectRelevantMemories } from './memoryEngine'
+import { memoriesForConversation, replaceConversationMemories, selectRelevantMemories } from './memoryEngine'
 
 describe('long-running memory selection', () => {
   it('isolates conversation memories while keeping legacy fallback', () => {
@@ -17,5 +17,16 @@ describe('long-running memory selection', () => {
     const selected = selectRelevantMemories(entries, '顾荒低头看着那枚戒指，想起雨夜。', 1000)
     expect(selected.map((item) => item.id)).toContain('core')
     expect(selected.map((item) => item.id)).toContain('old-relevant')
+  })
+
+  it('isolates a rewritten branch without deleting its archived memories', () => {
+    const map = { conversation: [
+      { id: 'old', content: '旧分支结局', historyRevision: 0 },
+      { id: 'new', content: '新分支进展', historyRevision: 1 },
+    ] }
+    expect(memoriesForConversation(map, 'conversation', 'character', 1).map((entry) => entry.id)).toEqual(['new'])
+
+    const replaced = replaceConversationMemories(map, 'conversation', 'character', 1, [{ id: 'newer', content: '新分支整理', historyRevision: 1 }])
+    expect(replaced.conversation.map((entry) => entry.id)).toEqual(['old', 'newer'])
   })
 })

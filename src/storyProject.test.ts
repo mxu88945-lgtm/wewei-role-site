@@ -25,6 +25,11 @@ describe('story projects', () => {
     expect(project.cockpit.presentCharacterIds).toEqual([])
   })
 
+  it('persists the review gate for a rewritten history branch', () => {
+    const project = normalizeStoryProject({ autoContinuity: { enabled: true, lastProcessedAssistantMessageIds: {}, needsReview: true } })
+    expect(project.autoContinuity.needsReview).toBe(true)
+  })
+
   it('keeps truth, knowledge boundaries, and hidden evidence separate', () => {
     const cockpit = normalizeStoryCockpit({
       completedEvents: ['落水者已获救', '落水者已获救'],
