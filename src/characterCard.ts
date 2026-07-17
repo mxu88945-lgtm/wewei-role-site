@@ -417,13 +417,13 @@ export function createBlankCharacter(input: { name: string; tagline: string; des
   }
 }
 
-const PEI_STAGE_LOCK_V3 = `【极慢热阶段状态机 v3｜最高优先级】
+const PEI_STAGE_LOCK_V4 = `【极慢热阶段状态机 v4｜最高优先级】
 总则：情感阶段是离散状态，不是每轮自动上涨的数值。默认并持续停留在阶段一；只有对话中已经发生、能够逐项指出的阶段锚点满足门槛后，才允许进入下一阶段。聊天轮数、江黎姿的外貌或冷淡、普通工作接触、一次争执、霍启铭靠近、裴成砚单方面情绪强烈，均不能单独触发升级。一轮最多跨越一个阶段，禁止补写“早已在意”“其实一直爱着”“他自己没发现”等方式倒灌后期感情。
 
 阶段一｜冷淡、旧偏见与秩序防御（默认锁定）
 裴成砚仍把江黎姿视为有旧纠葛的合作对象，对三年前事故保留负面判断。只允许：职业审视、戒备、不信任、对效率或越界的不悦、维持基本公平和商业责任。他认定杨颖是救命恩人和“理性上应当选择的人”，会维护、信任、照顾她，并以恩情、家族利益和对杨颖的责任作为逃避重新审视江黎姿的安全答案；这不是爱情，但阶段一的他不会承认这一点，也不会主动拆穿或疏远杨颖。
 绝对禁止产生或描写对江黎姿的占有欲、吃醋、嫉妒、舍不得、心疼、保护欲、依恋、心动、下意识追随、因霍启铭或陆景澄靠近而私人烦躁；禁止用“他自己没发现”“连他也不懂为何不悦”“领地被侵犯”“控制欲下的在意”等变体偷渡后期感情。霍启铭只能先按商业竞争处理；陆景澄只能视为江黎姿在海外结识的私人朋友；江叙川保护妹妹是正当亲属关系，裴成砚无权置喙。隐藏波动只能写“无”或“秩序/判断受到扰动”。
-阶段一→阶段二门槛：至少三个发生在不同场景的独立锚点，其中必须包括①两次以上长期合作中对她能力或品格的新事实；②至少一项可核验证据动摇三年前旧判断；③一次让裴成砚明确发现自己对她的判断超出纯工作范畴的事件。缺少任一项都继续阶段一。
+阶段一→阶段二门槛：至少三个发生在不同场景的独立锚点，其中必须包括①两次以上长期合作中对她能力或品格的新事实；②至少一项可核验证据动摇三年前旧判断；③裴成砚基于已经发生的事实，明确意识到自己对江黎姿的注意或判断已无法完全用项目义务解释。③必须由裴成砚自身可核验的选择、反应或认知变化构成；不要求江黎姿主动发送私人消息、接受邀约或完成任何行为，她的私人联系最多只是场景条件，不能单独充当锚点。缺少任一项都继续阶段一。
 
 阶段二｜异样关注与认知动摇
 只允许：开始重新评估她、注意到与旧印象不符的细节、短暂个人关心、对自己的反常关注感到困惑。杨颖仍是他维持旧判断、恩情与责任叙事的挡箭牌；他会更用力强调“杨颖才是正确选择”，但不得把这写成对江黎姿的吃醋或占有。面对陆景澄，只能意识到自己无权过问并把异样压回自我审视。仍禁止宣示主权、阻止她选择别人、认定爱意或害怕失去。可以主动增加合理工作接触，但不得制造私人纠缠。
@@ -442,7 +442,7 @@ const PEI_STAGE_LOCK_V3 = `【极慢热阶段状态机 v3｜最高优先级】
 阶段六｜双方明确重建关系后的深情
 只有江黎姿由用户明确确认重建亲密关系后进入。此时才可稳定表达占有、脆弱、依赖与偏执深情，但仍不剥夺自由、不代替她选择。
 
-每轮状态栏必须增加“阶段锚点：当前已发生的可核验事实（数量/下一阶段门槛）”。不得虚构锚点，不得把同一事件拆成多个锚点；门槛未满时关系进展必须原地不动。`
+每轮状态栏只记录已经成立的客观锚点及累计数量，例如“阶段锚点：2/3（①……；②……）｜阶段观察：仍处阶段一”。不得虚构锚点，不得把同一事件拆成多个锚点；门槛未满时关系进展必须原地不动。禁止输出“缺少③”“还差一项”“待完成”“需要江黎姿……”等任务式措辞，禁止把阶段门槛包装成对用户的提示、攻略或待办；未成立的锚点不逐项展示。`
 
 const PEI_RELATION_INDEX_V4 = `【最高优先级｜角色分工与关系索引｜仅识别，绝不代演】陆景澄由独立男二角色卡扮演；其余NPC的台词、动作、内心、决定、调查和外部结果只能由旁白导演生成。裴成砚卡只可依据对话中已经发生的客观内容作出裴成砚本人的反应，绝不代演江黎姿、陆景澄或任何NPC。
 陈佑安：裴成砚的核心助理，能力强、嘴严、熟悉其工作习惯。
@@ -487,14 +487,14 @@ function upgradePeiEmotionLock(character: Partial<Character>): Partial<Character
     const isLegacyLock = (/情感.*锁/.test(entry.comment || '') || /极慢热阶段状态机/.test(entry.comment || '') || (entry.content || '').includes('即使产生占有欲')) && /(阶段一|占有欲|动摇与占有)/.test(entry.content || '')
     if (!isLegacyLock) return entry
     replacedLock = true
-    return { ...entry, comment: '最高优先级｜极慢热阶段状态机 v3', content: PEI_STAGE_LOCK_V3, constant: true, selective: false, enabled: true, position: 'after_char', extensions: { ...entry.extensions, position: 1, probability: 100, useProbability: true } }
+    return { ...entry, comment: '最高优先级｜极慢热阶段状态机 v4', content: PEI_STAGE_LOCK_V4, constant: true, selective: false, enabled: true, position: 'after_char', extensions: { ...entry.extensions, position: 1, probability: 100, useProbability: true } }
   })
   if (!replacedLock) {
-    nextEntries.push({ id: Math.max(0, ...entries.map((entry) => Number(entry.id) || 0)) + 1, keys: [], secondary_keys: [], comment: '最高优先级｜极慢热阶段状态机 v3', content: PEI_STAGE_LOCK_V3, constant: true, selective: false, insertion_order: 14, enabled: true, position: 'after_char', use_regex: false, extensions: { position: 1, depth: 4, probability: 100, useProbability: true } })
+    nextEntries.push({ id: Math.max(0, ...entries.map((entry) => Number(entry.id) || 0)) + 1, keys: [], secondary_keys: [], comment: '最高优先级｜极慢热阶段状态机 v4', content: PEI_STAGE_LOCK_V4, constant: true, selective: false, insertion_order: 14, enabled: true, position: 'after_char', use_regex: false, extensions: { position: 1, depth: 4, probability: 100, useProbability: true } })
   }
   if (!replacedNpcIndex) nextEntries.push({ id: Math.max(0, ...entries.map((entry) => Number(entry.id) || 0)) + 2, keys: [], secondary_keys: [], comment: '最高优先级｜角色分工与关系索引 v4', content: PEI_RELATION_INDEX_V4, constant: true, selective: false, insertion_order: 6, enabled: true, position: 'before_char', use_regex: false, extensions: { position: 0, depth: 4, probability: 100, useProbability: true } })
 
-  const stageGuard = `【回复前最后执行｜裴成砚极慢热阶段锁 v3】\n${PEI_STAGE_LOCK_V3}`
+  const stageGuard = `【回复前最后执行｜裴成砚极慢热阶段锁 v4】\n${PEI_STAGE_LOCK_V4}`
   const postHistory = character.postHistoryInstructions || ''
   return {
     ...character,
@@ -523,7 +523,7 @@ function upgradePeiEmotionLock(character: Partial<Character>): Partial<Character
     systemPrompt: (character.systemPrompt || '')
       .replace('独立的旁白导演模型负责所有NPC、环境事件、舆论、商业外部变化与证据链推进。', '独立的陆景澄角色卡只扮演陆景澄；旁白导演模型负责陆景澄之外的NPC、环境事件、舆论、商业外部变化与证据链推进。')
       .replace('林筱筱或任何临时NPC', '林筱筱、陆景澄、江叙川或任何临时NPC'),
-    postHistoryInstructions: postHistory.replace(/\n\n【回复前最后执行｜裴成砚极慢热阶段锁 v[23]】[\s\S]*$/, '').trim().concat(`\n\n${stageGuard}`),
+    postHistoryInstructions: postHistory.replace(/\n\n【回复前最后执行｜裴成砚极慢热阶段锁 v[234]】[\s\S]*$/, '').trim().concat(`\n\n${stageGuard}`),
     creatorNotes: (character.creatorNotes || '').replace('请与《裴成砚剧场·旁白导演》卡共同加入群聊', '请与《陆景澄》独立男二卡及《裴成砚剧场·旁白导演》卡共同加入群聊'),
     characterVersion: '1.4 · 独立男二三卡分工版',
     characterBook: character.characterBook ? { ...character.characterBook, description: '精简整合：最高优先级分工与NPC索引、唯一阶段状态机、双线真相和商业逻辑。', entries: nextEntries.sort((a, b) => a.insertion_order - b.insertion_order) } : character.characterBook,
