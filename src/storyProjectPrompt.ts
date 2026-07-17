@@ -22,6 +22,15 @@ export function buildStoryProjectPrompt({ project, speakerId, characters }: Proj
   const presentCharacters = cockpit.presentCharacterIds.map(nameOf)
   const isDirector = Boolean(project.directorCharacterId && speakerId === project.directorCharacterId)
 
+  if (project.autoContinuity.needsReview) {
+    return `【剧情历史已改写｜驾驶舱暂停注入】
+剧本项目：${project.title || '未命名剧本'}
+可继续使用的共享背景：${project.worldBackground || project.summary || '暂无'}
+
+这段对话的历史刚被撤回、改写、删除或重新开始，旧驾驶舱可能包含已不存在的事件，因此本轮不得使用旧的地点、已完成事件、证据、知情边界或关系阶段。
+只依据最近对话中真实保留的内容续写，不得重演已撤回分支，不得让任何角色继承旧分支才知道的信息。用户与独立角色的控制权仍为最高优先级。`
+  }
+
   if (isDirector) {
     const independentCharacterIds = project.characterIds.filter((id) => id !== project.directorCharacterId)
     const independentCharacters = independentCharacterIds.map(nameOf)
