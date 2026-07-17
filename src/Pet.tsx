@@ -32,7 +32,10 @@ export default function Pet({ enabled, variant, position, onPositionChange, cont
     bubbleTimer.current = setTimeout(() => setBubble(null), 2400)
   }
 
-  useEffect(() => commit(position), [position.x, position.y])
+  useEffect(() => {
+    positionRef.current = position
+    setLocalPosition(position)
+  }, [position])
   useEffect(() => {
     const resize = () => setViewportVersion((value) => value + 1)
     window.addEventListener('resize', resize)
