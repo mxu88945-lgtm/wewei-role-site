@@ -23,6 +23,7 @@ import StoryProjectManager from './StoryProjectManager'
 import { normalizeStoryProjects, type StoryProject } from './storyProject'
 import { buildStoryProjectPrompt, selectConversationStoryProject } from './storyProjectPrompt'
 import { buildAutomaticContinuityInput, captureAssistantMessageIds, hasUnprocessedAssistantMessages, mergeAutomaticContinuity, parseAutomaticContinuityResponse } from './storyContinuity'
+import { buildReplyHelperMessages, cleanReplyHelperDraft } from './replyHelper'
 
 type Page = 'home' | 'story-projects' | 'characters' | 'create' | 'character-workshop' | 'group-create' | 'director-template' | 'group-greeting-picker' | 'import-preview' | 'character-detail' | 'card-data' | 'card-worldbook' | 'card-regex' | 'greeting-picker' | 'chat' | 'more' | 'api' | 'model' | 'settings' | 'appearance' | 'font' | 'display-reply' | 'identity' | 'worldbook' | 'theater-world' | 'preset' | 'memory' | 'memory-api' | 'memory-list'
 type Message = { id: number; role: 'user' | 'assistant'; text: string; characterId?: string; finishReason?: string | null }
@@ -269,6 +270,10 @@ function App() {
   const [directorEditorTarget, setDirectorEditorTarget] = useState<'draft' | 'conversation'>('draft')
   const [groupReplyMode, setGroupReplyMode] = useState<GroupReplyMode>(() => read('weijing.groupReplyMode', 'natural'))
   const [mentionPickerOpen, setMentionPickerOpen] = useState(false)
+  const [composerToolsOpen, setComposerToolsOpen] = useState(false)
+  const [replyHelperState, setReplyHelperState] = useState<'idle' | 'generating'>('idle')
+  const [replyHelperApiId, setReplyHelperApiId] = useState(() => read('weijing.replyHelperApiId', ''))
+  const [replyHelperModelName, setReplyHelperModelName] = useState(() => read('weijing.replyHelperModelName', ''))
   const [memberPickerOpen, setMemberPickerOpen] = useState(false)
   const [characterIntroExpanded, setCharacterIntroExpanded] = useState(false)
   const [characters, setCharacters] = useState<Character[]>(() => read<Partial<Character>[]>('weijing.characters', [demoCharacter]).map(normalizeStoredCharacter))
@@ -492,6 +497,7 @@ function App() {
   useEffect(() => write('weijing.customThemes', customThemes), [customThemes])
   useEffect(() => { write('weijing.petEnabled', petEnabled); write('weijing.petVariant', petVariant); write('weijing.petPosition', petPosition) }, [petEnabled, petVariant, petPosition])
   useEffect(() => write('weijing.groupReplyMode', groupReplyMode), [groupReplyMode])
+  useEffect(() => { write('weijing.replyHelperApiId', replyHelperApiId); write('weijing.replyHelperModelName', replyHelperModelName) }, [replyHelperApiId, replyHelperModelName])
   useEffect(() => {
     write('weijing.chatFontSize', chatFontSize)
     write('weijing.chatTextColor', chatTextColor)
@@ -1010,6 +1016,63 @@ function App() {
     }
   }
 
+  const generateReplyHelperDraft = async () => {
+    if (!activeConversation || replyHelperState === 'generating' || generatingIds.includes(activeConversation.id)) return
+    const baseChannel = apiChannels.find((item) => item.id === replyHelperApiId) || api
+    const helperApi = withApiModel(baseChannel, replyHelperModelName || baseChannel.modelName)
+    if (!helperApi.baseUrl.trim() || !helperApi.apiKey.trim() || !helperApi.modelName.trim()) {
+      setChatError('AI 帮答 API 尚未配置完整，请在右侧栏选择渠道和模型。')
+      return
+    }
+
+    const project = selectConversationStoryProject(storyProjects, activeConversation.id)
+    const authorOf = (message: Message) => message.role === 'user'
+      ? identity.name
+      : characters.find((character) => character.id === message.characterId)?.name || activeCharacter.name
+    const promptMessages = buildReplyHelperMessages({
+      userName: identity.name,
+      userDescription: identity.description,
+      conversationTitle: activeConversation.title,
+      currentDraft: draft,
+      contextSummary: activeConversation.contextSummary,
+      recentMessages: messages.slice(-Math.min(30, memoryLength)).map((message) => ({ author: authorOf(message), text: message.text })),
+      project: project ? {
+        title: project.title,
+        worldBackground: project.worldBackground || project.summary,
+        currentTime: project.cockpit.currentTime,
+        currentLocation: project.cockpit.currentLocation,
+        relationshipStage: project.cockpit.relationshipStage,
+        presentCharacters: project.cockpit.presentCharacterIds.map((id) => characters.find((character) => character.id === id)?.name || id),
+        publicEvidence: project.cockpit.evidence.filter((item) => item.visibility === 'public').map((item) => ({ title: item.title, detail: item.detail })),
+      } : undefined,
+    })
+
+    setReplyHelperState('generating')
+    setChatError('')
+    let output = ''
+    try {
+      await completeChat({
+        api: helperApi,
+        messages: promptMessages,
+        temperature: .75,
+        topP: .95,
+        maxTokens: Math.min(maxTokens, 1800),
+        streaming: false,
+        signal: new AbortController().signal,
+        onDelta: (delta) => { output += delta },
+      })
+      const nextDraft = cleanReplyHelperDraft(output)
+      if (!nextDraft) throw new Error('模型没有生成可用草稿')
+      setDraft(nextDraft)
+      setComposerToolsOpen(false)
+      window.requestAnimationFrame(() => composerRef.current?.focus())
+    } catch (error) {
+      setChatError(`AI 帮答：${error instanceof Error ? error.message : '生成失败'}`)
+    } finally {
+      setReplyHelperState('idle')
+    }
+  }
+
   const generateAssistant = async (conversation: Conversation, nextMessages: Message[], speaker = activeCharacter, speakerApi = api): Promise<Message[]> => {
     if (!speakerApi.baseUrl.trim() || !speakerApi.apiKey.trim() || !speakerApi.modelName.trim()) {
       setChatError(`请先为 ${speaker.name} 配置完整的 API 渠道。`)
@@ -1398,7 +1461,7 @@ function App() {
 
     {page === 'group-greeting-picker' && <GroupGreetingPicker characters={groupGreetingCharacters} userName={(identities.find((item) => item.id === activePersonaId) || identity).name} onCancel={() => { const restarting = Boolean(restartingConversationId); setRestartingConversationId(null); restarting ? replacePage('chat') : goBack() }} onConfirm={beginGroupWithGreeting} />}
 
-    {page === 'chat' && <section className="chat-page"><header className="chat-header"><button className="icon-button drawer-trigger" aria-label="打开对话列表" onClick={() => setDrawer('left')}>☰</button><button className="chat-identity" onClick={() => navigate('character-detail')}>{activeCharacter.avatar ? <img src={activeCharacter.avatar} alt="" /> : <span>{activeCharacter.name.slice(-1)}</span>}<div><strong>{activeConversation?.kind === 'group' ? activeConversation.title : activeCharacter.name}</strong><small>{isGenerating ? '正在回应…' : activeConversation?.title || `${identity.name} · 沉浸共演中`}</small></div></button><button className="more-button" aria-label="打开聊天设置" onClick={() => setDrawer('right')}>•••</button></header>{chatError && <button className="chat-error" onClick={() => navigate('api')}><span>连接提示</span>{chatError}<i>前往 API 设置 ›</i></button>}<div ref={messageListRef} className="message-list" onScroll={updateChatJump}>{messages.map(renderChatMessage)}</div>{(chatJump.up || chatJump.down) && <nav className={`chat-jump-controls ${chatJump.visible ? 'visible' : ''}`} aria-label="快速浏览对话" aria-hidden={!chatJump.visible}>{chatJump.up && <button tabIndex={chatJump.visible ? 0 : -1} onClick={() => jumpChat('top')} aria-label="回到对话顶部">↑</button>}{chatJump.down && <button tabIndex={chatJump.visible ? 0 : -1} onClick={() => jumpChat('bottom')} aria-label="跳到最新消息">↓</button>}</nav>}<div className="composer"><button className="composer-plus">＋</button><textarea ref={composerRef} rows={1} value={draft} onChange={(event) => { const value = event.target.value; setDraft(value); if (activeConversation?.kind === 'group' && /[@＠][^@＠\s]*$/.test(value)) { event.currentTarget.blur(); setMentionPickerOpen(true) } }} placeholder={isGenerating ? '可以先写下一条，停止后再发送' : groupReplyMode === 'specified' && activeConversation?.kind === 'group' ? '输入 @ 选择回答的角色……' : '写下你的回应……'} /><button className={`send-button ${isGenerating ? 'stop' : ''}`} aria-label={isGenerating ? '停止生成' : '发送'} onClick={() => isGenerating && activeConversation ? abortConversation(activeConversation.id) : sendMessage()}>{isGenerating ? '■' : '↑'}</button></div></section>}
+    {page === 'chat' && <section className="chat-page"><header className="chat-header"><button className="icon-button drawer-trigger" aria-label="打开对话列表" onClick={() => setDrawer('left')}>☰</button><button className="chat-identity" onClick={() => navigate('character-detail')}>{activeCharacter.avatar ? <img src={activeCharacter.avatar} alt="" /> : <span>{activeCharacter.name.slice(-1)}</span>}<div><strong>{activeConversation?.kind === 'group' ? activeConversation.title : activeCharacter.name}</strong><small>{isGenerating ? '正在回应…' : activeConversation?.title || `${identity.name} · 沉浸共演中`}</small></div></button><button className="more-button" aria-label="打开聊天设置" onClick={() => setDrawer('right')}>•••</button></header>{chatError && <button className="chat-error" onClick={() => navigate('api')}><span>连接提示</span>{chatError}<i>前往 API 设置 ›</i></button>}<div ref={messageListRef} className="message-list" onScroll={updateChatJump}>{messages.map(renderChatMessage)}</div>{(chatJump.up || chatJump.down) && <nav className={`chat-jump-controls ${chatJump.visible ? 'visible' : ''}`} aria-label="快速浏览对话" aria-hidden={!chatJump.visible}>{chatJump.up && <button tabIndex={chatJump.visible ? 0 : -1} onClick={() => jumpChat('top')} aria-label="回到对话顶部">↑</button>}{chatJump.down && <button tabIndex={chatJump.visible ? 0 : -1} onClick={() => jumpChat('bottom')} aria-label="跳到最新消息">↓</button>}</nav>}<div className="composer"><button className="composer-plus" aria-label="打开输入工具" onClick={() => setComposerToolsOpen(true)}>{replyHelperState === 'generating' ? '…' : '＋'}</button><textarea ref={composerRef} rows={1} value={draft} onChange={(event) => { const value = event.target.value; setDraft(value); if (activeConversation?.kind === 'group' && /[@＠][^@＠\s]*$/.test(value)) { event.currentTarget.blur(); setMentionPickerOpen(true) } }} placeholder={replyHelperState === 'generating' ? 'AI 帮答正在起草…' : isGenerating ? '可以先写下一条，停止后再发送' : groupReplyMode === 'specified' && activeConversation?.kind === 'group' ? '输入 @ 选择回答的角色……' : '写下你的回应……'} /><button className={`send-button ${isGenerating ? 'stop' : ''}`} aria-label={isGenerating ? '停止生成' : '发送'} onClick={() => isGenerating && activeConversation ? abortConversation(activeConversation.id) : sendMessage()}>{isGenerating ? '■' : '↑'}</button></div></section>}
 
     {page === 'more' && <><BackHeader title="设置" onBack={goBack} /><section className="settings-stack compact-settings">{[[['API 连接', 'api'], ['用户身份', 'identity']], [['模型设置', 'model'], ['全局预设', 'preset'], ['全局世界书', 'worldbook'], ['长记忆', 'memory']], [['应用设置', 'settings']]].map((group, index) => <div className="settings-group" key={index}>{group.map(([label, target]) => <button key={label} onClick={() => navigate(target as Page)}><span>{label}</span><span>›</span></button>)}</div>)}</section></>}
 
@@ -1421,6 +1484,8 @@ function App() {
     {page === 'font' && <><BackHeader title="字体与文字颜色" onBack={goBack} action={<button className="soft-button" onClick={() => { setUiFontScale(90); setUiFontWeight(500); setChatFontSize(16); setChatTextColor('#4e4852'); setChatNarrationColor('#7f7089'); setChatQuoteColor('#7b4d67') }}>恢复默认</button>} /><section className="settings-stack appearance-page compact-settings"><div className="appearance-card range-group"><RangeRow label="界面字号" hint="统一调整标题、按钮、说明与编辑区文字" value={uiFontScale} min={80} max={115} step={5} onChange={setUiFontScale} /><RangeRow label="界面字重" hint="数值越小越轻，聊天正文不受影响" value={uiFontWeight} min={400} max={700} step={100} onChange={setUiFontWeight} /></div><div className="appearance-preview chat-font-preview" style={{ color: chatTextColor, fontSize: chatFontSize }}><small>聊天正文预览</small><p><span style={{ color: chatNarrationColor }}>（他终于等到你回来。）</span><br /><span style={{ color: chatQuoteColor }}>“我一直在这里。”</span></p></div><div className="appearance-card"><RangeRow label="聊天正文字号" hint="只调整聊天内容，不影响系统界面" value={chatFontSize} min={13} max={22} step={1} onChange={setChatFontSize} /><label className="appearance-color-row"><div><strong>正文颜色</strong><small>{chatTextColor}</small></div><input type="color" value={chatTextColor} onChange={(event) => setChatTextColor(event.target.value)} /></label><label className="appearance-color-row"><div><strong>旁白颜色</strong><small>识别 *旁白*、（旁白）</small></div><input type="color" value={chatNarrationColor} onChange={(event) => setChatNarrationColor(event.target.value)} /></label><label className="appearance-color-row"><div><strong>引用颜色</strong><small>识别 “对话” 与「对话」</small></div><input type="color" value={chatQuoteColor} onChange={(event) => setChatQuoteColor(event.target.value)} /></label></div></section></>}
 
     {page === 'display-reply' && <><BackHeader title="显示与回复" onBack={goBack} action={<span className="saved-label">自动保存</span>} /><section className="settings-stack compact-settings display-reply-page"><div className="drawer-compact-group display-reply-card"><div className="drawer-section-title"><strong>消息显示</strong></div><div className="drawer-inline-setting"><span>布局方式</span><div className="mini-segment"><button className={chatLayout === 'bubble' ? 'active' : ''} onClick={() => setChatLayout('bubble')}>气泡</button><button className={chatLayout === 'flat' ? 'active' : ''} onClick={() => setChatLayout('flat')}>平铺</button></div></div><div className="drawer-color-setting"><label><span>正文</span><input type="color" value={chatTextColor} onChange={(event) => setChatTextColor(event.target.value)} /></label><label><span>旁白</span><input type="color" value={chatNarrationColor} onChange={(event) => setChatNarrationColor(event.target.value)} /></label><label><span>引用</span><input type="color" value={chatQuoteColor} onChange={(event) => setChatQuoteColor(event.target.value)} /></label></div></div><div className="drawer-compact-group display-reply-card"><div className="drawer-section-title"><strong>群聊回复</strong></div>{activeConversation?.kind === 'group' ? <div className="drawer-inline-setting reply-mode-row"><span>回复模式</span><select value={groupReplyMode} onChange={(event) => setGroupReplyMode(event.target.value as GroupReplyMode)}><option value="natural">自然聊天</option><option value="contextual">情境发言</option><option value="all">全员回复</option><option value="specified">指定 @</option></select></div> : <div className="display-reply-note">当前是单角色对话，消息会由当前角色直接回复。</div>}</div></section></>}
+
+    {composerToolsOpen && <div className="composer-tools-layer" role="dialog" aria-modal="true" aria-label="输入工具"><button className="drawer-backdrop" aria-label="关闭输入工具" onClick={() => replyHelperState === 'idle' && setComposerToolsOpen(false)} /><section className="composer-tools-sheet"><header><div><small>输入工具</small><strong>接下来想怎么写</strong></div><button onClick={() => setComposerToolsOpen(false)} disabled={replyHelperState === 'generating'}>×</button></header><button className="reply-helper-action" onClick={() => void generateReplyHelperDraft()} disabled={replyHelperState === 'generating' || isGenerating}><span>✦</span><div><strong>{replyHelperState === 'generating' ? 'AI 正在帮你起草…' : 'AI 帮答'}</strong><small>{draft.trim() ? '沿用输入框里的想法，润色补成一条回复' : '读取当前上下文，生成一版可修改的回复草稿'}</small></div><i>›</i></button><p>只会填入输入框，不会自动发送，也不会替其他角色继续演。</p></section></div>}
 
     {mentionPickerOpen && activeConversation?.kind === 'group' && <div className="mention-picker-layer" role="dialog" aria-modal="true" aria-label="选择要提及的角色"><button className="drawer-backdrop" aria-label="关闭角色选择" onClick={() => setMentionPickerOpen(false)} /><section className="mention-picker"><header><strong>选择 @ 的角色</strong><button onClick={() => setMentionPickerOpen(false)}>×</button></header>{groupParticipants.map((member) => <button className="mention-member" key={member.id} onClick={() => insertGroupMention(member.name)}>{member.avatar ? <img src={member.avatar} alt="" /> : <span>{member.name.slice(-1)}</span>}<strong>{member.name}</strong></button>)}</section></div>}
 
@@ -1445,6 +1510,7 @@ function App() {
         <header className="drawer-character compact"><div><small>{activeConversation?.kind === 'group' ? '群聊设置' : '聊天设置'}</small><h2>{activeConversation?.title || activeCharacter.name}</h2></div><button onClick={() => setDrawer(null)}>×</button></header>
         <div className="right-drawer-scroll">
           <section className="drawer-members-section"><div className="drawer-section-title"><strong>成员（{conversationMemberIds().length}）</strong><button onClick={() => { setDrawer(null); setMemberPickerOpen(true) }}>＋ 添加 / 配置 API</button></div><div className="drawer-member-row">{conversationMemberIds().map((id) => { const member = characters.find((item) => item.id === id); if (!member) return null; return <div className="drawer-member-chip" key={id}>{member.avatar ? <img src={member.avatar} alt="" /> : <span>{member.name.slice(-1)}</span>}<small>{member.name}</small>{conversationMemberIds().length > 1 && <button aria-label={`移除${member.name}`} onClick={() => removeConversationMember(id)}>×</button>}</div> })}</div></section>
+          <section className="drawer-compact-group reply-helper-settings"><div className="drawer-section-title"><div><strong>AI 帮答</strong><small>只起草你的回复，不会自动发送</small></div><span>专用</span></div><MemberApiBinding channels={apiChannels} channelId={(apiChannels.find((item) => item.id === replyHelperApiId) || api).id} modelName={replyHelperModelName || (apiChannels.find((item) => item.id === replyHelperApiId) || api).modelName} onChannelChange={(id) => { const channel = apiChannels.find((item) => item.id === id); setReplyHelperApiId(id); setReplyHelperModelName(channel?.modelName || '') }} onModelChange={setReplyHelperModelName} /></section>
           <section className="drawer-compact-group"><div className="drawer-section-title"><strong>聊天设置</strong></div>{activeConversation?.directorCharacterId && <button onClick={() => { setDirectorEditorTarget('conversation'); navigate('director-template', 'right') }}><span>共演导演资料 · 已启用</span><i>›</i></button>}{[['情景与角色资料', 'card-data'], [`本剧场世界观背景 · ${activeConversation?.theaterWorldBackground?.trim() ? '已填写' : '未填写'}`, 'theater-world'], ['用户身份', 'identity'], ['主题与背景', 'appearance'], ['字体与文字颜色', 'font'], ['显示与回复', 'display-reply']].map(([label, target]) => <button key={label} onClick={() => navigate(target as Page, 'right')}><span>{label}</span><i>›</i></button>)}</section>
           <section className="drawer-compact-group"><div className="drawer-section-title"><strong>角色与高级设置</strong></div>{[['世界书', 'card-worldbook'], ['正则与美化', 'card-regex'], ['长期记忆', 'memory'], [`API · ${api.name || '当前渠道'}`, 'api'], ['模型设置', 'model'], ['预设', 'preset'], ['应用设置', 'settings']].map(([label, target]) => <button key={label} onClick={() => navigate(target as Page, 'right')}><span>{label}</span><i>›</i></button>)}</section>
           <section className="drawer-compact-group drawer-actions-group"><button onClick={() => navigate('character-detail', 'right')}><span>查看角色详情</span><i>›</i></button><button onClick={compressOldContext} disabled={compressingContext || messages.length < 16}><span>{compressingContext ? '正在压缩旧上下文…' : activeConversation?.contextSummary ? `更新上下文摘要 · 已压缩 ${activeConversation.compressedUntil || 0} 条` : '压缩旧上下文'}</span><i>⌁</i></button><button onClick={exportConversationTxt}><span>导出当前对话 TXT</span><i>↓</i></button></section>
