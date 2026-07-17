@@ -163,6 +163,11 @@ const writeDurable = (key: string, value: unknown) => {
   void durableSet(key, value).catch((error) => console.error('IndexedDB 写入失败', error))
 }
 
+const nextMessageId = (messages: Message[]) => Math.max(
+  Date.now(),
+  ...messages.map((message) => Number.isFinite(message.id) ? message.id + 1 : 0),
+)
+
 async function imageThumbnail(file: File, size = 256) {
   const bitmap = await createImageBitmap(file)
   const canvas = document.createElement('canvas'); canvas.width = size; canvas.height = size
@@ -393,7 +398,9 @@ function App() {
     } catch (error) {
       const message = error instanceof Error ? error.message : '自动场记更新失败'
       console.error('自动场记更新失败', error)
-      setStoryProjects((current) => current.map((item) => item.id === project.id ? { ...item, autoContinuity: { ...item.autoContinuity, lastProcessedAssistantMessageIds: checkpoint, lastRunAt: Date.now(), lastError: message, lastSummary: undefined } } : item))
+      // A failed run did not account for any dialogue. Keep the previous cursor so
+      // the same messages are retried after the API or response format recovers.
+      setStoryProjects((current) => current.map((item) => item.id === project.id ? { ...item, autoContinuity: { ...item.autoContinuity, lastRunAt: Date.now(), lastError: message, lastSummary: undefined } } : item))
     } finally {
       continuityRunningProjectIds.current.delete(project.id)
     }
@@ -1086,7 +1093,7 @@ function App() {
     const capturedCharacter = speaker
     const capturedMemoryConfig = memoryConfigFor(capturedCharacter.id)
     const capturedMemories = memoriesForConversation(memoryEntries, conversation.id, capturedCharacter.id) as MemoryEntry[]
-    const assistantMessage: Message = { id: Date.now() + Math.floor(Math.random() * 1000), role: 'assistant', characterId: speaker.id, text: '正在回应…' }
+    const assistantMessage: Message = { id: nextMessageId(nextMessages), role: 'assistant', characterId: speaker.id, text: '正在回应…' }
     const pendingMessages = [...nextMessages, assistantMessage]
     setConversations((current) => {
       const exists = current.some((item) => item.id === conversationId)
@@ -1192,9 +1199,10 @@ function App() {
       setConversations((current) => [...current, conversation!])
       setActiveConversationId(conversation.id)
     }
-    const userMessage = { id: Date.now(), role: 'user' as const, text }
+    const sourceMessages = historyOverride ?? messages
+    const userMessage = { id: nextMessageId(sourceMessages), role: 'user' as const, text }
     setDraft('')
-    const baseMessages: Message[] = [...(historyOverride ?? messages), userMessage]
+    const baseMessages: Message[] = [...sourceMessages, userMessage]
     if (conversation.kind === 'group') {
       setConversations((current) => current.map((item) => item.id === conversation.id ? { ...item, messages: baseMessages, updatedAt: Date.now() } : item))
       const participantIds = conversation.participantIds || []
@@ -1203,7 +1211,7 @@ function App() {
         return { id, name: character?.name || '' }
       }))
       const lastSpeakerId = [...baseMessages].reverse().find((item) => item.role === 'assistant')?.characterId
-      const speakerIds = selectGroupSpeakerIds({ participantIds, mentionedIds, mode: groupReplyMode, lastSpeakerId, text })
+      const speakerIds = selectGroupSpeakerIds({ participantIds, mentionedIds, mode: groupReplyMode, directorCharacterId: conversation.directorCharacterId, lastSpeakerId, text })
       if (!speakerIds.length) {
         // Specified mode waits silently until the user explicitly chooses a speaker with @.
         setChatError('')
