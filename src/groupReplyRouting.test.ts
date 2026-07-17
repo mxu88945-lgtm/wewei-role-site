@@ -24,6 +24,14 @@ describe('group reply routing', () => {
     expect(selectGroupSpeakerIds({ participantIds, mentionedIds: [], mode: 'natural', directorCharacterId: 'director', text: '我把文件收进包里。', random: () => .99 })).toEqual(['male-lead'])
   })
 
+  it('keeps a uuid director out when the caller supplies its actual id', () => {
+    const uuidDirector = '792dff81-705d-47e1-bb45-e4f338e91192'
+    expect(selectGroupSpeakerIds({
+      participantIds: ['male-lead', uuidDirector], mentionedIds: [], mode: 'natural',
+      directorCharacterId: uuidDirector, text: '我把文件收进包里。', random: () => .99,
+    })).toEqual(['male-lead'])
+  })
+
   it('routes a prose request for scene direction to the director', () => {
     expect(selectGroupSpeakerIds({ participantIds, mentionedIds: [], mode: 'natural', directorCharacterId: 'director', text: '导演推进一下', random: () => 0 })).toEqual(['director'])
   })
