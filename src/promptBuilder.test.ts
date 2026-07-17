@@ -55,6 +55,7 @@ describe('buildChatPrompt', () => {
     expect(all).toContain('【本剧场世界观背景｜本剧场所有角色与 NPC 共用】')
     expect(all).toContain('本剧场发生在雨夜后台，顾荒与陆时宴彼此敌视。')
     expect(all).toContain('【剧本项目场记切片】当前关系阶段：克制试探。')
+    expect(all.indexOf('【剧本项目场记切片】')).toBeGreaterThan(all.indexOf('保持角色口吻。'))
     expect(all).toContain('顾荒在后台留了一把钥匙')
     expect(all).not.toContain('这段不应出现')
     expect(all).toContain('两人曾在雨夜见面')
