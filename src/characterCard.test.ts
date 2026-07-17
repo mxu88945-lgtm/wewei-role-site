@@ -31,10 +31,12 @@ describe('裴成砚极慢热阶段锁迁移', () => {
     expect(result.characterVersion).toContain('1.4')
     expect(result.personality).not.toContain('把关注、维护、占有和不安解释成')
     expect(result.mesExample).not.toContain('我不喜欢他靠你太近')
-    expect(result.postHistoryInstructions).toContain('裴成砚极慢热阶段锁 v3')
+    expect(result.postHistoryInstructions).toContain('裴成砚极慢热阶段锁 v4')
     expect(lock?.content).toContain('阶段一｜冷淡、旧偏见与秩序防御')
     expect(lock?.content).toContain('绝对禁止产生或描写对江黎姿的占有欲')
     expect(lock?.content).toContain('陆景澄')
+    expect(lock?.content).toContain('不要求江黎姿主动发送私人消息')
+    expect(lock?.content).toContain('禁止输出“缺少③”')
     expect(lock?.position).toBe('after_char')
     expect(lock?.extensions.position).toBe(1)
     const npcIndex = result.characterBook?.entries.find((entry) => entry.comment.includes('角色分工与关系索引'))
@@ -45,7 +47,7 @@ describe('裴成砚极慢热阶段锁迁移', () => {
     expect(npcIndex?.position).toBe('before_char')
 
     const normalizedAgain = normalizeStoredCharacter(result)
-    expect(normalizedAgain.postHistoryInstructions.match(/裴成砚极慢热阶段锁 v3/g)).toHaveLength(1)
+    expect(normalizedAgain.postHistoryInstructions.match(/裴成砚极慢热阶段锁 v4/g)).toHaveLength(1)
     expect(normalizedAgain.characterBook?.entries.filter((entry) => entry.comment.includes('角色分工与关系索引'))).toHaveLength(1)
   })
 
