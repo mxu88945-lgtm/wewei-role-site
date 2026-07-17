@@ -83,10 +83,11 @@ export default function StoryProjectManager({ projects, characters, conversation
   const cockpitBaseApi = apiChannels.find((channel) => channel.id === cockpitDirectorApiId) || api
   const cockpitApi = cockpitProject?.directorCharacterId && cockpitConversation?.participantModelNames?.[cockpitProject.directorCharacterId] ? { ...cockpitBaseApi, modelName: cockpitConversation.participantModelNames[cockpitProject.directorCharacterId] } : cockpitBaseApi
   if (cockpitProject) return <StoryCockpitEditor project={cockpitProject} characters={characters} conversations={conversations} userName={identities.find((identity) => identity.id === cockpitProject.personaId)?.name || identities[0]?.name || '用户'} api={cockpitApi} onBack={() => setCockpitProjectId(null)} onEditProject={() => { setCockpitProjectId(null); beginEdit(cockpitProject) }} onSetAutoContinuity={(enabled) => {
-    const checkpoint = enabled ? captureAssistantMessageIds(cockpitProject, conversations) : cockpitProject.autoContinuity.lastProcessedAssistantMessageIds
-    onChange(projects.map((project) => project.id === cockpitProject.id ? { ...project, autoContinuity: { ...project.autoContinuity, enabled, lastProcessedAssistantMessageIds: checkpoint, lastError: undefined, lastSummary: enabled ? '自动场记已开启，将从下一轮完整回复开始更新。' : project.autoContinuity.lastSummary }, updatedAt: Date.now() } : project))
+    const checkpoint = enabled && !cockpitProject.autoContinuity.needsReview ? captureAssistantMessageIds(cockpitProject, conversations) : cockpitProject.autoContinuity.lastProcessedAssistantMessageIds
+    onChange(projects.map((project) => project.id === cockpitProject.id ? { ...project, autoContinuity: { ...project.autoContinuity, enabled, lastProcessedAssistantMessageIds: checkpoint, lastError: project.autoContinuity.needsReview ? project.autoContinuity.lastError : undefined, lastSummary: enabled && !project.autoContinuity.needsReview ? '自动场记已开启，将从下一轮完整回复开始更新。' : project.autoContinuity.lastSummary }, updatedAt: Date.now() } : project))
   }} onSave={(cockpit) => {
-    onChange(projects.map((project) => project.id === cockpitProject.id ? { ...project, cockpit, updatedAt: Date.now() } : project))
+    const checkpoint = captureAssistantMessageIds(cockpitProject, conversations)
+    onChange(projects.map((project) => project.id === cockpitProject.id ? { ...project, cockpit, autoContinuity: { ...project.autoContinuity, needsReview: false, lastProcessedAssistantMessageIds: checkpoint, lastError: undefined, lastSummary: project.autoContinuity.needsReview ? '驾驶舱已按当前分支重建，自动场记已恢复。' : project.autoContinuity.lastSummary }, updatedAt: Date.now() } : project))
     setCockpitProjectId(null)
   }} />
 
