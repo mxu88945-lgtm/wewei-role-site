@@ -31,6 +31,7 @@ export type StoryCockpit = {
 export type StoryAutoContinuity = {
   enabled: boolean
   lastProcessedAssistantMessageIds: Record<string, number>
+  needsReview?: boolean
   lastRunAt?: number
   lastError?: string
   lastSummary?: string
@@ -76,6 +77,7 @@ function normalizeStoryAutoContinuity(value: Partial<StoryAutoContinuity> | unde
   return {
     enabled: value?.enabled === true,
     lastProcessedAssistantMessageIds,
+    needsReview: value?.needsReview === true,
     lastRunAt: typeof value?.lastRunAt === 'number' ? value.lastRunAt : undefined,
     lastError: typeof value?.lastError === 'string' && value.lastError ? value.lastError : undefined,
     lastSummary: typeof value?.lastSummary === 'string' && value.lastSummary ? value.lastSummary : undefined,
