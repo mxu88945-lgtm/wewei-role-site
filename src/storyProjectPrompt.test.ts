@@ -47,6 +47,11 @@ describe('story project prompt injection', () => {
     expect(prompt).toContain('离证据闭环最近的一个缺口')
     expect(prompt).toContain('每轮最多推进一个证据节点')
     expect(prompt).toContain('材料如何留存')
+    expect(prompt).toContain('唯一有效的现在时场景锚点')
+    expect(prompt).toContain('独立角色（全部禁止导演代演）：裴成砚、陆景澄')
+    expect(prompt).toContain('当前明确在场的独立角色：陆景澄')
+    expect(prompt).toContain('当前明确离场的独立角色：裴成砚')
+    expect(prompt).toContain('整句删除')
   })
 
   it('gives an independent actor only its safe knowledge slice', () => {
