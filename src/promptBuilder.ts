@@ -98,12 +98,14 @@ export function buildChatPrompt(input: PromptInput): ChatApiMessage[] {
     input.preset && `【全局预设】\n${input.preset}`,
     input.globalWorldbook && `【全局世界书】\n${input.globalWorldbook}`,
     input.theaterWorldBackground && `【本剧场世界观背景｜本剧场所有角色与 NPC 共用】\n${input.theaterWorldBackground}`,
-    input.storyProjectContext,
     `【角色】${character.name}`,
     character.description && `【角色描述】\n${character.description}`,
     character.personality && `【性格】\n${character.personality}`,
     character.scenario && `【当前场景】\n${character.scenario}`,
     character.systemPrompt && `【角色系统提示词】\n${character.systemPrompt}`,
+    // The live project snapshot must follow persisted card instructions so an
+    // older director card cannot override the newest scene and role boundary.
+    input.storyProjectContext,
     `【用户身份】${user.name}\n${user.description}`,
     USER_AGENCY_GUARD,
   ].filter(Boolean).join('\n\n'), character, user.name))
