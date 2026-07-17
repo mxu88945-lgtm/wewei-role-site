@@ -20,6 +20,14 @@ describe('group reply routing', () => {
     expect(selectGroupSpeakerIds({ participantIds, mentionedIds: [], mode: 'specified', text: '继续' })).toEqual([])
   })
 
+  it('keeps the director out of normal automatic replies', () => {
+    expect(selectGroupSpeakerIds({ participantIds, mentionedIds: [], mode: 'natural', directorCharacterId: 'director', text: '我把文件收进包里。', random: () => .99 })).toEqual(['male-lead'])
+  })
+
+  it('routes a prose request for scene direction to the director', () => {
+    expect(selectGroupSpeakerIds({ participantIds, mentionedIds: [], mode: 'natural', directorCharacterId: 'director', text: '导演推进一下', random: () => 0 })).toEqual(['director'])
+  })
+
   it('uses the longest complete name when one member name prefixes another', () => {
     const participants = [
       { id: 'male-lead', name: '裴成砚' },
