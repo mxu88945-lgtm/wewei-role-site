@@ -15,6 +15,7 @@ describe('group actor continuity', () => {
     expect(anchor).toContain('不是锁定指令')
     expect(anchor).toContain('无需累计数字锚点')
     expect(anchor).not.toContain('累计阶段锚点校验')
+    expect(anchor).not.toContain('阶段锚点：')
     expect(anchor).not.toContain('陆景澄')
     expect(anchor).not.toContain('<pei_status>')
     expect(anchor).not.toContain('【裴成砚】')

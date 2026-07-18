@@ -58,7 +58,7 @@ describe('buildChatPrompt', () => {
     expect(all).toContain('【剧本项目场记切片】当前关系阶段：克制试探。')
     expect(all.indexOf('【剧本项目场记切片】')).toBeGreaterThan(all.indexOf('保持角色口吻。'))
     expect(all).toContain('顾荒个人连续性｜不得回退或重演')
-    expect(all).toContain('阶段锚点：2/3')
+    expect(all).not.toContain('阶段锚点：2/3')
     expect(all).toContain('旧地点只算历史')
     expect(all).toContain('顾荒在后台留了一把钥匙')
     expect(all).not.toContain('这段不应出现')
