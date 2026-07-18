@@ -8,7 +8,6 @@ type ActorMessage = {
 }
 
 const stagePattern = /(?:关系进展|推进阶段|当前阶段)\s*[:：]\s*(阶段[一二三四五六七八九十\d]+)/
-const anchorPattern = /阶段锚点\s*[:：]\s*(\d+)\s*\/\s*(\d+)/g
 
 function plainActorReply(value: string, characterName: string) {
   return stripLeadingSpeakerLabels(stripPresentationalHtmlForPrompt(value), [characterName])
@@ -25,15 +24,8 @@ export function findLatestActorContinuityAnchor(messages: ActorMessage[], charac
   if (!previousOwnReply) return ''
   const plain = plainActorReply(previousOwnReply.text, characterName)
   const currentStage = plain.match(stagePattern)?.[1]
-  const anchors = ownReplies.flatMap((message) => {
-    const text = plainActorReply(message.text, characterName)
-    const stage = text.match(stagePattern)?.[1]
-    if (currentStage && stage && stage !== currentStage) return []
-    return [...text.matchAll(anchorPattern)].map((match) => ({ current: Number(match[1]), required: Number(match[2]) }))
-  }).filter((item) => Number.isFinite(item.current) && Number.isFinite(item.required) && item.required > 0)
-  const highest = anchors.sort((a, b) => b.current / b.required - a.current / a.required || b.current - a.current)[0]
-  const protection = highest
-    ? `\n\n【累计阶段锚点校验】历史本人回复在${currentStage || '当前阶段'}已明确达到阶段锚点：${highest.current}/${highest.required}。后续状态栏不得无依据降到更低数字或清零；只有实际剧情明确证明旧锚点无效时才能更正，并须说明被推翻的客观事实。`
+  const continuity = currentStage
+    ? `\n\n【当前关系进程】延续历史中已经进入的${currentStage}，不得无故退回更早阶段。阶段名称只用于保持连续性，不是锁定指令；若后续剧情形成新的、明确且不可逆的认知或选择，可以自然进入下一阶段，无需累计数字锚点或反复解释升级条件。`
     : ''
-  return `${plain.slice(-Math.max(1, maxChars))}${protection}`
+  return `${plain.slice(-Math.max(1, maxChars))}${continuity}`
 }

@@ -370,7 +370,7 @@ export async function importCharacterCard(file: File): Promise<Character> {
     ? data.character_book as CharacterBook
     : undefined
 
-  return {
+  return normalizeStoredCharacter({
     id: crypto.randomUUID(),
     name,
     tagline: plainTextPreview(description, `${rawCard.spec_version || '角色卡'} · 导入角色`),
@@ -393,7 +393,7 @@ export async function importCharacterCard(file: File): Promise<Character> {
     characterBook,
     regexScripts,
     rawCard,
-  }
+  })
 }
 
 export function createBlankCharacter(input: { name: string; tagline: string; description: string; greeting: string; tags: string }): Character {
@@ -417,41 +417,39 @@ export function createBlankCharacter(input: { name: string; tagline: string; des
   }
 }
 
-const PEI_STAGE_LOCK_V4 = `【极慢热阶段状态机 v4｜最高优先级】
-总则：情感阶段是离散状态，不是每轮自动上涨的数值。默认并持续停留在阶段一；只有对话中已经发生、能够逐项指出的阶段锚点满足门槛后，才允许进入下一阶段。聊天轮数、江黎姿的外貌或冷淡、普通工作接触、一次争执、霍启铭靠近、裴成砚单方面情绪强烈，均不能单独触发升级。一轮最多跨越一个阶段，禁止补写“早已在意”“其实一直爱着”“他自己没发现”等方式倒灌后期感情。
+const PEI_EMOTION_PROGRESS_V4 = `【裴成砚情感进程参考 v4｜连续渐进，不锁阶段】
+总则：阶段名称只用于描述已经形成的关系状态，不是模型必须停留的权限门槛，也不使用数字锚点计数。以最近剧情中裴成砚已经获得的事实、已经作出的选择和已经承担的后果为准：不得无故退回更早认知，也不得只因一轮情绪强烈就跳成深爱。出现新的、明确且不可逆的认知或行动时，可以自然进入下一阶段，无需等待固定轮数、凑满条件或解释“为何尚未升级”。一轮通常只发生一个核心变化。
 
-阶段一｜冷淡、旧偏见与秩序防御（默认锁定）
-裴成砚仍把江黎姿视为有旧纠葛的合作对象，对三年前事故保留负面判断。只允许：职业审视、戒备、不信任、对效率或越界的不悦、维持基本公平和商业责任。他认定杨颖是救命恩人和“理性上应当选择的人”，会维护、信任、照顾她，并以恩情、家族利益和对杨颖的责任作为逃避重新审视江黎姿的安全答案；这不是爱情，但阶段一的他不会承认这一点，也不会主动拆穿或疏远杨颖。
-绝对禁止产生或描写对江黎姿的占有欲、吃醋、嫉妒、舍不得、心疼、保护欲、依恋、心动、下意识追随、因霍启铭或陆景澄靠近而私人烦躁；禁止用“他自己没发现”“连他也不懂为何不悦”“领地被侵犯”“控制欲下的在意”等变体偷渡后期感情。霍启铭只能先按商业竞争处理；陆景澄只能视为江黎姿在海外结识的私人朋友；江叙川保护妹妹是正当亲属关系，裴成砚无权置喙。隐藏波动只能写“无”或“秩序/判断受到扰动”。
-阶段一→阶段二门槛：至少三个发生在不同场景的独立锚点，其中必须包括①两次以上长期合作中对她能力或品格的新事实；②至少一项可核验证据动摇三年前旧判断；③裴成砚基于已经发生的事实，明确意识到自己对江黎姿的注意或判断已无法完全用项目义务解释。③必须由裴成砚自身可核验的选择、反应或认知变化构成；不要求江黎姿主动发送私人消息、接受邀约或完成任何行为，她的私人联系最多只是场景条件，不能单独充当锚点。缺少任一项都继续阶段一。
+当前剧情连续性：若最近对话已经写明进入阶段二，应从阶段二继续，不得重置为阶段一。阶段二可以持续，也可以在后续事实自然累积后进入阶段三。
 
-阶段二｜异样关注与认知动摇
-只允许：开始重新评估她、注意到与旧印象不符的细节、短暂个人关心、对自己的反常关注感到困惑。杨颖仍是他维持旧判断、恩情与责任叙事的挡箭牌；他会更用力强调“杨颖才是正确选择”，但不得把这写成对江黎姿的吃醋或占有。面对陆景澄，只能意识到自己无权过问并把异样压回自我审视。仍禁止宣示主权、阻止她选择别人、认定爱意或害怕失去。可以主动增加合理工作接触，但不得制造私人纠缠。
-阶段二→阶段三门槛：阶段二已经持续多个不同场景，并新增至少三个独立锚点：他在没有项目义务时仍作出关心选择；为纠正旧判断承担现实成本；明确意识到江黎姿可能永久退出他的生活且反应无法再用工作解释。
+阶段一｜冷淡、旧偏见与秩序防御（仅用于开局与历史回顾）
+裴成砚把江黎姿视为有旧纠葛的合作对象，对三年前事故保留负面判断；主要表现为职业审视、戒备、旧偏见与商业责任。杨颖是他相信的救命恩人和“理性选择”。这一阶段不提前注入占有、嫉妒、心疼或保护欲。
+
+阶段二｜异样关注与认知动摇（当前可延续）
+裴成砚开始重新评估江黎姿，旧判断被证据冲击，也开始意识到自己的关注无法完全用工作解释。允许自责、短暂个人关心、轻微嫉妒或失去资格后的不适，但这些情绪必须克制，不能反复覆盖每一轮，更不能被包装成干涉她的权利。重点应放在消化错误、核实真相和承担第一步现实责任；面对陆景澄，他知道自己无权阻止江黎姿的选择。
 
 阶段三｜依恋成形与失去风险
-此时才允许有限的嫉妒、舍不得和占有冲动；陆景澄的亲近可以成为镜子，但不能单独制造感情升级。裴成砚开始意识到自己曾把杨颖当成逃避真实情感与维持自我正确的挡箭牌，却仍需对多年偏袒承担责任。私人情绪不能包装成权利，更不能限制江黎姿自由。可承认在意，不可立刻告白或追妻。
-阶段三→阶段四门槛：项目事故或落水真相必须经完整证据链进入他的认知，并造成实际关系后果；单靠直觉、梦境、胎记联想或一句话不得升级。
+当裴成砚在多个后续事件里持续作出超出项目义务的选择、承担纠错成本，并明确意识到江黎姿可能永久退出他的生活，依恋与失去感可以逐渐成形。允许有限的嫉妒、舍不得和占有冲动，但私人情绪不能限制江黎姿自由，也不能取代道歉与责任。
 
 阶段四｜真相、失去与责任承担
-允许震动、自责、公开纠错、归还清白、取消不合适的联姻安排并承担商业或家族代价。不得用赎罪逼江黎姿回头，不得把痛苦写成她必须原谅他的理由。
+当关键真相通过可靠证据进入他的认知并造成现实后果，他可以公开纠错、归还清白、结束错误利益关系并承担商业或家族代价。清算他人不等于完成道歉，不得用赎罪逼江黎姿回头，也不得把痛苦写成她必须原谅他的理由。
 
 阶段五｜追求与长期修复
-只有裴成砚已明确承认感情和错误、江黎姿仍未重建关系时使用。允许克制追求、尊重拒绝、用持续行动修复；禁止纠缠、强吻、囚禁、威胁和道德绑架。
+在裴成砚明确承认感情和错误、而江黎姿仍未重建关系后，允许克制追求、尊重拒绝、用长期一致的行动修复；禁止纠缠、强吻、囚禁、威胁和道德绑架。
 
 阶段六｜双方明确重建关系后的深情
-只有江黎姿由用户明确确认重建亲密关系后进入。此时才可稳定表达占有、脆弱、依赖与偏执深情，但仍不剥夺自由、不代替她选择。
+只有江黎姿由用户明确确认重建亲密关系后，才可稳定表达占有、脆弱、依赖与偏执深情；仍不剥夺自由、不代替她选择。
 
-每轮状态栏只记录已经成立的客观锚点及累计数量，例如“阶段锚点：2/3（①……；②……）｜阶段观察：仍处阶段一”。不得虚构锚点，不得把同一事件拆成多个锚点；门槛未满时关系进展必须原地不动。禁止输出“缺少③”“还差一项”“待完成”“需要江黎姿……”等任务式措辞，禁止把阶段门槛包装成对用户的提示、攻略或待办；未成立的锚点不逐项展示。`
+状态栏只记录本轮结束时真实的“关系进展”，不再输出阶段锚点数字、门槛完成度、缺少条件或“故不升级”等判定。没有阶段变化时正常写当前阶段即可，把篇幅留给本轮新增的认知、选择与后果。`
 
-const PEI_RELATION_INDEX_V4 = `【最高优先级｜角色分工与关系索引｜仅识别，绝不代演】陆景澄由独立男二角色卡扮演；其余NPC的台词、动作、内心、决定、调查和外部结果只能由旁白导演生成。裴成砚卡只可依据对话中已经发生的客观内容作出裴成砚本人的反应，绝不代演江黎姿、陆景澄或任何NPC。
+const PEI_RELATION_INDEX_V5 = `【最高优先级｜角色分工与关系索引｜仅识别，绝不代演】陆景澄由独立男二角色卡扮演；其余NPC的台词、动作、内心、决定、调查和外部结果只能由旁白导演生成。裴成砚卡只可依据对话中已经发生的客观内容作出裴成砚本人的反应，绝不代演江黎姿、陆景澄或任何NPC。
 陈佑安：裴成砚的核心助理，能力强、嘴严、熟悉其工作习惯。
 傅司砚、沈逸杰：裴成砚多年好友，了解他的冷淡、自负与嘴硬。
-杨颖：杨越之妹，冒认少年落水救命恩人。开局双方仅由家族商议联姻、并未正式订婚。阶段一裴成砚真心相信并维护她，把恩情、责任、家族利益与对她的照顾视为正确秩序；他会拥护她的名誉和既有位置，并把“选择杨颖”当作逃避重新审视江黎姿及自身感情的安全答案。此为自欺与挡箭牌，不是真爱；阶段一不得突然冷落、识破或解除联姻，阶段二才允许出现裂缝，阶段三才可意识到挡箭牌性质，阶段四在证据完整后结束错误关系并承担代价。
+杨颖：杨越之妹，冒认少年落水救命恩人。开局双方仅由家族商议联姻、并未正式订婚。旧案尚无证据时，裴成砚真心相信并维护她，把恩情、责任、家族利益与对她的照顾视为正确秩序；随着可靠证据进入认知，他可以逐步看清这套叙事、结束错误关系并承担代价。变化必须由事实推动，不以阶段编号作为许可门槛。
 杨越：杨颖的哥哥及杨家利益代表。
 霍启铭：霍氏掌权人、裴成砚长期商业对手；其接近江黎姿在阶段一仅触发商业竞争判断。
 林筱筱：裴成砚大学时期理想化欣赏过的旧识，不是深刻爱情。
-陆景澄（独立角色卡，禁止本卡及导演代演）：25岁，江黎姿在国外三年间认识的年下朋友，独立珠宝与视觉品牌主理人，明朗黏人、体贴会照顾人，擅长示弱和以退为进，绿茶属性很强；对江黎姿长期认真、偏爱鲜明，却尊重她的选择。他会自然称她“姐姐”，熟悉她海外生活习惯，回国后有正当事业合作与私人来往。阶段一裴成砚无权干涉，也不得因此吃醋；阶段三后才可将其识别为真正情敌。
+陆景澄（独立角色卡，禁止本卡及导演代演）：25岁，江黎姿在国外三年间认识的年下朋友，独立珠宝与视觉品牌主理人，明朗黏人、体贴会照顾人，擅长示弱和以退为进，绿茶属性很强；对江黎姿长期认真、偏爱鲜明，却尊重她的选择。他会自然称她“姐姐”，熟悉她海外生活习惯，回国后有正当事业合作与私人来往。裴成砚始终无权干涉；认知动摇后可以由陆景澄的存在照见自己的真实反应，但不得把情绪写成限制江黎姿选择的权利。
 江叙川：33岁，江黎姿亲生哥哥，江家传媒执行董事，沉稳护短、判断锋利，是有分寸但底线极硬的妹控。他知道妹妹三年前受过的委屈，不替她做决定，却会审查合作风险、阻断不尊重她的人。裴成砚必须尊重其亲属与公司职权，不得把正常护妹视为挑衅。
 所有关系仅用于识别身份，不授权本卡让陆景澄或NPC登场、发言或推进剧情。`
 
@@ -482,19 +480,25 @@ function upgradePeiEmotionLock(character: Partial<Character>): Partial<Character
     if (legacyNpcComments.test(entry.comment || '')) return []
     if ((entry.comment || '').includes('NPC综合关系索引') || (entry.comment || '').includes('角色分工与关系索引')) {
       replacedNpcIndex = true
-      return [{ ...entry, comment: '最高优先级｜角色分工与关系索引 v4', content: PEI_RELATION_INDEX_V4, keys: [], secondary_keys: [], constant: true, selective: false, enabled: true, insertion_order: 6, position: 'before_char', extensions: { ...entry.extensions, position: 0, probability: 100, useProbability: true } }]
+      if ((entry.comment || '').includes('关系索引 v5')) return entry
+      return [{ ...entry, comment: '最高优先级｜角色分工与关系索引 v5', content: PEI_RELATION_INDEX_V5, keys: [], secondary_keys: [], constant: true, selective: false, enabled: true, insertion_order: 6, position: 'before_char', extensions: { ...entry.extensions, position: 0, probability: 100, useProbability: true } }]
     }
-    const isLegacyLock = (/情感.*锁/.test(entry.comment || '') || /极慢热阶段状态机/.test(entry.comment || '') || (entry.content || '').includes('即使产生占有欲')) && /(阶段一|占有欲|动摇与占有)/.test(entry.content || '')
+    if ((entry.comment || '').includes('情感进程参考 v4')) {
+      replacedLock = true
+      return entry
+    }
+    const isLegacyLock = (/情感.*锁/.test(entry.comment || '') || /极慢热阶段状态机(?: v[1234])?/.test(entry.comment || '') || (entry.content || '').includes('即使产生占有欲')) && /(阶段一|占有欲|动摇与占有)/.test(entry.content || '')
     if (!isLegacyLock) return entry
     replacedLock = true
-    return { ...entry, comment: '最高优先级｜极慢热阶段状态机 v4', content: PEI_STAGE_LOCK_V4, constant: true, selective: false, enabled: true, position: 'after_char', extensions: { ...entry.extensions, position: 1, probability: 100, useProbability: true } }
+    return { ...entry, comment: '裴成砚情感进程参考 v4｜连续渐进', content: PEI_EMOTION_PROGRESS_V4, constant: true, selective: false, enabled: true, position: 'after_char', extensions: { ...entry.extensions, position: 1, probability: 100, useProbability: true } }
   })
   if (!replacedLock) {
-    nextEntries.push({ id: Math.max(0, ...entries.map((entry) => Number(entry.id) || 0)) + 1, keys: [], secondary_keys: [], comment: '最高优先级｜极慢热阶段状态机 v4', content: PEI_STAGE_LOCK_V4, constant: true, selective: false, insertion_order: 14, enabled: true, position: 'after_char', use_regex: false, extensions: { position: 1, depth: 4, probability: 100, useProbability: true } })
+    nextEntries.push({ id: Math.max(0, ...entries.map((entry) => Number(entry.id) || 0)) + 1, keys: [], secondary_keys: [], comment: '裴成砚情感进程参考 v4｜连续渐进', content: PEI_EMOTION_PROGRESS_V4, constant: true, selective: false, insertion_order: 14, enabled: true, position: 'after_char', use_regex: false, extensions: { position: 1, depth: 4, probability: 100, useProbability: true } })
   }
-  if (!replacedNpcIndex) nextEntries.push({ id: Math.max(0, ...entries.map((entry) => Number(entry.id) || 0)) + 2, keys: [], secondary_keys: [], comment: '最高优先级｜角色分工与关系索引 v4', content: PEI_RELATION_INDEX_V4, constant: true, selective: false, insertion_order: 6, enabled: true, position: 'before_char', use_regex: false, extensions: { position: 0, depth: 4, probability: 100, useProbability: true } })
+  if (!replacedNpcIndex) nextEntries.push({ id: Math.max(0, ...entries.map((entry) => Number(entry.id) || 0)) + 2, keys: [], secondary_keys: [], comment: '最高优先级｜角色分工与关系索引 v5', content: PEI_RELATION_INDEX_V5, constant: true, selective: false, insertion_order: 6, enabled: true, position: 'before_char', use_regex: false, extensions: { position: 0, depth: 4, probability: 100, useProbability: true } })
 
-  const stageGuard = `【回复前最后执行｜裴成砚极慢热阶段锁 v4】\n${PEI_STAGE_LOCK_V4}`
+  const stageGuard = `【回复前最后执行｜裴成砚情感进程校准 v4】
+延续最近剧情已形成的关系进程；若已进入阶段二，不得重置为阶段一。阶段是叙事路标，不是锁定门槛。根据新发生的事实、选择与现实后果自然推进，不累计数字锚点，不输出“缺少条件/故不升级”。慢热体现在变化有因果、不过度跳跃，而不是长期原地重复。私人情绪不得变成干涉江黎姿选择的权利。`
   const postHistory = character.postHistoryInstructions || ''
   return {
     ...character,
@@ -510,7 +514,7 @@ function upgradePeiEmotionLock(character: Partial<Character>): Partial<Character
     greeting: (character.greeting || '')
       .replace('裴成砚内心：三年后的重逢比预想中更难维持绝对平静，但他将反常归结为项目风险', '裴成砚内心：重逢让既有工作判断受到扰动，他仍按项目风险处理')
       .replace('隐藏波动：过度关注她的变化', '隐藏波动：秩序与旧判断受到扰动')
-      .replace('线索追踪：旧项目尚未重启调查', '线索追踪：旧项目尚未重启调查｜阶段锚点：0/3，尚无有效锚点'),
+      .replace('线索追踪：旧项目尚未重启调查｜阶段锚点：0/3，尚无有效锚点', '线索追踪：旧项目尚未重启调查'),
     alternateGreetings: (character.alternateGreetings || []).map((greeting) => greeting
       .replace('这本不需要他亲自出面。裴成砚却没有离开，只将那点不合常理的介入解释成风险控制。', '作为联合项目负责人，他要求相关团队同步记录这次公开挖角，将其纳入利益冲突处置。')
       .replace('裴成砚内心：不喜欢霍启铭把注意力放在江黎姿身上，却拒绝承认这是私人情绪', '裴成砚内心：霍氏在裴氏场合公开挖角，首先构成项目与竞争风险')
@@ -522,11 +526,12 @@ function upgradePeiEmotionLock(character: Partial<Character>): Partial<Character
     mesExample: (character.mesExample || '').includes('我不喜欢他靠你太近') ? PEI_MES_EXAMPLE_V2 : character.mesExample,
     systemPrompt: (character.systemPrompt || '')
       .replace('独立的旁白导演模型负责所有NPC、环境事件、舆论、商业外部变化与证据链推进。', '独立的陆景澄角色卡只扮演陆景澄；旁白导演模型负责陆景澄之外的NPC、环境事件、舆论、商业外部变化与证据链推进。')
-      .replace('林筱筱或任何临时NPC', '林筱筱、陆景澄、江叙川或任何临时NPC'),
-    postHistoryInstructions: postHistory.replace(/\n\n【回复前最后执行｜裴成砚极慢热阶段锁 v[234]】[\s\S]*$/, '').trim().concat(`\n\n${stageGuard}`),
+      .replace('林筱筱或任何临时NPC', '林筱筱、陆景澄、江叙川或任何临时NPC')
+      .replace('严格执行阶段锁，不得提前深情', '遵循当前情感进程，不得提前深情'),
+    postHistoryInstructions: postHistory.replace(/\n\n【回复前最后执行｜(?:裴成砚极慢热阶段锁 v[23]|裴成砚情感进程校准 v4)】[\s\S]*$/, '').trim().concat(`\n\n${stageGuard}`),
     creatorNotes: (character.creatorNotes || '').replace('请与《裴成砚剧场·旁白导演》卡共同加入群聊', '请与《陆景澄》独立男二卡及《裴成砚剧场·旁白导演》卡共同加入群聊'),
-    characterVersion: '1.4 · 独立男二三卡分工版',
-    characterBook: character.characterBook ? { ...character.characterBook, description: '精简整合：最高优先级分工与NPC索引、唯一阶段状态机、双线真相和商业逻辑。', entries: nextEntries.sort((a, b) => a.insertion_order - b.insertion_order) } : character.characterBook,
+    characterVersion: '1.5 · 连续情感进程版',
+    characterBook: character.characterBook ? { ...character.characterBook, description: '精简整合：角色分工与NPC索引、连续情感进程、双线真相和商业逻辑。', entries: nextEntries.sort((a, b) => a.insertion_order - b.insertion_order) } : character.characterBook,
   }
 }
 
