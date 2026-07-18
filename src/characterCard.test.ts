@@ -22,33 +22,71 @@ const baseCharacter: Partial<Character> = {
   },
 }
 
-describe('裴成砚极慢热阶段锁迁移', () => {
+describe('裴成砚连续情感进程迁移', () => {
   it('升级已有本地角色并保留角色 id', () => {
     const result = normalizeStoredCharacter(baseCharacter)
-    const lock = result.characterBook?.entries.find((entry) => entry.comment.includes('极慢热阶段状态机'))
+    const progress = result.characterBook?.entries.find((entry) => entry.comment.includes('情感进程参考'))
 
     expect(result.id).toBe('pei-test')
-    expect(result.characterVersion).toContain('1.4')
+    expect(result.characterVersion).toContain('1.5')
     expect(result.personality).not.toContain('把关注、维护、占有和不安解释成')
     expect(result.mesExample).not.toContain('我不喜欢他靠你太近')
-    expect(result.postHistoryInstructions).toContain('裴成砚极慢热阶段锁 v4')
-    expect(lock?.content).toContain('阶段一｜冷淡、旧偏见与秩序防御')
-    expect(lock?.content).toContain('绝对禁止产生或描写对江黎姿的占有欲')
-    expect(lock?.content).toContain('陆景澄')
-    expect(lock?.content).toContain('不要求江黎姿主动发送私人消息')
-    expect(lock?.content).toContain('禁止输出“缺少③”')
-    expect(lock?.position).toBe('after_char')
-    expect(lock?.extensions.position).toBe(1)
+    expect(result.postHistoryInstructions).toContain('裴成砚情感进程校准 v4')
+    expect(result.postHistoryInstructions).toContain('若已进入阶段二，不得重置为阶段一')
+    expect(progress?.content).toContain('连续渐进，不锁阶段')
+    expect(progress?.content).toContain('阶段二｜异样关注与认知动摇（当前可延续）')
+    expect(progress?.content).toContain('不再输出阶段锚点数字')
+    expect(progress?.position).toBe('after_char')
+    expect(progress?.extensions.position).toBe(1)
     const npcIndex = result.characterBook?.entries.find((entry) => entry.comment.includes('角色分工与关系索引'))
     expect(npcIndex?.content).toContain('江叙川')
     expect(npcIndex?.content).toContain('杨颖')
     expect(npcIndex?.content).toContain('陆景澄由独立男二角色卡扮演')
+    expect(npcIndex?.content).toContain('不以阶段编号作为许可门槛')
     expect(npcIndex?.constant).toBe(true)
     expect(npcIndex?.position).toBe('before_char')
 
     const normalizedAgain = normalizeStoredCharacter(result)
-    expect(normalizedAgain.postHistoryInstructions.match(/裴成砚极慢热阶段锁 v4/g)).toHaveLength(1)
+    expect(normalizedAgain.postHistoryInstructions.match(/裴成砚情感进程校准 v4/g)).toHaveLength(1)
     expect(normalizedAgain.characterBook?.entries.filter((entry) => entry.comment.includes('角色分工与关系索引'))).toHaveLength(1)
+    expect(normalizedAgain.characterBook?.entries.find((entry) => entry.comment.includes('情感进程参考'))?.content).toBe(progress?.content)
+  })
+
+  it('迁移完成后尊重用户对进程世界书的修改', () => {
+    const migrated = normalizeStoredCharacter(baseCharacter)
+    const edited = {
+      ...migrated,
+      characterBook: {
+        ...migrated.characterBook!,
+        entries: migrated.characterBook!.entries.map((entry) => entry.comment.includes('情感进程参考 v4')
+          ? { ...entry, content: `${entry.content}\n用户自定义补充：阶段二减少重复内耗。` }
+          : entry),
+      },
+    }
+
+    const normalizedAgain = normalizeStoredCharacter(edited)
+    expect(normalizedAgain.characterBook?.entries.find((entry) => entry.comment.includes('情感进程参考 v4'))?.content)
+      .toContain('用户自定义补充：阶段二减少重复内耗。')
+  })
+
+  it('会把旧的 v4 阶段锁迁移为连续进程并移除开场计数', () => {
+    const legacyV4 = {
+      ...baseCharacter,
+      greeting: '开场。<status>线索追踪：旧项目尚未重启调查｜阶段锚点：0/3，尚无有效锚点</status>',
+      characterBook: {
+        ...baseCharacter.characterBook!,
+        entries: [{
+          ...baseCharacter.characterBook!.entries[0],
+          comment: '最高优先级｜极慢热阶段状态机 v4',
+          content: '阶段一默认锁定，占有欲需等门槛。禁止输出“缺少③”。',
+        }],
+      },
+    }
+
+    const result = normalizeStoredCharacter(legacyV4)
+    expect(result.characterBook?.entries.find((entry) => entry.comment.includes('情感进程参考 v4'))?.content)
+      .toContain('不是模型必须停留的权限门槛')
+    expect(result.greeting).not.toContain('阶段锚点：0/3')
   })
 
   it('不会迁移其他角色', () => {
