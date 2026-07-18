@@ -9,8 +9,16 @@ type ActorMessage = {
 
 const stagePattern = /(?:关系进展|推进阶段|当前阶段)\s*[:：]\s*(阶段[一二三四五六七八九十\d]+)/
 
+/** Remove obsolete numeric gate bookkeeping before old replies re-enter prompts. */
+export function stripStageGateMetadata(value: string) {
+  return value
+    .replace(/\s*｜?\s*阶段锚点\s*[:：][\s\S]*?(?=\s*｜\s*阶段观察|$)/g, '')
+    .replace(/\s*｜?\s*阶段观察\s*[:：][^｜\n]*/g, '')
+    .trim()
+}
+
 function plainActorReply(value: string, characterName: string) {
-  return stripLeadingSpeakerLabels(stripPresentationalHtmlForPrompt(value), [characterName])
+  return stripStageGateMetadata(stripLeadingSpeakerLabels(stripPresentationalHtmlForPrompt(value), [characterName]))
     .replace(/<\/?[A-Za-z][^>]*>/g, '')
     .trim()
 }
