@@ -608,7 +608,7 @@ function App() {
       autoContinuity: {
         ...project.autoContinuity,
         needsReview: true,
-        lastError: '已检测到对话历史改写，旧驾驶舱已暂停注入。请重新分析并保存驾驶舱。',
+        lastError: '检测到对话历史改写：旧分支事实待复核；关系阶段和指定事件仍会保留并继续生效。请重新分析并保存驾驶舱。',
         lastSummary: undefined,
       },
       updatedAt: Date.now(),
