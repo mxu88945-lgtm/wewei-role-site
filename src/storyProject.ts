@@ -15,6 +15,17 @@ export type CharacterKnowledge = {
   mistakenBeliefs: string[]
 }
 
+export type StoryPlannedEventStatus = 'pending' | 'active' | 'completed'
+
+export type StoryPlannedEvent = {
+  id: string
+  title: string
+  detail: string
+  triggerCondition: string
+  status: StoryPlannedEventStatus
+  progressNote: string
+}
+
 export type StoryCockpit = {
   currentTime: string
   currentLocation: string
@@ -26,6 +37,7 @@ export type StoryCockpit = {
   evidence: StoryEvidence[]
   characterKnowledge: CharacterKnowledge[]
   nextDirections: string[]
+  plannedEvents: StoryPlannedEvent[]
 }
 
 export type StoryAutoContinuity = {
@@ -61,7 +73,7 @@ const uniqueStrings = (value: unknown) => Array.isArray(value)
 export function createStoryCockpit(): StoryCockpit {
   return {
     currentTime: '', currentLocation: '', presentCharacterIds: [], relationshipStage: '', currentTask: '',
-    completedEvents: [], openHooks: [], evidence: [], characterKnowledge: [], nextDirections: [],
+    completedEvents: [], openHooks: [], evidence: [], characterKnowledge: [], nextDirections: [], plannedEvents: [],
   }
 }
 
@@ -92,6 +104,15 @@ const normalizeEvidence = (value: Partial<StoryEvidence>, index: number): StoryE
   knownByCharacterIds: uniqueStrings(value.knownByCharacterIds),
 })
 
+const normalizePlannedEvent = (value: Partial<StoryPlannedEvent>, index: number): StoryPlannedEvent => ({
+  id: typeof value.id === 'string' && value.id ? value.id : `planned-event-${Date.now()}-${index}`,
+  title: typeof value.title === 'string' ? value.title : '',
+  detail: typeof value.detail === 'string' ? value.detail : '',
+  triggerCondition: typeof value.triggerCondition === 'string' ? value.triggerCondition : '',
+  status: value.status === 'active' || value.status === 'completed' ? value.status : 'pending',
+  progressNote: typeof value.progressNote === 'string' ? value.progressNote : '',
+})
+
 export function normalizeStoryCockpit(value: Partial<StoryCockpit> | undefined): StoryCockpit {
   return {
     currentTime: typeof value?.currentTime === 'string' ? value.currentTime : '',
@@ -109,6 +130,7 @@ export function normalizeStoryCockpit(value: Partial<StoryCockpit> | undefined):
       mistakenBeliefs: uniqueStrings(item?.mistakenBeliefs),
     })).filter((item) => item.characterId) : [],
     nextDirections: uniqueStrings(value?.nextDirections),
+    plannedEvents: Array.isArray(value?.plannedEvents) ? value.plannedEvents.map((item, index) => normalizePlannedEvent(item || {}, index)) : [],
   }
 }
 

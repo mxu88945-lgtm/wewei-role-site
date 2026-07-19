@@ -8,6 +8,7 @@ describe('story projects', () => {
     expect(project.characterIds).toEqual([])
     expect(project.conversationIds).toEqual([])
     expect(project.cockpit.completedEvents).toEqual([])
+    expect(project.cockpit.plannedEvents).toEqual([])
     expect(project.version).toBe(1)
   })
 
@@ -40,6 +41,18 @@ describe('story projects', () => {
     expect(cockpit.evidence[0].visibility).toBe('hidden')
     expect(cockpit.characterKnowledge[0].unknownFacts).toEqual(['真正救人者'])
     expect(cockpit.characterKnowledge[0].mistakenBeliefs).toEqual(['杨颖就是救命恩人'])
+  })
+
+  it('normalizes user-planned events without treating them as completed facts', () => {
+    const cockpit = normalizeStoryCockpit({
+      plannedEvents: [
+        { id: 'future-one', title: '未来董事会', detail: '杨颖将采取行动。', triggerCondition: '调查接近杨家', status: 'active', progressNote: '条件已经出现' },
+        { id: 'future-two', title: '旧格式事件', detail: '', triggerCondition: '', status: 'broken' as never, progressNote: '' },
+      ],
+    })
+    expect(cockpit.plannedEvents[0].status).toBe('active')
+    expect(cockpit.plannedEvents[1].status).toBe('pending')
+    expect(cockpit.completedEvents).toEqual([])
   })
 
   it('ignores non-array storage values', () => {

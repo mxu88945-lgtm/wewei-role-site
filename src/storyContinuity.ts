@@ -1,4 +1,4 @@
-import { normalizeStoryCockpit, type StoryCockpit, type StoryEvidence, type StoryProject } from './storyProject'
+import { normalizeStoryCockpit, type StoryCockpit, type StoryEvidence, type StoryPlannedEventStatus, type StoryProject } from './storyProject'
 import { parseCockpitAssistantResponse, type CockpitSourceCharacter } from './storyCockpitAssistant'
 
 export type ContinuityMessage = {
@@ -17,6 +17,7 @@ export type ContinuityConversation = {
 export type AutomaticContinuityResult = {
   cockpit: StoryCockpit
   consumedOpenHooks: string[]
+  plannedEventUpdates: { id: string; status: StoryPlannedEventStatus; progressNote: string }[]
   changeSummary: string
 }
 
@@ -79,6 +80,9 @@ export function buildAutomaticContinuityInput({ project, characters, conversatio
 9. 不删除仍有效的旧事实、证据或知情边界。新信息不足以更新某字段时，原样保留。
 10. 旁白或导演不是在场人物，不建立角色知情边界。
 11. 独立角色重新出场时，其状态栏可能引用本人上次离场前的旧地点与旧事件；那是个人历史锚点，不代表全剧时间倒退。除非最新用户消息或客观事件明确切换场景，不得把 currentTime、currentLocation、在场人物或已完成事件回滚到旧餐聚、旧住所、旧会议等历史截面。
+12. “指定事件”是用户原文，不是已经发生的事实，也不是供你改写的草稿。只能通过 plannedEventUpdates 更新现有事件的状态和进度备注，禁止修改标题、内容、触发条件、创建新事件或删除事件。
+13. 只有新增对话明确显示事件已经开始，才可从 pending 更新为 active；只有事件在实际对话中完整发生，才可更新为 completed。状态只能向前推进，不得倒退。条件刚满足但尚未演绎，不算 active；没有客观变化则不要输出该事件的更新。
+14. 若指定事件涉及用户主角或独立角色，模型越权代写的行动、台词、心理或决定不能作为事件开始或完成的依据。
 
 【当前项目与驾驶舱】
 ${JSON.stringify({ title: project.title, summary: project.summary, worldBackground: project.worldBackground, cockpit: project.cockpit }, null, 2)}
@@ -93,6 +97,7 @@ ${JSON.stringify(newDialogue, null, 2)}
 {
   "changeSummary": "一句话说明本轮场记更新；若无客观进展则写未发现可记账的新进展",
   "consumedOpenHooks": ["只能逐字复制本轮已经完成或失效的旧钩子"],
+  "plannedEventUpdates": [{ "id": "只能复制现有指定事件id", "status": "active或completed", "progressNote": "只记录实际演到哪一步" }],
   "cockpit": {
     "currentTime": "", "currentLocation": "", "presentCharacterIds": [],
     "relationshipStage": "", "currentTask": "", "completedEvents": [], "openHooks": [],
@@ -111,10 +116,16 @@ export function parseAutomaticContinuityResponse(raw: string, allowedCharacterId
   let value: unknown
   try { value = JSON.parse(cleaned.slice(start, end + 1)) } catch { throw new Error('自动场记返回的 JSON 不完整') }
   if (!value || typeof value !== 'object') throw new Error('自动场记返回的数据格式不正确')
-  const result = value as { cockpit?: unknown; consumedOpenHooks?: unknown; changeSummary?: unknown }
+  const result = value as { cockpit?: unknown; consumedOpenHooks?: unknown; plannedEventUpdates?: unknown; changeSummary?: unknown }
   return {
     cockpit: parseCockpitAssistantResponse(JSON.stringify(result.cockpit || {}), allowedCharacterIds),
     consumedOpenHooks: Array.isArray(result.consumedOpenHooks) ? unique(result.consumedOpenHooks.filter((item): item is string => typeof item === 'string')) : [],
+    plannedEventUpdates: Array.isArray(result.plannedEventUpdates) ? result.plannedEventUpdates.map((item) => {
+      if (!item || typeof item !== 'object') return null
+      const entry = item as { id?: unknown; status?: unknown; progressNote?: unknown }
+      if (typeof entry.id !== 'string' || (entry.status !== 'active' && entry.status !== 'completed')) return null
+      return { id: entry.id, status: entry.status, progressNote: typeof entry.progressNote === 'string' ? entry.progressNote.trim().slice(0, 1000) : '' }
+    }).filter((item): item is { id: string; status: 'active' | 'completed'; progressNote: string } => Boolean(item)) : [],
     changeSummary: typeof result.changeSummary === 'string' && result.changeSummary.trim() ? result.changeSummary.trim() : '自动场记已更新剧情进度',
   }
 }
@@ -137,16 +148,26 @@ export function mergeAutomaticContinuity(existingValue: StoryCockpit, result: Au
   const openHooks = unique([...existing.openHooks.filter((hook) => !consumed.has(hook)), ...proposed.openHooks]).filter((hook) => !consumed.has(hook))
   const knowledge = new Map(existing.characterKnowledge.map((item) => [item.characterId, item]))
   proposed.characterKnowledge.forEach((item) => knowledge.set(item.characterId, item))
+  const eventUpdates = new Map(result.plannedEventUpdates.map((item) => [item.id, item]))
+  const completedPlannedEvents: string[] = []
+  const plannedEvents = existing.plannedEvents.map((item) => {
+    const update = eventUpdates.get(item.id)
+    if (!update || item.status === 'completed') return item
+    const next = { ...item, status: update.status, progressNote: update.progressNote || item.progressNote }
+    if (next.status === 'completed') completedPlannedEvents.push(`用户指定事件「${item.title || item.id}」已完成`)
+    return next
+  })
   return {
     currentTime: proposed.currentTime || existing.currentTime,
     currentLocation: proposed.currentLocation || existing.currentLocation,
     presentCharacterIds: proposed.presentCharacterIds,
     relationshipStage: proposed.relationshipStage || existing.relationshipStage,
     currentTask: proposed.currentTask || existing.currentTask,
-    completedEvents,
+    completedEvents: unique([...completedEvents, ...completedPlannedEvents]),
     openHooks,
     evidence: mergeEvidence(existing.evidence, proposed.evidence),
     characterKnowledge: [...knowledge.values()],
     nextDirections: proposed.nextDirections.length ? proposed.nextDirections : existing.nextDirections,
+    plannedEvents,
   }
 }

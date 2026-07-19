@@ -30,6 +30,14 @@ const project = () => ({
       { characterId: 'lead', knownFacts: ['董事会即将表决'], unknownFacts: [], mistakenBeliefs: [] },
     ],
     nextDirections: ['让私家侦探回报资金流向'],
+    plannedEvents: [{
+      id: 'event-board',
+      title: '杨颖转移旧档案',
+      detail: '杨颖确认调查接近自己后，安排秘书转移一份旧授权记录。',
+      triggerCondition: '权限调查已经指向杨家外包团队。',
+      status: 'pending' as const,
+      progressNote: '',
+    }],
   },
 })
 
@@ -57,6 +65,10 @@ describe('story project prompt injection', () => {
     expect(prompt).toContain('当前明确在场的独立角色：陆景澄')
     expect(prompt).toContain('当前明确离场的独立角色：裴成砚')
     expect(prompt).toContain('整句删除')
+    expect(prompt).toContain('指定事件')
+    expect(prompt).toContain('杨颖转移旧档案')
+    expect(prompt).toContain('条件未到就让剧情按现有因果正常发展')
+    expect(prompt).toContain('只能搭建外部条件并停在其选择点')
   })
 
   it('gives an independent actor only its safe knowledge slice', () => {
@@ -72,6 +84,7 @@ describe('story project prompt injection', () => {
     expect(prompt).not.toContain('让私家侦探回报资金流向')
     expect(prompt).not.toContain('unknownFacts')
     expect(prompt).not.toContain('mistakenBeliefs')
+    expect(prompt).not.toContain('杨颖转移旧档案')
   })
 
   it('quarantines a stale cockpit after dialogue history is rewritten', () => {
@@ -82,6 +95,7 @@ describe('story project prompt injection', () => {
     expect(prompt).toContain('只依据最近对话')
     expect(prompt).not.toContain('真正收款人是霍启铭')
     expect(prompt).not.toContain('画展试探已经结束')
+    expect(prompt).not.toContain('杨颖转移旧档案')
   })
 
   it('selects only the newest active project bound to a conversation', () => {
