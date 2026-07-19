@@ -124,7 +124,7 @@ async function consumeEventStream(response: Response, onDelta: (delta: string) =
           ?? data?.response?.output_text,
         )
         if (delta) onDelta(delta)
-        const nextFinishReason = choice?.finish_reason ?? data?.stop_reason
+        const nextFinishReason = choice?.finish_reason ?? data?.stop_reason ?? data?.delta?.stop_reason
         if (typeof nextFinishReason === 'string') finishReason = nextFinishReason
       } catch {
         // Ignore provider keep-alive events that are not JSON.
@@ -161,10 +161,12 @@ function anthropicContent(content: ChatApiMessage['content']) {
 
 function anthropicPayload(options: CompletionOptions) {
   const system = options.messages.filter((message) => message.role === 'system').map((message) => messageContent(message.content)).filter(Boolean).join('\n\n')
+  const messages = options.messages.filter((message) => message.role !== 'system').map((message) => ({ role: message.role, content: anthropicContent(message.content) }))
+  if (messages[0]?.role === 'assistant') messages.unshift({ role: 'user', content: '以下是已经发生的对话记录。' })
   return {
     model: options.api.modelName,
     ...(system ? { system } : {}),
-    messages: options.messages.filter((message) => message.role !== 'system').map((message) => ({ role: message.role, content: anthropicContent(message.content) })),
+    messages,
     temperature: options.temperature,
     top_p: options.topP,
     max_tokens: options.maxTokens,

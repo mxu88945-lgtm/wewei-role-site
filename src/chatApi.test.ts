@@ -113,6 +113,7 @@ describe('chatApi', () => {
       api: { protocol: 'anthropic', baseUrl: 'https://api.anthropic.com/v1', apiKey: 'claude-key', modelName: 'claude-model' },
       messages: [
         { role: 'system', content: '只扮演男主。' },
+        { role: 'assistant', content: '已经发生的开场。' },
         { role: 'user', content: [{ type: 'text', text: '继续' }, { type: 'image_url', image_url: { url: 'data:image/png;base64,abc' } }] },
       ],
       temperature: 1, topP: 1, maxTokens: 1200, streaming: false,
@@ -122,9 +123,30 @@ describe('chatApi', () => {
     expect(requestUrl).toBe('https://api.anthropic.com/v1/messages')
     expect(requestHeaders).toMatchObject({ 'x-api-key': 'claude-key', 'anthropic-version': '2023-06-01', 'anthropic-dangerous-direct-browser-access': 'true' })
     expect(requestBody).toMatchObject({ system: '只扮演男主。', model: 'claude-model', max_tokens: 1200 })
-    expect(requestBody.messages).toEqual([{ role: 'user', content: [{ type: 'text', text: '继续' }, { type: 'image', source: { type: 'base64', media_type: 'image/png', data: 'abc' } }] }])
+    expect(requestBody.messages).toEqual([
+      { role: 'user', content: '以下是已经发生的对话记录。' },
+      { role: 'assistant', content: '已经发生的开场。' },
+      { role: 'user', content: [{ type: 'text', text: '继续' }, { type: 'image', source: { type: 'base64', media_type: 'image/png', data: 'abc' } }] },
+    ])
     expect(output).toBe('收到。')
     expect(result.finishReason).toBe('end_turn')
+  })
+
+  it('识别 Claude 流式结束原因', async () => {
+    vi.stubGlobal('fetch', vi.fn(async () => new Response([
+      'data: {"type":"content_block_delta","delta":{"type":"text_delta","text":"未完"}}',
+      '',
+      'data: {"type":"message_delta","delta":{"stop_reason":"max_tokens"}}',
+      '',
+    ].join('\n'), { headers: { 'content-type': 'text/event-stream' } })))
+    let output = ''
+    const result = await completeChat({
+      api: { protocol: 'anthropic', baseUrl: 'https://api.anthropic.com/v1', apiKey: 'test', modelName: 'claude-model' },
+      messages: [{ role: 'user', content: '继续' }], temperature: 1, topP: 1, maxTokens: 100, streaming: true,
+      signal: new AbortController().signal, onDelta: (delta) => { output += delta },
+    })
+    expect(output).toBe('未完')
+    expect(result.finishReason).toBe('max_tokens')
   })
 
   it('连接测试返回服务端错误信息', async () => {
