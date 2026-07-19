@@ -86,6 +86,13 @@
 .cockpit-character-grid i{color:#a29aa5;font-size:8px;font-style:normal}
 .cockpit-character-grid .selected i{color:var(--theme-accent);font-weight:800}
 .cockpit-empty-note{margin:0;padding:13px;border-radius:14px;color:#958d99;background:rgba(255,255,255,.48);font-size:10px;text-align:center}
+.planned-event-note{margin:0;padding:11px 12px;border-radius:14px;color:#7e7185;background:rgba(255,255,255,.52);font-size:9px;line-height:1.6}
+.planned-event-editor{padding:12px;border:1px solid rgba(76,61,83,.06);border-radius:18px;display:grid;gap:10px;background:rgba(255,255,255,.55);box-shadow:inset 3px 0 #b58a66}
+.planned-event-editor.active{box-shadow:inset 3px 0 var(--theme-accent)}
+.planned-event-editor.completed{opacity:.76;box-shadow:inset 3px 0 #6da487}
+.planned-event-heading{display:flex;align-items:center;justify-content:space-between;gap:10px}
+.planned-event-heading select{width:auto;min-width:105px;padding:8px 10px;color:var(--theme-accent);font-size:10px;font-weight:800}
+.planned-event-heading button{border:0;color:#a15162;background:transparent;font-size:9px;font-weight:800}
 .evidence-editor,.knowledge-editor{padding:12px;border:1px solid rgba(76,61,83,.06);border-radius:18px;display:grid;gap:10px;background:rgba(255,255,255,.55)}
 .evidence-editor.public{box-shadow:inset 3px 0 #6da487}
 .evidence-editor.hidden{box-shadow:inset 3px 0 #9b71c7}
