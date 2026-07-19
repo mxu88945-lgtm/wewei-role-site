@@ -67,6 +67,19 @@ describe('automatic story continuity', () => {
     expect(input).toContain('禁止修改标题、内容、触发条件')
   })
 
+  it('does not feed a director reasoning leak into automatic continuity', () => {
+    const project = { ...createStoryProject(1), conversationIds: ['chat-one'], directorCharacterId: 'director' }
+    const leaked = [{ id: 'chat-one', title: '董事会', messages: [
+      { id: 1, role: 'user' as const, text: '继续。' },
+      { id: 2, role: 'assistant' as const, characterId: 'director', text: 'Jiang Lizhi (controlled by the user).\nThe narrator/director handles side characters and environment.' },
+      { id: 3, role: 'assistant' as const, characterId: 'lu', text: '陆景澄递来了调查报告。' },
+    ] }]
+    const input = buildAutomaticContinuityInput({ project, conversations: leaked, userName: '江黎姿', characters: [{ id: 'lu', name: '陆景澄' }] })
+    expect(input).not.toContain('controlled by the user')
+    expect(input).not.toContain('side characters and environment')
+    expect(input).toContain('陆景澄递来了调查报告')
+  })
+
   it('consumes only an exact existing hook and permanently preserves completed events', () => {
     const existing = {
       ...createStoryProject(1).cockpit,

@@ -11,13 +11,13 @@ import { buildChatPrompt } from './promptBuilder'
 import { createApiChannel, normalizeApiChannels, withApiModel, type ApiChannel } from './apiChannels'
 import { enabledPresetText, normalizePresetSections } from './presetConfig'
 import { durableGet, durableSet } from './persistentStore'
-import { sanitizeAssistantOutput, stripLeadingSpeakerLabels } from './outputSanitizer'
+import { containsHiddenReasoning, sanitizeAssistantOutput, stripLeadingSpeakerLabels } from './outputSanitizer'
 import { memoriesForConversation, replaceConversationMemories } from './memoryEngine'
 import { findMentionedParticipantIds, selectGroupSpeakerIds, type GroupReplyMode } from './groupReplyRouting'
 import Pet from './Pet'
 import PetCritter, { PET_CHOICES, type PetVariant } from './PetCritter'
 import DirectorTemplateEditor from './DirectorTemplateEditor'
-import { buildSharedTheaterBackground, createDirectorCharacter, createDirectorTemplateConfig, type DirectorTemplateConfig } from './directorTemplate'
+import { buildSharedTheaterBackground, createDirectorCharacter, createDirectorTemplateConfig, DIRECTOR_OUTPUT_GUARD, type DirectorTemplateConfig } from './directorTemplate'
 import CharacterWorkshop from './CharacterWorkshop'
 import StoryProjectManager from './StoryProjectManager'
 import { normalizeStoryProjects, type StoryProject } from './storyProject'
@@ -1202,14 +1202,21 @@ function App() {
 
     try {
       const isGroup = conversation.kind === 'group'
+      const isDirector = Boolean(conversation.directorCharacterId && speaker.id === conversation.directorCharacterId)
       const groupNames = (conversation.participantIds || []).map((id) => characters.find((item) => item.id === id)?.name).filter(Boolean)
       const storyProject = selectConversationStoryProject(storyProjects, conversation.id)
       const storyProjectContext = storyProject ? buildStoryProjectPrompt({ project: storyProject, speakerId: speaker.id, characters }) : ''
       const actorContinuityAnchor = isGroup ? findLatestActorContinuityAnchor(nextMessages, speaker.id, speaker.name) : ''
+      const sanitizedHistory = nextMessages.flatMap((message) => {
+        const fromDirector = message.role === 'assistant' && message.characterId === conversation.directorCharacterId
+        const text = fromDirector ? sanitizeAssistantOutput(message.text, { director: true }) : message.text
+        if (fromDirector && !text.trim()) return []
+        return [{ ...message, text }]
+      })
       const promptMessages = buildChatPrompt({
         character: capturedCharacter,
         user: identity,
-        messages: nextMessages.map((message) => ({ ...message, text: message.role === 'assistant' && isGroup ? `【${characters.find((item) => item.id === message.characterId)?.name || '其他角色'}】\n${message.text}` : message.text })),
+        messages: sanitizedHistory.map((message) => ({ ...message, text: message.role === 'assistant' && isGroup ? `【${characters.find((item) => item.id === message.characterId)?.name || '其他角色'}】\n${message.text}` : message.text })),
         preset: [enabledPresetText(presetSections), isGroup && `【群聊发言边界｜最高优先级】\n本轮你只能扮演 ${speaker.name}。群聊成员为：${groupNames.join('、')}。不得替用户发言、行动或思考；不得代替其他群聊角色说话、行动或决定。你可以观察并回应其他成员，但本轮输出只能属于 ${speaker.name}。`].filter(Boolean).join('\n\n'),
         globalWorldbook: worldbook,
         theaterWorldBackground: conversation.theaterWorldBackground || '',
@@ -1219,6 +1226,7 @@ function App() {
         memoryLength,
         contextSummary: (conversation.contextSummaryRevision || 0) === (conversation.historyRevision || 0) ? conversation.contextSummary : undefined,
       })
+      if (isDirector) promptMessages.push({ role: 'system', content: DIRECTOR_OUTPUT_GUARD })
       const completion = await completeChat({
         api: speakerApi,
         messages: promptMessages,
@@ -1229,7 +1237,7 @@ function App() {
         signal: controller.signal,
         onDelta: (delta) => {
           output += delta
-          stagedVisibleOutput = sanitizeAssistantOutput(output)
+          stagedVisibleOutput = sanitizeAssistantOutput(output, { director: isDirector })
           // About 20 visual updates per second still looks fluid, while avoiding a full
           // React + regex + HTML sanitization pass for every tiny network chunk.
           if (streamRenderTimer === null) streamRenderTimer = window.setTimeout(commitStreamOutput, 48)
@@ -1241,16 +1249,18 @@ function App() {
         setConversations((current) => current.map((item) => item.id === conversationId ? { ...item, messages: item.messages.map((message) => message.id === assistantMessage.id ? { ...message, finishReason: completion.finishReason } : message) } : item))
       }
 
-      const cleanOutput = sanitizeAssistantOutput(output) || output
-      setConversations((current) => current.map((item) => item.id === conversationId ? { ...item, messages: item.messages.map((message) => message.id === assistantMessage.id ? { ...message, text: cleanOutput } : message), updatedAt: Date.now() } : item))
-      const completed = [...nextMessages, { ...assistantMessage, text: cleanOutput }]
+      const cleanOutput = sanitizeAssistantOutput(output, { director: isDirector })
+      if (!cleanOutput && containsHiddenReasoning(output, isDirector)) throw new Error('模型只返回了内部分析，惟境已拦截且没有写入剧情。请重试或换一个更遵守指令的模型。')
+      const finalOutput = cleanOutput || output
+      setConversations((current) => current.map((item) => item.id === conversationId ? { ...item, messages: item.messages.map((message) => message.id === assistantMessage.id ? { ...message, text: finalOutput } : message), updatedAt: Date.now() } : item))
+      const completed = [...nextMessages, { ...assistantMessage, text: finalOutput }]
       const summarizedCount = Math.min(conversation.memorySummarizedCount || 0, completed.length)
       if (!isGroup && capturedMemoryConfig.autoEvery > 0 && completed.length - summarizedCount >= capturedMemoryConfig.autoEvery && capturedMemoryConfig.api.apiKey) summarizeMemory(completed, conversation, capturedCharacter)
       return completed
     } catch (error) {
       cancelQueuedStreamRender()
       if (controller.signal.aborted) {
-        const partialOutput = sanitizeAssistantOutput(output)
+        const partialOutput = sanitizeAssistantOutput(output, { director: Boolean(conversation.directorCharacterId && speaker.id === conversation.directorCharacterId) })
         setConversations((current) => current.map((item) => item.id === conversationId ? {
           ...item,
           messages: partialOutput

@@ -32,6 +32,10 @@ export const createDirectorTemplateConfig = (): DirectorTemplateConfig => ({
   modelName: '',
 })
 
+export const DIRECTOR_OUTPUT_GUARD = `【导演最终输出防泄漏｜最高优先级】
+内部推理只能在模型内部完成。严禁展示思考链、分析过程、行动计划、角色清单、背景复述、规则复述、草稿、自检过程或英文工作笔记。
+第一个非空字符必须是 <scene>，随后只输出中文剧情正文；末尾可选 <director_status>。不要在 <scene> 之前输出任何文字。若尚不能合法推进，仍以 <scene>当前时间与地点</scene> 开头，只描写环境变化并停在等待节点。`
+
 const section = (title: string, value: string, fallback = '未填写；不得自行补造决定性事实。') => `【${title}】\n${value.trim() || fallback}`
 
 const entry = (id: number, comment: string, content: string, constant = true): WorldBookEntry => ({
@@ -90,7 +94,7 @@ export function createDirectorCharacter(config: DirectorTemplateConfig, existing
 10. 不得输出“旁白：”“导演：”“${name}：”等自报姓名标签。不要解释规则，不评价玩家。
 
 【输出结构】
-直接输出正文。需要场景锚点时可使用 <scene>时间与地点</scene>；需要导演台状态时可在末尾使用 <director_status>一句极短的下一推进钩子</director_status>。没有必要时不要硬加。`
+${DIRECTOR_OUTPUT_GUARD}`
 
   return {
     id: existingId || `builtin-director-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
@@ -104,7 +108,7 @@ export function createDirectorCharacter(config: DirectorTemplateConfig, existing
     mesExample: '<START>\n{{user}}：推开会议室的门。\n{{char}}：<scene>上午 09:40｜顶层会议室</scene>\n门轴发出一声极轻的摩擦音。桌边的助理抬头确认来人，将尚未拆封的文件袋推到空位前。\n“材料刚送到。签收人没有留下姓名。”\n<director_status>文件袋来源待查</director_status>',
     creatorNotes: '由惟境“共演厅·固定导演模板”自动生成；每个群聊拥有独立实例和私有世界书。',
     systemPrompt: `${boundary}\n\n${privateMaterial}`,
-    postHistoryInstructions: `${boundary}\n\n输出前逐句核对主语与动作归属：本轮是否误演了用户或任一独立角色；是否泄露未公开真相；是否推进过量。若是，删去越权内容，只保留镜头式在场描写、环境、NPC、外部证据和一个可回应的剧情钩子。`,
+    postHistoryInstructions: `${boundary}\n\n输出前逐句核对主语与动作归属（只在内部完成）：本轮是否误演了用户或任一独立角色；是否泄露未公开真相；是否推进过量。若是，删去越权内容，只保留镜头式在场描写、环境、NPC、外部证据和一个可回应的剧情钩子。不得展示核对过程。\n\n${DIRECTOR_OUTPUT_GUARD}`,
     tags: ['惟境内置', '共演导演', '旁白', 'NPC群控', '剧情推进', '禁止代演'],
     creator: '惟境内置导演模板',
     characterVersion: '1.0',

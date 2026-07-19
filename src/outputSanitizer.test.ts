@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { sanitizeAssistantOutput, stripLeadingSpeakerLabels } from './outputSanitizer'
+import { containsHiddenReasoning, sanitizeAssistantOutput, stripLeadingSpeakerLabels } from './outputSanitizer'
 
 describe('assistant prompt-leak sanitizer', () => {
   it('removes leaked status instructions and keeps the real formatted reply', () => {
@@ -31,6 +31,32 @@ describe('assistant prompt-leak sanitizer', () => {
     expect(result).not.toContain('1000美元')
     expect(result).toContain('⏰时间')
     expect(result).toContain('真正剧情')
+  })
+
+  it('removes tagged reasoning while preserving the final story', () => {
+    const leaked = '<think>We need to plan the scene without controlling the user.</think>\n<scene>下午｜会议室</scene>\n门外传来脚步声。'
+    expect(sanitizeAssistantOutput(leaked)).toBe('<scene>下午｜会议室</scene>\n门外传来脚步声。')
+    expect(containsHiddenReasoning(leaked)).toBe(true)
+  })
+
+  it('hides an unfinished reasoning block during streaming', () => {
+    expect(sanitizeAssistantOutput('<analysis>We need to inspect every character')).toBe('')
+  })
+
+  it('removes untagged Gemma director analysis before Chinese story text', () => {
+    const leaked = "Jiang Lizhi (controlled by the user).\nThe narrator/director handles side characters and environment.\nYang Yue: Desperate but calculating.\n\n<scene>会议结束后｜走廊</scene>\n电梯门即将合拢时，一名法务助理快步追了出来。"
+    expect(sanitizeAssistantOutput(leaked, { director: true })).toBe('<scene>会议结束后｜走廊</scene>\n电梯门即将合拢时，一名法务助理快步追了出来。')
+    expect(containsHiddenReasoning(leaked, true)).toBe(true)
+  })
+
+  it('blocks a director response that contains only leaked analysis', () => {
+    const leaked = 'Jiang Lizhi (controlled by the user).\nThe narrator/director handles the environment.\nHe is likely monitoring her movements.'
+    expect(sanitizeAssistantOutput(leaked, { director: true })).toBe('')
+  })
+
+  it('does not remove ordinary English roleplay', () => {
+    const story = 'She has just arrived. The elevator doors opened, and the courier placed a sealed envelope on the desk.'
+    expect(sanitizeAssistantOutput(story, { director: true })).toBe(story)
   })
 })
 
