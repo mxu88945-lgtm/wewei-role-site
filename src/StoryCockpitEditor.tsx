@@ -1,7 +1,7 @@
 import { useState } from 'react'
 import type { Character } from './characterCard'
 import { completeChat, type ApiConfig } from './chatApi'
-import { createStoryCockpit, normalizeStoryCockpit, type CharacterKnowledge, type StoryCockpit, type StoryEvidence, type StoryPlannedEvent, type StoryProject } from './storyProject'
+import { createStoryCockpitDraft, normalizeStoryCockpit, type CharacterKnowledge, type StoryCockpit, type StoryEvidence, type StoryPlannedEvent, type StoryProject } from './storyProject'
 import { buildCockpitAssistantInput, parseCockpitAssistantResponse, type CockpitSourceConversation } from './storyCockpitAssistant'
 
 const lines = (value: string) => value.split('\n').map((item) => item.trim()).filter(Boolean)
@@ -10,7 +10,9 @@ const evidenceId = () => `evidence-${Date.now()}-${Math.random().toString(36).sl
 const plannedEventId = () => `planned-event-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`
 
 export default function StoryCockpitEditor({ project, characters, conversations, userName, api, onBack, onSave, onEditProject, onSetAutoContinuity }: { project: StoryProject; characters: Character[]; conversations: CockpitSourceConversation[]; userName: string; api: ApiConfig; onBack: () => void; onSave: (cockpit: StoryCockpit) => void; onEditProject: () => void; onSetAutoContinuity: (enabled: boolean) => void }) {
-  const [draft, setDraft] = useState(() => project.autoContinuity.needsReview ? createStoryCockpit() : normalizeStoryCockpit(project.cockpit))
+  // A history rewrite invalidates AI-derived facts, but it must never blank the
+  // user's saved cockpit. Otherwise merely reviewing and saving can erase it.
+  const [draft, setDraft] = useState(() => createStoryCockpitDraft(project))
   const [assistantState, setAssistantState] = useState<'idle' | 'working' | 'done' | 'error'>('idle')
   const [assistantMessage, setAssistantMessage] = useState('')
   const projectCharacters = project.characterIds.filter((id) => id !== project.directorCharacterId).map((id) => characters.find((item) => item.id === id)).filter(Boolean) as Character[]
@@ -32,7 +34,13 @@ export default function StoryCockpitEditor({ project, characters, conversations,
         onDelta: (delta) => { response += delta },
       })
       const organized = parseCockpitAssistantResponse(response, projectCharacters.map((character) => character.id))
-      setDraft((current) => ({ ...organized, plannedEvents: current.plannedEvents }))
+      setDraft((current) => ({
+        ...organized,
+        // These are explicit user-authored anchors. Re-analysis may rebuild
+        // branch facts, but cannot delete events or roll the relationship back.
+        relationshipStage: project.autoContinuity.needsReview ? current.relationshipStage : organized.relationshipStage,
+        plannedEvents: current.plannedEvents,
+      }))
       setAssistantState('done'); setAssistantMessage('草稿已填好。下面所有字段仍可修改，点“保存驾驶舱”后才会写入项目。')
     } catch (error) { setAssistantState('error'); setAssistantMessage(error instanceof Error ? error.message : '自动整理失败，请重试。') }
   }
@@ -40,7 +48,7 @@ export default function StoryCockpitEditor({ project, characters, conversations,
   return <>
     <header className="page-header"><button className="icon-button" onClick={onBack}>‹</button><h1>剧情驾驶舱</h1><div className="header-action"><button className="text-button" onClick={() => onSave(draft)}>保存</button></div></header>
     <section className="content-stack story-cockpit-page">
-      <div className="cockpit-title-card"><small>{project.autoContinuity.needsReview ? '历史分支待复核' : '当前剧本项目'}</small><strong>{project.title}</strong><p>{project.autoContinuity.needsReview ? '对话历史已改写。点“一键自动填写”从当前保留的对话重建草稿，检查后保存即可恢复自动场记。' : project.autoContinuity.enabled ? '自动场记会在绑定对话完成一轮回复后更新；所有结果仍可在这里检查和修改。' : '手动整理结果先进入草稿，确认保存后才会写入项目。'}</p><button className="cockpit-project-edit" onClick={onEditProject}>编辑项目资料</button></div>
+      <div className="cockpit-title-card"><small>{project.autoContinuity.needsReview ? '历史事实待复核 · 用户锚点已保留' : '当前剧本项目'}</small><strong>{project.title}</strong><p>{project.autoContinuity.needsReview ? '对话历史发生过改写。已保存内容不会清空；自动填写只重建可能受影响的事实，当前关系阶段和指定事件会原样保留。检查后保存即可恢复自动场记。' : project.autoContinuity.enabled ? '自动场记会在绑定对话完成一轮回复后更新；所有结果仍可在这里检查和修改。' : '手动整理结果先进入草稿，确认保存后才会写入项目。'}</p><button className="cockpit-project-edit" onClick={onEditProject}>编辑项目资料</button>{project.cockpitBackup && <button className="cockpit-project-edit" onClick={() => { setDraft(normalizeStoryCockpit(project.cockpitBackup)); setAssistantState('done'); setAssistantMessage('已把上一次保存的驾驶舱恢复到草稿；确认内容后再保存。') }}>恢复上次保存</button>}</div>
       <div className={`cockpit-assistant-card ${assistantState}`}><span>✦</span><div><strong>AI 打工助手</strong><small>{assistantMessage || `使用 ${api?.modelName || '当前聊天模型'}，自动读取 ${boundConversations.length} 段绑定对话并填写整张驾驶舱。`}</small></div><button disabled={assistantState === 'working'} onClick={autoFill}>{assistantState === 'working' ? '正在整理…' : assistantState === 'done' ? '重新分析' : '一键自动填写'}</button></div>
       <label className={`continuity-switch ${project.autoContinuity.enabled ? 'enabled' : ''} ${project.autoContinuity.lastError ? 'error' : ''}`}><div><strong>每轮自动场记</strong><small>{project.autoContinuity.lastError ? `上次更新失败：${project.autoContinuity.lastError}` : project.autoContinuity.lastSummary || '开启后，从下一轮完整回复开始自动消耗旧钩子并接续新阶段。'}</small></div><input type="checkbox" checked={project.autoContinuity.enabled} onChange={(event) => onSetAutoContinuity(event.target.checked)} /><i /></label>
 
