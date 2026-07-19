@@ -57,11 +57,17 @@ export function buildCockpitAssistantInput({ project, characters, conversations,
 10. 角色知情边界必须有来源。某角色的内心、旁白资料或隐藏真相，不代表其他角色自动知道。
 11. 当前时间、地点或在场人物无法确认时留空，不得猜测。
 12. 旁白导演是后台控制者，不是在场角色，也不需要角色知情边界。
-13. ${project.autoContinuity.needsReview ? '对话历史已改写，必须从当前保留的对话重建驾驶舱；旧驾驶舱不是事实来源，不得保留其中未被当前对话支持的事件、阶段、证据或知情边界。' : '保留现有驾驶舱中仍然有效的事实；只有来源明确更新、完成或推翻时才修改。'}
+13. ${project.autoContinuity.needsReview ? '对话历史已改写，必须从当前保留的对话重建可能受影响的事实。旧驾驶舱中的场景、事件、证据或知情边界不是事实来源；但 manualAnchors.relationshipStage 与 manualAnchors.plannedEvents 是用户明确要求保留的锚点，不得删除、倒退或改写。关系阶段是当前起点，不是阶段锁，后续有充分新互动时允许自然推进。' : '保留现有驾驶舱中仍然有效的事实；只有来源明确更新、完成或推翻时才修改。'}
 14. currentCockpit 中的 plannedEvents 是用户亲自指定的未来事件，不是已经发生的事实。不得把它们写入已完成事件、钩子、证据或下一步方向，也不得改写；界面会在自动整理后原样保留它们。
 
 【项目资料】
-${JSON.stringify({ title: project.title, summary: project.summary, worldBackground: project.worldBackground, currentCockpit: project.autoContinuity.needsReview ? '历史已改写，禁止作为重建依据' : project.cockpit }, null, 2)}
+${JSON.stringify({
+  title: project.title,
+  summary: project.summary,
+  worldBackground: project.worldBackground,
+  currentCockpit: project.autoContinuity.needsReview ? '历史已改写，AI 派生事实禁止作为重建依据' : project.cockpit,
+  manualAnchors: project.autoContinuity.needsReview ? { relationshipStage: project.cockpit.relationshipStage, plannedEvents: project.cockpit.plannedEvents } : undefined,
+}, null, 2)}
 
 【用户身份】
 ${userName}
