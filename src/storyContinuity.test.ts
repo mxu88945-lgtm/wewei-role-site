@@ -62,6 +62,9 @@ describe('automatic story continuity', () => {
     expect(input).toContain('线索目标｜行动者与动作｜预计新增信息｜如何衔接下一节点')
     expect(input).toContain('角色反应、结束行程')
     expect(input).toContain('个人历史锚点，不代表全剧时间倒退')
+    expect(input).toContain('指定事件')
+    expect(input).toContain('plannedEventUpdates')
+    expect(input).toContain('禁止修改标题、内容、触发条件')
   })
 
   it('consumes only an exact existing hook and permanently preserves completed events', () => {
@@ -80,5 +83,32 @@ describe('automatic story continuity', () => {
     expect(merged.completedEvents).toEqual(['抵达画展', '取得调查结果'])
     expect(merged.openHooks).toEqual(['参加慈善晚宴', '追查幕后人物'])
     expect(merged.currentTask).toBe('核对资金流向')
+  })
+
+  it('advances user-planned events without letting automatic continuity rewrite them', () => {
+    const existing = {
+      ...createStoryProject(1).cockpit,
+      plannedEvents: [{ id: 'event-one', title: '董事会前夜', detail: '杨颖安排秘书转移旧档。', triggerCondition: '调查接近杨家。', status: 'pending' as const, progressNote: '' }],
+    }
+    const parsed = parseAutomaticContinuityResponse(JSON.stringify({
+      changeSummary: '指定事件已经发生',
+      plannedEventUpdates: [
+        { id: 'event-one', status: 'completed', progressNote: '秘书已被拦下，旧档完成封存。', title: '恶意改名' },
+        { id: 'unknown-event', status: 'completed', progressNote: '不存在' },
+      ],
+      cockpit: { completedEvents: [] },
+    }), [])
+    const merged = mergeAutomaticContinuity(existing, parsed)
+    expect(merged.plannedEvents).toEqual([{ id: 'event-one', title: '董事会前夜', detail: '杨颖安排秘书转移旧档。', triggerCondition: '调查接近杨家。', status: 'completed', progressNote: '秘书已被拦下，旧档完成封存。' }])
+    expect(merged.completedEvents).toContain('用户指定事件「董事会前夜」已完成')
+  })
+
+  it('never rolls a completed user-planned event backwards', () => {
+    const existing = {
+      ...createStoryProject(1).cockpit,
+      plannedEvents: [{ id: 'event-one', title: '已结束事件', detail: '', triggerCondition: '', status: 'completed' as const, progressNote: '已结束' }],
+    }
+    const parsed = parseAutomaticContinuityResponse(JSON.stringify({ plannedEventUpdates: [{ id: 'event-one', status: 'active', progressNote: '错误回滚' }], cockpit: {} }), [])
+    expect(mergeAutomaticContinuity(existing, parsed).plannedEvents[0]).toEqual(existing.plannedEvents[0])
   })
 })
