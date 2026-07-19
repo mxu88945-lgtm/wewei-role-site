@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { memoriesForConversation, replaceConversationMemories, selectRelevantMemories } from './memoryEngine'
+import { archivedMemoriesForConversation, memoriesForConversation, replaceConversationMemories, restoreMemoryToRevision, selectRelevantMemories } from './memoryEngine'
 
 describe('long-running memory selection', () => {
   it('isolates conversation memories while keeping legacy fallback', () => {
@@ -28,5 +28,17 @@ describe('long-running memory selection', () => {
 
     const replaced = replaceConversationMemories(map, 'conversation', 'character', 1, [{ id: 'newer', content: '新分支整理', historyRevision: 1 }])
     expect(replaced.conversation.map((entry) => entry.id)).toEqual(['old', 'newer'])
+  })
+
+  it('lists archived branch memories and can copy one into the current branch', () => {
+    const map = { conversation: [
+      { id: 'old', title: '阶段一', content: '旧分支中仍然有效的长期事实', historyRevision: 0 },
+      { id: 'new', title: '阶段二', content: '当前分支事实', historyRevision: 2 },
+    ] }
+    const archived = archivedMemoriesForConversation(map, 'conversation', 'character', 2)
+    expect(archived.map((entry) => entry.id)).toEqual(['old'])
+    expect(restoreMemoryToRevision(archived[0], 2, 'restored')).toMatchObject({
+      id: 'restored', historyRevision: 2, restoredFromId: 'old', content: '旧分支中仍然有效的长期事实',
+    })
   })
 })
