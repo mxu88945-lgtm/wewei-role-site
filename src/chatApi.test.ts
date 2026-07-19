@@ -97,6 +97,36 @@ describe('chatApi', () => {
     expect(output).toBe('场景继续。')
   })
 
+  it('使用 Claude 官方 Messages 协议并转换系统提示与图片', async () => {
+    let requestUrl = ''
+    let requestHeaders: HeadersInit | undefined
+    let requestBody: Record<string, unknown> = {}
+    vi.stubGlobal('fetch', vi.fn(async (url: string, init?: RequestInit) => {
+      requestUrl = url
+      requestHeaders = init?.headers
+      requestBody = JSON.parse(String(init?.body))
+      return new Response(JSON.stringify({ content: [{ type: 'text', text: '收到。' }], stop_reason: 'end_turn' }), { headers: { 'content-type': 'application/json' } })
+    }))
+
+    let output = ''
+    const result = await completeChat({
+      api: { protocol: 'anthropic', baseUrl: 'https://api.anthropic.com/v1', apiKey: 'claude-key', modelName: 'claude-model' },
+      messages: [
+        { role: 'system', content: '只扮演男主。' },
+        { role: 'user', content: [{ type: 'text', text: '继续' }, { type: 'image_url', image_url: { url: 'data:image/png;base64,abc' } }] },
+      ],
+      temperature: 1, topP: 1, maxTokens: 1200, streaming: false,
+      signal: new AbortController().signal, onDelta: (delta) => { output += delta },
+    })
+
+    expect(requestUrl).toBe('https://api.anthropic.com/v1/messages')
+    expect(requestHeaders).toMatchObject({ 'x-api-key': 'claude-key', 'anthropic-version': '2023-06-01', 'anthropic-dangerous-direct-browser-access': 'true' })
+    expect(requestBody).toMatchObject({ system: '只扮演男主。', model: 'claude-model', max_tokens: 1200 })
+    expect(requestBody.messages).toEqual([{ role: 'user', content: [{ type: 'text', text: '继续' }, { type: 'image', source: { type: 'base64', media_type: 'image/png', data: 'abc' } }] }])
+    expect(output).toBe('收到。')
+    expect(result.finishReason).toBe('end_turn')
+  })
+
   it('连接测试返回服务端错误信息', async () => {
     vi.stubGlobal('fetch', vi.fn(async () => new Response(JSON.stringify({ error: { message: '密钥无效' } }), { status: 401, headers: { 'content-type': 'application/json' } })))
     await expect(testApiConnection({ baseUrl: 'https://example.com/v1', apiKey: 'bad', modelName: 'model' })).rejects.toThrow('密钥无效')

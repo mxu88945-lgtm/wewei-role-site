@@ -1,4 +1,4 @@
-export type ApiConfig = { baseUrl: string; apiKey: string; modelName: string; maxTokenField?: 'auto' | 'max_tokens' | 'max_completion_tokens' }
+export type ApiConfig = { baseUrl: string; apiKey: string; modelName: string; protocol?: 'openai' | 'anthropic'; maxTokenField?: 'auto' | 'max_tokens' | 'max_completion_tokens' }
 export type ChatApiContentPart =
   | { type: 'text'; text: string }
   | { type: 'image_url'; image_url: { url: string; detail?: 'auto' | 'low' | 'high' } }
@@ -34,10 +34,19 @@ async function readError(response: Response) {
   }
 }
 
-export async function fetchApiModels(api: Pick<ApiConfig, 'baseUrl' | 'apiKey'>, signal?: AbortSignal): Promise<ApiModel[]> {
+function apiHeaders(api: Pick<ApiConfig, 'apiKey' | 'protocol'>): Record<string, string> {
+  if (api.protocol === 'anthropic') return {
+    'x-api-key': api.apiKey,
+    'anthropic-version': '2023-06-01',
+    'anthropic-dangerous-direct-browser-access': 'true',
+  }
+  return { Authorization: `Bearer ${api.apiKey}` }
+}
+
+export async function fetchApiModels(api: Pick<ApiConfig, 'baseUrl' | 'apiKey' | 'protocol'>, signal?: AbortSignal): Promise<ApiModel[]> {
   if (!api.baseUrl.trim() || !api.apiKey.trim()) throw new Error('请先填写 Base URL 和 API Key')
   const response = await fetch(endpoint(api.baseUrl, 'models'), {
-    headers: { Authorization: `Bearer ${api.apiKey}` },
+    headers: apiHeaders(api),
     signal,
   })
   if (!response.ok) throw new Error(await readError(response))
@@ -140,13 +149,37 @@ function tokenField(api: ApiConfig) {
   return /(^|[/_-])(?:o[1-9]|gpt-5)(?:$|[/_-])/i.test(api.modelName) ? 'max_completion_tokens' : 'max_tokens'
 }
 
+function anthropicContent(content: ChatApiMessage['content']) {
+  if (typeof content === 'string') return content
+  return content.map((part) => {
+    if (part.type === 'text') return part
+    const dataUrl = part.image_url.url.match(/^data:([^;]+);base64,(.+)$/)
+    if (dataUrl) return { type: 'image', source: { type: 'base64', media_type: dataUrl[1], data: dataUrl[2] } }
+    return { type: 'image', source: { type: 'url', url: part.image_url.url } }
+  })
+}
+
+function anthropicPayload(options: CompletionOptions) {
+  const system = options.messages.filter((message) => message.role === 'system').map((message) => messageContent(message.content)).filter(Boolean).join('\n\n')
+  return {
+    model: options.api.modelName,
+    ...(system ? { system } : {}),
+    messages: options.messages.filter((message) => message.role !== 'system').map((message) => ({ role: message.role, content: anthropicContent(message.content) })),
+    temperature: options.temperature,
+    top_p: options.topP,
+    max_tokens: options.maxTokens,
+    stream: options.streaming,
+  }
+}
+
 export async function completeChat(options: CompletionOptions) {
   const { api, messages, temperature, topP, maxTokens, streaming, signal, onDelta } = options
   const limitField = tokenField(api)
-  const response = await fetch(endpoint(api.baseUrl, 'chat/completions'), {
+  const anthropic = api.protocol === 'anthropic'
+  const response = await fetch(endpoint(api.baseUrl, anthropic ? 'messages' : 'chat/completions'), {
     method: 'POST',
-    headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${api.apiKey}` },
-    body: JSON.stringify({
+    headers: { 'Content-Type': 'application/json', ...apiHeaders(api) },
+    body: JSON.stringify(anthropic ? anthropicPayload(options) : {
       model: api.modelName,
       messages,
       temperature,
