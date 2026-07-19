@@ -27,9 +27,20 @@ describe('story cockpit assistant', () => {
       project, userName: '江黎姿', characters: [],
       conversations: [{ id: 'chat', title: '新分支', messages: [{ role: 'user', text: '江黎姿离开了餐厅。' }] }],
     })
-    expect(input).toContain('旧驾驶舱不是事实来源')
-    expect(input).toContain('禁止作为重建依据')
+    expect(input).toContain('不是事实来源')
+    expect(input).toContain('AI 派生事实禁止作为重建依据')
     expect(input).not.toContain('已被撤回的求婚')
+  })
+
+  it('keeps manual relationship and planned-event anchors available while rebuilding facts', () => {
+    const project = { ...createStoryProject(1), title: '改写分支' }
+    project.cockpit.relationshipStage = '阶段二 · 动摇与追逐'
+    project.cockpit.plannedEvents = [{ id: 'event-one', title: '董事会突袭', detail: '秘书转移档案', triggerCondition: '调查接近杨家', status: 'pending', progressNote: '' }]
+    project.autoContinuity.needsReview = true
+    const input = buildCockpitAssistantInput({ project, userName: '江黎姿', characters: [], conversations: [] })
+    expect(input).toContain('阶段二 · 动摇与追逐')
+    expect(input).toContain('董事会突袭')
+    expect(input).toContain('关系阶段是当前起点，不是阶段锁')
   })
 
   it('parses JSON while rejecting unknown or director-like ids outside the allowlist', () => {

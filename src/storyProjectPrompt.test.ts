@@ -87,14 +87,23 @@ describe('story project prompt injection', () => {
     expect(prompt).not.toContain('杨颖转移旧档案')
   })
 
-  it('quarantines a stale cockpit after dialogue history is rewritten', () => {
+  it('quarantines stale facts but keeps user-authored anchors after dialogue history is rewritten', () => {
     const stale = project()
     stale.autoContinuity.needsReview = true
     const prompt = buildStoryProjectPrompt({ project: stale, speakerId: 'director', characters })
-    expect(prompt).toContain('驾驶舱暂停注入')
-    expect(prompt).toContain('只依据最近对话')
+    expect(prompt).toContain('旧分支事实待复核')
+    expect(prompt).toContain('用户确认的当前关系阶段：察觉偏爱')
+    expect(prompt).toContain('本轮起点而非阶段锁')
+    expect(prompt).toContain('杨颖转移旧档案')
     expect(prompt).not.toContain('真正收款人是霍启铭')
     expect(prompt).not.toContain('画展试探已经结束')
+  })
+
+  it('does not leak a user-planned event to an independent actor during review', () => {
+    const stale = project()
+    stale.autoContinuity.needsReview = true
+    const prompt = buildStoryProjectPrompt({ project: stale, speakerId: 'second', characters })
+    expect(prompt).toContain('用户确认的当前关系阶段：察觉偏爱')
     expect(prompt).not.toContain('杨颖转移旧档案')
   })
 

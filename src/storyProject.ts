@@ -61,6 +61,8 @@ export type StoryProject = {
   personaId?: string
   worldBackground: string
   cockpit: StoryCockpit
+  cockpitBackup?: StoryCockpit
+  cockpitBackupAt?: number
   autoContinuity: StoryAutoContinuity
   createdAt: number
   updatedAt: number
@@ -134,6 +136,21 @@ export function normalizeStoryCockpit(value: Partial<StoryCockpit> | undefined):
   }
 }
 
+export function hasStoryCockpitContent(value: Partial<StoryCockpit> | undefined) {
+  const cockpit = normalizeStoryCockpit(value)
+  return Boolean(
+    cockpit.currentTime.trim() || cockpit.currentLocation.trim() || cockpit.relationshipStage.trim() || cockpit.currentTask.trim()
+    || cockpit.presentCharacterIds.length || cockpit.completedEvents.length || cockpit.openHooks.length
+    || cockpit.evidence.length || cockpit.characterKnowledge.length || cockpit.nextDirections.length || cockpit.plannedEvents.length
+  )
+}
+
+export function createStoryCockpitDraft(project: Pick<StoryProject, 'cockpit' | 'autoContinuity'>) {
+  // Review mode changes what AI-derived facts may be trusted, not what the user
+  // is allowed to see. Always begin with the actually saved cockpit.
+  return normalizeStoryCockpit(project.cockpit)
+}
+
 export function createStoryProject(now = Date.now()): StoryProject {
   return {
     id: `story-${now}-${Math.random().toString(36).slice(2, 8)}`,
@@ -165,6 +182,8 @@ export function normalizeStoryProject(value: Partial<StoryProject>): StoryProjec
     personaId: typeof value.personaId === 'string' && value.personaId ? value.personaId : undefined,
     worldBackground: typeof value.worldBackground === 'string' ? value.worldBackground : '',
     cockpit: normalizeStoryCockpit(value.cockpit),
+    cockpitBackup: value.cockpitBackup && hasStoryCockpitContent(value.cockpitBackup) ? normalizeStoryCockpit(value.cockpitBackup) : undefined,
+    cockpitBackupAt: typeof value.cockpitBackupAt === 'number' ? value.cockpitBackupAt : undefined,
     autoContinuity: normalizeStoryAutoContinuity(value.autoContinuity),
     createdAt: typeof value.createdAt === 'number' ? value.createdAt : now,
     updatedAt: typeof value.updatedAt === 'number' ? value.updatedAt : now,

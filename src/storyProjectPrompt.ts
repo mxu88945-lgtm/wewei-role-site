@@ -23,12 +23,26 @@ export function buildStoryProjectPrompt({ project, speakerId, characters }: Proj
   const isDirector = Boolean(project.directorCharacterId && speakerId === project.directorCharacterId)
 
   if (project.autoContinuity.needsReview) {
-    return `【剧情历史已改写｜驾驶舱暂停注入】
+    const plannedEvents = cockpit.plannedEvents.map((item) => ({
+      id: item.id,
+      title: item.title,
+      detail: item.detail,
+      triggerCondition: item.triggerCondition,
+      status: item.status === 'pending' ? '待触发' : item.status === 'active' ? '进行中' : '已完成',
+      progressNote: item.progressNote,
+    }))
+    return `【剧情历史已改写｜旧分支事实待复核】
 剧本项目：${project.title || '未命名剧本'}
 可继续使用的共享背景：${project.worldBackground || project.summary || '暂无'}
+用户确认的当前关系阶段：${cockpit.relationshipStage || '未指定'}
 
-这段对话的历史刚被撤回、改写、删除或重新开始，旧驾驶舱可能包含已不存在的事件，因此本轮不得使用旧的地点、已完成事件、证据、知情边界或关系阶段。
-只依据最近对话中真实保留的内容续写，不得重演已撤回分支，不得让任何角色继承旧分支才知道的信息。用户与独立角色的控制权仍为最高优先级。`
+这段对话的历史刚被撤回、改写、删除或重新开始。旧驾驶舱中的地点、已完成事件、证据和知情边界暂不可信，只依据当前仍保留的对话判断这些事实；不得重演已撤回分支，也不得让角色继承旧分支才知道的信息。
+“当前关系阶段”与下方“用户指定事件”是用户亲自设定的持续锚点，不随历史复核清空。关系阶段是本轮起点而非阶段锁：不得倒退或长期原地打转；保留对话中的新互动足以形成变化时，可以自然推进到下一阶段，但不得替用户确认感情。
+用户与独立角色的控制权仍为最高优先级。
+${isDirector ? `
+【仍然有效的用户指定事件】
+${plannedEvents.length ? JSON.stringify(plannedEvents, null, 2) : '暂无'}
+指定事件内容不得改写或删除。待触发事件只在条件被当前保留的对话客观满足时启动；进行中事件每轮只推进一个自然步骤。涉及用户或独立角色的台词、动作、心理或决定时，只能搭建外部条件并停在选择点。` : '用户指定事件仅提供给旁白导演，本角色不得猜测或获知。'}`
   }
 
   if (isDirector) {
@@ -109,7 +123,7 @@ ${JSON.stringify({
 当前时间：${cockpit.currentTime || '以最近对话为准'}
 当前地点：${cockpit.currentLocation || '以最近对话为准'}
 当前在场人物：${presentCharacters.join('、') || '以最近对话为准'}
-当前关系阶段：${cockpit.relationshipStage || '沿用现有关系，不得无依据跳级'}
+当前关系阶段：${cockpit.relationshipStage || '沿用现有关系，不得无依据跳级'}（这是当前起点，不是锁死上限；有足够新互动时可自然推进，不得倒退或长期机械停留）
 
 ${nameOf(speakerId)}当前相信的事实（其中可能包含角色自己的误判，但不得识别或跳出其主观认知）：
 ${currentBeliefs.length ? currentBeliefs.map((item) => `- ${item}`).join('\n') : '- 仅依据实际对话中亲历或被明确告知的内容'}

@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { createStoryProject, normalizeStoryCockpit, normalizeStoryProject, normalizeStoryProjects } from './storyProject'
+import { createStoryCockpitDraft, createStoryProject, hasStoryCockpitContent, normalizeStoryCockpit, normalizeStoryProject, normalizeStoryProjects } from './storyProject'
 
 describe('story projects', () => {
   it('creates an empty project without binding existing data', () => {
@@ -29,6 +29,27 @@ describe('story projects', () => {
   it('persists the review gate for a rewritten history branch', () => {
     const project = normalizeStoryProject({ autoContinuity: { enabled: true, lastProcessedAssistantMessageIds: {}, needsReview: true } })
     expect(project.autoContinuity.needsReview).toBe(true)
+  })
+
+  it('opens the saved cockpit instead of an empty form during history review', () => {
+    const project = createStoryProject(1)
+    project.autoContinuity.needsReview = true
+    project.cockpit.relationshipStage = '阶段二'
+    project.cockpit.plannedEvents = [{ id: 'e', title: '必须保留', detail: '', triggerCondition: '', status: 'pending', progressNote: '' }]
+    const draft = createStoryCockpitDraft(project)
+    expect(draft.relationshipStage).toBe('阶段二')
+    expect(draft.plannedEvents[0].title).toBe('必须保留')
+  })
+
+  it('preserves a previous cockpit snapshot for recovery', () => {
+    const project = normalizeStoryProject({
+      cockpitBackup: { ...createStoryProject(1).cockpit, relationshipStage: '阶段二', plannedEvents: [{ id: 'e', title: '突发事件', detail: '', triggerCondition: '', status: 'pending', progressNote: '' }] },
+      cockpitBackupAt: 123,
+    })
+    expect(project.cockpitBackup?.relationshipStage).toBe('阶段二')
+    expect(project.cockpitBackup?.plannedEvents[0].title).toBe('突发事件')
+    expect(project.cockpitBackupAt).toBe(123)
+    expect(hasStoryCockpitContent(project.cockpitBackup)).toBe(true)
   })
 
   it('keeps truth, knowledge boundaries, and hidden evidence separate', () => {

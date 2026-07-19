@@ -2,7 +2,7 @@ import { useMemo, useState } from 'react'
 import type { Character } from './characterCard'
 import type { ApiConfig } from './chatApi'
 import type { ApiChannel } from './apiChannels'
-import { createStoryProject, normalizeStoryCockpit, type StoryProject } from './storyProject'
+import { createStoryProject, hasStoryCockpitContent, normalizeStoryCockpit, type StoryProject } from './storyProject'
 import StoryCockpitEditor from './StoryCockpitEditor'
 import { captureAssistantMessageIds } from './storyContinuity'
 import './story-project.css'
@@ -87,7 +87,15 @@ export default function StoryProjectManager({ projects, characters, conversation
     onChange(projects.map((project) => project.id === cockpitProject.id ? { ...project, autoContinuity: { ...project.autoContinuity, enabled, lastProcessedAssistantMessageIds: checkpoint, lastError: project.autoContinuity.needsReview ? project.autoContinuity.lastError : undefined, lastSummary: enabled && !project.autoContinuity.needsReview ? '自动场记已开启，将从下一轮完整回复开始更新。' : project.autoContinuity.lastSummary }, updatedAt: Date.now() } : project))
   }} onSave={(cockpit) => {
     const checkpoint = captureAssistantMessageIds(cockpitProject, conversations)
-    onChange(projects.map((project) => project.id === cockpitProject.id ? { ...project, cockpit, autoContinuity: { ...project.autoContinuity, needsReview: false, lastProcessedAssistantMessageIds: checkpoint, lastError: undefined, lastSummary: project.autoContinuity.needsReview ? '驾驶舱已按当前分支重建，自动场记已恢复。' : project.autoContinuity.lastSummary }, updatedAt: Date.now() } : project))
+    const savedAt = Date.now()
+    onChange(projects.map((project) => project.id === cockpitProject.id ? {
+      ...project,
+      cockpit,
+      cockpitBackup: hasStoryCockpitContent(project.cockpit) ? normalizeStoryCockpit(project.cockpit) : project.cockpitBackup,
+      cockpitBackupAt: hasStoryCockpitContent(project.cockpit) ? savedAt : project.cockpitBackupAt,
+      autoContinuity: { ...project.autoContinuity, needsReview: false, lastProcessedAssistantMessageIds: checkpoint, lastError: undefined, lastSummary: project.autoContinuity.needsReview ? '历史事实已复核；关系阶段与指定事件已保留，自动场记已恢复。' : project.autoContinuity.lastSummary },
+      updatedAt: savedAt,
+    } : project))
     setCockpitProjectId(null)
   }} />
 
