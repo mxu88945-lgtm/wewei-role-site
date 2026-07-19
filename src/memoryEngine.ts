@@ -7,6 +7,7 @@ export type LongMemoryEntry = {
   pinned?: boolean
   consolidated?: boolean
   historyRevision?: number
+  restoredFromId?: string
 }
 
 export type LongMemoryMap = Record<string, LongMemoryEntry[]>
@@ -16,6 +17,21 @@ const revisionOf = (entry: LongMemoryEntry) => entry.historyRevision || 0
 export function memoriesForConversation(map: LongMemoryMap, conversationId: string | undefined, legacyCharacterId: string, historyRevision?: number) {
   const entries = (conversationId && map[conversationId]) || map[legacyCharacterId] || []
   return typeof historyRevision === 'number' ? entries.filter((entry) => revisionOf(entry) === historyRevision) : entries
+}
+
+export function archivedMemoriesForConversation(map: LongMemoryMap, conversationId: string | undefined, legacyCharacterId: string, historyRevision: number) {
+  const entries = memoriesForConversation(map, conversationId, legacyCharacterId)
+  return entries.filter((entry) => revisionOf(entry) !== historyRevision)
+}
+
+export function restoreMemoryToRevision(entry: LongMemoryEntry, historyRevision: number, id: string = crypto.randomUUID()): LongMemoryEntry {
+  return {
+    ...entry,
+    id,
+    title: `${entry.title || '长期记忆'} · 从历史分支恢复`,
+    historyRevision,
+    restoredFromId: entry.id,
+  }
 }
 
 /** Replace one branch's memories without deleting archived memories from older branches. */
