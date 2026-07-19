@@ -1,5 +1,6 @@
 import { normalizeStoryCockpit, type StoryCockpit, type StoryEvidence, type StoryPlannedEventStatus, type StoryProject } from './storyProject'
 import { parseCockpitAssistantResponse, type CockpitSourceCharacter } from './storyCockpitAssistant'
+import { sanitizeAssistantOutput } from './outputSanitizer'
 
 export type ContinuityMessage = {
   id: number
@@ -55,12 +56,17 @@ export function buildAutomaticContinuityInput({ project, characters, conversatio
         // Message ids identify a cursor; they are not a sortable clock. Older
         // builds mixed timestamps and randomized ids, so numeric comparison can
         // permanently skip a later message whose id happens to be smaller.
-        messages: conversation.messages.slice(checkpointIndex + 1).slice(-20).map((message) => ({
-          messageId: message.id,
-          role: message.role,
-          speaker: message.role === 'user' ? userName : characterNames.get(message.characterId || '') || '未标明的角色',
-          text: compact(message.text),
-        })),
+        messages: conversation.messages.slice(checkpointIndex + 1).slice(-20).flatMap((message) => {
+          const fromDirector = message.role === 'assistant' && message.characterId === project.directorCharacterId
+          const text = fromDirector ? sanitizeAssistantOutput(message.text, { director: true }) : message.text
+          if (fromDirector && !text.trim()) return []
+          return [{
+            messageId: message.id,
+            role: message.role,
+            speaker: message.role === 'user' ? userName : characterNames.get(message.characterId || '') || '未标明的角色',
+            text: compact(text),
+          }]
+        }),
       }
     })
     .filter((conversation) => conversation.messages.some((message) => message.role === 'assistant'))
