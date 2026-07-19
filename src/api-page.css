@@ -117,6 +117,8 @@
 
 .api-channel-body label { gap: 7px; font-size: 11px; }
 .api-channel-body input, .api-channel-body select { background: rgba(239, 237, 240, .86); }
+.api-platform-select { border-color: rgba(130, 82, 190, .2) !important; color: #62417b !important; font-weight: 800; background: linear-gradient(135deg, rgba(236,228,249,.96), rgba(247,235,246,.94)) !important; }
+.api-platform-hint { margin-top: -1px; color: #978b9d; font-size: 10px; font-weight: 600; line-height: 1.45; }
 .api-channel-add { min-height: 40px; border: 1px dashed rgba(123, 91, 143, .28); border-radius: 15px; color: #79538f; background: rgba(235, 228, 240, .66); font-size: 11px; font-weight: 800; }
 .api-channel-add.persistent { width: 100%; flex: 0 0 auto; }
 .api-page select { width: 100%; border: 1px solid rgba(71,55,80,.08); outline: none; border-radius: 18px; padding: 15px 16px; color: #2e2931; background: #efedf0; }
