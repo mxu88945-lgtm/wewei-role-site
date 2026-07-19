@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState } from 'react'
 import { fetchApiModels, type ApiModel } from './chatApi'
-import type { ApiChannel } from './apiChannels'
+import { API_PLATFORM_PRESETS, applyApiPlatform, getApiPlatformPreset, inferApiPlatform, type ApiChannel, type ApiPlatform } from './apiChannels'
 
 type ConnectionState = 'idle' | 'testing' | 'ok' | 'error'
 type ModelState = 'idle' | 'loading' | 'ready' | 'error'
@@ -60,6 +60,12 @@ export default function ApiSettingsPage({
   const updateChannel = (channel: ApiChannel, patch: Partial<ApiChannel>) => {
     onApiChange({ ...channel, ...patch })
     if (channel.id === api.id) onConnectionReset()
+  }
+
+  const updatePlatform = (channel: ApiChannel, platform: ApiPlatform) => {
+    updateChannel(channel, applyApiPlatform(channel, platform))
+    setModelsByChannel((current) => ({ ...current, [channel.id]: [] }))
+    setModelMessages((current) => ({ ...current, [channel.id]: `${getApiPlatformPreset(platform).description}，地址已自动填写。` }))
   }
 
   const selectChannel = (id: string) => {
@@ -124,11 +130,12 @@ export default function ApiSettingsPage({
             const expanded = expandedIds.includes(channel.id)
             const modelState = modelStates[channel.id] ?? 'idle'
             const modelMessage = modelMessages[channel.id] ?? ''
+            const platform = getApiPlatformPreset(channel.platform)
             return <article className={`api-channel-item${active ? ' active' : ''}`} key={channel.id}>
               <div className="api-channel-item-header">
                 <button type="button" className="api-channel-select" onClick={() => selectChannel(channel.id)} aria-label={`使用${channel.name || '未命名渠道'}`}>
                   <span className="api-radio">{active && <i />}</span>
-                  <span className="api-channel-meta"><strong>{channel.name || '未命名渠道'}</strong><small>OpenAI 兼容 · 直连</small></span>
+                  <span className="api-channel-meta"><strong>{channel.name || '未命名渠道'}</strong><small>{platform.shortLabel} · 直连</small></span>
                 </button>
                 {channels.length > 1 && <button type="button" className="api-channel-remove" onClick={() => onDeleteChannel(channel.id)}>删除</button>}
                 <button type="button" className="api-channel-toggle" onClick={() => toggleChannel(channel.id)} aria-expanded={expanded} aria-label={expanded ? '收起渠道' : '展开渠道'}>{expanded ? '⌃' : '⌄'}</button>
@@ -140,8 +147,26 @@ export default function ApiSettingsPage({
                 <label>渠道商备注名
                   <input value={channel.name} onChange={(event) => updateChannel(channel, { name: event.target.value })} placeholder="例如：OpenRouter、小克、肘子" />
                 </label>
+                <label>模型平台
+                  <select className="api-platform-select" value={channel.platform} onChange={(event) => updatePlatform(channel, event.target.value as ApiPlatform)}>
+                    {API_PLATFORM_PRESETS.map((preset) => <option key={preset.id} value={preset.id}>{preset.label}</option>)}
+                  </select>
+                  <small className="api-platform-hint">{platform.description}{platform.baseUrl ? ' · 官方地址自动填写' : ' · 地址由你填写'}</small>
+                </label>
+                <label>API 格式
+                  <select value={channel.protocol} onChange={(event) => {
+                    const protocol = event.target.value as ApiChannel['protocol']
+                    updateChannel(channel, { protocol, platform: protocol === 'anthropic' ? 'custom-anthropic' : 'custom-openai' })
+                  }}>
+                    <option value="openai">OpenAI 兼容</option>
+                    <option value="anthropic">Anthropic（Claude）</option>
+                  </select>
+                </label>
                 <label>Base URL
-                  <input value={channel.baseUrl} onChange={(event) => updateChannel(channel, { baseUrl: event.target.value })} autoCapitalize="none" autoCorrect="off" placeholder="https://example.com/v1" />
+                  <input value={channel.baseUrl} onChange={(event) => {
+                    const baseUrl = event.target.value
+                    updateChannel(channel, { baseUrl, platform: inferApiPlatform(baseUrl, channel.protocol) })
+                  }} autoCapitalize="none" autoCorrect="off" placeholder="https://example.com/v1" />
                 </label>
                 <label>API Key
                   <input type="password" value={channel.apiKey} onChange={(event) => updateChannel(channel, { apiKey: event.target.value })} autoCapitalize="none" autoCorrect="off" placeholder="sk-…" />
