@@ -110,13 +110,13 @@
   font-weight: var(--ui-font-weight, 500) !important;
 }
 
-.phone-canvas button:not(.icon-button):not(.avatar-button):not(.composer-plus):not(.send-button):not(.switch):not(.message-action-trigger):not(.chat-jump-controls button):not(.message-content *) {
+.phone-canvas button:not(.icon-button):not(.avatar-button):not(.composer-plus):not(.composer-expand):not(.send-button):not(.switch):not(.message-action-trigger):not(.chat-jump-controls button):not(.message-content *) {
   font-size: calc(13px * var(--ui-font-scale, 1)) !important;
   font-weight: var(--ui-heading-font-weight, 600) !important;
 }
 
 /* Keep symbols and message text on their dedicated sizing rules. */
-.phone-canvas :where(.icon-button, .avatar-button, .composer-plus, .send-button, .message-action-trigger, .chat-jump-controls button) {
+.phone-canvas :where(.icon-button, .avatar-button, .composer-plus, .composer-expand, .send-button, .message-action-trigger, .chat-jump-controls button) {
   font-weight: 800;
 }
 
