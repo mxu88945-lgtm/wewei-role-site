@@ -2,7 +2,7 @@ import { useState } from 'react'
 import type { Character } from './characterCard'
 import { completeChat, type ApiConfig } from './chatApi'
 import { createStoryCockpitDraft, normalizeStoryCockpit, type CharacterKnowledge, type StoryCockpit, type StoryEvidence, type StoryPlannedEvent, type StoryProject } from './storyProject'
-import { buildCockpitAssistantInput, parseCockpitAssistantResponse, type CockpitSourceConversation } from './storyCockpitAssistant'
+import { buildCockpitAssistantInput, buildStoryCanonAssistantInput, parseCockpitAssistantResponse, parseStoryCanonAssistantResponse, type CockpitSourceConversation } from './storyCockpitAssistant'
 
 const lines = (value: string) => value.split('\n').map((item) => item.trim()).filter(Boolean)
 const text = (value: string[]) => value.join('\n')
@@ -15,6 +15,8 @@ export default function StoryCockpitEditor({ project, characters, conversations,
   const [draft, setDraft] = useState(() => createStoryCockpitDraft(project))
   const [assistantState, setAssistantState] = useState<'idle' | 'working' | 'done' | 'error'>('idle')
   const [assistantMessage, setAssistantMessage] = useState('')
+  const [canonState, setCanonState] = useState<'idle' | 'working' | 'done' | 'error'>('idle')
+  const [canonMessage, setCanonMessage] = useState('')
   const projectCharacters = project.characterIds.filter((id) => id !== project.directorCharacterId).map((id) => characters.find((item) => item.id === id)).filter(Boolean) as Character[]
   const boundConversations = conversations.filter((conversation) => project.conversationIds.includes(conversation.id))
   const updateEvidence = (id: string, patch: Partial<StoryEvidence>) => setDraft((current) => ({ ...current, evidence: current.evidence.map((item) => item.id === id ? { ...item, ...patch } : item) }))
@@ -39,10 +41,29 @@ export default function StoryCockpitEditor({ project, characters, conversations,
         // These are explicit user-authored anchors. Re-analysis may rebuild
         // branch facts, but cannot delete events or roll the relationship back.
         relationshipStage: project.autoContinuity.needsReview ? current.relationshipStage : organized.relationshipStage,
+        canon: current.canon,
         plannedEvents: current.plannedEvents,
       }))
       setAssistantState('done'); setAssistantMessage('草稿已填好。下面所有字段仍可修改，点“保存驾驶舱”后才会写入项目。')
     } catch (error) { setAssistantState('error'); setAssistantMessage(error instanceof Error ? error.message : '自动整理失败，请重试。') }
+  }
+
+  const summarizeWholeStory = async () => {
+    if (!api?.apiKey?.trim() || !api.baseUrl?.trim() || !api.modelName?.trim()) { setCanonState('error'); setCanonMessage('当前 API 还没有可用的密钥或模型，请先去 API 设置。'); return }
+    setCanonState('working'); setCanonMessage('正在回看整部剧本、核对已结案与未完主线…')
+    let response = ''
+    try {
+      const input = buildStoryCanonAssistantInput({ project: { ...project, cockpit: draft }, characters: projectCharacters, conversations: boundConversations, userName })
+      await completeChat({
+        api,
+        messages: [{ role: 'system', content: '你是严谨的剧本总编。只整理已经发生和明确保留的剧情，不续写，不复活已封存案件，只输出合法 JSON。' }, { role: 'user', content: input }],
+        temperature: .1, topP: 1, maxTokens: 6000, streaming: false, signal: new AbortController().signal,
+        onDelta: (delta) => { response += delta },
+      })
+      const canon = parseStoryCanonAssistantResponse(response)
+      setDraft((current) => ({ ...current, canon }))
+      setCanonState('done'); setCanonMessage('总纲草稿已生成。请核对“已封存结论”，保存后导演才会按它执行。')
+    } catch (error) { setCanonState('error'); setCanonMessage(error instanceof Error ? error.message : '整部剧本总结失败，请重试。') }
   }
 
   return <>
@@ -52,6 +73,7 @@ export default function StoryCockpitEditor({ project, characters, conversations,
       <div className={`cockpit-assistant-card ${assistantState}`}><span>✦</span><div><strong>AI 打工助手</strong><small>{assistantMessage || `使用 ${api?.modelName || '当前聊天模型'}，自动读取 ${boundConversations.length} 段绑定对话并填写整张驾驶舱。`}</small></div><button disabled={assistantState === 'working'} onClick={autoFill}>{assistantState === 'working' ? '正在整理…' : assistantState === 'done' ? '重新分析' : '一键自动填写'}</button></div>
       <label className={`continuity-switch ${project.autoContinuity.enabled ? 'enabled' : ''} ${project.autoContinuity.lastError ? 'error' : ''}`}><div><strong>每轮自动场记</strong><small>{project.autoContinuity.lastError ? `上次更新失败：${project.autoContinuity.lastError}` : project.autoContinuity.lastSummary || '开启后，从下一轮完整回复开始自动消耗旧钩子并接续新阶段。'}</small></div><input type="checkbox" checked={project.autoContinuity.enabled} onChange={(event) => onSetAutoContinuity(event.target.checked)} /><i /></label>
 
+      <section className="cockpit-panel canon-panel"><header><span>00</span><div><strong>核心剧情总纲</strong><small>整部剧本唯一的最高事实底稿，导演每轮必读</small></div></header><p className="planned-event-note">这里记录全剧已经确认的终局与当前篇章。已封存结论禁止被长期记忆、旧对话或模型猜测重新打开；自动场记不会改写这一区。</p><div className={`cockpit-assistant-card ${canonState}`}><span>✦</span><div><strong>总纲助手</strong><small>{canonMessage || `回看 ${boundConversations.length} 段绑定对话，整理全剧摘要、已封存结论与未完主线。`}</small></div><button disabled={canonState === 'working'} onClick={() => void summarizeWholeStory()}>{canonState === 'working' ? '正在回看…' : canonState === 'done' ? '重新总结' : '总结整部剧本'}</button></div><label>全剧核心摘要<textarea rows={8} value={draft.canon.synopsis} onChange={(event) => setDraft({ ...draft, canon: { ...draft.canon, synopsis: event.target.value } })} placeholder="概括故事起因、关键转折、已经确认的真相与当前局面" /></label><label>已封存结论<textarea rows={6} value={text(draft.canon.closedArcs)} onChange={(event) => setDraft({ ...draft, canon: { ...draft.canon, closedArcs: lines(event.target.value) } })} placeholder={"每行一条不可回滚的结论，例如：杨越、杨颖已经伏法，相关案件正式结案"} /></label><label>当前篇章<textarea rows={3} value={draft.canon.currentArc} onChange={(event) => setDraft({ ...draft, canon: { ...draft.canon, currentArc: event.target.value } })} placeholder="故事现在处于哪个篇章，正在处理的核心矛盾是什么" /></label><label>仍未解决的主线<textarea rows={5} value={text(draft.canon.openArcs)} onChange={(event) => setDraft({ ...draft, canon: { ...draft.canon, openArcs: lines(event.target.value) } })} placeholder="每行一条仍然有效、确实没有解决的主线" /></label></section>
       <section className="cockpit-panel"><header><span>01</span><div><strong>当前场景</strong><small>钉住这一幕的时间、地点与在场人物</small></div></header><div className="cockpit-two-fields"><label>当前时间<input value={draft.currentTime} onChange={(event) => setDraft({ ...draft, currentTime: event.target.value })} placeholder="例如：回国第三天 · 深夜" /></label><label>当前地点<input value={draft.currentLocation} onChange={(event) => setDraft({ ...draft, currentLocation: event.target.value })} placeholder="例如：裴氏集团顶层" /></label></div><div className="cockpit-character-grid">{projectCharacters.map((character) => <button className={draft.presentCharacterIds.includes(character.id) ? 'selected' : ''} key={character.id} onClick={() => setDraft({ ...draft, presentCharacterIds: draft.presentCharacterIds.includes(character.id) ? draft.presentCharacterIds.filter((id) => id !== character.id) : [...draft.presentCharacterIds, character.id] })}><span>{character.avatar ? <img src={character.avatar} alt="" /> : character.name.slice(-1)}</span><small>{character.name}</small><i>{draft.presentCharacterIds.includes(character.id) ? '在场' : '离场'}</i></button>)}</div>{!projectCharacters.length && <p className="cockpit-empty-note">先回项目资料绑定角色，再维护在场人物。</p>}</section>
 
       <section className="cockpit-panel"><header><span>02</span><div><strong>阶段与任务</strong><small>关系不跳级，线索不失焦</small></div></header><label>当前关系阶段<input value={draft.relationshipStage} onChange={(event) => setDraft({ ...draft, relationshipStage: event.target.value })} placeholder="例如：阶段一 · 冷淡与自欺" /></label><label>当前任务<textarea rows={3} value={draft.currentTask} onChange={(event) => setDraft({ ...draft, currentTask: event.target.value })} placeholder="当前最需要查清、取得或验证的核心证据节点" /></label><label>下一步可推进方向<textarea rows={5} value={text(draft.nextDirections)} onChange={(event) => setDraft({ ...draft, nextDirections: lines(event.target.value) })} placeholder={'每行一条证据推进链：线索目标｜行动者与动作｜预计新增信息｜如何衔接下一节点'} /></label></section>
