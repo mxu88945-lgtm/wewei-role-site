@@ -1,4 +1,4 @@
-import { normalizeStoryCockpit, type StoryCockpit, type StoryProject } from './storyProject'
+import { normalizeStoryCockpit, type StoryCanon, type StoryCockpit, type StoryProject } from './storyProject'
 
 export type CockpitSourceCharacter = {
   id: string
@@ -16,6 +16,71 @@ export type CockpitSourceConversation = {
 }
 
 const compact = (value = '', max = 5000) => value.trim().slice(0, max)
+
+const sampleWholeStory = (messages: CockpitSourceConversation['messages']) => {
+  if (messages.length <= 180) return messages
+  const first = messages.slice(0, 30)
+  const middle = messages.slice(30, -90)
+  const sampledMiddle = Array.from({ length: 60 }, (_, index) => middle[Math.floor(index * middle.length / 60)]).filter(Boolean)
+  return [...first, ...sampledMiddle, ...messages.slice(-90)]
+}
+
+export function buildStoryCanonAssistantInput({ project, characters, conversations, userName }: {
+  project: StoryProject
+  characters: CockpitSourceCharacter[]
+  conversations: CockpitSourceConversation[]
+  userName: string
+}) {
+  const names = new Map(characters.map((character) => [character.id, character.name]))
+  const sources = conversations.map((conversation) => ({
+    title: conversation.title,
+    totalMessages: conversation.messages.length,
+    sampledMessages: sampleWholeStory(conversation.messages).map((message) => ({
+      speaker: message.role === 'user' ? userName : names.get(message.characterId || '') || '未标明角色',
+      text: compact(message.text, 1400),
+    })),
+  }))
+  return `你是剧本总编与连续性审计员。请根据项目资料、现有驾驶舱和绑定对话，为整部剧本整理一份“核心剧情总纲”草稿。
+
+【规则】
+1. 越新的明确事件覆盖越旧的状态；必须识别逮捕、伏法、死亡、结案、真相公开、关系结束等终局节点。
+2. closedArcs 只写已经明确完成或不可逆的结论，并写清最终状态。已伏法、已死亡、已结案的人物或案件不得继续当作身份尚未曝光、仍在暗中行动的悬念。
+3. openArcs 只写确实还没解决的主线，不得把已结案内容重新包装成伏笔。
+4. currentArc 说明故事现在处于哪一篇章、主要矛盾是什么，不写已经过去的阶段。
+5. synopsis 用 300—800 字概括起因、关键转折、已确认真相与当前局面；不得续写、脑补或替用户主角 ${userName} 决定。
+6. 角色卡设定只能作为背景，实际发生的对话和用户已经确认的驾驶舱结论优先。
+7. 对话过长时 source 中会保留开端、全程均匀采样与最近消息；现有驾驶舱的已完成事件和结论用于补足未采样段落。
+
+【项目与现有驾驶舱】
+${JSON.stringify({ title: project.title, summary: project.summary, worldBackground: project.worldBackground, cockpit: project.cockpit }, null, 2)}
+
+【角色】
+${JSON.stringify(characters.map((item) => ({ id: item.id, name: item.name })), null, 2)}
+
+【绑定对话】
+${JSON.stringify(sources, null, 2)}
+
+只输出合法 JSON：
+{"synopsis":"","closedArcs":[""],"currentArc":"","openArcs":[""]}`
+}
+
+export function parseStoryCanonAssistantResponse(raw: string): StoryCanon {
+  const cleaned = raw.trim().replace(/^```(?:json)?\s*/i, '').replace(/\s*```$/i, '')
+  const start = cleaned.indexOf('{')
+  const end = cleaned.lastIndexOf('}')
+  if (start < 0 || end <= start) throw new Error('总纲助手没有返回可识别的数据')
+  let value: unknown
+  try { value = JSON.parse(cleaned.slice(start, end + 1)) } catch { throw new Error('总纲助手返回的 JSON 不完整，请重试') }
+  if (!value || typeof value !== 'object') throw new Error('总纲助手返回的数据格式不正确')
+  const source = value as Partial<StoryCanon>
+  const strings = (items: unknown) => Array.isArray(items) ? [...new Set(items.filter((item): item is string => typeof item === 'string').map((item) => item.trim()).filter(Boolean))] : []
+  return {
+    synopsis: typeof source.synopsis === 'string' ? source.synopsis.trim() : '',
+    closedArcs: strings(source.closedArcs),
+    currentArc: typeof source.currentArc === 'string' ? source.currentArc.trim() : '',
+    openArcs: strings(source.openArcs),
+  }
+}
 
 export function buildCockpitAssistantInput({ project, characters, conversations, userName }: {
   project: StoryProject
