@@ -14,6 +14,12 @@ const project = () => ({
   conversationIds: ['group-one'],
   directorCharacterId: 'director',
   cockpit: {
+    canon: {
+      synopsis: '三年前的事故真相已经查清，案件进入结案后的关系修复篇。',
+      closedArcs: ['杨越、杨颖已经伏法，落水与项目事故案正式结案'],
+      currentArc: '结案后的责任清算与关系修复',
+      openArcs: ['裴成砚如何承担对江黎姿造成的伤害'],
+    },
     currentTime: '回国第四天晚间',
     currentLocation: '白盒子画廊',
     presentCharacterIds: ['second'],
@@ -47,7 +53,10 @@ describe('story project prompt injection', () => {
   it('gives the director the complete cockpit and consumption rules', () => {
     const prompt = buildStoryProjectPrompt({ project: project(), speakerId: 'director', characters })
     expect(prompt).toContain('旁白导演专用')
-    expect(prompt).toContain('用户与独立角色控制权 > 当前场景与知情边界 > 证据推进')
+    expect(prompt).toContain('核心剧情总纲与已封存结论')
+    expect(prompt).toContain('杨越、杨颖已经伏法')
+    expect(prompt).toContain('不得再写成身份捂不住')
+    expect(prompt).toContain('用户与独立角色控制权 > 核心剧情总纲与已封存结论 > 当前场景与知情边界 > 证据推进')
     expect(prompt).toContain('驾驶舱只提供状态、证据和目标，不授予导演扮演任何主角的权限')
     expect(prompt).toContain('都是禁演名单，但不是禁止入镜')
     expect(prompt).toContain('可见静态神态')
@@ -85,6 +94,7 @@ describe('story project prompt injection', () => {
     expect(prompt).not.toContain('unknownFacts')
     expect(prompt).not.toContain('mistakenBeliefs')
     expect(prompt).not.toContain('杨颖转移旧档案')
+    expect(prompt).not.toContain('杨越、杨颖已经伏法')
   })
 
   it('quarantines stale facts but keeps user-authored anchors after dialogue history is rewritten', () => {
@@ -95,6 +105,7 @@ describe('story project prompt injection', () => {
     expect(prompt).toContain('用户确认的当前关系阶段：察觉偏爱')
     expect(prompt).toContain('本轮起点而非阶段锁')
     expect(prompt).toContain('杨颖转移旧档案')
+    expect(prompt).toContain('杨越、杨颖已经伏法')
     expect(prompt).not.toContain('真正收款人是霍启铭')
     expect(prompt).not.toContain('画展试探已经结束')
   })
@@ -105,6 +116,7 @@ describe('story project prompt injection', () => {
     const prompt = buildStoryProjectPrompt({ project: stale, speakerId: 'second', characters })
     expect(prompt).toContain('用户确认的当前关系阶段：察觉偏爱')
     expect(prompt).not.toContain('杨颖转移旧档案')
+    expect(prompt).not.toContain('杨越、杨颖已经伏法')
   })
 
   it('selects only the newest active project bound to a conversation', () => {
