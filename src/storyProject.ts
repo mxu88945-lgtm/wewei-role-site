@@ -26,7 +26,15 @@ export type StoryPlannedEvent = {
   progressNote: string
 }
 
+export type StoryCanon = {
+  synopsis: string
+  closedArcs: string[]
+  currentArc: string
+  openArcs: string[]
+}
+
 export type StoryCockpit = {
+  canon: StoryCanon
   currentTime: string
   currentLocation: string
   presentCharacterIds: string[]
@@ -74,6 +82,7 @@ const uniqueStrings = (value: unknown) => Array.isArray(value)
 
 export function createStoryCockpit(): StoryCockpit {
   return {
+    canon: { synopsis: '', closedArcs: [], currentArc: '', openArcs: [] },
     currentTime: '', currentLocation: '', presentCharacterIds: [], relationshipStage: '', currentTask: '',
     completedEvents: [], openHooks: [], evidence: [], characterKnowledge: [], nextDirections: [], plannedEvents: [],
   }
@@ -117,6 +126,12 @@ const normalizePlannedEvent = (value: Partial<StoryPlannedEvent>, index: number)
 
 export function normalizeStoryCockpit(value: Partial<StoryCockpit> | undefined): StoryCockpit {
   return {
+    canon: {
+      synopsis: typeof value?.canon?.synopsis === 'string' ? value.canon.synopsis : '',
+      closedArcs: uniqueStrings(value?.canon?.closedArcs),
+      currentArc: typeof value?.canon?.currentArc === 'string' ? value.canon.currentArc : '',
+      openArcs: uniqueStrings(value?.canon?.openArcs),
+    },
     currentTime: typeof value?.currentTime === 'string' ? value.currentTime : '',
     currentLocation: typeof value?.currentLocation === 'string' ? value.currentLocation : '',
     presentCharacterIds: uniqueStrings(value?.presentCharacterIds),
@@ -139,7 +154,8 @@ export function normalizeStoryCockpit(value: Partial<StoryCockpit> | undefined):
 export function hasStoryCockpitContent(value: Partial<StoryCockpit> | undefined) {
   const cockpit = normalizeStoryCockpit(value)
   return Boolean(
-    cockpit.currentTime.trim() || cockpit.currentLocation.trim() || cockpit.relationshipStage.trim() || cockpit.currentTask.trim()
+    cockpit.canon.synopsis.trim() || cockpit.canon.currentArc.trim() || cockpit.canon.closedArcs.length || cockpit.canon.openArcs.length
+    || cockpit.currentTime.trim() || cockpit.currentLocation.trim() || cockpit.relationshipStage.trim() || cockpit.currentTask.trim()
     || cockpit.presentCharacterIds.length || cockpit.completedEvents.length || cockpit.openHooks.length
     || cockpit.evidence.length || cockpit.characterKnowledge.length || cockpit.nextDirections.length || cockpit.plannedEvents.length
   )

@@ -164,6 +164,7 @@ export function mergeAutomaticContinuity(existingValue: StoryCockpit, result: Au
     return next
   })
   return {
+    canon: existing.canon,
     currentTime: proposed.currentTime || existing.currentTime,
     currentLocation: proposed.currentLocation || existing.currentLocation,
     presentCharacterIds: proposed.presentCharacterIds,

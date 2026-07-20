@@ -9,6 +9,7 @@ describe('story projects', () => {
     expect(project.conversationIds).toEqual([])
     expect(project.cockpit.completedEvents).toEqual([])
     expect(project.cockpit.plannedEvents).toEqual([])
+    expect(project.cockpit.canon.closedArcs).toEqual([])
     expect(project.version).toBe(1)
   })
 
@@ -74,6 +75,17 @@ describe('story projects', () => {
     expect(cockpit.plannedEvents[0].status).toBe('active')
     expect(cockpit.plannedEvents[1].status).toBe('pending')
     expect(cockpit.completedEvents).toEqual([])
+  })
+
+  it('normalizes the user-confirmed core story canon', () => {
+    const cockpit = normalizeStoryCockpit({ canon: {
+      synopsis: '案件已经侦破。',
+      closedArcs: ['杨越伏法', '杨越伏法'],
+      currentArc: '结案后的关系修复',
+      openArcs: ['裴成砚承担后果'],
+    } })
+    expect(cockpit.canon.closedArcs).toEqual(['杨越伏法'])
+    expect(cockpit.canon.currentArc).toBe('结案后的关系修复')
   })
 
   it('ignores non-array storage values', () => {

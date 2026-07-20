@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import { createStoryProject } from './storyProject'
-import { buildCockpitAssistantInput, parseCockpitAssistantResponse } from './storyCockpitAssistant'
+import { buildCockpitAssistantInput, buildStoryCanonAssistantInput, parseCockpitAssistantResponse, parseStoryCanonAssistantResponse } from './storyCockpitAssistant'
 
 describe('story cockpit assistant', () => {
   it('builds input from project data and actual bound dialogue', () => {
@@ -52,5 +52,19 @@ describe('story cockpit assistant', () => {
 
   it('reports malformed model output clearly', () => {
     expect(() => parseCockpitAssistantResponse('not json', ['pei'])).toThrow('可识别')
+  })
+
+  it('builds and parses a whole-story canon that distinguishes closed and open arcs', () => {
+    const project = createStoryProject(1)
+    project.cockpit.completedEvents = ['杨越和杨颖已经伏法']
+    const input = buildStoryCanonAssistantInput({
+      project, userName: '江黎姿', characters: [{ id: 'pei', name: '裴成砚' }],
+      conversations: [{ id: 'chat', title: '结案', messages: [{ role: 'assistant', characterId: 'pei', text: '法院作出终审判决，案件正式结案。' }] }],
+    })
+    expect(input).toContain('必须识别逮捕、伏法、死亡、结案')
+    expect(input).toContain('杨越和杨颖已经伏法')
+    const canon = parseStoryCanonAssistantResponse('{"synopsis":"案件已结","closedArcs":["杨越与杨颖伏法","杨越与杨颖伏法"],"currentArc":"关系修复","openArcs":["裴成砚承担后果"]}')
+    expect(canon.closedArcs).toEqual(['杨越与杨颖伏法'])
+    expect(canon.currentArc).toBe('关系修复')
   })
 })
