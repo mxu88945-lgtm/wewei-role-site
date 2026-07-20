@@ -124,4 +124,11 @@ describe('automatic story continuity', () => {
     const parsed = parseAutomaticContinuityResponse(JSON.stringify({ plannedEventUpdates: [{ id: 'event-one', status: 'active', progressNote: '错误回滚' }], cockpit: {} }), [])
     expect(mergeAutomaticContinuity(existing, parsed).plannedEvents[0]).toEqual(existing.plannedEvents[0])
   })
+
+  it('never lets automatic continuity rewrite the user-confirmed core canon', () => {
+    const existing = createStoryProject(1).cockpit
+    existing.canon = { synopsis: '案件已经侦破', closedArcs: ['杨越、杨颖已经伏法'], currentArc: '结案后', openArcs: ['关系修复'] }
+    const parsed = parseAutomaticContinuityResponse(JSON.stringify({ cockpit: { canon: { synopsis: '错误复活旧案', closedArcs: [], currentArc: '重新调查', openArcs: ['杨越身份曝光'] } } }), [])
+    expect(mergeAutomaticContinuity(existing, parsed).canon).toEqual(existing.canon)
+  })
 })
