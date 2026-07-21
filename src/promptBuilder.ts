@@ -3,6 +3,7 @@ import type { ChatApiMessage } from './chatApi'
 import { applyMacros, applyRegexScripts, stripPresentationalHtmlForPrompt } from './regexEngine'
 import { selectRelevantMemories, type LongMemoryEntry } from './memoryEngine'
 import { stripStageGateMetadata } from './actorContinuity'
+import { uncompressedMessages } from './contextCompression'
 
 type SourceMessage = { role: 'user' | 'assistant'; text: string; characterId?: string }
 type MemoryInput = { entries: LongMemoryEntry[]; injectPosition: string; injectPrompt: string }
@@ -19,6 +20,7 @@ type PromptInput = {
   memory: MemoryInput
   memoryLength: number
   contextSummary?: string
+  compressedUntil?: number
 }
 
 function matchesKeyword(source: string, keyword: string, entry: WorldBookEntry) {
@@ -75,7 +77,8 @@ export const USER_AGENCY_GUARD = `【用户主角控制权｜最高优先级】
 此规则高于剧情推进、文风模仿、示例对话和角色卡内其他指令。`
 
 function memoryText(input: PromptInput) {
-  const recentText = input.messages.slice(-Math.max(1, input.memoryLength)).map((message) => message.text).join('\n')
+  const available = uncompressedMessages(input.messages, input.compressedUntil, Boolean(input.contextSummary))
+  const recentText = available.slice(-Math.max(1, input.memoryLength)).map((message) => message.text).join('\n')
   const selected = selectRelevantMemories(input.memory.entries, recentText)
   const contents = selected.map((entry) => `${entry.pinned ? '【核心记忆｜永久有效】\n' : ''}${entry.content.trim()}`).join('\n\n')
   if (!contents) return ''
@@ -88,7 +91,8 @@ function appendSystem(target: ChatApiMessage[], content: string) {
 
 export function buildChatPrompt(input: PromptInput): ChatApiMessage[] {
   const { character, user } = input
-  const recent = input.messages.slice(-Math.max(1, input.memoryLength))
+  const available = uncompressedMessages(input.messages, input.compressedUntil, Boolean(input.contextSummary))
+  const recent = available.slice(-Math.max(1, input.memoryLength))
   const scanSource = recent.map((message) => message.text).join('\n')
   const entries = activeEntries(character.characterBook, scanSource)
   const memory = memoryText(input)
