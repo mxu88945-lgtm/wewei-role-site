@@ -24,6 +24,7 @@ import { normalizeStoryProjects, type StoryProject } from './storyProject'
 import { buildStoryProjectPrompt, selectConversationStoryProject } from './storyProjectPrompt'
 import { buildAutomaticContinuityInput, captureAssistantMessageIds, hasUnprocessedAssistantMessages, mergeAutomaticContinuity, parseAutomaticContinuityResponse } from './storyContinuity'
 import { buildReplyHelperMessages, cleanReplyHelperDraft } from './replyHelper'
+import { planContextCompression, uncompressedMessages } from './contextCompression'
 import { findLatestActorContinuityAnchor } from './actorContinuity'
 import ReplyHelperSettingsPage from './ReplyHelperSettingsPage'
 
@@ -1135,13 +1136,15 @@ function App() {
     const authorOf = (message: Message) => message.role === 'user'
       ? identity.name
       : characters.find((character) => character.id === message.characterId)?.name || activeCharacter.name
+    const hasValidContextSummary = Boolean(activeConversation.contextSummary && (activeConversation.contextSummaryRevision || 0) === (activeConversation.historyRevision || 0))
+    const replyHistory = uncompressedMessages(messages, activeConversation.compressedUntil, hasValidContextSummary)
     const promptMessages = buildReplyHelperMessages({
       userName: identity.name,
       userDescription: identity.description,
       conversationTitle: activeConversation.title,
       currentDraft: draft,
-      contextSummary: (activeConversation.contextSummaryRevision || 0) === (activeConversation.historyRevision || 0) ? activeConversation.contextSummary : undefined,
-      recentMessages: messages.slice(-Math.min(30, memoryLength)).map((message) => ({ author: authorOf(message), text: message.text })),
+      contextSummary: hasValidContextSummary ? activeConversation.contextSummary : undefined,
+      recentMessages: replyHistory.slice(-Math.min(30, memoryLength)).map((message) => ({ author: authorOf(message), text: message.text })),
       project: project && !project.autoContinuity.needsReview ? {
         title: project.title,
         worldBackground: project.worldBackground || project.summary,
@@ -1228,6 +1231,7 @@ function App() {
         if (fromDirector && !text.trim()) return []
         return [{ ...message, text }]
       })
+      const hasValidContextSummary = Boolean(conversation.contextSummary && (conversation.contextSummaryRevision || 0) === (conversation.historyRevision || 0))
       const promptMessages = buildChatPrompt({
         character: capturedCharacter,
         user: identity,
@@ -1239,7 +1243,8 @@ function App() {
         actorContinuityAnchor,
         memory: { entries: capturedMemories, injectPosition: capturedMemoryConfig.injectPosition, injectPrompt: capturedMemoryConfig.injectPrompt },
         memoryLength,
-        contextSummary: (conversation.contextSummaryRevision || 0) === (conversation.historyRevision || 0) ? conversation.contextSummary : undefined,
+        contextSummary: hasValidContextSummary ? conversation.contextSummary : undefined,
+        compressedUntil: hasValidContextSummary ? conversation.compressedUntil : undefined,
       })
       if (isDirector) promptMessages.push({ role: 'system', content: DIRECTOR_OUTPUT_GUARD })
       const completion = await completeChat({
@@ -1437,11 +1442,11 @@ function App() {
   const compressOldContext = async () => {
     if (!activeConversation || compressingContext || messages.length < 16) return
     if (!api.apiKey || !api.baseUrl || !api.modelName) { setChatError('请先配置当前聊天 API，再压缩上下文。'); return }
-    const keepRecent = Math.max(10, Math.floor(memoryLength / 2))
-    const oldMessages = messages.slice(0, Math.max(0, messages.length - keepRecent))
-    if (oldMessages.length < 6) return
     const targetRevision = activeConversation.historyRevision || 0
-    const currentSummary = (activeConversation.contextSummaryRevision || 0) === targetRevision ? activeConversation.contextSummary : ''
+    const hasValidSummary = Boolean(activeConversation.contextSummary && (activeConversation.contextSummaryRevision || 0) === targetRevision)
+    const currentSummary = hasValidSummary ? activeConversation.contextSummary || '' : ''
+    const compression = planContextCompression(messages, memoryLength, activeConversation.compressedUntil, hasValidSummary)
+    if (compression.pendingMessages.length === 0) { setChatError('旧上下文已经压缩到最新，无需重复处理。'); setDrawer(null); return }
     setCompressingContext(true); setDrawer(null); let summary = ''
     try {
       const controller = new AbortController()
@@ -1449,13 +1454,13 @@ function App() {
         api, temperature: .2, topP: 1, maxTokens: Math.min(3000, maxTokens), streaming: false,
         signal: controller.signal,
         messages: [
-          { role: 'system', content: '你是剧情上下文压缩器。只总结已经发生的事实，保留时间、地点、人物关系、承诺、冲突、情绪转折、重要物品、未完成事项和角色状态。不得续写剧情，不得虚构，不得省略影响后续扮演的信息。' },
-          { role: 'user', content: `${currentSummary ? `此前摘要：\n${currentSummary}\n\n` : ''}待压缩对话：\n${oldMessages.map((item) => `${item.role === 'user' ? identity.name : characters.find((character) => character.id === item.characterId)?.name || activeCharacter.name}：${item.text}`).join('\n\n')}` },
+          { role: 'system', content: '你是剧情上下文压缩器。请输出一份完整、可直接替代旧原文的合并摘要。只总结已经发生的事实，保留时间、地点、人物关系、承诺、冲突、情绪转折、重要物品、未完成事项和角色状态。不得续写剧情，不得虚构，不得省略影响后续扮演的信息；不得解释任务或输出思考过程。' },
+          { role: 'user', content: `${currentSummary ? `已有摘要（请与新增对话合并，避免重复）：\n${currentSummary}\n\n` : ''}本次新增待压缩对话：\n${compression.pendingMessages.map((item) => `${item.role === 'user' ? identity.name : characters.find((character) => character.id === item.characterId)?.name || activeCharacter.name}：${item.text}`).join('\n\n')}` },
         ],
         onDelta: (delta) => { summary += delta },
       })
       if (!summary.trim()) throw new Error('模型没有生成摘要')
-      setConversations((current) => current.map((item) => item.id === activeConversation.id && (item.historyRevision || 0) === targetRevision ? { ...item, contextSummary: summary.trim(), contextSummaryRevision: targetRevision, compressedUntil: oldMessages.length, updatedAt: Date.now() } : item))
+      setConversations((current) => current.map((item) => item.id === activeConversation.id && (item.historyRevision || 0) === targetRevision ? { ...item, contextSummary: summary.trim(), contextSummaryRevision: targetRevision, compressedUntil: compression.targetUntil, updatedAt: Date.now() } : item))
     } catch (error) { setChatError(error instanceof Error ? error.message : '上下文压缩失败') }
     finally { setCompressingContext(false) }
   }
