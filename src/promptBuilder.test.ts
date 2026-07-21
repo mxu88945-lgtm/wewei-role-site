@@ -94,6 +94,32 @@ describe('buildChatPrompt', () => {
     expect(spacePrompt).not.toContain('雨夜剧场')
   })
 
+  it('上下文压缩后只注入摘要与未压缩原文，不再重复发送旧消息', () => {
+    const result = buildChatPrompt({
+      character,
+      user: { name: '惟惟', description: '' },
+      messages: [
+        { role: 'user', text: '已经压缩的旧事件。' },
+        { role: 'assistant', text: '已经压缩的旧回应。' },
+        { role: 'user', text: '压缩后新增的问题。' },
+        { role: 'assistant', text: '压缩后新增的回答。' },
+      ],
+      preset: '',
+      globalWorldbook: '',
+      memory: { entries: [], injectPosition: 'none', injectPrompt: '{{memories}}' },
+      memoryLength: 20,
+      contextSummary: '摘要已经记录旧事件与旧回应。',
+      compressedUntil: 2,
+    })
+
+    const all = result.map((message) => message.content).join('\n')
+    expect(all).toContain('摘要已经记录旧事件与旧回应。')
+    expect(all).toContain('压缩后新增的问题。')
+    expect(all).toContain('压缩后新增的回答。')
+    expect(all).not.toContain('已经压缩的旧事件。')
+    expect(all).not.toContain('已经压缩的旧回应。')
+  })
+
   it('清理助手旧消息里的展示气泡，不再让模型模仿并逐轮套壳', () => {
     const result = buildChatPrompt({
       character: {
