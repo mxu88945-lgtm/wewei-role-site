@@ -27,7 +27,7 @@
       "主角保护"
     ],
     "creator": "惟境 · 伯恩",
-    "character_version": "1.1 · 场景与状态美化版",
+    "character_version": "1.2 · 平铺内嵌气泡版",
     "character_book": {
       "name": "晏承聿 · 世界书",
       "description": "男主已知信息、关系索引、宴会规则与前两阶段锁。隐藏真相不写入本卡。",
@@ -230,6 +230,25 @@
             "useProbability": true,
             "depth": 4
           }
+        },
+        {
+          "id": 9,
+          "keys": [],
+          "secondary_keys": [],
+          "comment": "显示规则｜场景卡与状态栏",
+          "content": "每次回复必须以场景栏开头，格式严格为：\n<scene>⏰ 时间：当前明确时间\n🏙️ 地点：当前明确地点</scene>\n\n正文结束后必须输出状态栏，格式严格为：\n<status>关系进展：当前阶段｜晏承聿当前认知：只写他已经知道的事实｜公开责任：当前需要履行的正式责任｜私人立场：当前真实立场｜五年前救命恩人：当前证据进度</status>\n\n场景栏与状态栏用于界面美化和关系连续性检查，不得写入{{user}}的心理、感受、决定或未表达的意图。若某项本轮无变化，沿用最近一次已经成立的状态；不得为了更新状态栏而创造新事件或泄露隐藏真相。",
+          "constant": true,
+          "selective": false,
+          "insertion_order": 50,
+          "enabled": true,
+          "position": "after_char",
+          "use_regex": false,
+          "extensions": {
+            "position": 1,
+            "probability": 100,
+            "useProbability": true,
+            "depth": 4
+          }
         }
       ]
     },
@@ -237,32 +256,15 @@
       "regex_scripts": [
         {
           "id": "yan-chengyu-scene-card",
-          "scriptName": "晏承聿｜场景信息玻璃卡",
-          "findRegex": "/<scene>\\s*⏰\\s*时间：([^\\n<]+)\\s*\\n+\\s*🏙️\\s*地点：([^<]+?)\\s*<\\/scene>/g",
-          "replaceString": "<section style=\"margin:0 0 14px;padding:12px 13px;border:1px solid rgba(255,255,255,.78);border-radius:18px;background:linear-gradient(135deg,rgba(241,235,248,.92),rgba(255,247,250,.82));box-shadow:0 10px 26px rgba(92,72,112,.10);backdrop-filter:blur(18px);-webkit-backdrop-filter:blur(18px);\"><div style=\"display:flex;align-items:center;gap:8px;margin-bottom:7px;color:#806a98;font-size:.84em;font-weight:750;\"><span style=\"display:grid;place-items:center;width:24px;height:24px;border-radius:9px;background:rgba(139,104,177,.13);\">⏰</span><span>$1</span></div><div style=\"display:flex;align-items:center;gap:8px;color:#6f6874;font-size:.86em;\"><span style=\"display:grid;place-items:center;width:24px;height:24px;border-radius:9px;background:rgba(205,145,167,.13);\">⌖</span><span>$2</span></div></section>",
+          "scriptName": "晏承聿时间地点栏",
+          "findRegex": "/<scene>([\\s\\S]*?)<\\/scene>/gi",
+          "replaceString": "<div class=\"ycy-scene\" style=\"margin:0 0 14px;padding:12px 15px;border-left:4px solid #766781;border-radius:4px 14px 14px 4px;background:linear-gradient(135deg,rgba(231,226,236,.94),rgba(248,245,249,.97));color:#615866;font-size:.92em;line-height:1.7;letter-spacing:.02em;white-space:pre-wrap;box-shadow:0 6px 18px rgba(73,58,82,.08)\">$1</div>",
           "trimStrings": [],
           "placement": [
             2
           ],
           "disabled": false,
-          "markdownOnly": true,
-          "promptOnly": false,
-          "runOnEdit": true,
-          "substituteRegex": 0,
-          "minDepth": null,
-          "maxDepth": null
-        },
-        {
-          "id": "yan-chengyu-status-separator",
-          "scriptName": "晏承聿｜状态栏分项",
-          "findRegex": "/\\s*｜\\s*([^：｜<\\n]{2,18})：/g",
-          "replaceString": "</span></div><div style=\"display:grid;grid-template-columns:minmax(72px,auto) 1fr;gap:8px;align-items:start;padding:8px 10px;border-radius:12px;background:rgba(255,255,255,.48);\"><span style=\"color:#9075a4;font-size:.76em;font-weight:800;letter-spacing:.02em;\">$1</span><span style=\"min-width:0;color:#625b67;font-size:.82em;line-height:1.55;\">",
-          "trimStrings": [],
-          "placement": [
-            2
-          ],
-          "disabled": false,
-          "markdownOnly": true,
+          "markdownOnly": false,
           "promptOnly": false,
           "runOnEdit": true,
           "substituteRegex": 0,
@@ -271,15 +273,32 @@
         },
         {
           "id": "yan-chengyu-status-card",
-          "scriptName": "晏承聿｜剧情状态胶囊卡",
-          "findRegex": "/<status>\\s*([^：<\\n]{2,18})：([\\s\\S]*?)<\\/status>/g",
-          "replaceString": "<section style=\"margin:15px 0 2px;padding:11px;border:1px solid rgba(255,255,255,.78);border-radius:18px;background:linear-gradient(145deg,rgba(239,232,246,.90),rgba(249,239,244,.84));box-shadow:0 10px 28px rgba(83,65,101,.10);backdrop-filter:blur(18px);-webkit-backdrop-filter:blur(18px);\"><div style=\"display:flex;align-items:center;justify-content:space-between;gap:10px;padding:1px 3px 9px;\"><span style=\"color:#765a8b;font-size:.80em;font-weight:850;letter-spacing:.08em;\">✦ 剧情状态</span><span style=\"padding:3px 8px;border-radius:999px;color:#9a7289;background:rgba(255,255,255,.58);font-size:.68em;\">晏承聿</span></div><div style=\"display:grid;grid-template-columns:minmax(72px,auto) 1fr;gap:8px;align-items:start;padding:8px 10px;border-radius:12px;background:rgba(255,255,255,.48);\"><span style=\"color:#9075a4;font-size:.76em;font-weight:800;letter-spacing:.02em;\">$1</span><span style=\"min-width:0;color:#625b67;font-size:.82em;line-height:1.55;\">$2</span></div></section>",
+          "scriptName": "晏承聿内心状态栏",
+          "findRegex": "/<status>([\\s\\S]*?)<\\/status>/gi",
+          "replaceString": "<details class=\"ycy-status\" style=\"margin-top:16px\"><summary style=\"cursor:pointer;padding:11px 14px;border-radius:14px;background:linear-gradient(135deg,rgba(222,216,228,.95),rgba(240,235,242,.97));color:#514957;font-weight:700;list-style:none\">晏承聿的内心状态</summary><div style=\"padding:12px 14px;line-height:1.78;color:#625968;background:linear-gradient(145deg,rgba(239,235,242,.95),rgba(249,247,250,.98));border-radius:0 0 14px 14px;white-space:pre-wrap\">$1</div></details>",
           "trimStrings": [],
           "placement": [
             2
           ],
           "disabled": false,
-          "markdownOnly": true,
+          "markdownOnly": false,
+          "promptOnly": false,
+          "runOnEdit": true,
+          "substituteRegex": 0,
+          "minDepth": null,
+          "maxDepth": null
+        },
+        {
+          "id": "yan-chengyu-story-card",
+          "scriptName": "晏承聿全文气泡美化",
+          "findRegex": "/^([\\s\\S]+)$/g",
+          "replaceString": "<div class=\"ycy-story-card\" style=\"width:100%;padding:18px 18px 16px;border:1px solid rgba(102,86,113,.16);border-radius:22px;color:#474149;background:linear-gradient(155deg,rgba(251,249,252,.98),rgba(243,239,246,.97));box-shadow:0 12px 30px rgba(65,50,76,.09);line-height:1.82;white-space:normal;overflow-wrap:anywhere\">$1</div>",
+          "trimStrings": [],
+          "placement": [
+            2
+          ],
+          "disabled": false,
+          "markdownOnly": false,
           "promptOnly": false,
           "runOnEdit": true,
           "substituteRegex": 0,
