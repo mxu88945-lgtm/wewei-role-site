@@ -27,7 +27,7 @@
       "主角保护"
     ],
     "creator": "惟境 · 伯恩",
-    "character_version": "1.0 · 男主独立卡",
+    "character_version": "1.1 · 场景与状态美化版",
     "character_book": {
       "name": "晏承聿 · 世界书",
       "description": "男主已知信息、关系索引、宴会规则与前两阶段锁。隐藏真相不写入本卡。",
@@ -234,7 +234,59 @@
       ]
     },
     "extensions": {
-      "regex_scripts": []
+      "regex_scripts": [
+        {
+          "id": "yan-chengyu-scene-card",
+          "scriptName": "晏承聿｜场景信息玻璃卡",
+          "findRegex": "/<scene>\\s*⏰\\s*时间：([^\\n<]+)\\s*\\n+\\s*🏙️\\s*地点：([^<]+?)\\s*<\\/scene>/g",
+          "replaceString": "<section style=\"margin:0 0 14px;padding:12px 13px;border:1px solid rgba(255,255,255,.78);border-radius:18px;background:linear-gradient(135deg,rgba(241,235,248,.92),rgba(255,247,250,.82));box-shadow:0 10px 26px rgba(92,72,112,.10);backdrop-filter:blur(18px);-webkit-backdrop-filter:blur(18px);\"><div style=\"display:flex;align-items:center;gap:8px;margin-bottom:7px;color:#806a98;font-size:.84em;font-weight:750;\"><span style=\"display:grid;place-items:center;width:24px;height:24px;border-radius:9px;background:rgba(139,104,177,.13);\">⏰</span><span>$1</span></div><div style=\"display:flex;align-items:center;gap:8px;color:#6f6874;font-size:.86em;\"><span style=\"display:grid;place-items:center;width:24px;height:24px;border-radius:9px;background:rgba(205,145,167,.13);\">⌖</span><span>$2</span></div></section>",
+          "trimStrings": [],
+          "placement": [
+            2
+          ],
+          "disabled": false,
+          "markdownOnly": true,
+          "promptOnly": false,
+          "runOnEdit": true,
+          "substituteRegex": 0,
+          "minDepth": null,
+          "maxDepth": null
+        },
+        {
+          "id": "yan-chengyu-status-separator",
+          "scriptName": "晏承聿｜状态栏分项",
+          "findRegex": "/\\s*｜\\s*([^：｜<\\n]{2,18})：/g",
+          "replaceString": "</span></div><div style=\"display:grid;grid-template-columns:minmax(72px,auto) 1fr;gap:8px;align-items:start;padding:8px 10px;border-radius:12px;background:rgba(255,255,255,.48);\"><span style=\"color:#9075a4;font-size:.76em;font-weight:800;letter-spacing:.02em;\">$1</span><span style=\"min-width:0;color:#625b67;font-size:.82em;line-height:1.55;\">",
+          "trimStrings": [],
+          "placement": [
+            2
+          ],
+          "disabled": false,
+          "markdownOnly": true,
+          "promptOnly": false,
+          "runOnEdit": true,
+          "substituteRegex": 0,
+          "minDepth": null,
+          "maxDepth": null
+        },
+        {
+          "id": "yan-chengyu-status-card",
+          "scriptName": "晏承聿｜剧情状态胶囊卡",
+          "findRegex": "/<status>\\s*([^：<\\n]{2,18})：([\\s\\S]*?)<\\/status>/g",
+          "replaceString": "<section style=\"margin:15px 0 2px;padding:11px;border:1px solid rgba(255,255,255,.78);border-radius:18px;background:linear-gradient(145deg,rgba(239,232,246,.90),rgba(249,239,244,.84));box-shadow:0 10px 28px rgba(83,65,101,.10);backdrop-filter:blur(18px);-webkit-backdrop-filter:blur(18px);\"><div style=\"display:flex;align-items:center;justify-content:space-between;gap:10px;padding:1px 3px 9px;\"><span style=\"color:#765a8b;font-size:.80em;font-weight:850;letter-spacing:.08em;\">✦ 剧情状态</span><span style=\"padding:3px 8px;border-radius:999px;color:#9a7289;background:rgba(255,255,255,.58);font-size:.68em;\">晏承聿</span></div><div style=\"display:grid;grid-template-columns:minmax(72px,auto) 1fr;gap:8px;align-items:start;padding:8px 10px;border-radius:12px;background:rgba(255,255,255,.48);\"><span style=\"color:#9075a4;font-size:.76em;font-weight:800;letter-spacing:.02em;\">$1</span><span style=\"min-width:0;color:#625b67;font-size:.82em;line-height:1.55;\">$2</span></div></section>",
+          "trimStrings": [],
+          "placement": [
+            2
+          ],
+          "disabled": false,
+          "markdownOnly": true,
+          "promptOnly": false,
+          "runOnEdit": true,
+          "substituteRegex": 0,
+          "minDepth": null,
+          "maxDepth": null
+        }
+      ]
     }
   }
 }
