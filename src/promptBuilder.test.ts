@@ -181,6 +181,13 @@ describe('buildChatPrompt', () => {
     expect(all).toContain('<status>…</status>')
     expect(all).toContain('字段 时间、地点、心理、阶段、身体')
     expect(all).toContain('不能只在开场使用')
+    expect(all).toContain('顶部场景结构（本卡有则必须输出）→剧情正文→末尾状态结构（本卡有则必须输出）')
+    expect(all).toContain('不得只输出正文')
     expect(all).toContain('不要输出正则替换模板里的 div、CSS')
+    const finalContinuityIndex = result.map((message) =>
+      typeof message.content === 'string' && message.content.includes('【角色消息美化连续性】'),
+    ).lastIndexOf(true)
+    expect(finalContinuityIndex).toBe(result.length - 2)
+    expect(String(result[result.length - 1]?.content)).toContain('【用户主角控制权｜最高优先级】')
   })
 })
