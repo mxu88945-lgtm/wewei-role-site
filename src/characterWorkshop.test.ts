@@ -102,6 +102,8 @@ describe('character workshop', () => {
     expect(prompt).toContain('绝对不要使用 3')
     expect(prompt).toContain('禁止 position:fixed/sticky')
     expect(prompt).toContain('阻止聊天列表纵向滚动')
+    expect(prompt).toContain('每次角色回复都保留同一套标签与字段')
+    expect(prompt).toContain('开场有、后续回复没有')
   })
 
   it('repairs placement 3 in copilot bubble proposals before applying them', () => {
