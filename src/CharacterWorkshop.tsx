@@ -5,7 +5,7 @@ import { createCharacterCardPng, importCharacterCard, type Character, type Regex
 import {
   applyWorkshopCopilotPatch, buildCharacterWorkshopPrompt, buildWorkshopCopilotCompressionPrompt,
   buildWorkshopCopilotPrompt, characterFromWorkshopDraft, createEmptyCharacterWorkshopDraft,
-  describeWorkshopCopilotPatch, parseCharacterWorkshopDraft, parseWorkshopCopilotResponse,
+  describeWorkshopCopilotPatch, normalizeWorkshopRegexScript, parseCharacterWorkshopDraft, parseWorkshopCopilotResponse,
   type CharacterWorkshopBrief, type CharacterWorkshopDraft, type WorkshopCopilotMessage, type WorkshopCopilotPatch,
 } from './characterWorkshop'
 import './character-workshop.css'
@@ -24,7 +24,7 @@ const initialBrief: CharacterWorkshopBrief = { concept: '', name: '', relationsh
 const blankWorldEntry = () => ({ title: '新世界书条目', keywords: [] as string[], content: '', constant: false })
 const blankRegex = (): RegexScript => ({
   id: crypto.randomUUID(), scriptName: '新 UI 美化', findRegex: '', replaceString: '', trimStrings: [],
-  placement: [1, 2], disabled: false, markdownOnly: false, promptOnly: false, runOnEdit: false,
+  placement: [2], disabled: false, markdownOnly: false, promptOnly: false, runOnEdit: true,
   substituteRegex: 0, minDepth: null, maxDepth: null,
 })
 
@@ -81,7 +81,11 @@ export default function CharacterWorkshop({ channels, defaultChannelId, onBack, 
 }) {
   const saved = useRef(loadSaved()).current
   const [brief, setBrief] = useState(saved.brief || initialBrief)
-  const [result, setResult] = useState<CharacterWorkshopDraft | null>(saved.result ? { ...saved.result, worldbook: saved.result.worldbook || [], regexScripts: saved.result.regexScripts || [] } : null)
+  const [result, setResult] = useState<CharacterWorkshopDraft | null>(saved.result ? {
+    ...saved.result,
+    worldbook: saved.result.worldbook || [],
+    regexScripts: (saved.result.regexScripts || []).map(normalizeWorkshopRegexScript),
+  } : null)
   const [avatar, setAvatar] = useState(saved.avatar || '')
   const [cardImage, setCardImage] = useState('')
   const [channelId, setChannelId] = useState(defaultChannelId || channels[0]?.id || '')
@@ -114,6 +118,16 @@ export default function CharacterWorkshop({ channels, defaultChannelId, onBack, 
 
   const patchBrief = (patch: Partial<CharacterWorkshopBrief>) => setBrief((current) => ({ ...current, ...patch }))
   const patchResult = (patch: Partial<CharacterWorkshopDraft>) => setResult((current) => current ? { ...current, ...patch } : current)
+  const patchRegexScript = (id: string, patch: Partial<RegexScript>) => setResult((current) => current ? {
+    ...current,
+    regexScripts: current.regexScripts.map((script) => script.id === id ? { ...script, ...patch } : script),
+  } : current)
+  const toggleRegexPlacement = (script: RegexScript, placement: 1 | 2, checked: boolean) => {
+    const next = checked
+      ? [...new Set([...script.placement, placement])]
+      : script.placement.filter((item) => item !== placement)
+    patchRegexScript(script.id, { placement: next.length ? next : [2] })
+  }
 
   const generate = async () => {
     if (!brief.concept.trim()) { setError('先告诉我你想做一个什么样的角色。'); setState('error'); return }
@@ -332,10 +346,10 @@ export default function CharacterWorkshop({ channels, defaultChannelId, onBack, 
         </div>
         {copilotMemory && <details className="copilot-memory"><summary>已压缩的长期记忆</summary><p>{copilotMemory}</p></details>}
         <div className="copilot-quick">
-          {['帮我设计开场栏美化', '检查并修好现有正则', '把消息气泡换一种风格', '陪我继续调整整张卡'].map((request) => <button key={request} disabled={copilotState !== 'idle'} onClick={() => askCopilot(request)}>{request}</button>)}
+          {['修改开场白与气泡', '修复聊天页气泡不生效', '检查并修好现有正则', '把角色消息气泡换一种风格'].map((request) => <button key={request} disabled={copilotState !== 'idle'} onClick={() => askCopilot(request)}>{request}</button>)}
         </div>
         <div className="copilot-chat" aria-live="polite">
-          {copilotMessages.length === 0 && <div className="copilot-welcome"><strong>你可以像聊天一样慢慢说。</strong><p>比如“状态栏想要冷灰玻璃感，先别动气泡”“这个正则为什么没生效”“把现有开场栏改成可折叠”。我会读当前草稿，和你讨论，再把确认的方案写进去。</p></div>}
+          {copilotMessages.length === 0 && <div className="copilot-welcome"><strong>你可以像聊天一样慢慢说。</strong><p>比如“把开场白和气泡一起改成紫灰色”“这个气泡预览有、聊天页为什么没有”“只改开场，不动正文剧情”。我会同时读开场正文和已有正则，再把确认的方案写进去。</p></div>}
           {copilotMessages.map((message) => <div key={message.id} className={`copilot-message ${message.role}`}>
             <span>{message.role === 'user' ? '你' : '工坊助手'}</span>
             {!!message.images?.length && <div className="copilot-message-images">{message.images.map((image) => <img key={image.id} src={image.dataUrl} alt={image.name || '用户截图'} />)}</div>}
@@ -377,6 +391,12 @@ export default function CharacterWorkshop({ channels, defaultChannelId, onBack, 
           <TextArea label="性格与行为逻辑" rows={8} value={result.personality} onChange={(personality) => patchResult({ personality })} />
           <TextArea label="场景与初始关系" rows={7} value={result.scenario} onChange={(scenario) => patchResult({ scenario })} />
           <TextArea label="开场白" rows={10} value={result.greeting} onChange={(greeting) => patchResult({ greeting })} />
+          <button
+            type="button"
+            className="workshop-inline-assistant"
+            disabled={copilotState !== 'idle'}
+            onClick={() => askCopilot('请同时检查当前开场白正文和负责开场显示的正则：保持剧情正文可编辑，修复角色回复 placement 为 [2]，并让开场气泡在实际聊天页生效。只修改开场白与相关正则，先给我可确认的方案。')}
+          >✦ 让工坊助手一起修改开场白与气泡</button>
           <details><summary>高级提示词与示例对话</summary><TextArea label="系统提示词" rows={10} value={result.systemPrompt} onChange={(systemPrompt) => patchResult({ systemPrompt })} /><TextArea label="历史后置指令" rows={8} value={result.postHistoryInstructions} onChange={(postHistoryInstructions) => patchResult({ postHistoryInstructions })} /><TextArea label="示例对话" rows={8} value={result.mesExample} onChange={(mesExample) => patchResult({ mesExample })} /><TextArea label="作者说明" rows={6} value={result.creatorNotes} onChange={(creatorNotes) => patchResult({ creatorNotes })} /></details>
         </div>
         <div className="workshop-card worldbook-preview">
@@ -387,7 +407,24 @@ export default function CharacterWorkshop({ channels, defaultChannelId, onBack, 
         <div className="workshop-card worldbook-preview">
           <div className="workshop-section-heading"><div><strong>正则与 UI 美化</strong><small>{result.regexScripts.length} 条 · 可粘贴 HTML/CSS 替换模板</small></div><button onClick={() => patchResult({ regexScripts: [...result.regexScripts, blankRegex()] })}>＋ 添加</button></div>
           {result.regexScripts.length === 0 && <div className="workshop-empty">普通角色卡不必填写；需要状态栏、消息框等美化时再添加。</div>}
-          {result.regexScripts.map((script, index) => <details key={script.id}><summary>{script.scriptName || `UI 美化 ${index + 1}`}</summary><label><span>名称</span><input value={script.scriptName} onChange={(event) => patchResult({ regexScripts: result.regexScripts.map((item) => item.id === script.id ? { ...item, scriptName: event.target.value } : item) })} /></label><TextArea label="查找正则" rows={4} value={script.findRegex} onChange={(findRegex) => patchResult({ regexScripts: result.regexScripts.map((item) => item.id === script.id ? { ...item, findRegex } : item) })} /><TextArea label="替换内容（支持 HTML/CSS）" rows={8} value={script.replaceString} onChange={(replaceString) => patchResult({ regexScripts: result.regexScripts.map((item) => item.id === script.id ? { ...item, replaceString } : item) })} /><label className="workshop-check"><input type="checkbox" checked={!script.disabled} onChange={(event) => patchResult({ regexScripts: result.regexScripts.map((item) => item.id === script.id ? { ...item, disabled: !event.target.checked } : item) })} /><span>启用这条美化</span></label><button className="workshop-delete" onClick={() => patchResult({ regexScripts: result.regexScripts.filter((item) => item.id !== script.id) })}>删除这条美化</button></details>)}
+          {result.regexScripts.map((script, index) => <details key={script.id}>
+            <summary>{script.scriptName || `UI 美化 ${index + 1}`}</summary>
+            <label><span>名称</span><input value={script.scriptName} onChange={(event) => patchRegexScript(script.id, { scriptName: event.target.value })} /></label>
+            <TextArea label="查找正则" rows={4} value={script.findRegex} onChange={(findRegex) => patchRegexScript(script.id, { findRegex })} />
+            <TextArea label="替换内容（支持 HTML/CSS）" rows={8} value={script.replaceString} onChange={(replaceString) => patchRegexScript(script.id, { replaceString })} />
+            <div className="workshop-regex-options">
+              <strong>作用位置</strong>
+              <p>开场白和角色回复请选择“角色回复与开场（2）”。位置 3 在惟境聊天中不会运行。</p>
+              <label className="workshop-check"><input type="checkbox" checked={script.placement.includes(1)} onChange={(event) => toggleRegexPlacement(script, 1, event.target.checked)} /><span>用户消息（1）</span></label>
+              <label className="workshop-check"><input type="checkbox" checked={script.placement.includes(2)} onChange={(event) => toggleRegexPlacement(script, 2, event.target.checked)} /><span>角色回复与开场（2）</span></label>
+              <strong>运行开关</strong>
+              <label className="workshop-check"><input type="checkbox" checked={!script.disabled} onChange={(event) => patchRegexScript(script.id, { disabled: !event.target.checked })} /><span>启用这条美化</span></label>
+              <label className="workshop-check"><input type="checkbox" checked={script.markdownOnly} onChange={(event) => patchRegexScript(script.id, { markdownOnly: event.target.checked })} /><span>仅 Markdown</span></label>
+              <label className="workshop-check"><input type="checkbox" checked={script.promptOnly} onChange={(event) => patchRegexScript(script.id, { promptOnly: event.target.checked })} /><span>仅提示词</span></label>
+              <label className="workshop-check"><input type="checkbox" checked={script.runOnEdit} onChange={(event) => patchRegexScript(script.id, { runOnEdit: event.target.checked })} /><span>编辑时运行</span></label>
+            </div>
+            <button className="workshop-delete" onClick={() => patchResult({ regexScripts: result.regexScripts.filter((item) => item.id !== script.id) })}>删除这条美化</button>
+          </details>)}
         </div>
         <div className="workshop-export-block"><div className="workshop-actions"><button onClick={() => { const character = makeCharacter(); if (character) onExport(character) }}>导出 V3 JSON</button><button disabled={!avatar || pngExporting} onClick={exportPng}>{pngExporting ? '正在生成并自检…' : avatar ? '导出／分享元数据 PNG' : '上传立绘后导出 PNG'}</button><button className="primary" onClick={() => { const character = makeCharacter(); if (character) onSave(character) }}>加入角色库</button></div>{exportNotice && <div className="workshop-export-notice">✓ {exportNotice}</div>}<div className="workshop-export-tip">iPhone：请选择“存储到文件”，再从文件 App 导入。存进相册会被系统洗掉角色卡元数据。</div></div>
       </>}
