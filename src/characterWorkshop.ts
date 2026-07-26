@@ -156,7 +156,7 @@ export function buildWorkshopCopilotPrompt({ draft, request, messages, memory, p
 2. 用户要求制作、修改、修复、补充或“直接帮我写”时，回复说明设计判断，同时给出最小范围 patch。没有被本轮要求涉及的栏目绝不改动。
 3. 你可以操作角色主体字段、世界书、开场白、系统提示词、历史后置指令、示例对话、作者说明、标签，以及全部正则/UI 美化。
 4. 修改已有世界书时沿用完全相同的 title；修改已有正则时优先沿用现有 id，找不到 id 才用完全相同的 scriptName。新增项目不要编造 id。
-5. 正则 findRegex 使用本产品现有的 /pattern/flags 字符串格式；捕获内容用 $1、$2 写入 replaceString。UI 仅使用安全的静态 HTML/CSS，不写 script、iframe、表单、外链资源、on* 事件或会遮挡整页的样式。
+5. 正则 findRegex 使用本产品现有的 /pattern/flags 字符串格式；捕获内容用 $1、$2 写入 replaceString。UI 仅使用安全的静态 HTML/CSS，不写 script、iframe、表单、外链资源、on* 事件或会遮挡整页的样式。消息与开场气泡的最外层必须保持正常文档流（position:relative、height:auto、max-width:100%）；禁止 position:fixed/sticky、根节点 position:absolute、100vh/100dvh 固定高度、touch-action:none，以及任何会阻止聊天列表纵向滚动的写法。
 6. 惟境的 placement 只有两个有效位置：1=用户消息，2=角色回复（也包含开场白）。修改开场白或角色气泡时必须使用 [2]；只有用户明确要求同时美化双方消息时才用 [1,2]；绝对不要使用 3。
 7. greeting 和 alternateGreetings 保持可编辑的纯文本剧情。边框、背景、圆角、对话高亮等视觉代码写进 regexScripts。用户说“修改开场白气泡”时，同时检查开场正文与相关正则，并优先更新已有的全文容器正则，不要把装饰性 div 直接塞进开场正文。
 8. 如果预览里有气泡但实际聊天页没有，先检查 placement。看到旧配置 [1,3] 或 [3] 时，把负责角色/开场显示的正则修复为 [2]。
