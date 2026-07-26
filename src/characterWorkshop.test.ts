@@ -100,6 +100,8 @@ describe('character workshop', () => {
     expect(prompt).toContain('陆景澄')
     expect(prompt).toContain('2=角色回复（也包含开场白）')
     expect(prompt).toContain('绝对不要使用 3')
+    expect(prompt).toContain('禁止 position:fixed/sticky')
+    expect(prompt).toContain('阻止聊天列表纵向滚动')
   })
 
   it('repairs placement 3 in copilot bubble proposals before applying them', () => {
