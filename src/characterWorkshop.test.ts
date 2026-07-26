@@ -23,6 +23,26 @@ describe('character workshop', () => {
     const prompt = buildCharacterWorkshopPrompt({ concept: '年下珠宝设计师', name: '', relationship: '海外旧识', tone: '明朗', pace: '极慢热', boundaries: '不代演用户' })
     expect(prompt).toContain('年下珠宝设计师')
     expect(prompt).toContain('极慢热')
+    expect(prompt).toContain('placement [2]')
+    expect(prompt).toContain('绝不使用 3')
+  })
+
+  it('keeps generated opening UI and repairs the legacy placement 3', () => {
+    const draft = parseCharacterWorkshopDraft(JSON.stringify({
+      name: '苏星宇',
+      description: '建筑系学生',
+      greeting: '姐姐，你回来啦？',
+      regexScripts: [{
+        scriptName: '开场白容器',
+        findRegex: '/^([\\s\\S]+)$/',
+        replaceString: '<div class="opening">$1</div>',
+        placement: [1, 3],
+        markdownOnly: true,
+      }],
+    }))
+    expect(draft.regexScripts).toHaveLength(1)
+    expect(draft.regexScripts[0].placement).toEqual([2])
+    expect(draft.regexScripts[0].runOnEdit).toBe(true)
   })
 
   it('writes a complete V3 card into PNG metadata and reads it back', async () => {
@@ -78,5 +98,27 @@ describe('character workshop', () => {
     expect(prompt).toContain('本轮附有 1 张截图')
     expect(prompt).toContain('气泡再冷一点')
     expect(prompt).toContain('陆景澄')
+    expect(prompt).toContain('2=角色回复（也包含开场白）')
+    expect(prompt).toContain('绝对不要使用 3')
+  })
+
+  it('repairs placement 3 in copilot bubble proposals before applying them', () => {
+    const draft = parseCharacterWorkshopDraft('{"name":"苏星宇","description":"建筑系学生","greeting":"姐姐。"}')
+    const response = parseWorkshopCopilotResponse(JSON.stringify({
+      reply: '已经修好开场气泡的运行位置。',
+      patch: {
+        summary: '修复开场气泡',
+        regexScripts: {
+          upsert: [{
+            scriptName: '开场白容器',
+            findRegex: '/^([\\s\\S]+)$/',
+            replaceString: '<div>$1</div>',
+            placement: [1, 3],
+          }],
+        },
+      },
+    }))
+    const next = applyWorkshopCopilotPatch(draft, response.patch!)
+    expect(next.regexScripts[0].placement).toEqual([2])
   })
 })

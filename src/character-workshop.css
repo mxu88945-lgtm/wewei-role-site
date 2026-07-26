@@ -31,6 +31,13 @@
 .workshop-empty { padding: 16px; border-radius: 16px; color: #968d99; background: rgba(255,255,255,.42); font-size: 11px; line-height: 1.6; }
 .workshop-check { grid-template-columns: auto 1fr !important; align-items: center; }
 .workshop-check input { width: 18px; height: 18px; accent-color: var(--theme-accent); }
+.workshop-inline-assistant { margin-top: -5px; border: 1px solid color-mix(in srgb,var(--theme-accent) 22%,transparent); border-radius: 14px; padding: 11px 13px; color: var(--theme-accent-text); background: color-mix(in srgb,var(--theme-accent-soft) 76%,#fff); font-size: 10px; font-weight: 850; }
+.workshop-inline-assistant:disabled { opacity: .48; }
+.workshop-regex-options { margin-top: 12px; padding: 12px; display: grid; grid-template-columns: 1fr 1fr; gap: 9px 12px; border-radius: 16px; background: rgba(255,255,255,.46); }
+.workshop-regex-options > strong { grid-column: 1 / -1; color: #655a69; font-size: 11px; }
+.workshop-regex-options > strong:not(:first-child) { margin-top: 4px; padding-top: 11px; border-top: 1px solid rgba(86,67,97,.08); }
+.workshop-regex-options > p { grid-column: 1 / -1; margin: -3px 0 2px; color: #958b98; font-size: 9px; line-height: 1.6; }
+.workshop-regex-options .workshop-check { margin: 0 !important; padding: 9px 10px; border-radius: 13px; background: rgba(255,255,255,.58); }
 .workshop-delete { width: 100%; margin-top: 12px; border: 0; border-radius: 14px; padding: 11px; color: #a45d70; background: #f8e7eb; font-weight: 800; }
 .workshop-actions { position: static; padding: 8px; display: grid; grid-template-columns: 1fr 1fr; gap: 8px; border: 1px solid rgba(255,255,255,.8); border-radius: 20px; background: rgba(247,244,248,.92); box-shadow: 0 12px 32px rgba(48,35,57,.1); }
 .workshop-actions button { min-height: 48px; border: 0; border-radius: 15px; color: var(--theme-accent-text); background: var(--theme-accent-soft); font-weight: 850; }
@@ -102,4 +109,7 @@
 .copilot-send:disabled { opacity: .42; }
 .copilot-send.stop { color: #9c596d; background: #f7e5ea; }
 .copilot-hint { padding: 0 17px 15px; color: #978e9b; font-size: 8.5px; line-height: 1.55; }
-@media (max-width: 420px) { .workshop-two { grid-template-columns: 1fr; } }
+@media (max-width: 420px) {
+  .workshop-two,.workshop-regex-options { grid-template-columns: 1fr; }
+  .workshop-regex-options > strong,.workshop-regex-options > p { grid-column: 1; }
+}

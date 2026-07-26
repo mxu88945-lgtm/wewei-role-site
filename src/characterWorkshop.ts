@@ -59,6 +59,68 @@ export const createEmptyCharacterWorkshopDraft = (): CharacterWorkshopDraft => (
 const text = (value: unknown) => typeof value === 'string' ? value.trim() : ''
 const texts = (value: unknown) => Array.isArray(value) ? value.map(text).filter(Boolean) : []
 
+const normalizeRegexPlacement = (value: unknown, fallback: number[] = [2]) => {
+  const raw = Array.isArray(value)
+    ? value.map((item) => Number(item)).filter(Number.isFinite)
+    : []
+
+  // 旧版工坊提示词曾误把 3 当成角色/开场位置；惟境实际只运行 1 和 2。
+  if (raw.includes(3) && !raw.includes(2)) return [2]
+
+  const valid = [...new Set(raw.filter((item) => item === 1 || item === 2))]
+  return valid.length ? valid : fallback
+}
+
+const freshRegex = (): RegexScript => ({
+  id: crypto.randomUUID(), scriptName: '新 UI 美化', findRegex: '', replaceString: '', trimStrings: [], placement: [2],
+  disabled: false, markdownOnly: false, promptOnly: false, runOnEdit: true, substituteRegex: 0, minDepth: null, maxDepth: null,
+})
+
+export function normalizeWorkshopRegexScript(script: RegexScript): RegexScript {
+  const fallback = freshRegex()
+  return {
+    ...fallback,
+    ...script,
+    id: text(script.id) || fallback.id,
+    scriptName: text(script.scriptName) || fallback.scriptName,
+    findRegex: text(script.findRegex),
+    replaceString: text(script.replaceString),
+    trimStrings: texts(script.trimStrings),
+    placement: normalizeRegexPlacement(script.placement),
+    disabled: Boolean(script.disabled),
+    markdownOnly: Boolean(script.markdownOnly),
+    promptOnly: Boolean(script.promptOnly),
+    runOnEdit: script.runOnEdit !== false,
+    substituteRegex: Number.isFinite(Number(script.substituteRegex)) ? Number(script.substituteRegex) : 0,
+    minDepth: script.minDepth == null ? null : Number(script.minDepth),
+    maxDepth: script.maxDepth == null ? null : Number(script.maxDepth),
+  }
+}
+
+function parseGeneratedRegexScripts(value: unknown): RegexScript[] {
+  if (!Array.isArray(value)) return []
+  return value.flatMap((item) => {
+    if (!item || typeof item !== 'object') return []
+    const entry = item as Record<string, unknown>
+    return [normalizeWorkshopRegexScript({
+      ...freshRegex(),
+      id: text(entry.id) || crypto.randomUUID(),
+      scriptName: text(entry.scriptName) || '开场气泡美化',
+      findRegex: text(entry.findRegex),
+      replaceString: text(entry.replaceString),
+      trimStrings: texts(entry.trimStrings),
+      placement: normalizeRegexPlacement(entry.placement),
+      disabled: Boolean(entry.disabled),
+      markdownOnly: Boolean(entry.markdownOnly),
+      promptOnly: Boolean(entry.promptOnly),
+      runOnEdit: entry.runOnEdit !== false,
+      substituteRegex: Number(entry.substituteRegex) || 0,
+      minDepth: entry.minDepth == null ? null : Number(entry.minDepth),
+      maxDepth: entry.maxDepth == null ? null : Number(entry.maxDepth),
+    })]
+  })
+}
+
 const copilotFieldKeys = [
   'name', 'tagline', 'description', 'personality', 'scenario', 'greeting', 'alternateGreetings',
   'mesExample', 'creatorNotes', 'systemPrompt', 'postHistoryInstructions', 'tags',
@@ -95,8 +157,11 @@ export function buildWorkshopCopilotPrompt({ draft, request, messages, memory, p
 3. 你可以操作角色主体字段、世界书、开场白、系统提示词、历史后置指令、示例对话、作者说明、标签，以及全部正则/UI 美化。
 4. 修改已有世界书时沿用完全相同的 title；修改已有正则时优先沿用现有 id，找不到 id 才用完全相同的 scriptName。新增项目不要编造 id。
 5. 正则 findRegex 使用本产品现有的 /pattern/flags 字符串格式；捕获内容用 $1、$2 写入 replaceString。UI 仅使用安全的静态 HTML/CSS，不写 script、iframe、表单、外链资源、on* 事件或会遮挡整页的样式。
-6. 不代演用户，不擅自确认恋爱关系，不删除用户内容，除非用户明确要求删除。
-7. 回复要像长期合作的工坊客服，简洁说明做了什么和为什么，不要假装已经写入；用户会在界面确认后写入。
+6. 惟境的 placement 只有两个有效位置：1=用户消息，2=角色回复（也包含开场白）。修改开场白或角色气泡时必须使用 [2]；只有用户明确要求同时美化双方消息时才用 [1,2]；绝对不要使用 3。
+7. greeting 和 alternateGreetings 保持可编辑的纯文本剧情。边框、背景、圆角、对话高亮等视觉代码写进 regexScripts。用户说“修改开场白气泡”时，同时检查开场正文与相关正则，并优先更新已有的全文容器正则，不要把装饰性 div 直接塞进开场正文。
+8. 如果预览里有气泡但实际聊天页没有，先检查 placement。看到旧配置 [1,3] 或 [3] 时，把负责角色/开场显示的正则修复为 [2]。
+9. 不代演用户，不擅自确认恋爱关系，不删除用户内容，除非用户明确要求删除。
+10. 回复要像长期合作的工坊客服，简洁说明做了什么和为什么，不要假装已经写入；用户会在界面确认后写入。
 
 只输出一个严格 JSON 对象，不要代码围栏：
 {
@@ -105,7 +170,7 @@ export function buildWorkshopCopilotPrompt({ draft, request, messages, memory, p
     "summary":"本次改动摘要",
     "fields":{"greeting":"只放确实要修改的完整新值"},
     "worldbook":{"upsert":[{"title":"条目名","keywords":["词"],"content":"完整正文","constant":false}],"removeTitles":[]},
-    "regexScripts":{"upsert":[{"id":"修改已有项时才填","scriptName":"名称","findRegex":"/(...)/gi","replaceString":"安全 HTML/CSS","placement":[1,2],"disabled":false,"markdownOnly":true,"promptOnly":false,"runOnEdit":true}],"removeIds":[]}
+    "regexScripts":{"upsert":[{"id":"修改已有项时才填","scriptName":"名称","findRegex":"/(...)/gi","replaceString":"安全 HTML/CSS","placement":[2],"disabled":false,"markdownOnly":false,"promptOnly":false,"runOnEdit":true}],"removeIds":[]}
   }
 }
 fields、worldbook、regexScripts 中不需要的部分直接省略。
@@ -171,7 +236,7 @@ function parseRegexPatch(value: unknown): WorkshopCopilotPatch['regexScripts'] {
     if (scriptName) patch.scriptName = scriptName
     if (typeof entry.findRegex === 'string') patch.findRegex = entry.findRegex.trim()
     if (typeof entry.replaceString === 'string') patch.replaceString = entry.replaceString.trim()
-    if (Array.isArray(entry.placement)) patch.placement = entry.placement.map(Number).filter(Number.isFinite)
+    if (Array.isArray(entry.placement)) patch.placement = normalizeRegexPlacement(entry.placement)
     for (const key of ['disabled', 'markdownOnly', 'promptOnly', 'runOnEdit'] as const) if (typeof entry[key] === 'boolean') patch[key] = entry[key]
     return [patch]
   }) : []
@@ -198,11 +263,6 @@ export function parseWorkshopCopilotResponse(raw: string): WorkshopCopilotRespon
   return { reply, patch: { summary: text(patchSource.summary) || '更新角色卡草稿', fields, worldbook, regexScripts } }
 }
 
-const freshRegex = (): RegexScript => ({
-  id: crypto.randomUUID(), scriptName: '新 UI 美化', findRegex: '', replaceString: '', trimStrings: [], placement: [1, 2],
-  disabled: false, markdownOnly: false, promptOnly: false, runOnEdit: false, substituteRegex: 0, minDepth: null, maxDepth: null,
-})
-
 export function applyWorkshopCopilotPatch(draft: CharacterWorkshopDraft, patch: WorkshopCopilotPatch): CharacterWorkshopDraft {
   let worldbook = draft.worldbook.map((entry) => ({ ...entry, keywords: [...entry.keywords] }))
   const removeTitles = new Set(patch.worldbook?.removeTitles || [])
@@ -213,13 +273,21 @@ export function applyWorkshopCopilotPatch(draft: CharacterWorkshopDraft, patch: 
     else worldbook.push({ ...entry, keywords: [...entry.keywords] })
   }
 
-  let regexScripts = draft.regexScripts.map((script) => ({ ...script, placement: [...script.placement], trimStrings: [...script.trimStrings] }))
+  let regexScripts = draft.regexScripts.map((script) => normalizeWorkshopRegexScript({
+    ...script,
+    placement: [...script.placement],
+    trimStrings: [...script.trimStrings],
+  }))
   const removeIds = new Set(patch.regexScripts?.removeIds || [])
   if (removeIds.size) regexScripts = regexScripts.filter((script) => !removeIds.has(script.id))
   for (const entry of patch.regexScripts?.upsert || []) {
     const index = regexScripts.findIndex((script) => (entry.id && script.id === entry.id) || (!entry.id && entry.scriptName && script.scriptName === entry.scriptName))
-    if (index >= 0) regexScripts[index] = { ...regexScripts[index], ...entry, id: regexScripts[index].id }
-    else regexScripts.push({ ...freshRegex(), ...entry, id: crypto.randomUUID() })
+    if (index >= 0) regexScripts[index] = normalizeWorkshopRegexScript({
+      ...regexScripts[index],
+      ...entry,
+      id: regexScripts[index].id,
+    })
+    else regexScripts.push(normalizeWorkshopRegexScript({ ...freshRegex(), ...entry, id: crypto.randomUUID() }))
   }
   return { ...draft, ...(patch.fields || {}), worldbook, regexScripts }
 }
@@ -251,6 +319,7 @@ export function buildCharacterWorkshopPrompt(brief: CharacterWorkshopBrief) {
 4. postHistoryInstructions 应要求先核对最近剧情、时间地点、已发生事实和未完成事项，禁止重复已完成剧情。
 5. 世界书只保留真正需要独立触发的背景、NPC、关系阶段或剧情规则，避免重复角色主体。
 6. 开场白要有具体时间、地点、局面和可回应入口，但不得替用户发言或行动。
+7. 如果用户在核心构想中明确要求气泡、UI 或美化，可以生成 regexScripts；否则返回空数组。所有开场白与角色回复美化使用 placement [2]，绝不使用 3；开场白本身保持纯文本，视觉代码只写进正则。
 
 只输出一个 JSON 对象，不要 Markdown 代码围栏，不要解释。必须完全符合：
 {
@@ -266,7 +335,8 @@ export function buildCharacterWorkshopPrompt(brief: CharacterWorkshopBrief) {
   "systemPrompt":"最高优先级扮演规则",
   "postHistoryInstructions":"历史核对与连续性规则",
   "tags":["标签"],
-  "worldbook":[{"title":"条目名","keywords":["关键词"],"content":"精简正文","constant":false}]
+  "worldbook":[{"title":"条目名","keywords":["关键词"],"content":"精简正文","constant":false}],
+  "regexScripts":[{"scriptName":"开场气泡美化","findRegex":"/^([\\\\s\\\\S]+)$/","replaceString":"安全的静态 HTML/CSS，正文用 $1","placement":[2],"disabled":false,"markdownOnly":false,"promptOnly":false,"runOnEdit":true}]
 }`
 }
 
@@ -293,7 +363,8 @@ export function parseCharacterWorkshopDraft(raw: string): CharacterWorkshopDraft
     personality: text(source.personality), scenario: text(source.scenario), greeting: text(source.greeting),
     alternateGreetings: texts(source.alternateGreetings), mesExample: text(source.mesExample),
     creatorNotes: text(source.creatorNotes), systemPrompt: text(source.systemPrompt),
-    postHistoryInstructions: text(source.postHistoryInstructions), tags: texts(source.tags), worldbook, regexScripts: [],
+    postHistoryInstructions: text(source.postHistoryInstructions), tags: texts(source.tags), worldbook,
+    regexScripts: parseGeneratedRegexScripts(source.regexScripts),
   }
   if (!draft.name || !draft.description || !draft.greeting) throw new Error('生成结果缺少姓名、角色描述或开场白，请重试。')
   return draft
@@ -330,6 +401,6 @@ export function characterFromWorkshopDraft(draft: CharacterWorkshopDraft, avatar
     cardSpec: 'chara_card_v3',
     cardSpecVersion: '3.0',
     characterBook: characterBook(draft.name, draft.worldbook),
-    regexScripts: draft.regexScripts,
+    regexScripts: draft.regexScripts.map(normalizeWorkshopRegexScript),
   })
 }
