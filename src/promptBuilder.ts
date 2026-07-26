@@ -127,7 +127,8 @@ export function displayContinuityInstruction(character: Character, messages: Sou
 
   return `【角色消息美化连续性】
 这张卡的消息 UI 依赖开场中已有的文本结构。后续每次角色回复都必须继续输出同一套结构，不能只在开场使用：${structures}。
-每轮只更新对应的时间、地点、状态与剧情内容；保留原有标签和字段名称。不要输出正则替换模板里的 div、CSS 或格式说明，界面会自行完成美化。`
+每轮输出顺序固定为：顶部场景结构（本卡有则必须输出）→剧情正文→末尾状态结构（本卡有则必须输出）。不得只输出正文，也不得省略开头或结尾结构。
+每轮只更新对应的时间、地点、状态与剧情内容；保留原有标签、标题和字段名称。不要输出正则替换模板里的 div、CSS 或格式说明，界面会自行完成美化。`
 }
 
 export function buildChatPrompt(input: PromptInput): ChatApiMessage[] {
@@ -137,6 +138,7 @@ export function buildChatPrompt(input: PromptInput): ChatApiMessage[] {
   const scanSource = recent.map((message) => message.text).join('\n')
   const entries = activeEntries(character.characterBook, scanSource)
   const memory = memoryText(input)
+  const displayContinuity = displayContinuityInstruction(character, input.messages)
   const result: ChatApiMessage[] = []
 
   if (input.memory.injectPosition === 'before-main-prompt') appendSystem(result, memory)
@@ -150,7 +152,7 @@ export function buildChatPrompt(input: PromptInput): ChatApiMessage[] {
     character.personality && `【性格】\n${character.personality}`,
     character.scenario && `【当前场景】\n${character.scenario}`,
     character.systemPrompt && `【角色系统提示词】\n${character.systemPrompt}`,
-    displayContinuityInstruction(character, input.messages),
+    displayContinuity,
     // The live project snapshot must follow persisted card instructions so an
     // older director card cannot override the newest scene and role boundary.
     input.storyProjectContext,
@@ -196,6 +198,10 @@ ${stripStageGateMetadata(input.actorContinuityAnchor || '')}`,
     result.splice(Math.max(0, result.length - 4), 0, { role, content: memory })
   }
   appendSystem(result, applyMacros(character.postHistoryInstructions, character, user.name))
+  // Depth lore, long history, and card-specific post-history instructions can
+  // dilute a display protocol placed only in the main prompt. Repeat it at the
+  // response boundary so every turn preserves the opening scene/status shell.
+  appendSystem(result, displayContinuity)
   // Repeat the non-negotiable agency boundary last so depth lore, examples,
   // history, or post-history instructions cannot silently override it.
   appendSystem(result, applyMacros(USER_AGENCY_GUARD, character, user.name))
