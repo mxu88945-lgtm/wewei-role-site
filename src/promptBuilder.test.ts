@@ -147,4 +147,40 @@ describe('buildChatPrompt', () => {
     expect(history).not.toContain('<div')
     expect(history).not.toContain('<style')
   })
+
+  it('把开场的场景与状态结构延续到后续角色回复', () => {
+    const result = buildChatPrompt({
+      character: {
+        ...character,
+        greeting: '<scene>地点：公寓客厅｜时间：周六 20:30</scene>\n门被推开。\n<status>心理：试探｜阶段：暗恋失控｜身体：健康</status>',
+        regexScripts: [
+          {
+            id: 'scene-ui', scriptName: '场景气泡', findRegex: '/<scene>([\\s\\S]*?)<\\/scene>/gi', replaceString: '<div class="scene">$1</div>', trimStrings: [], placement: [2], disabled: false,
+            markdownOnly: true, promptOnly: false, runOnEdit: true, substituteRegex: 0, minDepth: null, maxDepth: null,
+          },
+          {
+            id: 'status-ui', scriptName: '状态气泡', findRegex: '/<status>([\\s\\S]*?)<\\/status>/gi', replaceString: '<div class="status">$1</div>', trimStrings: [], placement: [2], disabled: false,
+            markdownOnly: true, promptOnly: false, runOnEdit: true, substituteRegex: 0, minDepth: null, maxDepth: null,
+          },
+        ],
+      },
+      user: { name: '惟惟', description: '' },
+      messages: [
+        { role: 'assistant', text: '<scene>地点：公寓客厅｜时间：周六 20:30</scene>\n门被推开。\n<status>心理：试探｜阶段：暗恋失控｜身体：健康</status>' },
+        { role: 'user', text: '看了他一眼。' },
+      ],
+      preset: '',
+      globalWorldbook: '',
+      memory: { entries: [], injectPosition: 'none', injectPrompt: '{{memories}}' },
+      memoryLength: 20,
+    })
+
+    const all = result.map((message) => message.content).join('\n')
+    expect(all).toContain('【角色消息美化连续性】')
+    expect(all).toContain('<scene>…</scene>')
+    expect(all).toContain('<status>…</status>')
+    expect(all).toContain('字段 时间、地点、心理、阶段、身体')
+    expect(all).toContain('不能只在开场使用')
+    expect(all).toContain('不要输出正则替换模板里的 div、CSS')
+  })
 })
