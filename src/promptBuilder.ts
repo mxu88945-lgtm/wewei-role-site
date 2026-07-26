@@ -89,6 +89,47 @@ function appendSystem(target: ChatApiMessage[], content: string) {
   if (content.trim()) target.push({ role: 'system', content: content.trim() })
 }
 
+const DISPLAY_FIELD_NAMES = ['时间', '地点', '状态', '心理', '阶段', '身体', '关系进展'] as const
+
+/**
+ * Regex replacements are display-only, so the model never sees their HTML.
+ * When a card's opening uses semantic markers or labelled status fields, keep
+ * that small text protocol in the prompt so later replies can activate the
+ * same scene/status UI instead of only the opening looking complete.
+ */
+export function displayContinuityInstruction(character: Character, messages: SourceMessage[]) {
+  const displayScripts = character.regexScripts.filter((script) =>
+    !script.disabled
+    && !script.promptOnly
+    && script.placement.includes(2)
+    && /<(?:div|section|article|details|summary|table|span|p)\b/i.test(script.replaceString),
+  )
+  if (!displayScripts.length) return ''
+
+  const firstAssistant = messages.find((message) => message.role === 'assistant')?.text || ''
+  const source = [
+    character.greeting,
+    ...character.alternateGreetings,
+    firstAssistant,
+    ...displayScripts.map((script) => script.findRegex),
+  ].filter(Boolean).join('\n')
+
+  const tags = Array.from(source.matchAll(/<([a-z][\w-]{1,40})\b/gi), (match) => match[1].toLocaleLowerCase())
+    .filter((tag) => tag === 'scene' || tag === 'plot' || tag === 'status' || tag.endsWith('_status'))
+  const uniqueTags = Array.from(new Set(tags))
+  const fields = DISPLAY_FIELD_NAMES.filter((field) => new RegExp(`${field}\\s*[：:]`).test(source))
+  if (!uniqueTags.length && fields.length < 2) return ''
+
+  const structures = [
+    uniqueTags.length ? `结构标签 ${uniqueTags.map((tag) => `<${tag}>…</${tag}>`).join('、')}` : '',
+    fields.length ? `字段 ${fields.join('、')}` : '',
+  ].filter(Boolean).join('；')
+
+  return `【角色消息美化连续性】
+这张卡的消息 UI 依赖开场中已有的文本结构。后续每次角色回复都必须继续输出同一套结构，不能只在开场使用：${structures}。
+每轮只更新对应的时间、地点、状态与剧情内容；保留原有标签和字段名称。不要输出正则替换模板里的 div、CSS 或格式说明，界面会自行完成美化。`
+}
+
 export function buildChatPrompt(input: PromptInput): ChatApiMessage[] {
   const { character, user } = input
   const available = uncompressedMessages(input.messages, input.compressedUntil, Boolean(input.contextSummary))
@@ -109,6 +150,7 @@ export function buildChatPrompt(input: PromptInput): ChatApiMessage[] {
     character.personality && `【性格】\n${character.personality}`,
     character.scenario && `【当前场景】\n${character.scenario}`,
     character.systemPrompt && `【角色系统提示词】\n${character.systemPrompt}`,
+    displayContinuityInstruction(character, input.messages),
     // The live project snapshot must follow persisted card instructions so an
     // older director card cannot override the newest scene and role boundary.
     input.storyProjectContext,
