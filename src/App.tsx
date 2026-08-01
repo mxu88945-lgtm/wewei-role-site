@@ -27,35 +27,12 @@ import { buildReplyHelperMessages, cleanReplyHelperDraft } from './replyHelper'
 import { planContextCompression, uncompressedMessages } from './contextCompression'
 import { findLatestActorContinuityAnchor } from './actorContinuity'
 import ReplyHelperSettingsPage from './ReplyHelperSettingsPage'
+import { createFreshConversationFrom, type Conversation, type Message } from './conversationLifecycle'
 
 type Page = 'home' | 'story-projects' | 'characters' | 'create' | 'character-workshop' | 'group-create' | 'director-template' | 'group-greeting-picker' | 'import-preview' | 'character-detail' | 'card-data' | 'card-worldbook' | 'card-regex' | 'greeting-picker' | 'chat' | 'more' | 'api' | 'reply-helper-api' | 'model' | 'settings' | 'appearance' | 'font' | 'display-reply' | 'identity' | 'worldbook' | 'theater-world' | 'preset' | 'memory' | 'memory-api' | 'memory-list'
-type Message = { id: number; role: 'user' | 'assistant'; text: string; characterId?: string; finishReason?: string | null }
 type MessageEditor = { mode: 'assistant' | 'resend'; messageId: number; text: string }
 type Drawer = 'left' | 'right'
 type HistoryEntry = { page: Page; reopenDrawer?: Drawer }
-type Conversation = {
-  id: string
-  characterId: string
-  title: string
-  messages: Message[]
-  createdAt: number
-  updatedAt: number
-  contextSummary?: string
-  contextSummaryRevision?: number
-  compressedUntil?: number
-  historyRevision?: number
-  kind?: 'single' | 'group'
-  participantIds?: string[]
-  participantApiIds?: Record<string, string>
-  participantModelNames?: Record<string, string>
-  memorySummarizedCount?: number
-  personaId?: string
-  themePresetId?: string
-  themeFrost?: number
-  theaterWorldBackground?: string
-  directorCharacterId?: string
-  directorConfig?: DirectorTemplateConfig
-}
 type LegacySessionMap = Record<string, Message[]>
 type MemoryEntry = { id: string; createdAt: number; title: string; content: string; sourceCount: number; pinned?: boolean; consolidated?: boolean; historyRevision?: number; restoredFromId?: string }
 type MemoryConfig = {
@@ -345,7 +322,7 @@ function App() {
   const [importState, setImportState] = useState<'idle' | 'reading' | 'error'>('idle')
   const [importError, setImportError] = useState('')
   const [pendingImport, setPendingImport] = useState<Character | null>(null)
-  const [restartingConversationId, setRestartingConversationId] = useState<string | null>(null)
+  const [newConversationSourceId, setNewConversationSourceId] = useState<string | null>(null)
   const [chatJump, setChatJump] = useState({ up: false, down: false, visible: false })
   const [composerExpanded, setComposerExpanded] = useState(false)
   const [composerCanExpand, setComposerCanExpand] = useState(false)
@@ -370,8 +347,9 @@ function App() {
   const activeConversation = (explicitConversation?.kind === 'group' ? explicitConversation : conversations.find((item) => item.id === activeConversationId && item.characterId === activeCharacter.id))
     || conversations.filter((item) => item.characterId === activeCharacter.id).sort((a, b) => b.updatedAt - a.updatedAt)[0]
   const identity = identities.find((item) => item.id === activeConversation?.personaId) || identities.find((item) => item.id === activePersonaId) || identities[0] || { id: 'persona-default', name: '周惟惟', description: '由用户亲自决定言行、心理与关键选择。' }
-  const restartingGroupConversation = conversations.find((item) => item.id === restartingConversationId && item.kind === 'group')
-  const groupGreetingCharacters = (restartingGroupConversation?.participantIds || groupDraft.participantIds).map((id) => characters.find((item) => item.id === id)).filter(Boolean) as Character[]
+  const sourceGroupConversation = conversations.find((item) => item.id === newConversationSourceId && item.kind === 'group')
+  const groupGreetingCharacters = (sourceGroupConversation?.participantIds || groupDraft.participantIds).map((id) => characters.find((item) => item.id === id)).filter(Boolean) as Character[]
+  const groupGreetingUserName = newConversationSourceId ? identity.name : (identities.find((item) => item.id === activePersonaId) || identity).name
   const messages = activeConversation?.messages || [{ id: 1, role: 'assistant' as const, text: activeCharacter.greeting }]
   const memoryConfigFor = (characterId: string) => {
     const config = memoryConfigs[characterId] || defaultMemoryConfig()
@@ -774,16 +752,15 @@ function App() {
   }
 
   const beginGroupWithGreeting = (choice: GroupGreetingChoice) => {
-    if (!restartingConversationId) { createGroupConversation(choice); return }
-    const id = restartingConversationId
-    const now = Date.now()
-    markStoryHistoryForReview(id)
-    setConversations((current) => current.map((item) => item.id === id
-      ? rewriteConversationHistory(item, [{ id: now, role: 'assistant', text: choice.greeting, characterId: choice.characterId }])
-      : item))
-    setActiveConversationId(id)
+    if (!newConversationSourceId) { createGroupConversation(choice); return }
+    const source = conversations.find((item) => item.id === newConversationSourceId && item.kind === 'group')
+    if (!source) { setNewConversationSourceId(null); replacePage('chat'); return }
+    const conversation = createFreshConversationFrom(source, choice.greeting, choice.characterId)
+    setConversations((current) => [...current, conversation])
+    setMemoryEntries((current) => ({ ...current, [conversation.id]: [] }))
+    setActiveConversationId(conversation.id)
     setActiveId(choice.characterId)
-    setRestartingConversationId(null)
+    setNewConversationSourceId(null)
     replacePage('chat')
   }
 
@@ -932,14 +909,14 @@ function App() {
   }
   const newSession = () => navigate('greeting-picker')
   const beginWithGreeting = (greeting: string) => {
-    if (restartingConversationId) {
-      const id = restartingConversationId
-      markStoryHistoryForReview(id)
-      setConversations((current) => current.map((item) => item.id === id
-        ? rewriteConversationHistory(item, [{ id: Date.now(), role: 'assistant', text: greeting }])
-        : item))
-      setActiveConversationId(id)
-      setRestartingConversationId(null)
+    if (newConversationSourceId) {
+      const source = conversations.find((item) => item.id === newConversationSourceId && item.kind !== 'group')
+      if (!source) { setNewConversationSourceId(null); replacePage('chat'); return }
+      const conversation = createFreshConversationFrom(source, greeting)
+      setConversations((current) => [...current, conversation])
+      setMemoryEntries((current) => ({ ...current, [conversation.id]: [] }))
+      setActiveConversationId(conversation.id)
+      setNewConversationSourceId(null)
     } else {
       const conversation = { ...createConversation(activeCharacter, greeting), personaId: activePersonaId }
       setConversations((current) => [...current, conversation])
@@ -999,12 +976,11 @@ function App() {
     setConversationMenuId(null)
   }
 
-  const restartConversation = (conversation: Conversation) => {
-    abortConversation(conversation.id)
+  const startNewConversation = (conversation: Conversation) => {
     if (conversation.kind === 'group') {
       setActiveId(conversation.participantIds?.[0] || conversation.characterId)
       setActiveConversationId(conversation.id)
-      setRestartingConversationId(conversation.id)
+      setNewConversationSourceId(conversation.id)
       setConversationMenuId(null)
       setDrawer(null)
       replacePage('group-greeting-picker')
@@ -1013,7 +989,7 @@ function App() {
     const character = characters.find((item) => item.id === conversation.characterId) || demoCharacter
     setActiveId(character.id)
     setActiveConversationId(conversation.id)
-    setRestartingConversationId(conversation.id)
+    setNewConversationSourceId(conversation.id)
     setConversationMenuId(null)
     setDrawer(null)
     replacePage('greeting-picker')
@@ -1597,9 +1573,9 @@ function App() {
     {page === 'card-worldbook' && <CharacterCardManager character={activeCharacter} onChange={updateActiveCharacter} onBack={goBack} initialSection="worldbook" />}
     {page === 'card-regex' && <CharacterCardManager character={activeCharacter} onChange={updateActiveCharacter} onBack={goBack} initialSection="regex" />}
 
-    {page === 'greeting-picker' && <GreetingPicker character={activeCharacter} userName={identity.name} onCancel={() => { const restarting = Boolean(restartingConversationId); setRestartingConversationId(null); if (restarting) replacePage('chat'); else goBack() }} onConfirm={beginWithGreeting} />}
+    {page === 'greeting-picker' && <GreetingPicker character={activeCharacter} userName={identity.name} onCancel={() => { const creatingFromConversation = Boolean(newConversationSourceId); setNewConversationSourceId(null); if (creatingFromConversation) replacePage('chat'); else goBack() }} onConfirm={beginWithGreeting} />}
 
-    {page === 'group-greeting-picker' && <GroupGreetingPicker characters={groupGreetingCharacters} userName={(identities.find((item) => item.id === activePersonaId) || identity).name} onCancel={() => { const restarting = Boolean(restartingConversationId); setRestartingConversationId(null); if (restarting) replacePage('chat'); else goBack() }} onConfirm={beginGroupWithGreeting} />}
+    {page === 'group-greeting-picker' && <GroupGreetingPicker characters={groupGreetingCharacters} userName={groupGreetingUserName} onCancel={() => { const creatingFromConversation = Boolean(newConversationSourceId); setNewConversationSourceId(null); if (creatingFromConversation) replacePage('chat'); else goBack() }} onConfirm={beginGroupWithGreeting} />}
 
     {page === 'chat' && <section className="chat-page"><header className="chat-header"><button className="icon-button drawer-trigger" aria-label="打开对话列表" onClick={() => setDrawer('left')}>☰</button><button className="chat-identity" onClick={() => navigate('character-detail')}>{activeCharacter.avatar ? <img src={activeCharacter.avatar} alt="" /> : <span>{activeCharacter.name.slice(-1)}</span>}<div><strong>{activeConversation?.kind === 'group' ? activeConversation.title : activeCharacter.name}</strong><small>{isGenerating ? '正在回应…' : activeConversation?.title || `${identity.name} · 沉浸共演中`}</small></div></button><button className="more-button" aria-label="打开聊天设置" onClick={() => setDrawer('right')}>•••</button></header>{chatError && <button className="chat-error" onClick={() => navigate('api')}><span>连接提示</span>{chatError}<i>前往 API 设置 ›</i></button>}<div ref={messageListRef} className="message-list" onScroll={updateChatJump}>{messages.map(renderChatMessage)}</div>{(chatJump.up || chatJump.down) && <nav className={`chat-jump-controls ${chatJump.visible ? 'visible' : ''}`} aria-label="快速浏览对话" aria-hidden={!chatJump.visible}>{chatJump.up && <button tabIndex={chatJump.visible ? 0 : -1} onClick={() => jumpChat('top')} aria-label="回到对话顶部">↑</button>}{chatJump.down && <button tabIndex={chatJump.visible ? 0 : -1} onClick={() => jumpChat('bottom')} aria-label="跳到最新消息">↓</button>}</nav>}<div className={`${composerExpanded ? 'composer has-expanded' : 'composer'}${composerCanExpand ? ' can-expand' : ''}`}><button className="composer-plus" aria-label="打开输入工具" onClick={() => setComposerToolsOpen(true)}>{replyHelperState === 'generating' ? '…' : '＋'}</button><textarea ref={composerRef} rows={1} value={draft} onChange={(event) => { const value = event.target.value; setDraft(value); if (activeConversation?.kind === 'group' && /[@＠][^@＠\s]*$/.test(value)) { event.currentTarget.blur(); setMentionPickerOpen(true) } }} placeholder={replyHelperState === 'generating' ? 'AI 帮答正在起草…' : isGenerating ? '可以先写下一条，停止后再发送' : groupReplyMode === 'specified' && activeConversation?.kind === 'group' ? '输入 @ 选择回答的角色……' : '写下你的回应……'} />{composerCanExpand && <button className="composer-expand" aria-label="展开长消息编辑器" title="展开编辑" onClick={() => setComposerExpanded(true)}>⛶</button>}<button className={`send-button ${isGenerating ? 'stop' : ''}`} aria-label={isGenerating ? '停止生成' : '发送'} onClick={() => isGenerating && activeConversation ? abortConversation(activeConversation.id) : sendMessage()}>{isGenerating ? '■' : '↑'}</button></div>{composerExpanded && <div className="composer-expanded-layer" role="dialog" aria-modal="true" aria-label="长消息编辑器"><header><button className="expanded-collapse" aria-label="收起编辑器" onClick={() => { setComposerExpanded(false); window.requestAnimationFrame(() => composerRef.current?.focus()) }}>‹</button><div><strong>长消息编辑</strong><small>{draft.length} 字 · 草稿实时保留</small></div><button className="expanded-tools" aria-label="打开输入工具" onClick={() => setComposerToolsOpen(true)}>＋</button></header><textarea ref={expandedComposerRef} value={draft} onChange={(event) => { const value = event.target.value; setDraft(value); if (activeConversation?.kind === 'group' && /[@＠][^@＠\s]*$/.test(value)) { event.currentTarget.blur(); setMentionPickerOpen(true) } }} placeholder={replyHelperState === 'generating' ? 'AI 帮答正在起草…' : '在这里慢慢写完整段落……'} /><footer><button className="expanded-done" onClick={() => { setComposerExpanded(false); window.requestAnimationFrame(() => composerRef.current?.focus()) }}>收起</button><button className={isGenerating ? 'expanded-send stop' : 'expanded-send'} disabled={!draft.trim() && !isGenerating} onClick={() => { if (isGenerating && activeConversation) { abortConversation(activeConversation.id); return } setComposerExpanded(false); void sendMessage() }}>{isGenerating ? '停止生成' : '发送'}</button></footer></div>}</section>}
 
@@ -1660,7 +1636,7 @@ function App() {
       {menuConversation && <section className="conversation-menu" aria-label="会话操作">
         <header><div><small>会话操作</small><strong>{menuConversation.title}</strong></div><button onClick={() => setConversationMenuId(null)}>×</button></header>
         <button onClick={() => renameConversation(menuConversation)}>重命名</button>
-        <button onClick={() => restartConversation(menuConversation)}>重新开始</button>
+        <button onClick={() => startNewConversation(menuConversation)}>新对话（保留旧聊天）</button>
         <button onClick={() => cloneConversation(menuConversation)}>克隆对话</button>
         <button className="danger" onClick={() => deleteConversation(menuConversation)}>删除对话</button>
       </section>}
