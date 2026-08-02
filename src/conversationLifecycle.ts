@@ -26,6 +26,29 @@ export type Conversation = {
   directorConfig?: DirectorTemplateConfig
 }
 
+export function addConversationParticipant(source: Conversation, participantId: string, defaults: { apiId: string; modelName: string; title?: string }): Conversation {
+  const existingIds = source.kind === 'group' && source.participantIds?.length ? source.participantIds : [source.characterId]
+  if (existingIds.includes(participantId)) return source
+  const participantIds = [...existingIds, participantId]
+  const participantApiIds = { ...(source.participantApiIds || {}) }
+  const participantModelNames = { ...(source.participantModelNames || {}) }
+  participantIds.forEach((id) => {
+    if (!participantApiIds[id]) participantApiIds[id] = defaults.apiId
+    if (!participantModelNames[id]) participantModelNames[id] = defaults.modelName
+  })
+
+  return {
+    ...source,
+    kind: 'group',
+    participantIds,
+    participantApiIds,
+    participantModelNames,
+    title: source.kind === 'group' ? source.title : defaults.title || source.title,
+    messages: source.messages.map((message) => message.role === 'assistant' && !message.characterId ? { ...message, characterId: source.characterId } : message),
+    updatedAt: Date.now(),
+  }
+}
+
 export function createFreshConversationFrom(source: Conversation, greeting: string, greetingCharacterId?: string): Conversation {
   const now = Date.now()
   const openingMessage: Message = { id: now, role: 'assistant', text: greeting }

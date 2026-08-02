@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { createFreshConversationFrom, type Conversation } from './conversationLifecycle'
+import { addConversationParticipant, createFreshConversationFrom, type Conversation } from './conversationLifecycle'
 
 describe('new conversation lifecycle', () => {
   it('creates a clean single-role conversation without changing the source history', () => {
@@ -48,5 +48,23 @@ describe('new conversation lifecycle', () => {
     expect(fresh.directorCharacterId).toBe('director')
     expect(fresh.theaterWorldBackground).toBe('南湾世界背景')
     expect(source.messages[0].text).toBe('旧剧情')
+  })
+
+  it('upgrades a single chat in place and attributes old assistant messages to its lead role', () => {
+    const source: Conversation = {
+      id: 'gu-huang-chat', characterId: 'gu-huang', title: '与顾荒的对话',
+      messages: [{ id: 1, role: 'assistant', text: '旧剧情' }, { id: 2, role: 'user', text: '继续' }],
+      createdAt: 1, updatedAt: 2, personaId: 'su-he', contextSummary: '保留摘要',
+    }
+
+    const upgraded = addConversationParticipant(source, 'director', { apiId: 'api-main', modelName: 'model-main' })
+
+    expect(upgraded.id).toBe(source.id)
+    expect(upgraded.kind).toBe('group')
+    expect(upgraded.participantIds).toEqual(['gu-huang', 'director'])
+    expect(upgraded.messages[0].characterId).toBe('gu-huang')
+    expect(upgraded.messages[1].characterId).toBeUndefined()
+    expect(upgraded.contextSummary).toBe('保留摘要')
+    expect(source.messages[0].characterId).toBeUndefined()
   })
 })
