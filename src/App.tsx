@@ -27,7 +27,8 @@ import { buildReplyHelperMessages, cleanReplyHelperDraft } from './replyHelper'
 import { planContextCompression, uncompressedMessages } from './contextCompression'
 import { findLatestActorContinuityAnchor } from './actorContinuity'
 import ReplyHelperSettingsPage from './ReplyHelperSettingsPage'
-import { createFreshConversationFrom, type Conversation, type Message } from './conversationLifecycle'
+import { addConversationParticipant, createFreshConversationFrom, type Conversation, type Message } from './conversationLifecycle'
+import { parseConversationTxt } from './conversationTxt'
 
 type Page = 'home' | 'story-projects' | 'characters' | 'create' | 'character-workshop' | 'group-create' | 'director-template' | 'group-greeting-picker' | 'import-preview' | 'character-detail' | 'card-data' | 'card-worldbook' | 'card-regex' | 'greeting-picker' | 'chat' | 'more' | 'api' | 'reply-helper-api' | 'model' | 'settings' | 'appearance' | 'font' | 'display-reply' | 'identity' | 'worldbook' | 'theater-world' | 'preset' | 'memory' | 'memory-api' | 'memory-list'
 type MessageEditor = { mode: 'assistant' | 'resend'; messageId: number; text: string }
@@ -267,7 +268,7 @@ function App() {
   const [characterQuery, setCharacterQuery] = useState('')
   const [groupDraft, setGroupDraft] = useState<{ title: string; participantIds: string[]; apiIds: Record<string, string>; modelNames: Record<string, string> }>({ title: '', participantIds: [], apiIds: {}, modelNames: {} })
   const [groupDirectorDraft, setGroupDirectorDraft] = useState<DirectorTemplateConfig>(() => createDirectorTemplateConfig())
-  const [directorEditorTarget, setDirectorEditorTarget] = useState<'draft' | 'conversation'>('draft')
+  const [directorEditorTarget, setDirectorEditorTarget] = useState<'draft' | 'conversation-new' | 'conversation'>('draft')
   const [groupReplyMode, setGroupReplyMode] = useState<GroupReplyMode>(() => read('weijing.groupReplyMode', 'natural'))
   const [mentionPickerOpen, setMentionPickerOpen] = useState(false)
   const [composerToolsOpen, setComposerToolsOpen] = useState(false)
@@ -331,6 +332,7 @@ function App() {
   const [appDataUsage, setAppDataUsage] = useState('正在计算…')
   const [compressingContext, setCompressingContext] = useState(false)
   const fileInputRef = useRef<HTMLInputElement>(null)
+  const conversationTxtInputRef = useRef<HTMLInputElement>(null)
   const phoneCanvasRef = useRef<HTMLElement>(null)
   const composerRef = useRef<HTMLTextAreaElement>(null)
   const composerDockRef = useRef<HTMLDivElement>(null)
@@ -810,6 +812,48 @@ function App() {
     replacePage('chat')
   }
 
+  const openConversationDirectorCreator = () => {
+    if (!activeConversation || activeConversation.directorCharacterId) return
+    const independentParticipants = conversationMemberIds(activeConversation).map((id) => characters.find((item) => item.id === id)).filter(Boolean) as Character[]
+    setGroupDirectorDraft({
+      ...createDirectorTemplateConfig(),
+      storyTitle: activeConversation.title,
+      userProtagonist: `${identity.name}：${identity.description}`,
+      independentRoles: independentParticipants.map((item) => `${item.name}｜${item.tagline || item.description}｜由独立角色卡控制，导演不得代演`).join('\n'),
+      openingState: '承接当前对话的最新一轮继续推进；已经发生的消息均为历史事实，不得重演旧开场。',
+      apiId: api.id,
+      modelName: api.modelName,
+    })
+    setDirectorEditorTarget('conversation-new')
+    navigate('director-template', 'right')
+  }
+
+  const addConversationDirector = (config: DirectorTemplateConfig) => {
+    if (!activeConversation || activeConversation.directorCharacterId) return
+    const directorConfig = { ...config, enabled: true, apiId: config.apiId || api.id, modelName: config.modelName || api.modelName }
+    const director = createDirectorCharacter(directorConfig)
+    const upgraded = addConversationParticipant(activeConversation, director.id, {
+      apiId: directorConfig.apiId,
+      modelName: directorConfig.modelName,
+      title: activeConversation.title,
+    })
+    setCharacters((current) => [...current, director])
+    setMemoryConfigs((current) => ({ ...current, [director.id]: defaultMemoryConfig() }))
+    setMemoryEntries((current) => ({ ...current, [director.id]: [], [activeConversation.id]: current[activeConversation.id] || [] }))
+    setConversations((current) => current.map((item) => item.id === activeConversation.id ? {
+      ...upgraded,
+      participantApiIds: { ...upgraded.participantApiIds, [director.id]: directorConfig.apiId },
+      participantModelNames: { ...upgraded.participantModelNames, [director.id]: directorConfig.modelName },
+      directorCharacterId: director.id,
+      directorConfig,
+      theaterWorldBackground: buildSharedTheaterBackground(directorConfig),
+      updatedAt: Date.now(),
+    } : item))
+    setGroupReplyMode('natural')
+    setDirectorEditorTarget('conversation')
+    replacePage('chat')
+  }
+
   const beginGroupWithGreeting = (choice: GroupGreetingChoice) => {
     if (!newConversationSourceId) { createGroupConversation(choice); return }
     const source = conversations.find((item) => item.id === newConversationSourceId && item.kind === 'group')
@@ -827,15 +871,8 @@ function App() {
   const addConversationMember = (characterId: string) => {
     if (!activeConversation || conversationMemberIds().includes(characterId)) return
     const participantIds = [...conversationMemberIds(), characterId]
-    setConversations((current) => current.map((item) => item.id === activeConversation.id ? {
-      ...item,
-      kind: 'group',
-      participantIds,
-      participantApiIds: { ...(item.participantApiIds || {}), [item.characterId]: item.participantApiIds?.[item.characterId] || api.id, [characterId]: api.id },
-      participantModelNames: { ...(item.participantModelNames || {}), [item.characterId]: item.participantModelNames?.[item.characterId] || apiChannels.find((channel) => channel.id === item.participantApiIds?.[item.characterId])?.modelName || api.modelName, [characterId]: api.modelName },
-      title: item.kind === 'group' ? item.title : participantIds.map((id) => characters.find((character) => character.id === id)?.name).filter(Boolean).join('、'),
-      updatedAt: Date.now(),
-    } : item))
+    const title = participantIds.map((id) => characters.find((character) => character.id === id)?.name).filter(Boolean).join('、')
+    setConversations((current) => current.map((item) => item.id === activeConversation.id ? addConversationParticipant(item, characterId, { apiId: api.id, modelName: api.modelName, title }) : item))
     setGroupReplyMode('natural')
   }
   const removeConversationMember = (characterId: string) => {
@@ -846,8 +883,10 @@ function App() {
       if (item.id !== activeConversation.id) return item
       const participantApiIds = { ...(item.participantApiIds || {}) }; delete participantApiIds[characterId]
       const participantModelNames = { ...(item.participantModelNames || {}) }; delete participantModelNames[characterId]
-      if (remaining.length === 1) return { ...item, kind: 'single', characterId: remaining[0], participantIds: undefined, participantApiIds: undefined, participantModelNames: undefined, title: `与${characters.find((character) => character.id === remaining[0])?.name || '角色'}的对话`, updatedAt: Date.now() }
-      return { ...item, characterId: remaining[0], participantIds: remaining, participantApiIds, participantModelNames, updatedAt: Date.now() }
+      const removedDirector = item.directorCharacterId === characterId
+      const directorPatch = removedDirector ? { directorCharacterId: undefined, directorConfig: undefined, theaterWorldBackground: undefined } : {}
+      if (remaining.length === 1) return { ...item, ...directorPatch, kind: 'single', characterId: remaining[0], participantIds: undefined, participantApiIds: undefined, participantModelNames: undefined, title: `与${characters.find((character) => character.id === remaining[0])?.name || '角色'}的对话`, updatedAt: Date.now() }
+      return { ...item, ...directorPatch, characterId: remaining[0], participantIds: remaining, participantApiIds, participantModelNames, updatedAt: Date.now() }
     }))
     setActiveId(remaining[0])
   }
@@ -1477,6 +1516,62 @@ function App() {
     setDrawer(null)
   }
 
+  const importConversationTxt = async (file?: File) => {
+    if (!file) return
+    try {
+      const parsed = parseConversationTxt(await file.text())
+      const actorNames = Array.from(new Set([
+        ...parsed.participantNames,
+        ...parsed.messages.filter((message) => message.author !== parsed.userName).map((message) => message.author),
+      ]))
+      const participants = actorNames.map((name) => characters.find((character) => character.name === name))
+      const missingNames = actorNames.filter((_, index) => !participants[index])
+      if (missingNames.length) throw new Error(`角色库缺少：${missingNames.join('、')}。请先导入对应角色卡。`)
+      const resolvedParticipants = participants as Character[]
+      const existingIdentity = identities.find((item) => item.name === parsed.userName)
+      const importedIdentity = existingIdentity || { id: crypto.randomUUID(), name: parsed.userName, description: '从惟境对话 TXT 恢复的用户身份，请按需补充完整设定。' }
+      if (!existingIdentity) setIdentities((current) => [...current, importedIdentity])
+      const now = Date.now()
+      const importedMessages: Message[] = parsed.messages.map((message, index) => {
+        if (message.author === parsed.userName) return { id: now + index, role: 'user', text: message.text }
+        const speaker = resolvedParticipants.find((character) => character.name === message.author)
+        if (!speaker) throw new Error(`无法识别消息作者：${message.author}`)
+        return { id: now + index, role: 'assistant', text: message.text, characterId: speaker.id }
+      })
+      const lead = resolvedParticipants[0]
+      const isGroup = resolvedParticipants.length > 1
+      const importedDirector = resolvedParticipants.find((character) => character.tags.includes('共演导演') || character.tags.includes('旁白导演'))
+      const conversation: Conversation = {
+        id: `txt-${now}-${Math.random().toString(36).slice(2, 8)}`,
+        kind: isGroup ? 'group' : 'single',
+        characterId: lead.id,
+        participantIds: isGroup ? resolvedParticipants.map((character) => character.id) : undefined,
+        participantApiIds: isGroup ? Object.fromEntries(resolvedParticipants.map((character) => [character.id, api.id])) : undefined,
+        participantModelNames: isGroup ? Object.fromEntries(resolvedParticipants.map((character) => [character.id, api.modelName])) : undefined,
+        title: `${parsed.title} · 导入`,
+        messages: importedMessages,
+        createdAt: now,
+        updatedAt: now,
+        historyRevision: 0,
+        memorySummarizedCount: 0,
+        personaId: importedIdentity.id,
+        directorCharacterId: isGroup ? importedDirector?.id : undefined,
+      }
+      setConversations((current) => [...current, conversation])
+      setMemoryEntries((current) => ({ ...current, [conversation.id]: [] }))
+      setActiveId(lead.id)
+      setActivePersonaId(importedIdentity.id)
+      setActiveConversationId(conversation.id)
+      setDrawer(null)
+      replacePage('chat')
+    } catch (error) {
+      setChatError(`导入对话 TXT：${error instanceof Error ? error.message : '文件无法识别'}`)
+      setDrawer(null)
+    } finally {
+      if (conversationTxtInputRef.current) conversationTxtInputRef.current.value = ''
+    }
+  }
+
   const compressOldContext = async () => {
     if (!activeConversation || compressingContext || messages.length < 16) return
     if (!api.apiKey || !api.baseUrl || !api.modelName) { setChatError('请先配置当前聊天 API，再压缩上下文。'); return }
@@ -1587,6 +1682,7 @@ function App() {
 
   return <div className="app-shell"><main ref={phoneCanvasRef} className={`phone-canvas theme-${chatTheme} ${page === 'chat' ? 'chat-canvas' : ''}`} style={{ '--ui-font-scale': uiFontScale / 100, '--ui-font-weight': uiFontWeight, '--ui-heading-font-weight': Math.min(800, uiFontWeight + 100), '--chat-font-size': `${chatFontSize}px`, '--chat-text-color': chatTextColor, '--chat-narration-color': chatNarrationColor, '--chat-quote-color': chatQuoteColor, '--chat-base-color': chatBaseColor } as React.CSSProperties}>
     <input ref={fileInputRef} className="hidden-file-input" type="file" accept="image/png,.png,application/json,.json" onChange={(event) => handleCharacterFile(event.target.files?.[0])} />
+    <input ref={conversationTxtInputRef} className="hidden-file-input" type="file" accept="text/plain,.txt" onChange={(event) => { void importConversationTxt(event.target.files?.[0]) }} />
     {page === 'story-projects' && <StoryProjectManager projects={storyProjects} characters={characters} conversations={conversations} identities={identities} api={api} apiChannels={apiChannels} onBack={goBack} onChange={setStoryProjects} />}
     {page === 'chat' && <div className="chat-background" style={{ backgroundImage: chatBackground ? `url(${JSON.stringify(chatBackground)})` : undefined, '--chat-background-frost': chatBackgroundFrost } as React.CSSProperties} />}
     {page === 'home' && <section className="home-dashboard">
@@ -1618,7 +1714,7 @@ function App() {
       return <article className={selected ? 'selected' : ''} key={character.id}><button className="group-member-toggle" onClick={() => setGroupDraft((current) => ({ ...current, participantIds: selected ? current.participantIds.filter((id) => id !== character.id) : [...current.participantIds, character.id], apiIds: { ...current.apiIds, [character.id]: current.apiIds[character.id] || api.id }, modelNames: { ...current.modelNames, [character.id]: current.modelNames[character.id] || api.modelName } }))}><CharacterPortrait item={character} /><div><strong>{character.name}</strong><small>{character.tagline}</small></div><span>{selected ? '✓' : '＋'}</span></button>{selected && <MemberApiBinding channels={apiChannels} channelId={channel.id} modelName={groupDraft.modelNames[character.id] || channel.modelName} onChannelChange={(nextChannelId) => { const nextModelName = apiChannels.find((item) => item.id === nextChannelId)?.modelName || ''; setGroupDraft((current) => ({ ...current, apiIds: { ...current.apiIds, [character.id]: nextChannelId }, modelNames: { ...current.modelNames, [character.id]: nextModelName } })) }} onModelChange={(modelName) => setGroupDraft((current) => ({ ...current, modelNames: { ...current.modelNames, [character.id]: modelName } }))} />}</article>
     })}</div><button className="primary-button full" disabled={groupDraft.participantIds.length < (groupDirectorDraft.enabled ? 1 : 2)} onClick={openGroupGreetingPicker}>下一步：选择开场白</button></section></>}
 
-    {page === 'director-template' && <DirectorTemplateEditor value={directorEditorTarget === 'conversation' ? (activeConversation?.directorConfig || createDirectorTemplateConfig()) : groupDirectorDraft} existing={directorEditorTarget === 'conversation'} onCancel={goBack} onSave={(config) => { if (directorEditorTarget === 'conversation') saveConversationDirector(config); else { setGroupDirectorDraft(config); goBack() } }} />}
+    {page === 'director-template' && <DirectorTemplateEditor value={directorEditorTarget === 'conversation' ? (activeConversation?.directorConfig || createDirectorTemplateConfig()) : groupDirectorDraft} existing={directorEditorTarget === 'conversation'} contextLabel={directorEditorTarget === 'conversation-new' ? '当前对话升级' : undefined} submitLabel={directorEditorTarget === 'conversation-new' ? '添加导演并保留当前剧情' : undefined} onCancel={goBack} onSave={(config) => { if (directorEditorTarget === 'conversation') saveConversationDirector(config); else if (directorEditorTarget === 'conversation-new') addConversationDirector(config); else { setGroupDirectorDraft(config); goBack() } }} />}
 
     {page === 'import-preview' && pendingImport && <ImportPreview character={pendingImport} onCancel={() => { setPendingImport(null); goBack() }} onConfirm={({ includeBook, includeRegex }) => {
     const character = { ...pendingImport, characterBook: includeBook ? pendingImport.characterBook : undefined, regexScripts: includeRegex ? pendingImport.regexScripts : [] }
@@ -1686,9 +1782,9 @@ function App() {
         <header className="drawer-character compact"><div><small>{activeConversation?.kind === 'group' ? '群聊设置' : '聊天设置'}</small><h2>{activeConversation?.title || activeCharacter.name}</h2></div><button onClick={() => setDrawer(null)}>×</button></header>
         <div className="right-drawer-scroll">
           <section className="drawer-members-section"><div className="drawer-section-title"><strong>成员（{conversationMemberIds().length}）</strong><button onClick={() => { setDrawer(null); setMemberPickerOpen(true) }}>＋ 添加 / 配置 API</button></div><div className="drawer-member-row">{conversationMemberIds().map((id) => { const member = characters.find((item) => item.id === id); if (!member) return null; return <div className="drawer-member-chip" key={id}>{member.avatar ? <img src={member.avatar} alt="" /> : <span>{member.name.slice(-1)}</span>}<small>{member.name}</small>{conversationMemberIds().length > 1 && <button aria-label={`移除${member.name}`} onClick={() => removeConversationMember(id)}>×</button>}</div> })}</div></section>
-          <section className="drawer-compact-group"><div className="drawer-section-title"><strong>聊天设置</strong></div>{activeConversation?.directorCharacterId && <button onClick={() => { setDirectorEditorTarget('conversation'); navigate('director-template', 'right') }}><span>共演导演资料 · 已启用</span><i>›</i></button>}{[['情景与角色资料', 'card-data'], [`本剧场世界观背景 · ${activeConversation?.theaterWorldBackground?.trim() ? '已填写' : '未填写'}`, 'theater-world'], ['用户身份', 'identity'], ['主题与背景', 'appearance'], ['字体与文字颜色', 'font'], ['显示与回复', 'display-reply']].map(([label, target]) => <button key={label} onClick={() => navigate(target as Page, 'right')}><span>{label}</span><i>›</i></button>)}</section>
+          <section className="drawer-compact-group"><div className="drawer-section-title"><strong>聊天设置</strong></div>{activeConversation?.directorCharacterId ? <button onClick={() => { setDirectorEditorTarget('conversation'); navigate('director-template', 'right') }}><span>共演导演资料 · 已启用</span><i>›</i></button> : <button onClick={openConversationDirectorCreator}><span>添加共演导演 · 保留当前剧情</span><i>＋</i></button>}{[['情景与角色资料', 'card-data'], [`本剧场世界观背景 · ${activeConversation?.theaterWorldBackground?.trim() ? '已填写' : '未填写'}`, 'theater-world'], ['用户身份', 'identity'], ['主题与背景', 'appearance'], ['字体与文字颜色', 'font'], ['显示与回复', 'display-reply']].map(([label, target]) => <button key={label} onClick={() => navigate(target as Page, 'right')}><span>{label}</span><i>›</i></button>)}</section>
           <section className="drawer-compact-group"><div className="drawer-section-title"><strong>角色与高级设置</strong></div>{[['世界书', 'card-worldbook'], ['正则与美化', 'card-regex'], ['长期记忆', 'memory'], [`AI 帮答 · ${(apiChannels.find((item) => item.id === replyHelperApiId) || api).name || '未配置'}`, 'reply-helper-api'], [`API · ${api.name || '当前渠道'}`, 'api'], ['模型设置', 'model'], ['预设', 'preset'], ['应用设置', 'settings']].map(([label, target]) => <button key={label} onClick={() => navigate(target as Page, 'right')}><span>{label}</span><i>›</i></button>)}</section>
-          <section className="drawer-compact-group drawer-actions-group"><button onClick={() => navigate('character-detail', 'right')}><span>查看角色详情</span><i>›</i></button><button onClick={compressOldContext} disabled={compressingContext || messages.length < 16}><span>{compressingContext ? '正在压缩旧上下文…' : activeConversation?.contextSummary && (activeConversation.contextSummaryRevision || 0) === (activeConversation.historyRevision || 0) ? `更新上下文摘要 · 已压缩 ${activeConversation.compressedUntil || 0} 条` : '压缩旧上下文'}</span><i>⌁</i></button><button onClick={exportConversationTxt}><span>导出当前对话 TXT</span><i>↓</i></button></section>
+          <section className="drawer-compact-group drawer-actions-group"><button onClick={() => navigate('character-detail', 'right')}><span>查看角色详情</span><i>›</i></button><button onClick={compressOldContext} disabled={compressingContext || messages.length < 16}><span>{compressingContext ? '正在压缩旧上下文…' : activeConversation?.contextSummary && (activeConversation.contextSummaryRevision || 0) === (activeConversation.historyRevision || 0) ? `更新上下文摘要 · 已压缩 ${activeConversation.compressedUntil || 0} 条` : '压缩旧上下文'}</span><i>⌁</i></button><button onClick={exportConversationTxt}><span>导出当前对话 TXT</span><i>↓</i></button><button onClick={() => conversationTxtInputRef.current?.click()}><span>导入对话 TXT · 新建副本</span><i>↑</i></button></section>
         </div>
       </aside>}
 

@@ -6,6 +6,8 @@ type Props = {
   onCancel: () => void
   onSave: (value: DirectorTemplateConfig) => void
   existing?: boolean
+  contextLabel?: string
+  submitLabel?: string
 }
 
 const fields: Array<{ key: keyof DirectorTemplateConfig; label: string; hint: string; rows?: number; placeholder: string }> = [
@@ -21,15 +23,15 @@ const fields: Array<{ key: keyof DirectorTemplateConfig; label: string; hint: st
   { key: 'pacingNotes', label: '节奏补充', hint: '模板已经限制每轮只推进一小步，这里写本剧特色。', rows: 5, placeholder: '例如：商战线写实，感情变化必须由明确事件累积……' },
 ]
 
-export default function DirectorTemplateEditor({ value, onCancel, onSave, existing }: Props) {
+export default function DirectorTemplateEditor({ value, onCancel, onSave, existing, contextLabel, submitLabel }: Props) {
   const [draft, setDraft] = useState(value)
   useEffect(() => setDraft(value), [value])
   return <>
-    <header className="page-header"><button className="icon-button" onClick={onCancel}>‹</button><h1>共演导演资料</h1><div className="header-action"><span className="saved-label">{existing ? '本群专属' : '新建实例'}</span></div></header>
+    <header className="page-header"><button className="icon-button" onClick={onCancel}>‹</button><h1>共演导演资料</h1><div className="header-action"><span className="saved-label">{contextLabel || (existing ? '本群专属' : '新建实例')}</span></div></header>
     <section className="content-stack director-editor-page">
       <div className="director-rule-card"><strong>模板权限已经锁死</strong><p>导演只演 NPC、环境和剧情推进；不演用户主角，不演任何独立角色卡。幕后资料只进入导演私有世界书。</p></div>
       {fields.map((field) => <label className="director-field" key={field.key}><span><strong>{field.label}</strong><small>{field.hint}</small></span>{field.rows ? <textarea rows={field.rows} value={String(draft[field.key] || '')} placeholder={field.placeholder} onChange={(event) => setDraft({ ...draft, [field.key]: event.target.value })} /> : <input value={String(draft[field.key] || '')} placeholder={field.placeholder} onChange={(event) => setDraft({ ...draft, [field.key]: event.target.value })} />}</label>)}
-      <button className="primary-button full" onClick={() => onSave(draft)}>{existing ? '保存并更新本群导演' : '保存导演资料'}</button>
+      <button className="primary-button full" onClick={() => onSave(draft)}>{submitLabel || (existing ? '保存并更新本群导演' : '保存导演资料')}</button>
     </section>
   </>
 }
