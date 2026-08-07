@@ -132,13 +132,17 @@ function SandboxHtml({ html }: { html: string }) {
   const fullDocument = useMemo(() => /<!doctype\s+html|<html[\s>]/i.test(unwrapCodeFence(html)), [html])
   const [height, setHeight] = useState(fullDocument ? 620 : 220)
   const source = useMemo(() => {
-    const document = new DOMParser().parseFromString(unwrapCodeFence(html), 'text/html')
+    // Rich character cards containing their own <style> are rendered in an iframe.
+    // Run the same mixed-markup paragraphing used by safe inline HTML first, so a
+    // long model-authored story does not collapse into one dense block just because
+    // the card ships custom CSS.
+    const document = new DOMParser().parseFromString(normalizeMixedMarkup(html), 'text/html')
     const policy = document.createElement('meta')
     policy.httpEquiv = 'Content-Security-Policy'
     policy.content = "default-src 'none'; img-src data: https:; media-src data: https:; font-src data: https:; style-src 'unsafe-inline'; script-src 'unsafe-inline'; connect-src 'none'; frame-src 'none'; form-action 'none'; base-uri 'none'"
     document.head.prepend(policy)
     const baseStyle = document.createElement('style')
-    baseStyle.textContent = 'html,body{margin:0!important;padding:0!important;min-height:0!important;overflow-x:hidden;box-sizing:border-box}*,*:before,*:after{box-sizing:border-box;max-width:100%}'
+    baseStyle.textContent = 'html,body{margin:0!important;padding:0!important;min-height:0!important;overflow-x:hidden;box-sizing:border-box}*,*:before,*:after{box-sizing:border-box;max-width:100%}.message-paragraph-break{display:block;height:.62em}.message-auto-paragraph-break{height:.82em}'
     document.head.append(baseStyle)
     if (!fullDocument) {
       const reporter = document.createElement('script')
