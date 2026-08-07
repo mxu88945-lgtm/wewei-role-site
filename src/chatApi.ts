@@ -104,12 +104,20 @@ async function consumeEventStream(response: Response, onDelta: (delta: string) =
   const decoder = new TextDecoder()
   let buffer = ''
   let finishReason: string | null = null
+  let streamEnded = false
 
   const consumeEvent = (event: string) => {
     for (const line of event.split(/\r?\n/)) {
       if (!line.startsWith('data:')) continue
       const payload = line.slice(5).trim()
-      if (!payload || payload === '[DONE]') continue
+      if (!payload) continue
+      // Many OpenAI-compatible relays keep the HTTP connection alive after the
+      // SSE protocol has already finished. Treat [DONE] as the real completion
+      // boundary instead of waiting forever for reader.read() to return done.
+      if (payload === '[DONE]') {
+        streamEnded = true
+        return
+      }
       try {
         const data = JSON.parse(payload)
         const choice = data?.choices?.[0]
@@ -125,22 +133,34 @@ async function consumeEventStream(response: Response, onDelta: (delta: string) =
         )
         if (delta) onDelta(delta)
         const nextFinishReason = choice?.finish_reason ?? data?.stop_reason ?? data?.delta?.stop_reason
-        if (typeof nextFinishReason === 'string') finishReason = nextFinishReason
+        if (typeof nextFinishReason === 'string') {
+          finishReason = nextFinishReason
+          streamEnded = true
+          return
+        }
       } catch {
         // Ignore provider keep-alive events that are not JSON.
       }
     }
   }
 
-  while (true) {
+  while (!streamEnded) {
     const { done, value } = await reader.read()
     buffer += decoder.decode(value || new Uint8Array(), { stream: !done })
     const events = buffer.split(/\r?\n\r?\n/)
     buffer = events.pop() || ''
-    events.forEach(consumeEvent)
+    for (const event of events) {
+      consumeEvent(event)
+      if (streamEnded) break
+    }
     if (done) break
   }
-  if (buffer.trim()) consumeEvent(buffer)
+  if (!streamEnded && buffer.trim()) consumeEvent(buffer)
+  if (streamEnded) {
+    try { await reader.cancel() } catch {
+      // The provider may already have closed the body; cancellation is best-effort.
+    }
+  }
   return { finishReason }
 }
 
