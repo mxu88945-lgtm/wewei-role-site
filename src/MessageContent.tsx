@@ -47,6 +47,7 @@ function styledPlainText(value: string) {
 }
 
 const SENTENCE_RE = /[^。！？!?…]+(?:[。！？!?]+[”」』】）)]*|…+[”」』】）)]*|$)/g
+const COMPACT_MARKUP_TAG = /^(?:scene|status|[a-z][\w-]*_status)$/i
 
 function segmentLongChineseParagraph(value: string) {
   if (value.length < 100) return [value]
@@ -102,16 +103,25 @@ export function normalizeMixedMarkup(value: string) {
   })
 
   const parts = protectedSource.split(/(<[^>]+>|\uE000PROTECTED_\d+\uE001)/g)
+  let compactDepth = 0
   return parts.map((part) => {
     const protectedMatch = part.match(/^\uE000PROTECTED_(\d+)\uE001$/)
     if (protectedMatch) return protectedBlocks[Number(protectedMatch[1])] || ''
-    if (part.startsWith('<') && part.endsWith('>')) return part
-    const autoParagraph = !part.includes('```') && part.trim().length >= 100
+    if (part.startsWith('<') && part.endsWith('>')) {
+      const tag = part.match(/^<\s*(\/?)\s*([a-z][\w-]*)\b[^>]*>/i)
+      if (tag && COMPACT_MARKUP_TAG.test(tag[2])) {
+        if (tag[1]) compactDepth = Math.max(0, compactDepth - 1)
+        else if (!/\/\s*>$/.test(part)) compactDepth += 1
+      }
+      return part
+    }
+    const compactPanel = compactDepth > 0
+    const autoParagraph = !compactPanel && !part.includes('```') && part.trim().length >= 100
     const visualParagraphs = autoParagraph ? plainTextParagraphs(part) : [part]
     const renderedPart = visualParagraphs.map(renderInlineMarkdown).join('<span class="message-paragraph-break message-auto-paragraph-break"></span>')
     return renderedPart
       .replace(/\r\n?/g, '\n')
-      .replace(/\n{2,}/g, '<span class="message-paragraph-break"></span>')
+      .replace(/\n{2,}/g, compactPanel ? '<br>' : '<span class="message-paragraph-break"></span>')
       .replace(/\n/g, '<br>')
   }).join('')
 }
