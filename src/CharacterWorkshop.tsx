@@ -71,6 +71,12 @@ const loadSaved = (): SavedWorkshop => {
   try { return JSON.parse(localStorage.getItem('weijing.characterWorkshop') || '') as SavedWorkshop } catch { return { brief: initialBrief, result: null } }
 }
 
+const normalizeSavedBrief = (brief?: CharacterWorkshopBrief): CharacterWorkshopBrief => ({
+  ...initialBrief,
+  ...(brief || {}),
+  beautificationHint: brief?.beautificationHint ?? initialBrief.beautificationHint,
+})
+
 function TextArea({ label, value, rows = 5, onChange }: { label: string; value: string; rows?: number; onChange: (value: string) => void }) {
   return <label><span>{label}</span><textarea rows={rows} value={value} onChange={(event) => onChange(event.target.value)} /></label>
 }
@@ -84,7 +90,7 @@ export default function CharacterWorkshop({ channels, defaultChannelId, onBack, 
   onAvatar: (file: File) => Promise<string>
 }) {
   const saved = useRef(loadSaved()).current
-  const [brief, setBrief] = useState(saved.brief || initialBrief)
+  const [brief, setBrief] = useState(normalizeSavedBrief(saved.brief))
   const [result, setResult] = useState<CharacterWorkshopDraft | null>(saved.result ? {
     ...saved.result,
     beautificationProtocol: saved.result.beautificationProtocol || '',
@@ -332,7 +338,7 @@ export default function CharacterWorkshop({ channels, defaultChannelId, onBack, 
       <div className="workshop-card brief-card">
         <label><span>一句话讲讲这个角色 *</span><textarea rows={5} value={brief.concept} onChange={(event) => patchBrief({ concept: event.target.value })} placeholder="例如：国外认识的年下珠宝设计师，表面小奶狗，实际很会以退为进；有自己的品牌和人生目标……" /></label>
         <div className="workshop-two"><label><span>指定姓名</span><input value={brief.name} onChange={(event) => patchBrief({ name: event.target.value })} placeholder="留空让 AI 取名" /></label><label><span>与用户的关系</span><input value={brief.relationship} onChange={(event) => patchBrief({ relationship: event.target.value })} placeholder="旧识、宿敌、契约婚姻…" /></label></div>
-        <details><summary>细化风格、边界与开场美化</summary><TextArea label="文风与气质" rows={3} value={brief.tone} onChange={(tone) => patchBrief({ tone })} /><TextArea label="感情节奏" rows={3} value={brief.pace} onChange={(pace) => patchBrief({ pace })} /><TextArea label="绝对边界" rows={3} value={brief.boundaries} onChange={(boundaries) => patchBrief({ boundaries })} /><TextArea label="开场白美化偏好" rows={4} value={brief.beautificationHint || ''} onChange={(beautificationHint) => patchBrief({ beautificationHint })} /></details>
+        <details><summary>细化风格、边界与开场美化</summary><TextArea label="文风与气质" rows={3} value={brief.tone} onChange={(tone) => patchBrief({ tone })} /><TextArea label="感情节奏" rows={3} value={brief.pace} onChange={(pace) => patchBrief({ pace })} /><TextArea label="绝对边界" rows={3} value={brief.boundaries} onChange={(boundaries) => patchBrief({ boundaries })} /><TextArea label="开场白美化偏好" rows={4} value={brief.beautificationHint || ''} onChange={(beautificationHint) => patchBrief({ beautificationHint })} /><div className="workshop-beautification-preview" aria-label="开场白美化结构预览"><div className="workshop-preview-heading"><div><strong>开场白结构预览</strong><small>只展示排版逻辑，不消耗模型额度</small></div><span>✦</span></div><div className="workshop-preview-block scene"><code>&lt;scene&gt;</code><p>时间、地点和环境：先把这一轮的场景交代清楚。</p></div><div className="workshop-preview-block body"><code>剧情正文</code><p>角色的动作、语气和外部事件自然展开，但不替用户决定台词、动作或心理。</p></div><div className="workshop-preview-block status"><code>&lt;gts_status&gt;</code><p>关系：{brief.relationship.trim() || '按当前设定推进'} · 状态：等待用户回应</p></div><div className="workshop-field-hint">生成后，模型会用角色自己的内容替换这三段；关闭正则时，原始标签仍然可读。</div></div></details>
         <label><span>生成所用渠道</span><select value={channelId} onChange={(event) => setChannelId(event.target.value)}>{channels.map((item) => <option key={item.id} value={item.id}>{item.name} · {item.modelName || '未选模型'}</option>)}</select></label>
         {error && <div className="workshop-error">{error}</div>}
         <button className="workshop-generate" disabled={state === 'generating'} onClick={generate}>{state === 'generating' ? '正在认真捏人…' : result ? '重新生成整张卡' : '✦ 生成角色卡'}</button>
