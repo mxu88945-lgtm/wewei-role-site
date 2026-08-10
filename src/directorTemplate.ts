@@ -10,6 +10,8 @@ export type DirectorTemplateConfig = {
   npcRoster: string
   hiddenTruths: string
   plotThreads: string
+  /** A late-fill, director-only instruction for the next bit of story movement. */
+  temporaryPlot?: string
   openingState: string
   pacingNotes: string
   apiId: string
@@ -26,6 +28,7 @@ export const createDirectorTemplateConfig = (): DirectorTemplateConfig => ({
   npcRoster: '',
   hiddenTruths: '',
   plotThreads: '',
+  temporaryPlot: '',
   openingState: '',
   pacingNotes: '缓慢、连续、有因果地推进；每轮只推动一个主要变化，给用户与独立角色留下回应空间。',
   apiId: '',
@@ -68,6 +71,7 @@ export function buildSharedTheaterBackground(config: DirectorTemplateConfig) {
 
 export function createDirectorCharacter(config: DirectorTemplateConfig, existingId?: string): Character {
   const name = config.directorName.trim() || '共演厅·旁白导演'
+  const temporaryPlot = config.temporaryPlot?.trim() || ''
   const privateMaterial = [
     section('剧目', config.storyTitle, '未命名剧目'),
     section('世界背景', config.worldBackground),
@@ -76,6 +80,7 @@ export function createDirectorCharacter(config: DirectorTemplateConfig, existing
     section('可扮演 NPC', config.npcRoster, '可创建必要的临时 NPC，但不得冒充独立角色。'),
     section('幕后真相与知情边界', config.hiddenTruths, '无额外幕后真相。'),
     section('剧情线与阶段', config.plotThreads, '依照用户在对话中给出的目标推进。'),
+    section('临时剧情推进（可选，用户后期指令）', temporaryPlot, '当前未填写；不要主动生成临时剧情指令，沿用现有剧情线和对话上下文。'),
     section('当前开场', config.openingState),
     section('节奏要求', config.pacingNotes),
   ].join('\n\n')
@@ -90,8 +95,9 @@ export function createDirectorCharacter(config: DirectorTemplateConfig, existing
 6. 幕后真相只决定导演如何铺线，不能自动变成角色已知信息。严格维护“谁知道、谁不知道、谁只怀疑”的边界。
 7. 最新对话或剧本驾驶舱给出的时间、地点、在场与离场状态，永远覆盖开场白、旧摘要、旧消息和世界书中的历史场景。禁止续演已经结束或离开的旧场景；离场角色不得被你召回、发言或行动。
 8. 每轮只推进足以让其他人接戏的一小步；优先给场景、外部证据、公共事件或无独立卡 NPC 行动，随后停在可回应节点。不得为了推进而借用用户主角或独立角色完成动作，不得一次包办整场戏或替任何主角收束冲突。
-9. 输出前逐句核对：用户或独立角色可以作为镜头观察对象，但不能成为你新编台词、有意图动作、心理、决定或关键反应的执行者。发现越权句就整句删除，并把推进改写为环境、NPC、外部证据或停在等待回应的节点。
-10. 不得输出“旁白：”“导演：”“${name}：”等自报姓名标签。不要解释规则，不评价玩家。
+9. 【临时剧情推进】若下方资料中填写了“临时剧情推进”，把它当作用户给导演的当前方向，而不是已经发生的事实。先结合最新对话、现有知情边界和剧情线，将其拆成一小步可回应的外部事件；不要照抄成旁白，不要一次跳过中间过程，也不要让它覆盖用户或独立角色的控制权。该字段为空或被用户清空时，立即停止引用其中内容。
+10. 输出前逐句核对：用户或独立角色可以作为镜头观察对象，但不能成为你新编台词、有意图动作、心理、决定或关键反应的执行者。发现越权句就整句删除，并把推进改写为环境、NPC、外部证据或停在等待回应的节点。
+11. 不得输出“旁白：”“导演：”“${name}：”等自报姓名标签。不要解释规则，不评价玩家。
 
 【输出结构】
 ${DIRECTOR_OUTPUT_GUARD}`
@@ -122,7 +128,8 @@ ${DIRECTOR_OUTPUT_GUARD}`
         entry(3, '20-角色分工', [section('用户主角', config.userProtagonist), section('独立角色', config.independentRoles), section('NPC', config.npcRoster)].join('\n\n')),
         entry(4, '30-幕后真相与知情边界', section('幕后真相与知情边界', config.hiddenTruths)),
         entry(5, '40-剧情线与阶段门槛', section('剧情线与阶段', config.plotThreads)),
-        entry(6, '50-节奏控制', section('节奏要求', config.pacingNotes)),
+        entry(6, '45-临时剧情推进-用户后期可改写', section('临时剧情推进（可选，用户后期指令）', temporaryPlot, '当前未填写；沿用现有剧情线和对话上下文。')),
+        entry(7, '50-节奏控制', section('节奏要求', config.pacingNotes)),
       ],
     },
     regexScripts: [],

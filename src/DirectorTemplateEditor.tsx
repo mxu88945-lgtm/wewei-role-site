@@ -19,6 +19,7 @@ const fields: Array<{ key: keyof DirectorTemplateConfig; label: string; hint: st
   { key: 'npcRoster', label: '导演可演 NPC', hint: '只放没有独立角色卡的人物；也可允许临时路人。', rows: 6, placeholder: 'NPC 名｜身份｜表层立场｜知道什么……' },
   { key: 'hiddenTruths', label: '幕后真相与知情边界', hint: '只进入导演私有世界书，不共享给其他角色。', rows: 7, placeholder: '真相｜当前知情者｜未知者｜揭露条件……' },
   { key: 'plotThreads', label: '剧情阶段与推进线', hint: '写阶段门槛、事件触发与不可提前发生的变化。', rows: 8, placeholder: '阶段一…\n进入阶段二的硬条件…\n阶段三…' },
+  { key: 'temporaryPlot', label: '临时剧情推进（可后期填写）', hint: '不绑定剧情仓也能用。填写后会持续作为导演的当前推进方向，写完记得手动清空；只推动 NPC、环境和外部事件，不替用户或独立角色做决定。', rows: 8, placeholder: '例如：今晚让旧案出现一条新线索，先由门外的快递和一通匿名电话把悬念递进来，停在用户可以回应的位置……' },
   { key: 'openingState', label: '开场锚点', hint: '新群聊开始时的时间、地点、在场者和悬而未决的事。', rows: 5, placeholder: '时间｜地点｜在场人物｜当前事件……' },
   { key: 'pacingNotes', label: '节奏补充', hint: '模板已经限制每轮只推进一小步，这里写本剧特色。', rows: 5, placeholder: '例如：商战线写实，感情变化必须由明确事件累积……' },
 ]

@@ -23,4 +23,24 @@ describe('built-in director template', () => {
     expect(director.characterBook?.entries.some((entry) => entry.content.includes('秘密证据'))).toBe(true)
     expect(director.characterBook?.entries.some((entry) => entry.content.includes('阶段一不得动心'))).toBe(true)
   })
+
+  it('keeps a late-filled temporary plot instruction private to the director', () => {
+    const config = {
+      ...createDirectorTemplateConfig(),
+      temporaryPlot: '让门外的匿名文件成为下一步线索，停在用户可以决定是否拆开的节点。',
+    }
+    const shared = buildSharedTheaterBackground(config)
+    const director = createDirectorCharacter(config, 'director-temporary-plot')
+
+    expect(shared).not.toContain('匿名文件成为下一步线索')
+    expect(director.systemPrompt).toContain('临时剧情推进')
+    expect(director.systemPrompt).toContain('匿名文件成为下一步线索')
+    expect(director.systemPrompt).toContain('不是已经发生的事实')
+    expect(director.characterBook?.entries.some((entry) => entry.content.includes('匿名文件成为下一步线索'))).toBe(true)
+  })
+
+  it('allows the temporary plot instruction to stay empty', () => {
+    const director = createDirectorCharacter(createDirectorTemplateConfig(), 'director-empty-temporary-plot')
+    expect(director.systemPrompt).toContain('当前未填写')
+  })
 })
