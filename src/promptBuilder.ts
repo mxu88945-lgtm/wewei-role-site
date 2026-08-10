@@ -151,6 +151,7 @@ export function buildChatPrompt(input: PromptInput): ChatApiMessage[] {
     character.description && `【角色描述】\n${character.description}`,
     character.personality && `【性格】\n${character.personality}`,
     character.scenario && `【当前场景】\n${character.scenario}`,
+    character.beautificationProtocol && `【每轮开场白与角色回复美化协议｜必须执行】\n${character.beautificationProtocol}`,
     character.systemPrompt && `【角色系统提示词】\n${character.systemPrompt}`,
     displayContinuity,
     // The live project snapshot must follow persisted card instructions so an

@@ -10,6 +10,8 @@ describe('character workshop', () => {
     const draft = parseCharacterWorkshopDraft('```json\n{"name":"沈砚","tagline":"冷静调查员","description":"有自己的案件目标。","personality":"克制","scenario":"旧案重启","greeting":"门被敲响。","alternateGreetings":[],"mesExample":"","creatorNotes":"","systemPrompt":"不代演用户","postHistoryInstructions":"核对历史","tags":["慢热"],"worldbook":[{"title":"旧案","keywords":["旧案"],"content":"三年前未结案。"}]}\n```')
     expect(draft.name).toBe('沈砚')
     expect(draft.worldbook[0].keywords).toEqual(['旧案'])
+    expect(draft.beautificationProtocol).toContain('<scene>')
+    expect(draft.beautificationProtocol).toContain('<gts_status>')
   })
 
   it('builds a V3 character from a generated draft', () => {
@@ -17,6 +19,7 @@ describe('character workshop', () => {
     const character = characterFromWorkshopDraft(draft)
     expect(character.cardSpec).toBe('chara_card_v3')
     expect(character.creator).toContain('AI 角色卡工坊')
+    expect(character.beautificationProtocol).toContain('<scene>')
   })
 
   it('includes user constraints in the prompt', () => {
@@ -25,6 +28,8 @@ describe('character workshop', () => {
     expect(prompt).toContain('极慢热')
     expect(prompt).toContain('placement [2]')
     expect(prompt).toContain('绝不使用 3')
+    expect(prompt).toContain('beautificationProtocol')
+    expect(prompt).toContain('开场白美化偏好')
   })
 
   it('keeps generated opening UI and repairs the legacy placement 3', () => {
@@ -56,6 +61,7 @@ describe('character workshop', () => {
     expect(raw.spec).toBe('chara_card_v3')
     expect(raw.data?.name).toBe('沈砚')
     expect(raw.data?.system_prompt).toBe('不代演用户')
+    expect(raw.data?.extensions?.beautification_protocol).toContain('<scene>')
     expect(raw.data?.character_book?.entries[0].content).toBe('三年前未结案。')
     const bytes = new TextDecoder('latin1').decode(embedded)
     expect(bytes).toContain('chara\0')

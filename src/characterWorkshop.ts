@@ -7,6 +7,7 @@ export type CharacterWorkshopBrief = {
   tone: string
   pace: string
   boundaries: string
+  beautificationHint?: string
 }
 
 export type CharacterWorkshopDraft = {
@@ -21,6 +22,7 @@ export type CharacterWorkshopDraft = {
   creatorNotes: string
   systemPrompt: string
   postHistoryInstructions: string
+  beautificationProtocol: string
   tags: string[]
   worldbook: Array<{ title: string; keywords: string[]; content: string; constant?: boolean }>
   regexScripts: RegexScript[]
@@ -53,8 +55,16 @@ export type WorkshopCopilotResponse = {
 
 export const createEmptyCharacterWorkshopDraft = (): CharacterWorkshopDraft => ({
   name: '', tagline: '', description: '', personality: '', scenario: '', greeting: '', alternateGreetings: [],
-  mesExample: '', creatorNotes: '', systemPrompt: '', postHistoryInstructions: '', tags: [], worldbook: [], regexScripts: [],
+  mesExample: '', creatorNotes: '', systemPrompt: '', postHistoryInstructions: '', beautificationProtocol: '', tags: [], worldbook: [], regexScripts: [],
 })
+
+export const DEFAULT_BEAUTIFICATION_PROTOCOL = `【每轮美化输出协议】
+这是角色回复必须遵守的原始文本协议，不是给正则脚本看的示例。
+每次角色回复（包括第一条开场白）必须按以下顺序输出：
+1. 首个非空字符必须是 <scene>...</scene>，只写角色能够确认的时间、地点和环境；
+2. 接着输出剧情正文，保持自然、可读的纯文本，不输出 HTML 或 CSS；
+3. 末尾只能有一个 <gts_status>...</gts_status>，只记录本轮已经确认的状态、关系进展或未完成事项。
+标签、顺序和字段名保持稳定；没有新信息时沿用当前状态，不编造用户的台词、动作、心理或决定。`
 
 const text = (value: unknown) => typeof value === 'string' ? value.trim() : ''
 const texts = (value: unknown) => Array.isArray(value) ? value.map(text).filter(Boolean) : []
@@ -123,13 +133,13 @@ function parseGeneratedRegexScripts(value: unknown): RegexScript[] {
 
 const copilotFieldKeys = [
   'name', 'tagline', 'description', 'personality', 'scenario', 'greeting', 'alternateGreetings',
-  'mesExample', 'creatorNotes', 'systemPrompt', 'postHistoryInstructions', 'tags',
+  'mesExample', 'creatorNotes', 'systemPrompt', 'postHistoryInstructions', 'beautificationProtocol', 'tags',
 ] as const
 
 const copilotFieldLabels: Record<(typeof copilotFieldKeys)[number], string> = {
   name: '姓名', tagline: '一句话简介', description: '角色描述', personality: '性格与行为逻辑',
   scenario: '场景与初始关系', greeting: '开场白', alternateGreetings: '备选开场', mesExample: '示例对话',
-  creatorNotes: '作者说明', systemPrompt: '系统提示词', postHistoryInstructions: '历史后置指令', tags: '标签',
+  creatorNotes: '作者说明', systemPrompt: '系统提示词', postHistoryInstructions: '历史后置指令', beautificationProtocol: '开场白美化协议', tags: '标签',
 }
 
 const copilotDraftView = (draft: CharacterWorkshopDraft) => ({
@@ -154,13 +164,13 @@ export function buildWorkshopCopilotPrompt({ draft, request, messages, memory, p
 工作方式：
 1. 先理解用户本轮意图。若只是讨论、询问或信息不足，正常回复并令 patch 为 null；不要擅自改卡。
 2. 用户要求制作、修改、修复、补充或“直接帮我写”时，回复说明设计判断，同时给出最小范围 patch。没有被本轮要求涉及的栏目绝不改动。
-3. 你可以操作角色主体字段、世界书、开场白、系统提示词、历史后置指令、示例对话、作者说明、标签，以及全部正则/UI 美化。
+3. 你可以操作角色主体字段、世界书、开场白、系统提示词、历史后置指令、开场白美化协议、示例对话、作者说明、标签，以及全部正则/UI 美化。
 4. 修改已有世界书时沿用完全相同的 title；修改已有正则时优先沿用现有 id，找不到 id 才用完全相同的 scriptName。新增项目不要编造 id。
 5. 正则 findRegex 使用本产品现有的 /pattern/flags 字符串格式；捕获内容用 $1、$2 写入 replaceString。UI 仅使用安全的静态 HTML/CSS，不写 script、iframe、表单、外链资源、on* 事件或会遮挡整页的样式。消息与开场气泡的最外层必须保持正常文档流（position:relative、height:auto、max-width:100%）；禁止 position:fixed/sticky、根节点 position:absolute、100vh/100dvh 固定高度、touch-action:none，以及任何会阻止聊天列表纵向滚动的写法。
 6. 惟境的 placement 只有两个有效位置：1=用户消息，2=角色回复（也包含开场白）。修改开场白或角色气泡时必须使用 [2]；只有用户明确要求同时美化双方消息时才用 [1,2]；绝对不要使用 3。
 7. greeting 和 alternateGreetings 保持可编辑的纯文本剧情。边框、背景、圆角、对话高亮等视觉代码写进 regexScripts。用户说“修改开场白气泡”时，同时检查开场正文与相关正则，并优先更新已有的全文容器正则，不要把装饰性 div 直接塞进开场正文。
 8. 如果预览里有气泡但实际聊天页没有，先检查 placement。看到旧配置 [1,3] 或 [3] 时，把负责角色/开场显示的正则修复为 [2]。
-9. 如果美化依赖 <scene>、<status>、时间/地点/状态等结构化文本，必须同步检查 systemPrompt 或 postHistoryInstructions，并写清“每次角色回复都保留同一套标签与字段”。正则替换中的 div/CSS 只负责界面显示，不得要求模型逐轮复述 HTML。用户说“开场有、后续回复没有”时，必须同时修复显示正则与每轮输出协议。
+9. 如果美化依赖 <scene>、<status>、<gts_status>、时间/地点/状态等结构化文本，必须同步检查 systemPrompt、postHistoryInstructions 与 beautificationProtocol，并写清“每次角色回复都保留同一套标签与字段”。正则替换中的 div/CSS 只负责界面显示，不得要求模型逐轮复述 HTML。用户说“开场有、后续回复没有”时，必须同时修复显示正则与每轮输出协议。
 10. 不代演用户，不擅自确认恋爱关系，不删除用户内容，除非用户明确要求删除。
 11. 回复要像长期合作的工坊客服，简洁说明做了什么和为什么，不要假装已经写入；用户会在界面确认后写入。
 
@@ -312,6 +322,7 @@ export function buildCharacterWorkshopPrompt(brief: CharacterWorkshopBrief) {
 - 文风与气质：${brief.tone.trim() || '细腻、自然、剧情向'}
 - 情感节奏：${brief.pace.trim() || '慢热，关系变化必须由事件支撑'}
 - 边界与禁区：${brief.boundaries.trim() || '不替用户决定言行、心理和关键选择'}
+- 开场白美化偏好：${brief.beautificationHint?.trim() || '结构化场景栏 + 剧情正文 + 状态栏；每轮回复沿用同一套标签，原始文本也必须可读'}
 
 设计规则：
 1. 角色必须有独立目标、缺点、社会关系与行动逻辑，不能只围着用户转。
@@ -320,7 +331,8 @@ export function buildCharacterWorkshopPrompt(brief: CharacterWorkshopBrief) {
 4. postHistoryInstructions 应要求先核对最近剧情、时间地点、已发生事实和未完成事项，禁止重复已完成剧情。
 5. 世界书只保留真正需要独立触发的背景、NPC、关系阶段或剧情规则，避免重复角色主体。
 6. 开场白要有具体时间、地点、局面和可回应入口，但不得替用户发言或行动。
-7. 如果用户在核心构想中明确要求气泡、UI 或美化，可以生成 regexScripts；否则返回空数组。所有开场白与角色回复美化使用 placement [2]，绝不使用 3；开场白本身保持纯文本，视觉代码只写进正则。若 UI 使用 <scene>、<status>、时间/地点/状态等结构化文本，必须在 systemPrompt 或 postHistoryInstructions 中明确要求每次角色回复沿用同一套标签与字段，不能只让开场白拥有完整气泡；模型只输出文本标记与剧情，不输出替换模板里的 HTML/CSS。
+7. 每张新卡都必须生成 beautificationProtocol：它是开场白和后续角色回复共用的原始文本协议，默认采用“<scene> 场景栏 → 剧情正文 → <gts_status> 状态栏”的顺序。协议必须明确标签、字段、连续性、用户主权和“只输出文本标记、不输出 HTML/CSS”。开场白正文必须实际遵守这套协议，而不是只在说明里提到。
+8. 如果美化偏好适合视觉气泡，可生成 regexScripts；视觉代码只写进正则，所有开场白与角色回复美化使用 placement [2]，绝不使用 3。没有必要的视觉脚本时返回空数组，但 beautificationProtocol 仍然必须存在；原始标签在没有正则时也必须可读。
 
 只输出一个 JSON 对象，不要 Markdown 代码围栏，不要解释。必须完全符合：
 {
@@ -335,6 +347,7 @@ export function buildCharacterWorkshopPrompt(brief: CharacterWorkshopBrief) {
   "creatorNotes":"玩法说明与适合的剧情方向",
   "systemPrompt":"最高优先级扮演规则",
   "postHistoryInstructions":"历史核对与连续性规则",
+  "beautificationProtocol":"每轮角色回复的原始文本美化协议，必须包含 <scene>、剧情正文和 <gts_status> 的稳定顺序",
   "tags":["标签"],
   "worldbook":[{"title":"条目名","keywords":["关键词"],"content":"精简正文","constant":false}],
   "regexScripts":[{"scriptName":"开场气泡美化","findRegex":"/^([\\\\s\\\\S]+)$/","replaceString":"安全的静态 HTML/CSS，正文用 $1","placement":[2],"disabled":false,"markdownOnly":false,"promptOnly":false,"runOnEdit":true}]
@@ -365,6 +378,7 @@ export function parseCharacterWorkshopDraft(raw: string): CharacterWorkshopDraft
     alternateGreetings: texts(source.alternateGreetings), mesExample: text(source.mesExample),
     creatorNotes: text(source.creatorNotes), systemPrompt: text(source.systemPrompt),
     postHistoryInstructions: text(source.postHistoryInstructions), tags: texts(source.tags), worldbook,
+    beautificationProtocol: text(source.beautificationProtocol) || DEFAULT_BEAUTIFICATION_PROTOCOL,
     regexScripts: parseGeneratedRegexScripts(source.regexScripts),
   }
   if (!draft.name || !draft.description || !draft.greeting) throw new Error('生成结果缺少姓名、角色描述或开场白，请重试。')
@@ -402,6 +416,7 @@ export function characterFromWorkshopDraft(draft: CharacterWorkshopDraft, avatar
     cardSpec: 'chara_card_v3',
     cardSpecVersion: '3.0',
     characterBook: characterBook(draft.name, draft.worldbook),
+    beautificationProtocol: draft.beautificationProtocol,
     regexScripts: draft.regexScripts.map(normalizeWorkshopRegexScript),
   })
 }

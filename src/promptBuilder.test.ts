@@ -15,6 +15,7 @@ const character: Character = {
   creatorNotes: '',
   systemPrompt: '保持角色口吻。',
   postHistoryInstructions: '缓慢推进。',
+  beautificationProtocol: '<scene>时间：雨夜</scene>剧情正文<gts_status>关系：试探</gts_status>',
   tags: [],
   creator: '',
   characterVersion: '',
@@ -52,6 +53,8 @@ describe('buildChatPrompt', () => {
     expect(all).toContain('细腻慢热')
     expect(all).toContain('现代都市')
     expect(all).toContain('【全局世界书】')
+    expect(all).toContain('【每轮开场白与角色回复美化协议｜必须执行】')
+    expect(all).toContain('<gts_status>关系：试探</gts_status>')
     expect(all.match(/现代都市/g)).toHaveLength(1)
     expect(all).toContain('【本剧场世界观背景｜本剧场所有角色与 NPC 共用】')
     expect(all).toContain('本剧场发生在雨夜后台，顾荒与陆时宴彼此敌视。')

@@ -20,7 +20,11 @@ type SavedWorkshop = {
   copilotUndoSnapshot?: CharacterWorkshopDraft | null
 }
 
-const initialBrief: CharacterWorkshopBrief = { concept: '', name: '', relationship: '', tone: '细腻、自然、剧情向', pace: '慢热，靠事件逐步递进', boundaries: '不替用户决定言行、心理与关键选择' }
+const initialBrief: CharacterWorkshopBrief = {
+  concept: '', name: '', relationship: '', tone: '细腻、自然、剧情向', pace: '慢热，靠事件逐步递进',
+  boundaries: '不替用户决定言行、心理与关键选择',
+  beautificationHint: '结构化场景栏 + 剧情正文 + 状态栏；每轮回复沿用同一套标签，原始文本也必须可读',
+}
 const blankWorldEntry = () => ({ title: '新世界书条目', keywords: [] as string[], content: '', constant: false })
 const blankRegex = (): RegexScript => ({
   id: crypto.randomUUID(), scriptName: '新 UI 美化', findRegex: '', replaceString: '', trimStrings: [],
@@ -83,6 +87,7 @@ export default function CharacterWorkshop({ channels, defaultChannelId, onBack, 
   const [brief, setBrief] = useState(saved.brief || initialBrief)
   const [result, setResult] = useState<CharacterWorkshopDraft | null>(saved.result ? {
     ...saved.result,
+    beautificationProtocol: saved.result.beautificationProtocol || '',
     worldbook: saved.result.worldbook || [],
     regexScripts: (saved.result.regexScripts || []).map(normalizeWorkshopRegexScript),
   } : null)
@@ -327,7 +332,7 @@ export default function CharacterWorkshop({ channels, defaultChannelId, onBack, 
       <div className="workshop-card brief-card">
         <label><span>一句话讲讲这个角色 *</span><textarea rows={5} value={brief.concept} onChange={(event) => patchBrief({ concept: event.target.value })} placeholder="例如：国外认识的年下珠宝设计师，表面小奶狗，实际很会以退为进；有自己的品牌和人生目标……" /></label>
         <div className="workshop-two"><label><span>指定姓名</span><input value={brief.name} onChange={(event) => patchBrief({ name: event.target.value })} placeholder="留空让 AI 取名" /></label><label><span>与用户的关系</span><input value={brief.relationship} onChange={(event) => patchBrief({ relationship: event.target.value })} placeholder="旧识、宿敌、契约婚姻…" /></label></div>
-        <details><summary>细化风格与边界</summary><TextArea label="文风与气质" rows={3} value={brief.tone} onChange={(tone) => patchBrief({ tone })} /><TextArea label="感情节奏" rows={3} value={brief.pace} onChange={(pace) => patchBrief({ pace })} /><TextArea label="绝对边界" rows={3} value={brief.boundaries} onChange={(boundaries) => patchBrief({ boundaries })} /></details>
+        <details><summary>细化风格、边界与开场美化</summary><TextArea label="文风与气质" rows={3} value={brief.tone} onChange={(tone) => patchBrief({ tone })} /><TextArea label="感情节奏" rows={3} value={brief.pace} onChange={(pace) => patchBrief({ pace })} /><TextArea label="绝对边界" rows={3} value={brief.boundaries} onChange={(boundaries) => patchBrief({ boundaries })} /><TextArea label="开场白美化偏好" rows={4} value={brief.beautificationHint || ''} onChange={(beautificationHint) => patchBrief({ beautificationHint })} /></details>
         <label><span>生成所用渠道</span><select value={channelId} onChange={(event) => setChannelId(event.target.value)}>{channels.map((item) => <option key={item.id} value={item.id}>{item.name} · {item.modelName || '未选模型'}</option>)}</select></label>
         {error && <div className="workshop-error">{error}</div>}
         <button className="workshop-generate" disabled={state === 'generating'} onClick={generate}>{state === 'generating' ? '正在认真捏人…' : result ? '重新生成整张卡' : '✦ 生成角色卡'}</button>
@@ -391,6 +396,8 @@ export default function CharacterWorkshop({ channels, defaultChannelId, onBack, 
           <TextArea label="性格与行为逻辑" rows={8} value={result.personality} onChange={(personality) => patchResult({ personality })} />
           <TextArea label="场景与初始关系" rows={7} value={result.scenario} onChange={(scenario) => patchResult({ scenario })} />
           <TextArea label="开场白" rows={10} value={result.greeting} onChange={(greeting) => patchResult({ greeting })} />
+          <TextArea label="开场白美化协议（每轮回复都要遵守）" rows={12} value={result.beautificationProtocol} onChange={(beautificationProtocol) => patchResult({ beautificationProtocol })} />
+          <div className="workshop-field-hint">这是给模型的原始文本规则，不是正则模板。默认顺序是 &lt;scene&gt; 场景栏 → 剧情正文 → &lt;gts_status&gt; 状态栏；即使关闭正则，标签也应该保持可读。</div>
           <button
             type="button"
             className="workshop-inline-assistant"

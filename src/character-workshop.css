@@ -29,6 +29,7 @@
 .workshop-section-heading small { margin-top: 4px; color: #918994; font-size: 10px; }
 .workshop-section-heading button { flex: 0 0 auto; border: 0; border-radius: 13px; padding: 9px 12px; color: var(--theme-accent-text); background: var(--theme-accent-soft); font-weight: 850; }
 .workshop-empty { padding: 16px; border-radius: 16px; color: #968d99; background: rgba(255,255,255,.42); font-size: 11px; line-height: 1.6; }
+.workshop-field-hint { margin: -2px 0 12px; color: #8f8793; font-size: 11px; line-height: 1.65; }
 .workshop-check { grid-template-columns: auto 1fr !important; align-items: center; }
 .workshop-check input { width: 18px; height: 18px; accent-color: var(--theme-accent); }
 .workshop-inline-assistant { margin-top: -5px; border: 1px solid color-mix(in srgb,var(--theme-accent) 22%,transparent); border-radius: 14px; padding: 11px 13px; color: var(--theme-accent-text); background: color-mix(in srgb,var(--theme-accent-soft) 76%,#fff); font-size: 10px; font-weight: 850; }

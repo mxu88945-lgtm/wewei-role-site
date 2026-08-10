@@ -73,6 +73,7 @@ export type Character = {
   creatorNotes: string
   systemPrompt: string
   postHistoryInstructions: string
+  beautificationProtocol?: string
   tags: string[]
   creator: string
   characterVersion: string
@@ -100,7 +101,7 @@ type CardData = Record<string, unknown> & {
   character_version?: string
   alternate_greetings?: string[]
   character_book?: CharacterBook
-  extensions?: Record<string, unknown> & { regex_scripts?: RegexScript[] }
+  extensions?: Record<string, unknown> & { regex_scripts?: RegexScript[]; beautification_protocol?: string }
 }
 
 type RawCard = Record<string, unknown> & {
@@ -134,7 +135,10 @@ export function characterCardV3Payload(character: Character): RawCard {
       creator: character.creator,
       character_version: character.characterVersion,
       character_book: character.characterBook,
-      extensions: { regex_scripts: character.regexScripts },
+      extensions: {
+        regex_scripts: character.regexScripts,
+        ...(character.beautificationProtocol?.trim() ? { beautification_protocol: character.beautificationProtocol } : {}),
+      },
     },
   }
 }
@@ -158,7 +162,10 @@ export function characterCardV2Payload(character: Character): RawCard {
       creator: character.creator,
       character_version: character.characterVersion,
       character_book: character.characterBook,
-      extensions: { regex_scripts: character.regexScripts },
+      extensions: {
+        regex_scripts: character.regexScripts,
+        ...(character.beautificationProtocol?.trim() ? { beautification_protocol: character.beautificationProtocol } : {}),
+      },
     },
   }
 }
@@ -383,6 +390,7 @@ export async function importCharacterCard(file: File): Promise<Character> {
     creatorNotes: stringValue(data.creator_notes),
     systemPrompt: stringValue(data.system_prompt),
     postHistoryInstructions: stringValue(data.post_history_instructions),
+    beautificationProtocol: stringValue(extensions.beautification_protocol),
     tags: stringArray(data.tags),
     creator: stringValue(data.creator),
     characterVersion: stringValue(data.character_version),
@@ -410,6 +418,7 @@ export function createBlankCharacter(input: { name: string; tagline: string; des
     creatorNotes: '',
     systemPrompt: '',
     postHistoryInstructions: '',
+    beautificationProtocol: '',
     tags: input.tags.split(/[,，]/).map((item) => item.trim()).filter(Boolean),
     creator: '',
     characterVersion: '',
@@ -550,6 +559,7 @@ export function normalizeStoredCharacter(character: Partial<Character>): Charact
     creatorNotes: character.creatorNotes || '',
     systemPrompt: character.systemPrompt || '',
     postHistoryInstructions: character.postHistoryInstructions || '',
+    beautificationProtocol: character.beautificationProtocol || '',
     tags: character.tags || [],
     creator: character.creator || '',
     characterVersion: character.characterVersion || '',

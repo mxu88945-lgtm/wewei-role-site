@@ -2,7 +2,7 @@ import { useState } from 'react'
 import type { Character, RegexScript, WorldBookEntry } from './characterCard'
 
 export type CharacterCardSection = 'overview' | 'greetings' | 'worldbook' | 'regex'
-type LongCharacterField = 'description' | 'personality' | 'scenario' | 'systemPrompt' | 'postHistoryInstructions' | 'mesExample' | 'creatorNotes'
+type LongCharacterField = 'description' | 'personality' | 'scenario' | 'systemPrompt' | 'postHistoryInstructions' | 'beautificationProtocol' | 'mesExample' | 'creatorNotes'
 type FullEditorField = LongCharacterField | 'greeting'
 
 const longCharacterFields: Array<{ key: LongCharacterField; label: string }> = [
@@ -11,6 +11,7 @@ const longCharacterFields: Array<{ key: LongCharacterField; label: string }> = [
   { key: 'scenario', label: '场景' },
   { key: 'systemPrompt', label: '系统提示词' },
   { key: 'postHistoryInstructions', label: '历史后置指令' },
+  { key: 'beautificationProtocol', label: '开场白美化协议' },
   { key: 'mesExample', label: '示例对话' },
   { key: 'creatorNotes', label: '作者备注' },
 ]
@@ -90,7 +91,7 @@ export default function CharacterCardManager({ character, onChange, onBack, init
     return <section className="metadata-full-page" aria-label={`${fieldLabel}整页编辑`}>
       <header className="page-header"><button className="icon-button" onClick={() => setFullEditorField(null)}>‹</button><h1>{fieldLabel}</h1><div className="header-action"><span className="saved-label">自动保存</span></div></header>
       <div className="metadata-full-hint">完整内容 · 可直接查看与修改</div>
-      <textarea value={character[fullEditorField]} onChange={(event) => patch({ [fullEditorField]: event.target.value })} placeholder={`填写${fieldLabel}`} />
+      <textarea value={character[fullEditorField] || ''} onChange={(event) => patch({ [fullEditorField]: event.target.value })} placeholder={`填写${fieldLabel}`} />
     </section>
   }
 
@@ -115,7 +116,7 @@ export default function CharacterCardManager({ character, onChange, onBack, init
           <label>一句话简介<input value={character.tagline} onChange={(event) => patch({ tagline: event.target.value })} placeholder="填写角色身份或一句话简介" /></label>
         </div>
       </article>
-      {longCharacterFields.map((field) => <MetadataArea key={field.key} label={field.label} value={character[field.key]} onOpenFull={() => setFullEditorField(field.key)} />)}
+      {longCharacterFields.map((field) => <MetadataArea key={field.key} label={field.label} value={character[field.key] || ''} onOpenFull={() => setFullEditorField(field.key)} />)}
     </div>}
 
     {section === 'greetings' && <div className="metadata-stack">
