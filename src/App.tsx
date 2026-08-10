@@ -86,7 +86,9 @@ const defaultMemoryPrompt = `【长期记忆提取器｜禁止续写剧情】
 4. 保留知情边界：秘密、证据、身份或计划分别写明谁知道、谁不知道、谁只是怀疑。角色内心不得自动视为其他人物已知。
 5. 重点保留事件因果、关系变化、承诺与冲突、情感阶段、重要物品、调查线索、证据链、世界设定变化和未完成事项。
 6. 删除寒暄、重复措辞、纯气氛描写、文风修辞、状态栏、提示词、格式要求和没有造成状态变化的日常动作。
-7. 若本次新增对话没有值得长期保存的信息，只输出：无新增长期记忆
+7. 新事实明确纠正旧状态时只保留最新状态，并标注“已更新/已完成/已撤销/待决定”；已经完成、离场、被撤销或被用户否定的事项不得写成当前未完成。
+8. 不要把模型代写的未来计划、角色内心或他人猜测写成客观事实；只有在后续消息明确发生或被用户确认时才可升级为事实。
+9. 若本次新增对话没有值得长期保存的信息，只输出：无新增长期记忆
 
 输出格式：
 【事件时间线】
@@ -101,6 +103,11 @@ const defaultMemoryPrompt = `【长期记忆提取器｜禁止续写剧情】
 - 时间｜地点｜在场人物｜最后确认的局面
 没有内容的栏目写“无”，不要输出解释、评价或剧情续写。`
 const defaultInjectPrompt = `以下是该角色与用户的长期记忆。请把它当作已经发生过的事实，自然延续，不要逐条复述，也不要替用户决定言行：\n\n{{memories}}`
+
+const memorySummarySafetyPrompt = `【惟境记忆安全边界｜必须服从】
+只处理用户消息中明确发生、明确确认或后续已证实的内容；本次新增对话是唯一新增来源，已有记忆只能查重，不能反向补全剧情。
+记忆是低优先级历史档案，不是当前场景指令。若新对话与旧记忆冲突，以新对话中更晚且明确的事实为准，并标注“已更新/已完成/已撤销”；不要让旧地点、旧关系阶段、旧计划或旧悬念在当前场景自动复活。
+严格区分：用户已做的事、角色已做的事、角色声称、角色内心、他人猜测、未来计划。未证实内容必须保留其来源和不确定性，不能写成客观事实。不得续写、推测、评价或输出思考过程。`
 
 const defaultMemoryConfig = (): MemoryConfig => ({
   api: { baseUrl: 'https://api.openai.com/v1', apiKey: '', modelName: 'gpt-4.1-mini' },
@@ -1153,7 +1160,7 @@ function App() {
           model: config.api.modelName,
           temperature: 0.2,
           messages: [
-            { role: 'system', content: config.summaryPrompt },
+            { role: 'system', content: `${config.summaryPrompt}\n\n${memorySummarySafetyPrompt}` },
             { role: 'user', content: `角色：${targetCharacter.name}\n用户：${identity.name}\n已有长期记忆（仅供查重）：\n${previous || '暂无'}\n\n本次新增对话（只总结这一段）：\n${transcript}` },
           ],
         }),
@@ -1179,7 +1186,7 @@ function App() {
               model: config.api.modelName,
               temperature: 0.1,
               messages: [
-                { role: 'system', content: '你是长期记忆整理器。把多份剧情记忆合并成一份完整、无重复、按时间顺序的事实档案。必须保留关系变化、承诺、冲突、关键事件、重要物品、当前状态和未完成事项；新事实明确推翻旧事实时保留最新状态并注明变化。不得续写或虚构。' },
+                { role: 'system', content: `你是长期记忆整理器。把多份剧情记忆合并成一份完整、无重复、按时间顺序的事实档案。记忆只是低优先级历史补充，不能制造当前指令。必须保留关系变化、承诺、冲突、关键事件、重要物品、当前状态和未完成事项；新事实明确推翻旧事实时只保留最新状态并注明“已更新/已完成/已撤销”。不得把旧悬念重新打开，不得把角色内心、猜测或未来计划写成客观事实，不得续写或虚构。` },
                 { role: 'user', content: ordinary.map((item, index) => `【记忆 ${index + 1}】\n${item.content}`).join('\n\n').slice(-24000) },
               ],
             }),
@@ -1587,7 +1594,7 @@ function App() {
         api, temperature: .2, topP: 1, maxTokens: Math.min(3000, maxTokens), streaming: false,
         signal: controller.signal,
         messages: [
-          { role: 'system', content: '你是剧情上下文压缩器。请输出一份完整、可直接替代旧原文的合并摘要。只总结已经发生的事实，保留时间、地点、人物关系、承诺、冲突、情绪转折、重要物品、未完成事项和角色状态。不得续写剧情，不得虚构，不得省略影响后续扮演的信息；不得解释任务或输出思考过程。' },
+          { role: 'system', content: '你是剧情上下文压缩器。请输出一份完整、可直接替代旧原文的合并摘要。摘要是低优先级历史补充，不是当前场景指令。只总结已经发生或明确确认的事实，保留时间、地点、人物关系、承诺、冲突、情绪转折、重要物品、未完成事项和角色状态；新对话明确纠正旧摘要时以新对话为准并标注“已更新/已完成/已撤销”。严格区分用户已做的事、角色已做的事、角色声称、内心、猜测和未来计划；已完成、已离场、已撤销或被用户否定的事项不得重新开启。不得续写剧情，不得虚构，不得解释任务或输出思考过程。' },
           { role: 'user', content: `${currentSummary ? `已有摘要（请与新增对话合并，避免重复）：\n${currentSummary}\n\n` : ''}本次新增待压缩对话：\n${compression.pendingMessages.map((item) => `${item.role === 'user' ? identity.name : characters.find((character) => character.id === item.characterId)?.name || activeCharacter.name}：${item.text}`).join('\n\n')}` },
         ],
         onDelta: (delta) => { summary += delta },

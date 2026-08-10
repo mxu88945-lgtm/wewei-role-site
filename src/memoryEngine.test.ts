@@ -19,6 +19,12 @@ describe('long-running memory selection', () => {
     expect(selected.map((item) => item.id)).toContain('old-relevant')
   })
 
+  it('bounds ordinary memory injection so old context cannot drown out the live scene', () => {
+    const entries = Array.from({ length: 12 }, (_, index) => ({ id: `memory-${index}`, createdAt: index, content: `阶段事实 ${index}` }))
+    const selected = selectRelevantMemories(entries, '继续当前剧情。')
+    expect(selected.filter((entry) => !entry.pinned)).toHaveLength(8)
+  })
+
   it('isolates a rewritten branch without deleting its archived memories', () => {
     const map = { conversation: [
       { id: 'old', content: '旧分支结局', historyRevision: 0 },

@@ -45,8 +45,13 @@ function searchTerms(value: string) {
   return Array.from(new Set(value.match(/[\u4e00-\u9fff]{2,6}|[A-Za-z0-9_]{3,}/g) || [])).slice(-120)
 }
 
-/** Core memories are permanent; ordinary memories are chosen by relevance with recent-event fallback. */
-export function selectRelevantMemories(entries: LongMemoryEntry[], recentText: string, maxChars = 12000) {
+/**
+ * Core memories are permanent background, while ordinary memories are chosen
+ * by relevance with a small recent-event fallback.  Keeping this block bounded
+ * matters: an ever-growing memory prompt can drown out the live scene and make
+ * the model follow old context more strongly than the current user message.
+ */
+export function selectRelevantMemories(entries: LongMemoryEntry[], recentText: string, maxChars = 6000, maxOrdinaryEntries = 8) {
   const terms = searchTerms(recentText)
   const pinned = entries.filter((entry) => entry.pinned).sort((a, b) => (a.createdAt || 0) - (b.createdAt || 0))
   const ordinary = entries.filter((entry) => !entry.pinned)
@@ -58,12 +63,15 @@ export function selectRelevantMemories(entries: LongMemoryEntry[], recentText: s
 
   const selected: LongMemoryEntry[] = [...pinned]
   let remaining = Math.max(0, maxChars - pinned.reduce((sum, entry) => sum + entry.content.trim().length, 0))
+  let ordinaryCount = 0
   for (const entry of ranked.map((item) => item.entry)) {
     if (selected.includes(entry) || remaining <= 0) continue
+    if (ordinaryCount >= Math.max(1, maxOrdinaryEntries)) continue
     const contentLength = entry.content.trim().length
     if (!contentLength) continue
     if (contentLength > remaining && selected.length) continue
     selected.push(entry)
+    ordinaryCount += 1
     remaining -= Math.min(contentLength, remaining)
   }
   return selected.sort((a, b) => (a.createdAt || 0) - (b.createdAt || 0))
