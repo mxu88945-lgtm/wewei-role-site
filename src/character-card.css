@@ -52,8 +52,6 @@
 .empty-metadata { min-height: 150px; border-radius: 22px; display: grid; place-items: center; align-content: center; gap: 8px; color: #9a929e; background: #efedf0; }
 .empty-metadata span { color: #a984d3; font-size: 24px; }
 
-.character-name-editor small { display: block; color: #958e99; font-size: 11px; font-weight: 500; line-height: 1.45; }
-
 .basic-metadata-fields > label {
   display: grid;
   gap: 7px;
@@ -61,18 +59,14 @@
   font-size: 12px;
   font-weight: 700;
 }
-.character-name-editor {
-  position: relative;
-  z-index: 1;
-  touch-action: manipulation;
-}
-.character-name-editor input {
-  display: block;
-  box-sizing: border-box;
-  min-height: 48px;
-  cursor: text;
-  pointer-events: auto;
-  user-select: text;
-  -webkit-user-select: text;
-  touch-action: manipulation;
-}
+.character-name-editor-button { width: 100%; min-height: 72px; border: 1px solid rgba(71,55,80,.07); border-radius: 17px; padding: 13px 14px; display: flex; align-items: center; justify-content: space-between; gap: 14px; color: #332e36; background: #f8f6f9; text-align: left; touch-action: manipulation; }
+.character-name-editor-button span, .character-name-editor-button small, .character-name-editor-button strong { display: block; }
+.character-name-editor-button small { margin-bottom: 6px; color: #746d78; font-size: 11px; font-style: normal; font-weight: 700; }
+.character-name-editor-button strong { font-size: 16px; line-height: 1.35; overflow-wrap: anywhere; }
+.character-name-editor-button em { flex: 0 0 auto; color: #825bb4; font-size: 12px; font-style: normal; font-weight: 800; }
+.character-name-editor-button:active { transform: scale(.99); background: #f2edf6; }
+.character-name-full-page { gap: 14px; }
+.character-name-full-field { display: grid; gap: 9px; color: #6e6872; font-size: 13px; font-weight: 800; }
+.character-name-full-field input { width: 100%; min-height: 56px; box-sizing: border-box; border: 1px solid rgba(71,55,80,.1); outline: none; border-radius: 18px; padding: 14px 16px; color: #2e2931; background: #f3eff5; font-size: 16px; user-select: text; -webkit-user-select: text; }
+.character-name-full-field input:focus { border-color: #a87ed9; box-shadow: 0 0 0 4px rgba(158,108,211,.1); }
+.character-name-save-button { width: 100%; min-height: 52px; border: 0; border-radius: 17px; color: white; background: linear-gradient(145deg,#8158d7,#bd77c3); font-size: 14px; font-weight: 800; box-shadow: 0 12px 26px rgba(95,62,143,.18); touch-action: manipulation; }
