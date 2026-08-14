@@ -53,3 +53,26 @@
 .empty-metadata span { color: #a984d3; font-size: 24px; }
 
 .character-name-editor small { display: block; color: #958e99; font-size: 11px; font-weight: 500; line-height: 1.45; }
+
+.basic-metadata-fields > label {
+  display: grid;
+  gap: 7px;
+  color: #746d78;
+  font-size: 12px;
+  font-weight: 700;
+}
+.character-name-editor {
+  position: relative;
+  z-index: 1;
+  touch-action: manipulation;
+}
+.character-name-editor input {
+  display: block;
+  box-sizing: border-box;
+  min-height: 48px;
+  cursor: text;
+  pointer-events: auto;
+  user-select: text;
+  -webkit-user-select: text;
+  touch-action: manipulation;
+}
