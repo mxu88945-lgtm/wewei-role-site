@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from 'react'
+import { useEffect, useState } from 'react'
 import type { Character, RegexScript, WorldBookEntry } from './characterCard'
 
 export type CharacterCardSection = 'overview' | 'greetings' | 'worldbook' | 'regex'
@@ -76,8 +76,8 @@ export default function CharacterCardManager({ character, onChange, onBack, init
   const [expandedWorld, setExpandedWorld] = useState<number | null>(null)
   const [expandedRegex, setExpandedRegex] = useState<string | null>(null)
   const [fullEditorField, setFullEditorField] = useState<FullEditorField | null>(null)
+  const [nameEditorOpen, setNameEditorOpen] = useState(false)
   const [nameDraft, setNameDraft] = useState(character.name)
-  const nameInputRef = useRef<HTMLInputElement>(null)
   const entries = character.characterBook?.entries || []
 
   useEffect(() => { setNameDraft(character.name) }, [character.id, character.name])
@@ -85,9 +85,10 @@ export default function CharacterCardManager({ character, onChange, onBack, init
   const patch = (value: Partial<Character>) => onChange({ ...character, ...value })
   const commitName = () => {
     const nextName = nameDraft.trim()
-    if (!nextName) { setNameDraft(character.name); return }
+    if (!nextName) { setNameDraft(character.name); return false }
     if (nextName !== character.name) patch({ name: nextName })
     if (nextName !== nameDraft) setNameDraft(nextName)
+    return true
   }
   const setEntries = (nextEntries: WorldBookEntry[]) => patch({ characterBook: { ...(character.characterBook || { name: `${character.name}世界书` }), entries: nextEntries } })
   const setRegexScripts = (regexScripts: RegexScript[]) => patch({ regexScripts })
@@ -95,6 +96,15 @@ export default function CharacterCardManager({ character, onChange, onBack, init
   const updateEntry = (id: number, value: Partial<WorldBookEntry>) => setEntries(entries.map((entry) => entry.id === id ? { ...entry, ...value } : entry))
   const updateEntryExtensions = (id: number, value: Record<string, unknown>) => setEntries(entries.map((entry) => entry.id === id ? { ...entry, extensions: { ...entry.extensions, ...value } } : entry))
   const updateRegex = (id: string, value: Partial<RegexScript>) => setRegexScripts(character.regexScripts.map((script) => script.id === id ? { ...script, ...value } : script))
+
+  if (nameEditorOpen) {
+    return <section className="metadata-full-page character-name-full-page" aria-label="修改角色名称">
+      <header className="page-header"><button className="icon-button" onClick={() => { setNameDraft(character.name); setNameEditorOpen(false) }}>‹</button><h1>修改角色名称</h1><div className="header-action"><span className="saved-label">手动保存</span></div></header>
+      <div className="metadata-full-hint">输入新名称后点“保存名称”，角色卡与角色库会同步更新。</div>
+      <label className="character-name-full-field"><span>角色名称</span><input autoFocus type="text" value={nameDraft} onChange={(event) => setNameDraft(event.target.value)} onKeyDown={(event) => { if (event.key === 'Enter') { event.preventDefault(); if (commitName()) setNameEditorOpen(false) } }} placeholder="填写角色名称" autoComplete="off" autoCapitalize="words" spellCheck={false} enterKeyHint="done" /></label>
+      <button type="button" className="character-name-save-button" onClick={() => { if (commitName()) setNameEditorOpen(false) }}>保存名称</button>
+    </section>
+  }
 
   if (fullEditorField) {
     const fieldLabel = fullEditorLabels[fullEditorField]
@@ -122,7 +132,7 @@ export default function CharacterCardManager({ character, onChange, onBack, init
       <article className="metadata-editor basic-metadata-editor">
         <div className="editor-heading"><strong>基础资料</strong><small>修改后自动保存，不影响已有聊天和记忆</small></div>
         <div className="editor-body basic-metadata-fields">
-          <label className="character-name-editor" onClick={() => nameInputRef.current?.focus()}><span>角色名称</span><input ref={nameInputRef} type="text" value={nameDraft} onChange={(event) => setNameDraft(event.target.value)} onBlur={commitName} onKeyDown={(event) => { if (event.key === 'Enter') { event.preventDefault(); event.currentTarget.blur() } }} placeholder="填写角色名称" autoComplete="off" autoCapitalize="words" spellCheck={false} enterKeyHint="done" aria-label="角色名称" /><small>可直接改名，离开输入框或按回车后自动保存</small></label>
+          <button type="button" className="character-name-editor-button" onClick={() => { setNameDraft(character.name); setNameEditorOpen(true) }}><span><small>角色名称</small><strong>{character.name}</strong></span><em>修改 ›</em></button>
           <label>一句话简介<input value={character.tagline} onChange={(event) => patch({ tagline: event.target.value })} placeholder="填写角色身份或一句话简介" /></label>
         </div>
       </article>
