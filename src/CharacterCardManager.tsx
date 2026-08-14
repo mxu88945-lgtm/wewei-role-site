@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { useEffect, useState } from 'react'
 import type { Character, RegexScript, WorldBookEntry } from './characterCard'
 
 export type CharacterCardSection = 'overview' | 'greetings' | 'worldbook' | 'regex'
@@ -76,9 +76,18 @@ export default function CharacterCardManager({ character, onChange, onBack, init
   const [expandedWorld, setExpandedWorld] = useState<number | null>(null)
   const [expandedRegex, setExpandedRegex] = useState<string | null>(null)
   const [fullEditorField, setFullEditorField] = useState<FullEditorField | null>(null)
+  const [nameDraft, setNameDraft] = useState(character.name)
   const entries = character.characterBook?.entries || []
 
+  useEffect(() => { setNameDraft(character.name) }, [character.id, character.name])
+
   const patch = (value: Partial<Character>) => onChange({ ...character, ...value })
+  const commitName = () => {
+    const nextName = nameDraft.trim()
+    if (!nextName) { setNameDraft(character.name); return }
+    if (nextName !== character.name) patch({ name: nextName })
+    if (nextName !== nameDraft) setNameDraft(nextName)
+  }
   const setEntries = (nextEntries: WorldBookEntry[]) => patch({ characterBook: { ...(character.characterBook || { name: `${character.name}世界书` }), entries: nextEntries } })
   const setRegexScripts = (regexScripts: RegexScript[]) => patch({ regexScripts })
 
@@ -112,7 +121,7 @@ export default function CharacterCardManager({ character, onChange, onBack, init
       <article className="metadata-editor basic-metadata-editor">
         <div className="editor-heading"><strong>基础资料</strong><small>修改后自动保存，不影响已有聊天和记忆</small></div>
         <div className="editor-body basic-metadata-fields">
-          <label>角色名称<input value={character.name} onChange={(event) => patch({ name: event.target.value })} placeholder="填写角色名称" /></label>
+          <label className="character-name-editor"><span>角色名称</span><input value={nameDraft} onChange={(event) => setNameDraft(event.target.value)} onBlur={commitName} onKeyDown={(event) => { if (event.key === 'Enter') { event.preventDefault(); event.currentTarget.blur() } }} placeholder="填写角色名称" autoComplete="off" spellCheck={false} /><small>可直接改名，离开输入框或按回车后自动保存</small></label>
           <label>一句话简介<input value={character.tagline} onChange={(event) => patch({ tagline: event.target.value })} placeholder="填写角色身份或一句话简介" /></label>
         </div>
       </article>
