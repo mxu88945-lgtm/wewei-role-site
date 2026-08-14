@@ -51,3 +51,5 @@
 .danger-button { width: 100%; border: 0; border-radius: 14px; padding: 12px; color: #bc6770; background: #f4e4e7; font-weight: 700; }
 .empty-metadata { min-height: 150px; border-radius: 22px; display: grid; place-items: center; align-content: center; gap: 8px; color: #9a929e; background: #efedf0; }
 .empty-metadata span { color: #a984d3; font-size: 24px; }
+
+.character-name-editor small { display: block; color: #958e99; font-size: 11px; font-weight: 500; line-height: 1.45; }
