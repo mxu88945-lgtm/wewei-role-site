@@ -43,4 +43,20 @@ describe('built-in director template', () => {
     const director = createDirectorCharacter(createDirectorTemplateConfig(), 'director-empty-temporary-plot')
     expect(director.systemPrompt).toContain('当前未填写')
   })
+
+  it('ships scene and director status beautification scripts', () => {
+    const director = createDirectorCharacter(createDirectorTemplateConfig(), 'director-beautification')
+
+    expect(director.regexScripts).toHaveLength(2)
+    expect(director.regexScripts?.[0]).toMatchObject({
+      id: 'builtin-director-scene',
+      replaceString: '<div class="weijing-scene-strip">$1</div>',
+      disabled: false,
+    })
+    expect(director.regexScripts?.[1]).toMatchObject({
+      id: 'builtin-director-status',
+      replaceString: '<div class="weijing-status-card">$1</div>',
+      disabled: false,
+    })
+  })
 })
