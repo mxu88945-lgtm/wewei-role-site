@@ -510,3 +510,8 @@ button { cursor: pointer; }
   text-overflow: ellipsis;
   white-space: nowrap;
 }
+
+
+/* Keep model-authored blank lines visible after scene/status markup turns a reply into rich HTML. */
+.message-safe-html .message-paragraph-break { display:block; height:.78em; }
+.message-safe-html .message-auto-paragraph-break { height:1em; }
