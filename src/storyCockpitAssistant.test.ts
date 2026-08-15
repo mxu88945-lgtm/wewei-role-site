@@ -19,6 +19,24 @@ describe('story cockpit assistant', () => {
     expect(input).toContain('不得只写角色反应')
   })
 
+  it('keeps rendered status panels out of cockpit and canon model inputs', () => {
+    const project = createStoryProject(1)
+    const conversations = [{
+      id: 'chat', title: '机场', messages: [{
+        role: 'assistant' as const, characterId: 'lu',
+        text: '陆星屹换回行李箱。\n<director_status>受限线索：寒砚是AL-01。</director_status>',
+      }],
+    }]
+    const characters = [{ id: 'lu', name: '陆星屹' }]
+
+    const cockpit = buildCockpitAssistantInput({ project, userName: '裴允茉', characters, conversations })
+    const canon = buildStoryCanonAssistantInput({ project, userName: '裴允茉', characters, conversations })
+    expect(cockpit).toContain('陆星屹换回行李箱')
+    expect(canon).toContain('陆星屹换回行李箱')
+    expect(cockpit).not.toContain('寒砚是AL-01')
+    expect(canon).not.toContain('寒砚是AL-01')
+  })
+
   it('rebuilds from retained dialogue without trusting the stale cockpit', () => {
     const project = { ...createStoryProject(1), title: '改写分支' }
     project.cockpit.completedEvents = ['已被撤回的求婚']

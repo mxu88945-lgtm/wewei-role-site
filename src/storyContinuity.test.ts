@@ -51,6 +51,25 @@ describe('automatic story continuity', () => {
     expect(input).toContain('从新分支继续')
   })
 
+  it('does not let UI-only status panels become automatic continuity facts', () => {
+    const project = { ...createStoryProject(1), conversationIds: ['chat-one'] }
+    const input = buildAutomaticContinuityInput({
+      project,
+      userName: '裴允茉',
+      characters: [{ id: 'lu', name: '陆星屹' }],
+      conversations: [{
+        id: 'chat-one', title: '机场', messages: [{
+          id: 12, role: 'assistant', characterId: 'lu',
+          text: '陆星屹换回了行李箱。\n<gts_status>隐藏信息边界：寒砚是AL-01，陆景衡喜欢裴允茉。</gts_status>',
+        }],
+      }],
+    })
+
+    expect(input).toContain('陆星屹换回了行李箱')
+    expect(input).not.toContain('寒砚是AL-01')
+    expect(input).not.toContain('陆景衡喜欢裴允茉')
+  })
+
   it('sends only incremental dialogue and protects the user protagonist', () => {
     const project = { ...createStoryProject(1), title: '落水真相', conversationIds: ['chat-one'] }
     project.autoContinuity.lastProcessedAssistantMessageIds = { 'chat-one': 9 }

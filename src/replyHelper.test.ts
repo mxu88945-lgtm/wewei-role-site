@@ -25,4 +25,14 @@ describe('AI reply helper', () => {
   it('removes assistant wrappers before filling the composer', () => {
     expect(cleanReplyHelperDraft('```text\n建议回复：我想先看看消息来源。\n```')).toBe('我想先看看消息来源。')
   })
+
+  it('does not expose UI-only status notes to the reply helper', () => {
+    const messages = buildReplyHelperMessages({
+      userName: '裴允茉', userDescription: '', conversationTitle: '机场',
+      recentMessages: [{ author: '陆星屹', text: '他换回行李箱。\n<gts_status>隐藏信息边界：寒砚是AL-01。</gts_status>' }],
+    })
+    const prompt = messages.map((message) => message.content).join('\n')
+    expect(prompt).toContain('他换回行李箱')
+    expect(prompt).not.toContain('寒砚是AL-01')
+  })
 })

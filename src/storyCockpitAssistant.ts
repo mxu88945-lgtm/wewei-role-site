@@ -1,4 +1,5 @@
 import { normalizeStoryCockpit, type StoryCanon, type StoryCockpit, type StoryProject } from './storyProject'
+import { modelVisibleMessageText } from './modelContext'
 
 export type CockpitSourceCharacter = {
   id: string
@@ -37,7 +38,7 @@ export function buildStoryCanonAssistantInput({ project, characters, conversatio
     totalMessages: conversation.messages.length,
     sampledMessages: sampleWholeStory(conversation.messages).map((message) => ({
       speaker: message.role === 'user' ? userName : names.get(message.characterId || '') || '未标明角色',
-      text: compact(message.text, 1400),
+      text: compact(modelVisibleMessageText(message), 1400),
     })),
   }))
   return `你是剧本总编与连续性审计员。请根据项目资料、现有驾驶舱和绑定对话，为整部剧本整理一份“核心剧情总纲”草稿。
@@ -103,7 +104,7 @@ export function buildCockpitAssistantInput({ project, characters, conversations,
     messages: conversation.messages.slice(-50).map((message) => ({
       speaker: message.role === 'user' ? userName : characterMap.get(message.characterId || '') || '未标明的角色',
       role: message.role,
-      text: compact(message.text, 2500),
+      text: compact(modelVisibleMessageText(message), 2500),
     })),
   }))
 
