@@ -517,3 +517,6 @@ button { cursor: pointer; }
 .message-safe-html .message-auto-paragraph-break { height:1.35em; }
 /* Raw model line breaks are narrative paragraphs, not compact poem lines. */
 .message-safe-html br + br { display:block; content:''; height:1.15em; }
+
+.message-safe-html .message-story-paragraph { margin:0 0 1.05em; padding:0; }
+.message-safe-html .message-story-paragraph:last-child { margin-bottom:0; }
