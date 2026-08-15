@@ -24,6 +24,23 @@ type PromptInput = {
   compressedUntil?: number
 }
 
+const PRIVATE_PERSONA_TAG = '后台身份隔离'
+
+/**
+ * Some stories begin before the actor knows who the user protagonist is.  In
+ * that case even the normal persona header is backstage information: telling
+ * the model the answer and asking it to "pretend not to know" is not a real
+ * knowledge boundary.  Packaged cards can opt into a zero-knowledge persona
+ * view and learn the protagonist only from visible dialogue and evidence.
+ */
+export function modelUserForCharacter(character: Character, user: PromptInput['user']) {
+  if (!character.tags.includes(PRIVATE_PERSONA_TAG)) return user
+  return {
+    name: '当前交互对象',
+    description: '后台用户身份档案未向本角色提供。只依据本角色在剧情中亲眼见到、亲耳听到或由可靠公开来源获得的事实逐步认识对方；未在对话中发生的信息视为不存在。',
+  }
+}
+
 function matchesKeyword(source: string, keyword: string, entry: WorldBookEntry) {
   if (!keyword) return false
   try {
@@ -149,12 +166,14 @@ export function displayContinuityInstruction(character: Character, messages: Sou
 }
 
 export function buildChatPrompt(input: PromptInput): ChatApiMessage[] {
-  const { character, user } = input
+  const { character } = input
+  const user = modelUserForCharacter(character, input.user)
+  const modelInput = user === input.user ? input : { ...input, user }
   const available = uncompressedMessages(input.messages, input.compressedUntil, Boolean(input.contextSummary))
   const recent = available.slice(-Math.max(1, input.memoryLength)).map((message) => ({ ...message, text: modelVisibleMessageText(message) }))
   const scanSource = recent.map((message) => message.text).join('\n')
   const entries = activeEntries(character.characterBook, scanSource)
-  const memory = memoryText(input)
+  const memory = memoryText(modelInput)
   const displayContinuity = displayContinuityInstruction(character, input.messages)
   const result: ChatApiMessage[] = []
 
