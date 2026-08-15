@@ -37,7 +37,7 @@ export const createDirectorTemplateConfig = (): DirectorTemplateConfig => ({
 
 export const DIRECTOR_OUTPUT_GUARD = `【导演最终输出防泄漏｜最高优先级】
 内部推理只能在模型内部完成。严禁展示思考链、分析过程、行动计划、角色清单、背景复述、规则复述、草稿、自检过程或英文工作笔记。
-第一个非空字符必须是 <scene>，随后只输出中文剧情正文；末尾可选 <director_status>。不要在 <scene> 之前输出任何文字。若尚不能合法推进，仍以 <scene>当前时间与地点</scene> 开头，只描写环境变化并停在等待节点。`
+第一个非空字符必须是 <scene>，随后只输出中文剧情正文；最后一个结构必须且只能是闭合的 <director_status>...</director_status>。不要在 <scene> 之前输出任何文字，也不得只输出正文。若尚不能合法推进，仍以 <scene>当前时间与地点</scene> 开头，只描写环境变化并停在等待节点；状态栏照常写本轮外部事件、公开线索与待回应钩子。`
 
 const section = (title: string, value: string, fallback = '未填写；不得自行补造决定性事实。') => `【${title}】\n${value.trim() || fallback}`
 
