@@ -162,7 +162,7 @@ export function displayContinuityInstruction(character: Character, messages: Sou
   return `【角色消息美化连续性】
 这张卡的消息 UI 依赖开场中已有的文本结构。后续每次角色回复都必须继续输出同一套结构，不能只在开场使用：${structures}。
 每轮输出顺序固定为：顶部场景结构（本卡有则必须输出）→剧情正文→末尾状态结构（本卡有则必须输出）。不得只输出正文，也不得省略开头或结尾结构。
-每轮只更新对应的时间、地点、状态与剧情内容；保留原有标签、标题和字段名称。不要输出正则替换模板里的 div、CSS 或格式说明，界面会自行完成美化。`
+每轮只更新对应的时间、地点、状态与剧情内容；保留原有标签、标题和字段名称。输出结束前必须核对顶部和末尾标签都已实际写出且闭合：缺少状态结构视为本轮回复不完整，不能只输出正文。不要输出正则替换模板里的 div、CSS 或格式说明，界面会自行完成美化。`
 }
 
 export function buildChatPrompt(input: PromptInput): ChatApiMessage[] {
