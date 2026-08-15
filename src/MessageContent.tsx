@@ -118,7 +118,10 @@ export function normalizeMixedMarkup(value: string) {
     const compactPanel = compactDepth > 0
     const autoParagraph = !compactPanel && !part.includes('```') && part.trim().length >= 100
     const visualParagraphs = autoParagraph ? plainTextParagraphs(part) : [part]
-    const renderedPart = visualParagraphs.map(renderInlineMarkdown).join('<span class="message-paragraph-break message-auto-paragraph-break"></span>')
+    if (autoParagraph && visualParagraphs.length > 1) {
+      return visualParagraphs.map((paragraph) => `<p class="message-story-paragraph">${renderInlineMarkdown(paragraph)}</p>`).join('')
+    }
+    const renderedPart = visualParagraphs.map(renderInlineMarkdown).join('')
     return renderedPart
       .replace(/\r\n?/g, '\n')
       .replace(/\n{2,}/g, compactPanel ? '<br>' : '<span class="message-paragraph-break"></span>')
