@@ -178,6 +178,34 @@ describe('buildChatPrompt', () => {
     expect(original).toContain('寒砚是AL-01')
   })
 
+  it('身份盲区卡不会收到后台用户身份，只能从可见剧情认识对方', () => {
+    const result = buildChatPrompt({
+      character: {
+        ...character,
+        name: '陆星屹',
+        description: '机场初遇时，他只把{{user}}当作陌生人。',
+        tags: [...character.tags, '后台身份隔离'],
+      },
+      user: {
+        name: '裴允茉',
+        description: '裴家小小姐；陆景衡心仪的人；秘密培养了寒砚AL-01。',
+      },
+      messages: [{ role: 'user', text: '把拿错的行李箱推了回去。' }],
+      preset: '',
+      globalWorldbook: '',
+      memory: { entries: [], injectPosition: 'none', injectPrompt: '{{memories}}' },
+      memoryLength: 20,
+    })
+
+    const all = result.map((message) => message.content).join('\n')
+    expect(all).toContain('【用户身份】当前交互对象')
+    expect(all).toContain('后台用户身份档案未向本角色提供')
+    expect(all).not.toContain('裴允茉')
+    expect(all).not.toContain('裴家小小姐')
+    expect(all).not.toContain('陆景衡心仪的人')
+    expect(all).not.toContain('寒砚AL-01')
+  })
+
   it('把开场的场景与状态结构延续到后续角色回复', () => {
     const result = buildChatPrompt({
       character: {

@@ -95,3 +95,56 @@ describe('裴成砚连续情感进程迁移', () => {
     expect(result.postHistoryInstructions).toBe('先自检。')
   })
 })
+
+describe('星轨独立卡真实知识盲区迁移', () => {
+  const entry = (id: number, comment: string, content: string) => ({
+    id, keys: [], secondary_keys: [], comment, content, constant: true, selective: false,
+    insertion_order: id, enabled: true, position: 'before_char', use_regex: false, extensions: {},
+  })
+
+  it('让陆星屹真正收不到后台身份，并删除延迟秘密答案', () => {
+    const result = normalizeStoredCharacter({
+      id: 'xingyi', name: '陆星屹', creator: '惟镜独立卡', characterVersion: '1.0 · 2126青春多男主线',
+      description: '本卡中，{{user}}默认是裴允茉。她是裴家小小姐，也是陆景衡心仪的人。',
+      scenario: '他不知道真相。', systemPrompt: '他不知道寒砚。', postHistoryInstructions: '假装不知道。',
+      tags: ['陆星屹'], alternateGreetings: [], regexScripts: [],
+      characterBook: { name: '陆星屹世界书', entries: [
+        entry(1, '最高优先级｜用户主权与信息差', '裴允茉是用户。'),
+        entry(5, '延迟触发｜裴允茉身份与哥哥心意', '裴家小小姐，哥哥心仪的人。'),
+        entry(6, '延迟触发｜寒砚秘密', '寒砚是AL-01。'),
+      ] },
+    })
+
+    const serialized = JSON.stringify(result)
+    expect(result.id).toBe('xingyi')
+    expect(result.tags).toContain('后台身份隔离')
+    expect(result.characterVersion).toContain('真实知识盲区版')
+    expect(result.description).toContain('陌生女人')
+    expect(result.systemPrompt).toContain('未在剧情中出现的名字关系全部不提供')
+    expect(serialized).not.toContain('裴家小小姐')
+    expect(serialized).not.toContain('哥哥心仪的人')
+    expect(serialized).not.toContain('寒砚是AL-01')
+
+    const edited = { ...result, description: `${result.description}\n用户自定义：他特别记仇。` }
+    expect(normalizeStoredCharacter(edited).description).toContain('用户自定义：他特别记仇。')
+  })
+
+  it('移除哥哥、青梅与寒砚卡中本不该提前出现的答案条目', () => {
+    const cases = [
+      ['陆景衡', '延迟触发｜秘密仿生人'],
+      ['秦晚棠', '延迟触发｜秘密科技线'],
+      ['寒砚｜代号：AL-01', '延迟触发｜潜在竞争关系'],
+    ] as const
+
+    for (const [name, hiddenComment] of cases) {
+      const result = normalizeStoredCharacter({
+        name, creator: '惟镜独立卡', characterVersion: '1.0 · 2126青春多男主线',
+        alternateGreetings: [], regexScripts: [],
+        characterBook: { name: `${name}世界书`, entries: [entry(1, '公开设定', '公开事实。'), entry(2, hiddenComment, '后台答案。')] },
+      })
+      expect(result.characterVersion).toContain('真实知识盲区版')
+      expect(result.characterBook?.entries.map((item) => item.comment)).not.toContain(hiddenComment)
+      expect(JSON.stringify(result.characterBook)).not.toContain('后台答案')
+    }
+  })
+})
