@@ -1,6 +1,7 @@
 import { normalizeStoryCockpit, type StoryCockpit, type StoryEvidence, type StoryPlannedEventStatus, type StoryProject } from './storyProject'
 import { parseCockpitAssistantResponse, type CockpitSourceCharacter } from './storyCockpitAssistant'
 import { sanitizeAssistantOutput } from './outputSanitizer'
+import { modelVisibleMessageText } from './modelContext'
 
 export type ContinuityMessage = {
   id: number
@@ -58,8 +59,9 @@ export function buildAutomaticContinuityInput({ project, characters, conversatio
         // permanently skip a later message whose id happens to be smaller.
         messages: conversation.messages.slice(checkpointIndex + 1).slice(-20).flatMap((message) => {
           const fromDirector = message.role === 'assistant' && message.characterId === project.directorCharacterId
-          const text = fromDirector ? sanitizeAssistantOutput(message.text, { director: true }) : message.text
-          if (fromDirector && !text.trim()) return []
+          const visibleText = modelVisibleMessageText(message)
+          const text = fromDirector ? sanitizeAssistantOutput(visibleText, { director: true }) : visibleText
+          if (message.role === 'assistant' && !text.trim()) return []
           return [{
             messageId: message.id,
             role: message.role,

@@ -1,5 +1,6 @@
 import { stripLeadingSpeakerLabels } from './outputSanitizer'
 import { stripPresentationalHtmlForPrompt } from './regexEngine'
+import { stripUiOnlyStatusBlocks } from './modelContext'
 
 type ActorMessage = {
   role: 'user' | 'assistant'
@@ -18,19 +19,19 @@ export function stripStageGateMetadata(value: string) {
 }
 
 function plainActorReply(value: string, characterName: string) {
-  return stripStageGateMetadata(stripLeadingSpeakerLabels(stripPresentationalHtmlForPrompt(value), [characterName]))
+  return stripStageGateMetadata(stripLeadingSpeakerLabels(stripPresentationalHtmlForPrompt(stripUiOnlyStatusBlocks(value)), [characterName]))
     .replace(/<\/?[A-Za-z][^>]*>/g, '')
     .trim()
 }
 
 /** Keep each group actor's last completed self-state available after long absences. */
 export function findLatestActorContinuityAnchor(messages: ActorMessage[], characterId: string, characterName: string, maxChars = 8000) {
-  const ownReplies = messages.filter((message) => (
-    message.role === 'assistant' && message.characterId === characterId && message.text.trim()
-  ))
-  const previousOwnReply = ownReplies[ownReplies.length - 1]
-  if (!previousOwnReply) return ''
-  const plain = plainActorReply(previousOwnReply.text, characterName)
+  const visibleReplies = messages
+    .filter((message) => message.role === 'assistant' && message.characterId === characterId && message.text.trim())
+    .map((message) => plainActorReply(message.text, characterName))
+    .filter(Boolean)
+  const plain = visibleReplies[visibleReplies.length - 1] || ''
+  if (!plain) return ''
   const currentStage = plain.match(stagePattern)?.[1]
   const continuity = currentStage
     ? `\n\n【当前关系进程】延续历史中已经进入的${currentStage}，不得无故退回更早阶段。阶段名称只用于保持连续性，不是锁定指令；若后续剧情形成新的、明确且不可逆的认知或选择，可以自然进入下一阶段，无需累计数字锚点或反复解释升级条件。`

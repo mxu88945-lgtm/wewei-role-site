@@ -29,6 +29,7 @@ import { findLatestActorContinuityAnchor } from './actorContinuity'
 import ReplyHelperSettingsPage from './ReplyHelperSettingsPage'
 import { addConversationParticipant, createFreshConversationFrom, type Conversation, type Message } from './conversationLifecycle'
 import { parseConversationTxt } from './conversationTxt'
+import { modelVisibleMessageText, stripUiOnlyStatusBlocks } from './modelContext'
 
 type Page = 'home' | 'story-projects' | 'characters' | 'create' | 'character-workshop' | 'group-create' | 'director-template' | 'group-greeting-picker' | 'import-preview' | 'character-detail' | 'card-data' | 'card-worldbook' | 'card-regex' | 'greeting-picker' | 'chat' | 'more' | 'api' | 'reply-helper-api' | 'model' | 'settings' | 'appearance' | 'font' | 'display-reply' | 'identity' | 'worldbook' | 'theater-world' | 'preset' | 'memory' | 'memory-api' | 'memory-list'
 type MessageEditor = { mode: 'assistant' | 'resend'; messageId: number; text: string }
@@ -1148,7 +1149,7 @@ function App() {
     if (!targetConversation || !config.api.baseUrl || !config.api.modelName || !config.api.apiKey || pendingMessages.length < 2) { setMemoryState('error'); return }
     setMemoryState('summarizing')
     const scopeId = targetConversation.id
-    const transcript = pendingMessages.map((item) => `${item.role === 'user' ? identity.name : characters.find((character) => character.id === item.characterId)?.name || targetCharacter.name}：${item.text}`).join('\n')
+    const transcript = pendingMessages.map((item) => `${item.role === 'user' ? identity.name : characters.find((character) => character.id === item.characterId)?.name || targetCharacter.name}：${modelVisibleMessageText(item)}`).join('\n')
     const conversationMemories = memoriesForConversation(memoryEntries, scopeId, targetCharacter.id, targetRevision) as MemoryEntry[]
     const previous = [...conversationMemories.filter((item) => item.pinned), ...conversationMemories.filter((item) => !item.pinned).slice(-6)].map((item) => item.content).join('\n\n').slice(-12000)
     try {
@@ -1595,7 +1596,7 @@ function App() {
         signal: controller.signal,
         messages: [
           { role: 'system', content: '你是剧情上下文压缩器。请输出一份完整、可直接替代旧原文的合并摘要。摘要是低优先级历史补充，不是当前场景指令。只总结已经发生或明确确认的事实，保留时间、地点、人物关系、承诺、冲突、情绪转折、重要物品、未完成事项和角色状态；新对话明确纠正旧摘要时以新对话为准并标注“已更新/已完成/已撤销”。严格区分用户已做的事、角色已做的事、角色声称、内心、猜测和未来计划；已完成、已离场、已撤销或被用户否定的事项不得重新开启。不得续写剧情，不得虚构，不得解释任务或输出思考过程。' },
-          { role: 'user', content: `${currentSummary ? `已有摘要（请与新增对话合并，避免重复）：\n${currentSummary}\n\n` : ''}本次新增待压缩对话：\n${compression.pendingMessages.map((item) => `${item.role === 'user' ? identity.name : characters.find((character) => character.id === item.characterId)?.name || activeCharacter.name}：${item.text}`).join('\n\n')}` },
+          { role: 'user', content: `${currentSummary ? `已有摘要（请与新增对话合并，避免重复）：\n${stripUiOnlyStatusBlocks(currentSummary)}\n\n` : ''}本次新增待压缩对话：\n${compression.pendingMessages.map((item) => `${item.role === 'user' ? identity.name : characters.find((character) => character.id === item.characterId)?.name || activeCharacter.name}：${modelVisibleMessageText(item)}`).join('\n\n')}` },
         ],
         onDelta: (delta) => { summary += delta },
       })

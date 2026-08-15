@@ -1,4 +1,5 @@
 import type { ChatApiMessage } from './chatApi'
+import { stripUiOnlyStatusBlocks } from './modelContext'
 
 export type ReplyHelperContext = {
   userName: string
@@ -50,8 +51,8 @@ export function buildReplyHelperMessages(context: ReplyHelperContext): ChatApiMe
     {
       role: 'user',
       content: `【对话】${context.conversationTitle}
-${context.contextSummary ? `【此前上下文摘要｜历史补充，低于最近对话】\n${context.contextSummary}\n与最近对话、当前用户输入或剧本项目冲突时忽略摘要中的旧内容；不要重新开启已完成、已离场或已撤销事项。\n\n` : ''}【最近对话】
-${context.recentMessages.map((message) => `${message.author}：${message.text}`).join('\n\n') || '暂无可参考消息'}
+${context.contextSummary ? `【此前上下文摘要｜历史补充，低于最近对话】\n${stripUiOnlyStatusBlocks(context.contextSummary)}\n与最近对话、当前用户输入或剧本项目冲突时忽略摘要中的旧内容；不要重新开启已完成、已离场或已撤销事项。\n\n` : ''}【最近对话】
+${context.recentMessages.map((message) => `${message.author}：${stripUiOnlyStatusBlocks(message.text)}`).join('\n\n') || '暂无可参考消息'}
 ${context.currentDraft?.trim() ? `\n【用户已经写下的方向】\n${context.currentDraft.trim()}\n请保留这个意图并润色补全，不要擅自改成相反决定。` : '\n用户此刻没有思路，请根据最后一条消息起草一版留有选择余地的自然回应。'}`,
     },
   ]

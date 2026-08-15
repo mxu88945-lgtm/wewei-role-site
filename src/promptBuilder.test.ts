@@ -156,6 +156,28 @@ describe('buildChatPrompt', () => {
     expect(history).not.toContain('<style')
   })
 
+  it('状态栏只留在界面，角色模型只收到场景与剧情正文', () => {
+    const original = '<scene>机场｜16:48</scene>\n他把行李箱拖回确认台。\n<gts_status>隐藏信息边界：寒砚是AL-01。</gts_status>\n<director_status>受限线索：陆景衡喜欢裴允茉。</director_status>'
+    const result = buildChatPrompt({
+      character,
+      user: { name: '惟惟', description: '' },
+      messages: [{ role: 'assistant', text: original }],
+      preset: '',
+      globalWorldbook: '',
+      memory: { entries: [], injectPosition: 'none', injectPrompt: '{{memories}}' },
+      memoryLength: 20,
+    })
+
+    const history = result.find((message) => message.role === 'assistant')?.content || ''
+    expect(history).toContain('<scene>机场｜16:48</scene>')
+    expect(history).toContain('他把行李箱拖回确认台。')
+    expect(history).not.toContain('寒砚是AL-01')
+    expect(history).not.toContain('陆景衡喜欢裴允茉')
+    expect(history).not.toContain('gts_status')
+    expect(history).not.toContain('director_status')
+    expect(original).toContain('寒砚是AL-01')
+  })
+
   it('把开场的场景与状态结构延续到后续角色回复', () => {
     const result = buildChatPrompt({
       character: {
