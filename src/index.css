@@ -513,5 +513,7 @@ button { cursor: pointer; }
 
 
 /* Keep model-authored blank lines visible after scene/status markup turns a reply into rich HTML. */
-.message-safe-html .message-paragraph-break { display:block; height:.78em; }
-.message-safe-html .message-auto-paragraph-break { height:1em; }
+.message-safe-html .message-paragraph-break { display:block; height:1.15em; }
+.message-safe-html .message-auto-paragraph-break { height:1.35em; }
+/* Raw model line breaks are narrative paragraphs, not compact poem lines. */
+.message-safe-html br + br { display:block; content:''; height:1.15em; }
