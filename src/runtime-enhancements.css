@@ -134,3 +134,61 @@
 .chat-font-preview span {
   font-size: inherit !important;
 }
+
+/* Built-in skin for the compact scene/status markers used by imported Weijing cards. */
+.message-safe-html .weijing-scene-strip,
+.message-safe-html .weijing-status-card,
+.message-safe-html .weijing-character-message {
+  display: block;
+  width: 100%;
+  min-width: 0;
+  box-sizing: border-box;
+  overflow-wrap: anywhere;
+}
+
+.message-safe-html .weijing-scene-strip {
+  margin: 0 0 13px;
+  padding: 10px 13px;
+  border-left: 4px solid #8a61d8;
+  border-radius: 5px 15px 15px 5px;
+  color: #665875;
+  background: linear-gradient(135deg, rgba(235, 226, 249, .96), rgba(249, 246, 253, .98));
+  box-shadow: 0 7px 18px rgba(91, 64, 125, .09);
+  font-size: .9em !important;
+  line-height: 1.72;
+  white-space: pre-wrap;
+}
+
+.message-safe-html .weijing-status-card {
+  margin: 14px 0 0;
+  padding: 11px 13px;
+  border: 1px solid rgba(133, 103, 168, .16);
+  border-radius: 14px;
+  color: #6b6175;
+  background: linear-gradient(145deg, rgba(245, 241, 250, .96), rgba(251, 249, 253, .98));
+  box-shadow: 0 7px 18px rgba(91, 64, 125, .07);
+  font-size: .84em !important;
+  line-height: 1.76;
+  white-space: pre-wrap;
+}
+
+.message-safe-html .weijing-character-message {
+  padding: 2px 0;
+}
+
+.message-safe-html .weijing-scene-strip + .weijing-status-card,
+.message-safe-html .weijing-status-card:first-child {
+  margin-top: 0;
+}
+
+@media (max-width: 390px) {
+  .message-safe-html .weijing-scene-strip {
+    padding: 9px 11px;
+    font-size: .87em !important;
+  }
+
+  .message-safe-html .weijing-status-card {
+    padding: 10px 11px;
+    font-size: .8em !important;
+  }
+}

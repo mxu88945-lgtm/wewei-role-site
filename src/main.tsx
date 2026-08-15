@@ -13,7 +13,7 @@ import './runtime-enhancements.css'
 import './memoryApiEnhancements'
 
 const APP_SCOPE = '/wewei-role-site/'
-const SERVICE_WORKER_RELEASE = '2026-08-14-name-editor-v2'
+const SERVICE_WORKER_RELEASE = '2026-08-15-card-bubbles-v1'
 
 if ('serviceWorker' in navigator) {
   let reloadingForUpdate = false
