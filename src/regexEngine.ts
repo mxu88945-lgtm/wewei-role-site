@@ -40,6 +40,28 @@ function usesNativeChatBubble(script: RegexScript) {
   return script.id === 'pei-chengyan-story-card' || script.id === 'pei-director-story-card'
 }
 
+function escapeHtml(value: string) {
+  return value
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;')
+    .replace(/'/g, '&#39;')
+}
+
+/**
+ * A card may provide a detailed status regex, but models occasionally return a
+ * compact or incomplete <gts_status> block. Leave successful card-specific
+ * transformations alone, then turn any remaining block into the built-in
+ * compact panel instead of letting its contents fall through as story text.
+ */
+function renderUnmatchedStatusBlocks(value: string) {
+  return value.replace(/<gts_status\b[^>]*>\s*([\s\S]*?)\s*<\/gts_status\s*>/gi, (_match, content: string) => {
+    const status = content.replace(/\n{3,}/g, '\n\n').trim() || '本轮状态等待更新。'
+    return `<section class="weijing-status-card"><strong class="weijing-status-title">状态更新</strong><div>${escapeHtml(status)}</div></section>`
+  })
+}
+
 export function stripPresentationalHtmlForPrompt(value: string) {
   if (!containsPresentationalHtml(value)) return value
 
@@ -88,5 +110,8 @@ export function applyRegexScripts(text: string, scripts: RegexScript[], characte
       console.warn(`正则“${script.scriptName}”执行失败`, error)
     }
   }
+  // Do this only for display. Model history must retain the original compact
+  // tags, while the UI should never expose a failed status block as plain text.
+  if (mode === 'display') output = renderUnmatchedStatusBlocks(output)
   return output.trim()
 }
