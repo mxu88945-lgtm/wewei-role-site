@@ -685,7 +685,7 @@ function upgradeXingguiAutonomy(character: Partial<Character>): Partial<Characte
     alternateGreetings: (character.alternateGreetings || []).map(sanitizeVisibleText),
     mesExample: sanitizeVisibleText(replacement.mesExample || character.mesExample || ''),
     characterVersion: '1.2 · 2126自主角色版',
-    tags: Array.from(new Set([...(character.tags || []), '角色自主']),
+    tags: Array.from(new Set([...(character.tags || []), '角色自主'])),
     characterBook: character.characterBook ? { ...character.characterBook, description: '只保留真实知识边界；人物行为由欲望、性格、选择与后果推动。', entries: filteredEntries } : character.characterBook,
   }
 }
