@@ -172,6 +172,14 @@
   white-space: pre-wrap;
 }
 
+.message-safe-html .weijing-status-title {
+  display: block;
+  margin-bottom: 5px;
+  color: #8a61a8;
+  font-size: .83em;
+  letter-spacing: .08em;
+}
+
 .message-safe-html .weijing-character-message {
   padding: 2px 0;
 }
