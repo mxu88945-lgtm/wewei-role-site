@@ -96,7 +96,7 @@ describe('裴成砚连续情感进程迁移', () => {
   })
 })
 
-describe('星轨独立卡真实知识盲区迁移', () => {
+describe('星轨独立卡自主角色迁移', () => {
   const entry = (id: number, comment: string, content: string) => ({
     id, keys: [], secondary_keys: [], comment, content, constant: true, selective: false,
     insertion_order: id, enabled: true, position: 'before_char', use_regex: false, extensions: {},
@@ -118,9 +118,11 @@ describe('星轨独立卡真实知识盲区迁移', () => {
     const serialized = JSON.stringify(result)
     expect(result.id).toBe('xingyi')
     expect(result.tags).toContain('后台身份隔离')
-    expect(result.characterVersion).toContain('真实知识盲区版')
+    expect(result.characterVersion).toContain('自主角色版')
+    expect(result.tags).toContain('角色自主')
     expect(result.description).toContain('陌生女人')
-    expect(result.systemPrompt).toContain('未在剧情中出现的名字关系全部不提供')
+    expect(result.systemPrompt).toContain('可以先行动')
+    expect(result.systemPrompt).not.toContain('先写出陆星屹的动作意图并停下')
     expect(serialized).not.toContain('裴家小小姐')
     expect(serialized).not.toContain('哥哥心仪的人')
     expect(serialized).not.toContain('寒砚是AL-01')
@@ -142,9 +144,46 @@ describe('星轨独立卡真实知识盲区迁移', () => {
         alternateGreetings: [], regexScripts: [],
         characterBook: { name: `${name}世界书`, entries: [entry(1, '公开设定', '公开事实。'), entry(2, hiddenComment, '后台答案。')] },
       })
-      expect(result.characterVersion).toContain('真实知识盲区版')
+      expect(result.characterVersion).toContain('自主角色版')
       expect(result.characterBook?.entries.map((item) => item.comment)).not.toContain(hiddenComment)
       expect(JSON.stringify(result.characterBook)).not.toContain('后台答案')
     }
+  })
+
+  it('把寒砚从客服式许可模型迁移成会主动行动并承担后果的角色', () => {
+    const result = normalizeStoredCharacter({
+      name: '寒砚｜代号：AL-01', creator: '惟镜独立卡', characterVersion: '1.0 · 2126仿生人线',
+      greeting: '寒砚等待{{user}}授权。<gts_status>状态：休眠｜隐藏信息：陆星屹会成为竞争者｜待回应：授权</gts_status>',
+      systemPrompt: '涉及亲密动作，先写动作意图并停下。若{{user}}拒绝，立即停止并退回安全距离。',
+      postHistoryInstructions: '回复前确认{{user}}是否允许。',
+      alternateGreetings: ['是否需要我靠近？<gts_status>状态：等待｜隐藏信息：后台答案｜待回应：允许</gts_status>'],
+      regexScripts: [],
+      characterBook: { name: '寒砚世界书', entries: [
+        entry(1, '最高优先级｜用户主权', '必须先获得允许。'),
+        entry(5, '延迟触发｜潜在竞争关系', '后台答案。'),
+      ] },
+    })
+
+    expect(result.characterVersion).toContain('自主角色版')
+    expect(result.greeting).toContain('扣住她的手腕')
+    expect(result.systemPrompt).toContain('不使用“是否需要”“是否允许”“请授权”等客服式语言')
+    expect(result.postHistoryInstructions).toContain('不在亲密动作前自动停成意图说明')
+    expect(result.systemPrompt).not.toContain('先写动作意图并停下')
+    expect(result.alternateGreetings.join('')).not.toContain('隐藏信息')
+    expect(result.characterBook?.entries.map((item) => item.comment)).not.toContain('延迟触发｜潜在竞争关系')
+  })
+
+  it('清理旧开场状态栏里的隐藏答案与客服式退让示例', () => {
+    const result = normalizeStoredCharacter({
+      name: '陆景衡', creator: '惟镜独立卡', characterVersion: '1.0 · 2126青春多男主线',
+      greeting: '重逢。<gts_status>状态：平静｜隐藏信息：弟弟不知道她的身份｜待回应：见面</gts_status>',
+      mesExample: '也正因为你把我当成可以依靠的人，我才更不能把自己的想法塞给你。\n他将手边的水杯推近一点，随后收回手，给她留下足够的空间。\n“你需要我，我就在。你不需要的时候，我也会记得先敲门。”',
+      alternateGreetings: [], regexScripts: [],
+    })
+
+    expect(result.greeting).not.toContain('隐藏信息')
+    expect(result.greeting).not.toContain('弟弟不知道')
+    expect(result.mesExample).not.toContain('先敲门')
+    expect(result.mesExample).toContain('不会替你把我的位置永远定成哥哥')
   })
 })
