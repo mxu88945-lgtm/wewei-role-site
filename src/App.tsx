@@ -11,7 +11,7 @@ import { buildChatPrompt } from './promptBuilder'
 import { createApiChannel, normalizeApiChannels, withApiModel, type ApiChannel } from './apiChannels'
 import { enabledPresetText, normalizePresetSections } from './presetConfig'
 import { durableGet, durableSet } from './persistentStore'
-import { containsHiddenReasoning, sanitizeAssistantOutput, stripLeadingSpeakerLabels } from './outputSanitizer'
+import { containsHiddenReasoning, ensureStatusBlock, sanitizeAssistantOutput, stripLeadingSpeakerLabels } from './outputSanitizer'
 import { archivedMemoriesForConversation, memoriesForConversation, replaceConversationMemories, restoreMemoryToRevision } from './memoryEngine'
 import { findMentionedParticipantIds, selectGroupSpeakerIds, type GroupReplyMode } from './groupReplyRouting'
 import Pet from './Pet'
@@ -1306,6 +1306,11 @@ function App() {
     try {
       const isGroup = conversation.kind === 'group'
       const isDirector = Boolean(conversation.directorCharacterId && speaker.id === conversation.directorCharacterId)
+      const requiresCharacterStatus = !isDirector && /<gts_status>/i.test([
+        capturedCharacter.beautificationProtocol,
+        capturedCharacter.systemPrompt,
+        capturedCharacter.postHistoryInstructions,
+      ].filter(Boolean).join('\n'))
       const groupNames = (conversation.participantIds || []).map((id) => characters.find((item) => item.id === id)?.name).filter(Boolean)
       const storyProject = selectConversationStoryProject(storyProjects, conversation.id)
       const storyProjectContext = storyProject ? buildStoryProjectPrompt({ project: storyProject, speakerId: speaker.id, characters }) : ''
@@ -1332,6 +1337,7 @@ function App() {
         compressedUntil: hasValidContextSummary ? conversation.compressedUntil : undefined,
       })
       if (isDirector) promptMessages.push({ role: 'system', content: DIRECTOR_OUTPUT_GUARD })
+      else if (requiresCharacterStatus) promptMessages.push({ role: 'system', content: '【最终输出结构校验】完成正文后必须检查：回复末尾有且只有一个闭合的 <gts_status>...</gts_status>。不得省略状态栏，不得把状态栏规则写进正文。' })
       const completion = await completeChat({
         api: speakerApi,
         messages: promptMessages,
@@ -1356,7 +1362,10 @@ function App() {
 
       const cleanOutput = sanitizeAssistantOutput(output, { director: isDirector })
       if (!cleanOutput && containsHiddenReasoning(output, isDirector)) throw new Error('模型只返回了内部分析，惟境已拦截且没有写入剧情。请重试或换一个更遵守指令的模型。')
-      const finalOutput = cleanOutput || output
+      const visibleOutput = cleanOutput || output
+      const finalOutput = requiresCharacterStatus
+        ? ensureStatusBlock(visibleOutput, 'gts_status', `状态：${speaker.name}已完成本轮回应｜关系：延续当前剧情｜待回应：等待${identity.name}回应`)
+        : visibleOutput
       setConversations((current) => current.map((item) => item.id === conversationId ? { ...item, messages: item.messages.map((message) => message.id === assistantMessage.id ? { ...message, text: finalOutput } : message), updatedAt: Date.now() } : item))
       const completed = [...nextMessages, { ...assistantMessage, text: finalOutput }]
       const summarizedCount = Math.min(conversation.memorySummarizedCount || 0, completed.length)

@@ -60,6 +60,21 @@ export function sanitizeAssistantOutput(value: string, options: { director?: boo
   return output.slice(start).trimStart()
 }
 
+/** Keep a card's visual status block stable even when a model omits or forgets to close it. */
+export function ensureStatusBlock(value: string, tag: 'gts_status' | 'director_status', fallbackContent: string) {
+  const output = value.trimEnd()
+  if (!output) return output
+  const escapedTag = tag.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
+  const complete = new RegExp(`<${escapedTag}\\b[^>]*>[\\s\\S]*?<\\/${escapedTag}\\s*>`, 'i')
+  if (complete.test(output)) return output
+
+  const opening = new RegExp(`<${escapedTag}\\b[^>]*>`, 'ig')
+  const matches = Array.from(output.matchAll(opening))
+  if (matches.length) return `${output}</${tag}>`
+
+  return `${output}\n\n<${tag}>${fallbackContent.trim()}</${tag}>`
+}
+
 function escapeRegex(value: string) {
   return value.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
 }
