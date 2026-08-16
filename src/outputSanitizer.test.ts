@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { containsHiddenReasoning, sanitizeAssistantOutput, stripLeadingSpeakerLabels } from './outputSanitizer'
+import { containsHiddenReasoning, ensureStatusBlock, sanitizeAssistantOutput, stripLeadingSpeakerLabels } from './outputSanitizer'
 
 describe('assistant prompt-leak sanitizer', () => {
   it('removes leaked status instructions and keeps the real formatted reply', () => {
@@ -57,6 +57,23 @@ describe('assistant prompt-leak sanitizer', () => {
   it('does not remove ordinary English roleplay', () => {
     const story = 'She has just arrived. The elevator doors opened, and the courier placed a sealed envelope on the desk.'
     expect(sanitizeAssistantOutput(story, { director: true })).toBe(story)
+  })
+})
+
+describe('status block fallback', () => {
+  it('preserves an existing complete status block', () => {
+    const value = '正文。\n<gts_status>状态：等待</gts_status>'
+    expect(ensureStatusBlock(value, 'gts_status', '状态：兜底')).toBe(value)
+  })
+
+  it('closes an unfinished status block without replacing its content', () => {
+    expect(ensureStatusBlock('正文。\n<gts_status>状态：试探', 'gts_status', '状态：兜底'))
+      .toBe('正文。\n<gts_status>状态：试探</gts_status>')
+  })
+
+  it('appends a compact fallback when the model omitted the block', () => {
+    expect(ensureStatusBlock('正文结束。', 'gts_status', '状态：本轮回应结束｜待回应：等待用户回应'))
+      .toBe('正文结束。\n\n<gts_status>状态：本轮回应结束｜待回应：等待用户回应</gts_status>')
   })
 })
 
