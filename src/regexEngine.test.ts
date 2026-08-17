@@ -61,6 +61,15 @@ describe('character-card regex boundaries', () => {
     expect(applyRegexScripts(source, [], character, '惟惟', 2, 'prompt')).toBe(source)
   })
 
+  it('renders custom status tags as a compact fallback card too', () => {
+    const source = '正文。\n<czw_status>心理：正在核对文件\n动作：把文件夹推向惟惟</czw_status>'
+    const rendered = applyRegexScripts(source, [], character, '惟惟', 2, 'display')
+
+    expect(rendered).toContain('class="weijing-status-card"')
+    expect(rendered).not.toContain('<czw_status>')
+    expect(rendered).toContain('正在核对文件')
+  })
+
   it('keeps a card-specific status panel when its exact format matches', () => {
     const exactStatus = script({
       findRegex: '/<gts_status>完整状态<\\/gts_status>/g',
