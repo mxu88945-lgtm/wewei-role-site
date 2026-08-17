@@ -24,6 +24,7 @@ export type Conversation = {
   theaterWorldBackground?: string
   directorCharacterId?: string
   directorConfig?: DirectorTemplateConfig
+  relationshipStages?: Record<string, number>
 }
 
 export function addConversationParticipant(source: Conversation, participantId: string, defaults: { apiId: string; modelName: string; title?: string }): Conversation {
