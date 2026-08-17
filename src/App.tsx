@@ -31,6 +31,7 @@ import { addConversationParticipant, createFreshConversationFrom, type Conversat
 import { parseConversationTxt } from './conversationTxt'
 import { modelVisibleMessageText, stripUiOnlyStatusBlocks } from './modelContext'
 import { countConversationStats } from './conversationStats'
+import { enforceRelationshipStageFloor, extractRelationshipStage, highestRelationshipStage, relationshipStageLockInstruction, repairRelationshipStageHistory, type RelationshipStage } from './relationshipStage'
 
 type Page = 'home' | 'story-projects' | 'characters' | 'create' | 'character-workshop' | 'group-create' | 'director-template' | 'group-greeting-picker' | 'import-preview' | 'character-detail' | 'card-data' | 'card-worldbook' | 'card-regex' | 'greeting-picker' | 'chat' | 'more' | 'api' | 'reply-helper-api' | 'model' | 'settings' | 'appearance' | 'font' | 'display-reply' | 'identity' | 'worldbook' | 'theater-world' | 'preset' | 'memory' | 'memory-api' | 'memory-list'
 type MessageEditor = { mode: 'assistant' | 'resend'; messageId: number; text: string }
@@ -242,9 +243,30 @@ const createConversation = (character: Character, greeting = character.greeting,
   updatedAt: Date.now(),
 })
 
+const repairGuTingshenConversationStages = (source: Conversation[], characters: Character[]) => {
+  const guTingshenIds = characters.filter((character) => character.name === '顾霆深').map((character) => character.id)
+  if (!guTingshenIds.length) return source
+  return source.map((conversation) => {
+    let nextConversation = conversation
+    guTingshenIds.forEach((characterId) => {
+      if (conversation.characterId !== characterId && !conversation.participantIds?.includes(characterId)) return
+      const repaired = repairRelationshipStageHistory(nextConversation.messages, characterId)
+      const stored = nextConversation.relationshipStages?.[characterId]
+      const highest = Math.max(stored || 0, repaired.highest || 0)
+      if (!repaired.changed && highest === stored) return
+      nextConversation = {
+        ...nextConversation,
+        messages: repaired.messages as Message[],
+        relationshipStages: highest ? { ...(nextConversation.relationshipStages || {}), [characterId]: highest } : nextConversation.relationshipStages,
+      }
+    })
+    return nextConversation
+  })
+}
+
 const loadConversations = (characters: Character[]): Conversation[] => {
   const stored = read<Conversation[]>('weijing.conversations', [])
-  if (Array.isArray(stored) && stored.length) return stored
+  if (Array.isArray(stored) && stored.length) return repairGuTingshenConversationStages(stored, characters)
 
   const legacy = read<LegacySessionMap>('weijing.sessions', {})
   const migrated = Object.entries(legacy).map(([characterId, messages], index) => {
@@ -259,7 +281,7 @@ const loadConversations = (characters: Character[]): Conversation[] => {
       updatedAt: timestamp,
     }
   })
-  return migrated.length ? migrated : [createConversation(characters[0] || demoCharacter)]
+  return repairGuTingshenConversationStages(migrated.length ? migrated : [createConversation(characters[0] || demoCharacter)], characters)
 }
 
 function BackHeader({ title, onBack, action }: { title: string; onBack: () => void; action?: React.ReactNode }) {
@@ -1417,6 +1439,10 @@ function App() {
         contextSummary: hasValidContextSummary ? conversation.contextSummary : undefined,
         compressedUntil: hasValidContextSummary ? conversation.compressedUntil : undefined,
       })
+      const storedRelationshipStage = capturedCharacter.name === '顾霆深'
+        ? Math.max(conversation.relationshipStages?.[capturedCharacter.id] || 0, highestRelationshipStage(nextMessages, capturedCharacter.id) || 0) as RelationshipStage
+        : 0
+      if (storedRelationshipStage) promptMessages.push({ role: 'system', content: relationshipStageLockInstruction(storedRelationshipStage) })
       if (isDirector) promptMessages.push({ role: 'system', content: DIRECTOR_OUTPUT_GUARD })
       else if (requiresCharacterStatus) promptMessages.push({ role: 'system', content: `【最终输出结构校验】完成正文后必须检查：回复末尾有且只有一个闭合的 <${statusTag}>...</${statusTag}>。不得省略状态栏，不得把状态栏规则写进正文。` })
       const completion = await completeChat({
@@ -1444,13 +1470,21 @@ function App() {
       const cleanOutput = sanitizeAssistantOutput(output, { director: isDirector })
       if (!cleanOutput && containsHiddenReasoning(output, isDirector)) throw new Error('模型只返回了内部分析，惟境已拦截且没有写入剧情。请重试或换一个更遵守指令的模型。')
       const visibleOutput = cleanOutput || output
-      const finalOutput = requiresCharacterStatus
+      const statusOutput = requiresCharacterStatus
         ? moveStatusBlockToEnd(
           ensureStatusBlock(visibleOutput, statusTag, `状态：${speaker.name}已完成本轮回应｜关系：延续当前剧情｜待回应：等待${identity.name}回应`),
           statusTag,
         )
         : visibleOutput
-      setConversations((current) => current.map((item) => item.id === conversationId ? { ...item, messages: item.messages.map((message) => message.id === assistantMessage.id ? { ...message, text: finalOutput } : message), updatedAt: Date.now() } : item))
+      const finalOutput = storedRelationshipStage ? enforceRelationshipStageFloor(statusOutput, storedRelationshipStage) : statusOutput
+      const reportedRelationshipStage = capturedCharacter.name === '顾霆深' ? extractRelationshipStage(finalOutput) : undefined
+      const nextRelationshipStage = Math.max(storedRelationshipStage || 0, reportedRelationshipStage || 0)
+      setConversations((current) => current.map((item) => item.id === conversationId ? {
+        ...item,
+        messages: item.messages.map((message) => message.id === assistantMessage.id ? { ...message, text: finalOutput } : message),
+        relationshipStages: nextRelationshipStage ? { ...(item.relationshipStages || {}), [capturedCharacter.id]: nextRelationshipStage } : item.relationshipStages,
+        updatedAt: Date.now(),
+      } : item))
       const completed = [...nextMessages, { ...assistantMessage, text: finalOutput }]
       const summarizedCount = Math.min(conversation.memorySummarizedCount || 0, completed.length)
       if (!isGroup && capturedMemoryConfig.autoEvery > 0 && completed.length - summarizedCount >= capturedMemoryConfig.autoEvery && capturedMemoryConfig.api.apiKey) summarizeMemory(completed, conversation, capturedCharacter)
