@@ -748,12 +748,69 @@ function upgradeXingguiAutonomy(character: Partial<Character>): Partial<Characte
   }
 }
 
+const GU_TINGSHEN_STAGE_MIGRATION_MARKER = '阶段累计与旧存档校准 v1.4'
+
+const GU_TINGSHEN_STAGE_MIGRATION = `【${GU_TINGSHEN_STAGE_MIGRATION_MARKER}｜最高优先级】
+本段覆盖本条前文中“全部硬条件同时满足”的旧判定方式。
+
+1. 阶段证据跨场景、跨事件永久累计；明确拒绝、边界冲突、关系代价、第三方介入、协议改变、权力让渡、秘密交付、旧关系处理与不可逆损失发生后，必须立即回溯复核。
+2. 阶段一进入阶段二：原四项条件任意满足两项即升级。
+3. 阶段二进入阶段三：原四项条件任意满足两项即升级，其中至少一项必须体现真实关系代价，或顾霆深尊重了一项对自己不利的决定。控制、身体占有或双标造成的愤怒、摔门、疏远、拒绝合作与转向外部支持，都属于真实关系代价。
+4. 阶段三进入阶段四：必须先承认排他要求存在双重标准，并在要求{{user}}排他前主动终止与岑知微的身体关系；此后在旧关系后果、核心秘密或弱点交付、不可抹平的损失、尊重不利决定中任意满足一项即可升级。
+5. 阶段四进入阶段五：必须停止未经同意的监视、封锁与替代决策，并在持续尊重边界、交付真实否决权、坦白表达、面对可能不被选择仍维持对等承诺中任意满足两项。
+6. 达到阈值后必须在当轮或下一轮更新状态栏，不得以“仍需观察”“尚未完全确认”或顾霆深嘴硬为由停留。阶段认知不因争吵自动倒退。
+7. 旧存档必须回溯全部聊天历史，直接校准到已满足的最高阶段，不必重演前置剧情。若历史已出现以下任意三类事实：{{user}}明确拒绝或挑战安排；不对称协议或岑知微豁免造成持续冲突；顾霆深的控制造成愤怒、摔门、疏远、拒绝合作或转向沈砚川等外部支持；岑知微、沈砚川或议会已经实际介入；顾霆深已经出现嫉妒、防御或控制失衡并承担后果——当前阶段不得低于阶段三·旧秩序裂缝。
+8. 顾霆深升级不等于{{user}}心软、原谅、爱上或必须留下；玩家选择权始终不参与自动判定。`
+
+function upgradeGuTingshenStageProgression(character: Partial<Character>): Partial<Character> {
+  if (character.name !== '顾霆深' || character.characterVersion?.includes('累计阶段判定与旧存档校准')) return character
+  const entries = character.characterBook?.entries || []
+  const hasLegacyProgression = entries.some((entry) => /感情阶段与(?:硬门槛|累计判定)/.test(entry.comment || ''))
+  if (!hasLegacyProgression) return character
+
+  const nextEntries = entries.map((entry) => {
+    if (/感情阶段与(?:硬门槛|累计判定)/.test(entry.comment || '')) {
+      const content = entry.content.includes(GU_TINGSHEN_STAGE_MIGRATION_MARKER)
+        ? entry.content
+        : `${entry.content}\n\n${GU_TINGSHEN_STAGE_MIGRATION}`
+      return { ...entry, comment: '感情阶段与累计判定', content }
+    }
+    if ((entry.content || '').includes('- **关系阶段：** 只能在满足角色卡硬条件后升级；')) {
+      return {
+        ...entry,
+        content: entry.content.replace(
+          '- **关系阶段：** 只能在满足角色卡硬条件后升级；',
+          '- **关系阶段：** 每逢重大事件必须回溯累计证据；达到升级阈值后必须立即更新，旧存档可直接校准到已满足的最高阶段；',
+        ),
+      }
+    }
+    return entry
+  })
+
+  const systemPrompt = character.systemPrompt?.includes(GU_TINGSHEN_STAGE_MIGRATION_MARKER)
+    ? character.systemPrompt
+    : `${character.systemPrompt || ''}\n\n【${GU_TINGSHEN_STAGE_MIGRATION_MARKER}】严格执行世界书中的累计判定与强制复核。历史证据不得清零；达到阈值必须升级状态栏；旧存档允许回溯并直接校准到已满足的最高阶段。欲望与身体关系本身不等于爱情，但它们造成的信任、疏远、损失与选择必须计入阶段证据。`
+  const postHistoryInstructions = character.postHistoryInstructions?.includes(GU_TINGSHEN_STAGE_MIGRATION_MARKER)
+    ? character.postHistoryInstructions
+    : `${character.postHistoryInstructions || ''}\n
+【${GU_TINGSHEN_STAGE_MIGRATION_MARKER}】回复前回溯全部已有事实与知情边界，按累计证据校准到已满足的最高关系阶段；达到阈值后立即更新状态栏，不得继续停留。`
+
+  return {
+    ...character,
+    systemPrompt,
+    postHistoryInstructions,
+    characterVersion: '1.4 · 惟境V3分享版｜累计阶段判定与旧存档校准',
+    characterBook: character.characterBook ? { ...character.characterBook, entries: nextEntries } : character.characterBook,
+  }
+}
+
 export function normalizeStoredCharacter(character: Partial<Character>): Character {
   const normalizedBook = normalizeCharacterBook(character.characterBook, character.name || '')
   character = normalizedBook ? { ...character, characterBook: normalizedBook } : character
   character = upgradeXingguiKnowledgeBoundaries(character)
   character = upgradeXingguiAutonomy(character)
   character = upgradePeiEmotionLock(character)
+  character = upgradeGuTingshenStageProgression(character)
   return {
     id: character.id || crypto.randomUUID(),
     name: character.name || '未命名角色',
