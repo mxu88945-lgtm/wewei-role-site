@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { containsHiddenReasoning, detectStatusTag, ensureStatusBlock, sanitizeAssistantOutput, stripLeadingSpeakerLabels } from './outputSanitizer'
+import { containsHiddenReasoning, detectStatusTag, ensureStatusBlock, moveStatusBlockToEnd, sanitizeAssistantOutput, stripLeadingSpeakerLabels } from './outputSanitizer'
 
 describe('assistant prompt-leak sanitizer', () => {
   it('removes leaked status instructions and keeps the real formatted reply', () => {
@@ -84,6 +84,13 @@ describe('status block fallback', () => {
   it('supports card-specific status tags when the model omitted the block', () => {
     expect(ensureStatusBlock('正文结束。', 'czw_status', '状态：等待惟惟回应'))
       .toBe('正文结束。\n\n<czw_status>状态：等待惟惟回应</czw_status>')
+  })
+
+  it('moves a prematurely emitted status block behind the story and keeps only the newest one', () => {
+    const status = '<gts_status>心理：冷静</gts_status>'
+    expect(moveStatusBlockToEnd(`${status}\n<scene>深夜｜书房</scene>\n他没有立刻回答。`, 'gts_status'))
+      .toBe(`<scene>深夜｜书房</scene>\n他没有立刻回答。\n\n${status}`)
+    expect(moveStatusBlockToEnd(`正文\n${status}\n${status}`, 'gts_status')).toBe(`正文\n\n${status}`)
   })
 })
 
