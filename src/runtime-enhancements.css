@@ -189,6 +189,35 @@
   margin-top: 0;
 }
 
+/* A card-specific fallback for 岑知微. Her long fields can wrap naturally without
+   degrading into the generic “状态更新” panel when the model adds line breaks. */
+.message-safe-html .weijing-status-card-czw {
+  overflow: hidden;
+  border-color: rgba(48, 66, 55, .28);
+  color: #3d4940;
+  background: #edf2ed;
+}
+
+.message-safe-html .weijing-czw-status-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  margin: -11px -13px 12px;
+  padding: 12px 13px;
+  color: #f1f6f1;
+  background: linear-gradient(115deg, #18231c, #304237);
+}
+
+.message-safe-html .weijing-czw-status-header strong { color: inherit; font-size: .96em; }
+.message-safe-html .weijing-czw-status-header span { color: #c5d7c7; font-size: .68em; letter-spacing: .18em; }
+.message-safe-html .weijing-czw-status-fields { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
+.message-safe-html .weijing-czw-status-field { min-width: 0; padding: 9px 10px; border-radius: 10px; background: rgba(255,255,255,.56); }
+.message-safe-html .weijing-czw-status-field.wide { grid-column: 1 / -1; background: rgba(255,255,255,.78); }
+.message-safe-html .weijing-czw-status-field b, .message-safe-html .weijing-czw-status-field span { display: block; }
+.message-safe-html .weijing-czw-status-field b { margin-bottom: 3px; color: #55705a; font-size: .72em; }
+.message-safe-html .weijing-czw-status-field span { color: #3d4940; font-size: .89em; line-height: 1.6; white-space: pre-wrap; }
+
 @media (max-width: 390px) {
   .message-safe-html .weijing-scene-strip {
     padding: 9px 11px;
@@ -199,4 +228,8 @@
     padding: 10px 11px;
     font-size: .8em !important;
   }
+
+  .message-safe-html .weijing-czw-status-header { margin: -10px -11px 10px; padding: 10px 11px; }
+  .message-safe-html .weijing-czw-status-fields { grid-template-columns: 1fr; gap: 7px; }
+  .message-safe-html .weijing-czw-status-field.wide { grid-column: auto; }
 }

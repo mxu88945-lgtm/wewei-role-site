@@ -4,6 +4,7 @@ export type RegexMode = 'display' | 'prompt'
 
 const PRESENTATIONAL_HTML = /<(?:div|section|article|details|summary|style|table|thead|tbody|tr|td|th|span|p|h[1-6])\b/i
 const STATUS_BLOCK = /<(status|[a-z][\w-]*_status)\b[^>]*>\s*([\s\S]*?)\s*<\/\1\s*>/gi
+const CZW_STATUS_FIELD = /(?:^|\n)\s*(心理|动作|对顾霆深|对[^：\n]{1,24}|政治立场|情绪波动|当前目标)：/g
 
 function containsPresentationalHtml(value: string) {
   return PRESENTATIONAL_HTML.test(value)
@@ -50,6 +51,25 @@ function escapeHtml(value: string) {
     .replace(/'/g, '&#39;')
 }
 
+function renderCzwStatusCard(content: string) {
+  const fields: Array<{ label: string; value: string }> = []
+  const markers = Array.from(content.matchAll(CZW_STATUS_FIELD))
+  for (let index = 0; index < markers.length; index += 1) {
+    const marker = markers[index]
+    const next = markers[index + 1]
+    const label = marker[1]
+    const value = content.slice((marker.index || 0) + marker[0].length, next?.index).trim()
+    if (label && value) fields.push({ label, value })
+  }
+  if (!fields.length) return ''
+
+  const fieldHtml = fields.map(({ label, value }) => {
+    const wide = /^(?:心理|动作|政治立场)$/.test(label)
+    return `<div class="weijing-czw-status-field${wide ? ' wide' : ''}"><b>${escapeHtml(label)}</b><span>${escapeHtml(value)}</span></div>`
+  }).join('')
+  return `<section class="weijing-status-card weijing-status-card-czw"><header class="weijing-czw-status-header"><strong>岑知微 · 状态栏</strong><span>STATUS</span></header><div class="weijing-czw-status-fields">${fieldHtml}</div></section>`
+}
+
 /**
  * A card may provide a detailed status regex, but models occasionally return a
  * compact or incomplete status block. Leave successful card-specific
@@ -57,8 +77,9 @@ function escapeHtml(value: string) {
  * compact panel instead of letting its contents fall through as story text.
  */
 function renderUnmatchedStatusBlocks(value: string) {
-  return value.replace(STATUS_BLOCK, (_match, _tag: string, content: string) => {
+  return value.replace(STATUS_BLOCK, (_match, tag: string, content: string) => {
     const status = content.replace(/\n{3,}/g, '\n\n').trim() || '本轮状态等待更新。'
+    if (tag.toLowerCase() === 'czw_status') return renderCzwStatusCard(status) || `<section class="weijing-status-card weijing-status-card-czw"><strong class="weijing-status-title">岑知微 · 状态栏</strong><div>${escapeHtml(status)}</div></section>`
     return `<section class="weijing-status-card"><strong class="weijing-status-title">状态更新</strong><div>${escapeHtml(status)}</div></section>`
   })
 }

@@ -351,6 +351,7 @@ function App() {
   const chatJumpHideTimerRef = useRef<number | null>(null)
   const chatScrollSnapshotsRef = useRef(new Map<string, { top: number; stickToBottom: boolean }>())
   const pendingChatScrollRestoreRef = useRef<string | null>(null)
+  const pendingChatLatestScrollRef = useRef<string | null>(null)
   const generationControllers = useRef(new Map<string, AbortController>())
   const continuityRunningProjectIds = useRef(new Set<string>())
 
@@ -379,6 +380,14 @@ function App() {
     const snapshot = chatScrollSnapshotsRef.current.get(conversationKey)
     const maxScrollTop = Math.max(0, list.scrollHeight - list.clientHeight)
     const target = snapshot?.stickToBottom ? maxScrollTop : Math.min(snapshot?.top || 0, maxScrollTop)
+    list.scrollTop = target
+    return target
+  }
+  const scrollChatToLatest = (list: HTMLDivElement) => {
+    const target = Math.max(0, list.scrollHeight - list.clientHeight)
+    // iOS Safari occasionally ignores the first assignment while a flex scroller
+    // is being mounted. Assigning both paths makes the request stick reliably.
+    list.scrollTo({ top: target, left: 0, behavior: 'auto' })
     list.scrollTop = target
     return target
   }
@@ -590,19 +599,21 @@ function App() {
   }, [composerExpanded])
   useEffect(() => setComposerExpanded(false), [activeConversation?.id])
   useLayoutEffect(() => {
-    phoneCanvasRef.current?.scrollTo({ top: 0, left: 0 })
+    if (page !== 'chat') phoneCanvasRef.current?.scrollTo({ top: 0, left: 0 })
   }, [page])
   useLayoutEffect(() => {
     if (page !== 'chat') return
     const list = messageListRef.current
     if (!list) return
     const conversationKey = chatScrollKey
+    const returnToLatest = pendingChatLatestScrollRef.current === conversationKey
     pendingChatScrollRestoreRef.current = conversationKey
     let firstFrame: number | null = null
     let secondFrame: number | null = null
+    let settleTimer: number | null = null
     const restore = () => {
       if (pendingChatScrollRestoreRef.current !== conversationKey) return
-      const target = applyChatScrollSnapshot(list, conversationKey)
+      const target = returnToLatest ? scrollChatToLatest(list) : applyChatScrollSnapshot(list, conversationKey)
       pendingChatScrollRestoreRef.current = null
       const distanceToBottom = Math.max(0, list.scrollHeight - target - list.clientHeight)
       chatScrollSnapshotsRef.current.set(conversationKey, {
@@ -610,6 +621,17 @@ function App() {
         stickToBottom: distanceToBottom <= 96,
       })
       setChatJump({ up: target > 240, down: distanceToBottom > 280, visible: false })
+      if (returnToLatest) {
+        // Let iOS finish laying out the header, composer and rich message cards,
+        // then pin to the actual final message instead of the stale first extent.
+        settleTimer = window.setTimeout(() => {
+          if (pendingChatLatestScrollRef.current !== conversationKey) return
+          const latestTarget = scrollChatToLatest(list)
+          chatScrollSnapshotsRef.current.set(conversationKey, { top: latestTarget, stickToBottom: true })
+          pendingChatLatestScrollRef.current = null
+          setChatJump({ up: latestTarget > 240, down: false, visible: false })
+        }, 180)
+      }
     }
     firstFrame = window.requestAnimationFrame(() => {
       secondFrame = window.requestAnimationFrame(restore)
@@ -618,6 +640,7 @@ function App() {
       rememberChatScroll(conversationKey)
       if (firstFrame !== null) window.cancelAnimationFrame(firstFrame)
       if (secondFrame !== null) window.cancelAnimationFrame(secondFrame)
+      if (settleTimer !== null) window.clearTimeout(settleTimer)
       if (pendingChatScrollRestoreRef.current === conversationKey) pendingChatScrollRestoreRef.current = null
     }
     // The helper intentionally closes over the current conversation key; adding it here would
@@ -647,7 +670,9 @@ function App() {
           marker.style.height = `${markerHeight}px`
           void list.offsetHeight
           const snapshot = chatScrollSnapshotsRef.current.get(conversationKey)
-          if (pendingChatScrollRestoreRef.current === conversationKey || snapshot?.stickToBottom) {
+          if (pendingChatLatestScrollRef.current === conversationKey) {
+            scrollChatToLatest(list)
+          } else if (pendingChatScrollRestoreRef.current === conversationKey || snapshot?.stickToBottom) {
             applyChatScrollSnapshot(list, conversationKey)
           } else {
             list.scrollTop = Math.min(previousScrollTop, Math.max(0, list.scrollHeight - list.clientHeight))
@@ -689,6 +714,7 @@ function App() {
   }, [page, chatScrollKey])
   const pageTitle = useMemo(() => page === 'home' ? '惟境' : page === 'characters' ? '角色' : '', [page])
   const navigate = (target: Page, reopenDrawer?: Drawer) => {
+    if (page === 'chat' && reopenDrawer === 'right') pendingChatLatestScrollRef.current = chatScrollKey
     setHistory((current) => [...current, { page, reopenDrawer }])
     setDrawer(null)
     setConversationMenuId(null)
@@ -706,6 +732,7 @@ function App() {
   const goBack = () => {
     const previous = history[history.length - 1]
     if (!previous) { goHome(); return }
+    if (previous.page === 'chat' && previous.reopenDrawer === 'right') pendingChatLatestScrollRef.current = chatScrollKey
     setHistory((current) => current.slice(0, -1))
     setPage(previous.page)
     setDrawer(previous.reopenDrawer || null)
