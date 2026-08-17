@@ -3,6 +3,7 @@ import type { Character, RegexScript } from './characterCard'
 export type RegexMode = 'display' | 'prompt'
 
 const PRESENTATIONAL_HTML = /<(?:div|section|article|details|summary|style|table|thead|tbody|tr|td|th|span|p|h[1-6])\b/i
+const STATUS_BLOCK = /<(status|[a-z][\w-]*_status)\b[^>]*>\s*([\s\S]*?)\s*<\/\1\s*>/gi
 
 function containsPresentationalHtml(value: string) {
   return PRESENTATIONAL_HTML.test(value)
@@ -51,12 +52,12 @@ function escapeHtml(value: string) {
 
 /**
  * A card may provide a detailed status regex, but models occasionally return a
- * compact or incomplete <gts_status> block. Leave successful card-specific
+ * compact or incomplete status block. Leave successful card-specific
  * transformations alone, then turn any remaining block into the built-in
  * compact panel instead of letting its contents fall through as story text.
  */
 function renderUnmatchedStatusBlocks(value: string) {
-  return value.replace(/<gts_status\b[^>]*>\s*([\s\S]*?)\s*<\/gts_status\s*>/gi, (_match, content: string) => {
+  return value.replace(STATUS_BLOCK, (_match, _tag: string, content: string) => {
     const status = content.replace(/\n{3,}/g, '\n\n').trim() || '本轮状态等待更新。'
     return `<section class="weijing-status-card"><strong class="weijing-status-title">状态更新</strong><div>${escapeHtml(status)}</div></section>`
   })

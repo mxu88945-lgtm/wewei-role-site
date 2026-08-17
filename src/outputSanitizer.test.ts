@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { containsHiddenReasoning, ensureStatusBlock, sanitizeAssistantOutput, stripLeadingSpeakerLabels } from './outputSanitizer'
+import { containsHiddenReasoning, detectStatusTag, ensureStatusBlock, sanitizeAssistantOutput, stripLeadingSpeakerLabels } from './outputSanitizer'
 
 describe('assistant prompt-leak sanitizer', () => {
   it('removes leaked status instructions and keeps the real formatted reply', () => {
@@ -61,6 +61,11 @@ describe('assistant prompt-leak sanitizer', () => {
 })
 
 describe('status block fallback', () => {
+  it('detects a card-specific status tag', () => {
+    expect(detectStatusTag('每轮结尾输出 <czw_status>...</czw_status>')).toBe('czw_status')
+    expect(detectStatusTag('<scene>时间</scene>\n正文')).toBe('')
+  })
+
   it('preserves an existing complete status block', () => {
     const value = '正文。\n<gts_status>状态：等待</gts_status>'
     expect(ensureStatusBlock(value, 'gts_status', '状态：兜底')).toBe(value)
@@ -74,6 +79,11 @@ describe('status block fallback', () => {
   it('appends a compact fallback when the model omitted the block', () => {
     expect(ensureStatusBlock('正文结束。', 'gts_status', '状态：本轮回应结束｜待回应：等待用户回应'))
       .toBe('正文结束。\n\n<gts_status>状态：本轮回应结束｜待回应：等待用户回应</gts_status>')
+  })
+
+  it('supports card-specific status tags when the model omitted the block', () => {
+    expect(ensureStatusBlock('正文结束。', 'czw_status', '状态：等待惟惟回应'))
+      .toBe('正文结束。\n\n<czw_status>状态：等待惟惟回应</czw_status>')
   })
 })
 

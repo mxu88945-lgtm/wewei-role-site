@@ -11,7 +11,7 @@ import { buildChatPrompt } from './promptBuilder'
 import { createApiChannel, normalizeApiChannels, withApiModel, type ApiChannel } from './apiChannels'
 import { enabledPresetText, normalizePresetSections } from './presetConfig'
 import { durableGet, durableSet } from './persistentStore'
-import { containsHiddenReasoning, ensureStatusBlock, sanitizeAssistantOutput, stripLeadingSpeakerLabels } from './outputSanitizer'
+import { containsHiddenReasoning, detectStatusTag, ensureStatusBlock, sanitizeAssistantOutput, stripLeadingSpeakerLabels } from './outputSanitizer'
 import { archivedMemoriesForConversation, memoriesForConversation, replaceConversationMemories, restoreMemoryToRevision } from './memoryEngine'
 import { findMentionedParticipantIds, selectGroupSpeakerIds, type GroupReplyMode } from './groupReplyRouting'
 import Pet from './Pet'
@@ -349,6 +349,8 @@ function App() {
   const messageListLayoutMarkerRef = useRef<HTMLDivElement>(null)
   const scrollUiFrameRef = useRef<number | null>(null)
   const chatJumpHideTimerRef = useRef<number | null>(null)
+  const chatScrollSnapshotsRef = useRef(new Map<string, { top: number; stickToBottom: boolean }>())
+  const pendingChatScrollRestoreRef = useRef<string | null>(null)
   const generationControllers = useRef(new Map<string, AbortController>())
   const continuityRunningProjectIds = useRef(new Set<string>())
 
@@ -363,6 +365,23 @@ function App() {
   const groupGreetingCharacters = (sourceGroupConversation?.participantIds || groupDraft.participantIds).map((id) => characters.find((item) => item.id === id)).filter(Boolean) as Character[]
   const groupGreetingUserName = newConversationSourceId ? identity.name : (identities.find((item) => item.id === activePersonaId) || identity).name
   const messages = activeConversation?.messages || [{ id: 1, role: 'assistant' as const, text: activeCharacter.greeting }]
+  const chatScrollKey = activeConversation?.id || `character:${activeCharacter.id}`
+  const rememberChatScroll = (conversationKey = chatScrollKey) => {
+    const list = messageListRef.current
+    if (!list) return
+    const distanceToBottom = Math.max(0, list.scrollHeight - list.scrollTop - list.clientHeight)
+    chatScrollSnapshotsRef.current.set(conversationKey, {
+      top: Math.max(0, list.scrollTop),
+      stickToBottom: distanceToBottom <= 96,
+    })
+  }
+  const applyChatScrollSnapshot = (list: HTMLDivElement, conversationKey: string) => {
+    const snapshot = chatScrollSnapshotsRef.current.get(conversationKey)
+    const maxScrollTop = Math.max(0, list.scrollHeight - list.clientHeight)
+    const target = snapshot?.stickToBottom ? maxScrollTop : Math.min(snapshot?.top || 0, maxScrollTop)
+    list.scrollTop = target
+    return target
+  }
   const memoryConfigFor = (characterId: string) => {
     const config = memoryConfigs[characterId] || defaultMemoryConfig()
     return { ...config, api: config.useGlobalApi === false ? config.api : globalMemoryApi }
@@ -577,15 +596,41 @@ function App() {
     if (page !== 'chat') return
     const list = messageListRef.current
     if (!list) return
-    const bottom = () => { list.scrollTop = list.scrollHeight; setChatJump({ up: list.scrollTop > 240, down: false, visible: false }) }
-    window.requestAnimationFrame(() => window.requestAnimationFrame(bottom))
-  }, [page, activeConversation?.id])
+    const conversationKey = chatScrollKey
+    pendingChatScrollRestoreRef.current = conversationKey
+    let firstFrame: number | null = null
+    let secondFrame: number | null = null
+    const restore = () => {
+      if (pendingChatScrollRestoreRef.current !== conversationKey) return
+      const target = applyChatScrollSnapshot(list, conversationKey)
+      pendingChatScrollRestoreRef.current = null
+      const distanceToBottom = Math.max(0, list.scrollHeight - target - list.clientHeight)
+      chatScrollSnapshotsRef.current.set(conversationKey, {
+        top: target,
+        stickToBottom: distanceToBottom <= 96,
+      })
+      setChatJump({ up: target > 240, down: distanceToBottom > 280, visible: false })
+    }
+    firstFrame = window.requestAnimationFrame(() => {
+      secondFrame = window.requestAnimationFrame(restore)
+    })
+    return () => {
+      rememberChatScroll(conversationKey)
+      if (firstFrame !== null) window.cancelAnimationFrame(firstFrame)
+      if (secondFrame !== null) window.cancelAnimationFrame(secondFrame)
+      if (pendingChatScrollRestoreRef.current === conversationKey) pendingChatScrollRestoreRef.current = null
+    }
+    // The helper intentionally closes over the current conversation key; adding it here would
+    // recreate the restoration effect on every render and lose the saved position.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [page, chatScrollKey])
   useLayoutEffect(() => {
     if (page !== 'chat') return
     const list = messageListRef.current
     const marker = messageListLayoutMarkerRef.current
     const composer = composerDockRef.current
     if (!list || !marker) return
+    const conversationKey = chatScrollKey
 
     let layoutFrame: number | null = null
     let markerHeight = 1
@@ -601,7 +646,12 @@ function App() {
           marker.style.flexBasis = `${markerHeight}px`
           marker.style.height = `${markerHeight}px`
           void list.offsetHeight
-          list.scrollTop = Math.min(previousScrollTop, Math.max(0, list.scrollHeight - list.clientHeight))
+          const snapshot = chatScrollSnapshotsRef.current.get(conversationKey)
+          if (pendingChatScrollRestoreRef.current === conversationKey || snapshot?.stickToBottom) {
+            applyChatScrollSnapshot(list, conversationKey)
+          } else {
+            list.scrollTop = Math.min(previousScrollTop, Math.max(0, list.scrollHeight - list.clientHeight))
+          }
         })
       })
     }
@@ -636,7 +686,7 @@ function App() {
       if (layoutFrame !== null) window.cancelAnimationFrame(layoutFrame)
       list.style.removeProperty('--composer-clearance')
     }
-  }, [page, activeConversation?.id])
+  }, [page, chatScrollKey])
   const pageTitle = useMemo(() => page === 'home' ? '惟境' : page === 'characters' ? '角色' : '', [page])
   const navigate = (target: Page, reopenDrawer?: Drawer) => {
     setHistory((current) => [...current, { page, reopenDrawer }])
@@ -1306,11 +1356,13 @@ function App() {
     try {
       const isGroup = conversation.kind === 'group'
       const isDirector = Boolean(conversation.directorCharacterId && speaker.id === conversation.directorCharacterId)
-      const requiresCharacterStatus = !isDirector && /<gts_status>/i.test([
-        capturedCharacter.beautificationProtocol,
-        capturedCharacter.systemPrompt,
-        capturedCharacter.postHistoryInstructions,
-      ].filter(Boolean).join('\n'))
+      const statusTag = !isDirector ? detectStatusTag(
+        capturedCharacter.beautificationProtocol || '',
+        capturedCharacter.systemPrompt || '',
+        capturedCharacter.postHistoryInstructions || '',
+        ...capturedCharacter.regexScripts.map((script) => script.findRegex || ''),
+      ) : ''
+      const requiresCharacterStatus = Boolean(statusTag)
       const groupNames = (conversation.participantIds || []).map((id) => characters.find((item) => item.id === id)?.name).filter(Boolean)
       const storyProject = selectConversationStoryProject(storyProjects, conversation.id)
       const storyProjectContext = storyProject ? buildStoryProjectPrompt({ project: storyProject, speakerId: speaker.id, characters }) : ''
@@ -1337,7 +1389,7 @@ function App() {
         compressedUntil: hasValidContextSummary ? conversation.compressedUntil : undefined,
       })
       if (isDirector) promptMessages.push({ role: 'system', content: DIRECTOR_OUTPUT_GUARD })
-      else if (requiresCharacterStatus) promptMessages.push({ role: 'system', content: '【最终输出结构校验】完成正文后必须检查：回复末尾有且只有一个闭合的 <gts_status>...</gts_status>。不得省略状态栏，不得把状态栏规则写进正文。' })
+      else if (requiresCharacterStatus) promptMessages.push({ role: 'system', content: `【最终输出结构校验】完成正文后必须检查：回复末尾有且只有一个闭合的 <${statusTag}>...</${statusTag}>。不得省略状态栏，不得把状态栏规则写进正文。` })
       const completion = await completeChat({
         api: speakerApi,
         messages: promptMessages,
@@ -1364,7 +1416,7 @@ function App() {
       if (!cleanOutput && containsHiddenReasoning(output, isDirector)) throw new Error('模型只返回了内部分析，惟境已拦截且没有写入剧情。请重试或换一个更遵守指令的模型。')
       const visibleOutput = cleanOutput || output
       const finalOutput = requiresCharacterStatus
-        ? ensureStatusBlock(visibleOutput, 'gts_status', `状态：${speaker.name}已完成本轮回应｜关系：延续当前剧情｜待回应：等待${identity.name}回应`)
+        ? ensureStatusBlock(visibleOutput, statusTag, `状态：${speaker.name}已完成本轮回应｜关系：延续当前剧情｜待回应：等待${identity.name}回应`)
         : visibleOutput
       setConversations((current) => current.map((item) => item.id === conversationId ? { ...item, messages: item.messages.map((message) => message.id === assistantMessage.id ? { ...message, text: finalOutput } : message), updatedAt: Date.now() } : item))
       const completed = [...nextMessages, { ...assistantMessage, text: finalOutput }]
@@ -1622,6 +1674,7 @@ function App() {
       const list = messageListRef.current; if (!list) return
       const distanceToBottom = list.scrollHeight - list.scrollTop - list.clientHeight
       const next = { up: list.scrollTop > 280, down: distanceToBottom > 280 }
+      rememberChatScroll()
       const visible = next.up || next.down
       setChatJump({ ...next, visible })
       if (chatJumpHideTimerRef.current !== null) window.clearTimeout(chatJumpHideTimerRef.current)
@@ -1635,6 +1688,7 @@ function App() {
   const jumpChat = (edge: 'top' | 'bottom') => {
     const list = messageListRef.current; if (!list) return
     list.scrollTo({ top: edge === 'top' ? 0 : list.scrollHeight, behavior: 'smooth' })
+    window.requestAnimationFrame(() => rememberChatScroll())
     setChatJump((current) => ({ ...current, visible: false }))
   }
 

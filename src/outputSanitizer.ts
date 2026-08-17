@@ -8,6 +8,9 @@ const WEAK_DIRECTOR_REASONING_MARKERS = [
 ]
 const HIDDEN_BLOCK = /<(think(?:ing)?|analysis|reasoning)\b[^>]*>[\s\S]*?<\/\1\s*>/gi
 const OPEN_HIDDEN_BLOCK = /<(?:think(?:ing)?|analysis|reasoning)\b[^>]*>[\s\S]*$/i
+const STATUS_TAG_PATTERN = '(?:status|[a-z][\\w-]*_status)'
+const STATUS_TAG_NAME = new RegExp(`^${STATUS_TAG_PATTERN}$`, 'i')
+const STATUS_OPENING = new RegExp(`<(${STATUS_TAG_PATTERN})\\b[^>]*>`, 'i')
 
 function stripTaggedReasoning(value: string) {
   return value
@@ -60,10 +63,20 @@ export function sanitizeAssistantOutput(value: string, options: { director?: boo
   return output.slice(start).trimStart()
 }
 
+/** Find the card-specific status tag used by a character's output protocol. */
+export function detectStatusTag(...sources: string[]) {
+  for (const source of sources) {
+    const match = STATUS_OPENING.exec(source || '')
+    if (match?.[1]) return match[1]
+  }
+  return ''
+}
+
 /** Keep a card's visual status block stable even when a model omits or forgets to close it. */
-export function ensureStatusBlock(value: string, tag: 'gts_status' | 'director_status', fallbackContent: string) {
+export function ensureStatusBlock(value: string, tag: string, fallbackContent: string) {
   const output = value.trimEnd()
   if (!output) return output
+  if (!STATUS_TAG_NAME.test(tag)) return output
   const escapedTag = tag.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
   const complete = new RegExp(`<${escapedTag}\\b[^>]*>[\\s\\S]*?<\\/${escapedTag}\\s*>`, 'i')
   if (complete.test(output)) return output
