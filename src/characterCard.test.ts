@@ -96,6 +96,33 @@ describe('裴成砚连续情感进程迁移', () => {
   })
 })
 
+describe('角色卡世界书字段兼容', () => {
+  it('导入省略可选 V3 字段的 NPC 条目时仍能打开编辑器', () => {
+    const importedBook = {
+      name: '顾氏旧宅世界书',
+      entries: [{
+        id: 7,
+        comment: '顾知微｜NPC',
+        keys: [],
+        content: '顾知微是现场的记录员。',
+        constant: true,
+        enabled: true,
+        position: 'before_char',
+        insertion_order: 20,
+        extensions: { depth: 4 },
+      }],
+    } as unknown as Character['characterBook']
+
+    const result = normalizeStoredCharacter({ name: '顾氏旧宅·原谱审查导演', characterBook: importedBook })
+    const entry = result.characterBook?.entries[0]
+
+    expect(entry?.secondary_keys).toEqual([])
+    expect(entry?.selective).toBe(false)
+    expect(entry?.use_regex).toBe(false)
+    expect(entry?.extensions).toEqual(expect.objectContaining({ depth: 4, probability: 100, useProbability: false }))
+  })
+})
+
 describe('星轨独立卡自主角色迁移', () => {
   const entry = (id: number, comment: string, content: string) => ({
     id, keys: [], secondary_keys: [], comment, content, constant: true, selective: false,

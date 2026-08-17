@@ -322,6 +322,64 @@ function stringArray(value: unknown) {
   return Array.isArray(value) ? value.filter((item): item is string => typeof item === 'string') : []
 }
 
+const WORLD_BOOK_POSITIONS = new Set(['before_char', 'after_char', 'before_example', 'after_example', 'at_depth'])
+
+function numberValue(value: unknown, fallback: number) {
+  if (value === null || value === undefined || value === '') return fallback
+  const number = Number(value)
+  return Number.isFinite(number) ? number : fallback
+}
+
+function objectValue(value: unknown) {
+  return value && typeof value === 'object' ? value as Record<string, unknown> : {}
+}
+
+/**
+ * Card V3 leaves several world-book fields optional.  Keep one complete
+ * internal shape so importing a card cannot make the editor crash when an
+ * omitted array or extensions object is rendered.
+ */
+export function normalizeWorldBookEntry(entry: unknown, index = 0): WorldBookEntry {
+  const source = objectValue(entry)
+  const rawExtensions = objectValue(source.extensions)
+  const rawPosition = stringValue(source.position)
+  const position = WORLD_BOOK_POSITIONS.has(rawPosition) ? rawPosition : 'before_char'
+  const extensionPosition = numberValue(rawExtensions.position, position === 'after_char' ? 1 : position === 'before_example' ? 2 : position === 'after_example' ? 3 : position === 'at_depth' ? 4 : 0)
+
+  return {
+    ...source,
+    id: Math.trunc(numberValue(source.id, index + 1)),
+    keys: stringArray(source.keys ?? source.keywords),
+    secondary_keys: stringArray(source.secondary_keys ?? source.secondaryKeys),
+    comment: stringValue(source.comment) || stringValue(source.title),
+    content: stringValue(source.content) || stringValue(source.text),
+    constant: source.constant === true,
+    selective: source.selective === true,
+    insertion_order: numberValue(source.insertion_order ?? source.insertionOrder, 100),
+    enabled: source.enabled !== false,
+    position,
+    use_regex: source.use_regex === true,
+    extensions: {
+      ...rawExtensions,
+      position: extensionPosition,
+      depth: numberValue(rawExtensions.depth, 4),
+      probability: numberValue(rawExtensions.probability, 100),
+      useProbability: rawExtensions.useProbability === true,
+    },
+  }
+}
+
+function normalizeCharacterBook(value: unknown, characterName: string) {
+  if (!value || typeof value !== 'object') return undefined
+  const source = value as Record<string, unknown>
+  const rawEntries = Array.isArray(source.entries) ? source.entries : []
+  return {
+    ...source,
+    name: stringValue(source.name) || `${characterName || '角色'}世界书`,
+    entries: rawEntries.map((entry, index) => normalizeWorldBookEntry(entry, index)),
+  } as CharacterBook
+}
+
 function plainTextPreview(value: string, fallback: string) {
   const text = value
     .replace(/<style[\s\S]*?<\/style>/gi, ' ')
@@ -691,6 +749,8 @@ function upgradeXingguiAutonomy(character: Partial<Character>): Partial<Characte
 }
 
 export function normalizeStoredCharacter(character: Partial<Character>): Character {
+  const normalizedBook = normalizeCharacterBook(character.characterBook, character.name || '')
+  character = normalizedBook ? { ...character, characterBook: normalizedBook } : character
   character = upgradeXingguiKnowledgeBoundaries(character)
   character = upgradeXingguiAutonomy(character)
   character = upgradePeiEmotionLock(character)
@@ -715,7 +775,7 @@ export function normalizeStoredCharacter(character: Partial<Character>): Charact
     cardSpec: character.cardSpec,
     cardSpecVersion: character.cardSpecVersion,
     sourceFileName: character.sourceFileName,
-    characterBook: character.characterBook,
+    characterBook: normalizeCharacterBook(character.characterBook, character.name || ''),
     regexScripts: character.regexScripts || [],
     rawCard: character.rawCard,
   }
