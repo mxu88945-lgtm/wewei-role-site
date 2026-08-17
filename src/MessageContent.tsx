@@ -2,7 +2,7 @@ import { memo, useLayoutEffect, useMemo, useRef, useState } from 'react'
 import DOMPurify from 'dompurify'
 import type { Character } from './characterCard'
 import { applyMacros, applyRegexScripts } from './regexEngine'
-import { containsHiddenReasoning, sanitizeAssistantOutput } from './outputSanitizer'
+import { containsHiddenReasoning, detectStatusTag, moveStatusBlockToEnd, sanitizeAssistantOutput } from './outputSanitizer'
 
 function unwrapCodeFence(value: string) {
   return value
@@ -185,8 +185,16 @@ function MessageContent({ text, role, character, userName, layout = 'bubble' }: 
     const visibleText = role === 'assistant' && !cleanText && containsHiddenReasoning(text, director)
       ? '（已拦截模型内部分析；未计入正式剧情。）'
       : cleanText
+    const statusTag = role === 'assistant' ? detectStatusTag(
+      character.beautificationProtocol || '',
+      character.systemPrompt || '',
+      character.postHistoryInstructions || '',
+      ...character.regexScripts.map((script) => script.findRegex || ''),
+      visibleText,
+    ) : ''
+    const orderedText = statusTag ? moveStatusBlockToEnd(visibleText, statusTag) : visibleText
     return role === 'assistant'
-      ? applyRegexScripts(visibleText, character.regexScripts, character, userName, 2, 'display')
+      ? applyRegexScripts(orderedText, character.regexScripts, character, userName, 2, 'display')
       : applyMacros(visibleText, character, userName)
   }, [text, role, character, userName])
 

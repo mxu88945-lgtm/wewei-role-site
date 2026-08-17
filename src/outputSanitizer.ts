@@ -88,6 +88,26 @@ export function ensureStatusBlock(value: string, tag: string, fallbackContent: s
   return `${output}\n\n<${tag}>${fallbackContent.trim()}</${tag}>`
 }
 
+/**
+ * Some models emit their backstage block before the scene/body despite the
+ * character protocol. Keep the persisted reply and the rendered old history in
+ * the same canonical order: story first, one final status block last.
+ */
+export function moveStatusBlockToEnd(value: string, tag: string) {
+  const output = value.trim()
+  if (!output || !STATUS_TAG_NAME.test(tag)) return output
+  const escapedTag = tag.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
+  const complete = new RegExp(`<${escapedTag}\\b[^>]*>[\\s\\S]*?<\\/${escapedTag}\\s*>`, 'ig')
+  const blocks = Array.from(output.matchAll(complete)).map((match) => match[0].trim())
+  if (!blocks.length) return output
+
+  // Keep the newest complete block if a relay/model duplicated it, then append
+  // it after the visible story. This keeps historical messages stable too.
+  const body = output.replace(complete, '').replace(/\n{3,}/g, '\n\n').trim()
+  const finalBlock = blocks[blocks.length - 1]
+  return body ? `${body}\n\n${finalBlock}` : finalBlock
+}
+
 function escapeRegex(value: string) {
   return value.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
 }
