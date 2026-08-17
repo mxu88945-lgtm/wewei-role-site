@@ -96,6 +96,69 @@ describe('裴成砚连续情感进程迁移', () => {
   })
 })
 
+describe('顾霆深累计阶段判定迁移', () => {
+  const legacyGu: Partial<Character> = {
+    id: 'gu-existing-chat',
+    name: '顾霆深',
+    creator: '周惟惟 × 伯恩',
+    characterVersion: '1.3 · 惟境V3分享版｜不对称协议逻辑与角色自主修订',
+    systemPrompt: '严格执行五阶段硬门槛。阶段一爱意值固定为0%。',
+    postHistoryInstructions: '延续已有事实与当前关系阶段。',
+    alternateGreetings: [],
+    regexScripts: [],
+    characterBook: {
+      name: '顾霆深世界书',
+      entries: [
+        {
+          id: 9, keys: [], secondary_keys: [], comment: '感情阶段与硬门槛',
+          content: '阶段一。进入阶段二的硬条件共四项。阶段二。进入阶段三的硬条件共四项。',
+          constant: true, selective: false, insertion_order: 9, enabled: true,
+          position: 'after_char', use_regex: false, extensions: {},
+        },
+        {
+          id: 13, keys: [], secondary_keys: [], comment: '每轮固定场景栏与状态栏',
+          content: '- **关系阶段：** 只能在满足角色卡硬条件后升级；\n其他自定义内容保留。',
+          constant: true, selective: false, insertion_order: 13, enabled: true,
+          position: 'after_char', use_regex: false, extensions: {},
+        },
+      ],
+    },
+  }
+
+  it('保留角色与会话 id，并为旧存档追加回溯校准', () => {
+    const result = normalizeStoredCharacter(legacyGu)
+    const progression = result.characterBook?.entries.find((entry) => entry.comment === '感情阶段与累计判定')
+
+    expect(result.id).toBe('gu-existing-chat')
+    expect(result.characterVersion).toContain('1.4')
+    expect(result.systemPrompt).toContain('阶段累计与旧存档校准 v1.4')
+    expect(result.postHistoryInstructions).toContain('回溯全部已有事实')
+    expect(progression?.content).toContain('原四项条件任意满足两项即升级')
+    expect(progression?.content).toContain('当前阶段不得低于阶段三·旧秩序裂缝')
+    expect(result.characterBook?.entries[1].content).toContain('达到升级阈值后必须立即更新')
+    expect(result.characterBook?.entries[1].content).toContain('其他自定义内容保留')
+  })
+
+  it('迁移可重复执行且不会重复追加校准规则', () => {
+    const once = normalizeStoredCharacter(legacyGu)
+    const twice = normalizeStoredCharacter(once)
+    const serialized = JSON.stringify(twice)
+
+    expect(serialized.match(/阶段累计与旧存档校准 v1\.4/g)?.length).toBe(3)
+    expect(twice.id).toBe('gu-existing-chat')
+  })
+
+  it('不修改同名但没有该阶段世界书的其他角色', () => {
+    const result = normalizeStoredCharacter({
+      id: 'other-gu', name: '顾霆深', characterVersion: '用户自定义版',
+      systemPrompt: '用户自己的规则。', alternateGreetings: [], regexScripts: [],
+    })
+
+    expect(result.characterVersion).toBe('用户自定义版')
+    expect(result.systemPrompt).toBe('用户自己的规则。')
+  })
+})
+
 describe('角色卡世界书字段兼容', () => {
   it('导入省略可选 V3 字段的 NPC 条目时仍能打开编辑器', () => {
     const importedBook = {
