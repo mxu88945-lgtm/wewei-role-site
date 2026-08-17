@@ -1,7 +1,11 @@
 import { describe, expect, it } from 'vitest'
-import { buildReplyHelperMessages, cleanReplyHelperDraft } from './replyHelper'
+import { buildReplyHelperMessages, cleanReplyHelperDraft, REPLY_HELPER_MAX_TOKENS } from './replyHelper'
 
 describe('AI reply helper', () => {
+  it('uses an independent output budget instead of a legacy global token setting', () => {
+    expect(REPLY_HELPER_MAX_TOKENS).toBe(1800)
+  })
+
   it('builds a user-only draft prompt without hidden project data', () => {
     const messages = buildReplyHelperMessages({
       userName: '江黎姿',

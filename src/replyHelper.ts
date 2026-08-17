@@ -19,6 +19,9 @@ export type ReplyHelperContext = {
   }
 }
 
+// AI 帮答是独立的草稿功能，不应继承旧版本保存在本机的全局低令牌上限。
+export const REPLY_HELPER_MAX_TOKENS = 1800
+
 export function buildReplyHelperMessages(context: ReplyHelperContext): ChatApiMessage[] {
   const project = context.project
   const scene = project ? `
@@ -46,7 +49,8 @@ export function buildReplyHelperMessages(context: ReplyHelperContext): ChatApiMe
 3. 只使用对话中用户已经亲历、看见、收到或被明确告知的信息；不得读取隐藏证据、导演计划、其他角色内心或未知事实，不得凭空补线索。
 4. 不擅自替用户确认恋爱、原谅、复合、离开、赴约、相信某人、公开证据或作出其他重大决定。除非用户当前输入已经明确表达该决定，否则停在可继续选择的位置。
 5. 保留人物拉扯与用户人设，避免客服腔、总结腔、解释规则和替用户变得过度温顺。不要写“你可以这样回复”等引导语。
-6. 只输出一版可直接放入输入框的中文草稿，不加标题、代码块或前后说明。${scene}`,
+6. 只输出一版可直接放入输入框的中文草稿，不加标题、代码块或前后说明。
+7. 输出完整、自然收束的回复；不要为了简短只写半句，也不要在句子、动作或标点中间截断。内容需要展开时可以写成 2—4 个自然段。${scene}`,
     },
     {
       role: 'user',
