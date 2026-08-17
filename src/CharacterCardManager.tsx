@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react'
-import type { Character, RegexScript, WorldBookEntry } from './characterCard'
+import { normalizeWorldBookEntry, type Character, type RegexScript, type WorldBookEntry } from './characterCard'
 
 export type CharacterCardSection = 'overview' | 'greetings' | 'worldbook' | 'regex'
 type LongCharacterField = 'description' | 'personality' | 'scenario' | 'systemPrompt' | 'postHistoryInstructions' | 'beautificationProtocol' | 'mesExample' | 'creatorNotes'
@@ -78,7 +78,10 @@ export default function CharacterCardManager({ character, onChange, onBack, init
   const [fullEditorField, setFullEditorField] = useState<FullEditorField | null>(null)
   const [nameEditorOpen, setNameEditorOpen] = useState(false)
   const [nameDraft, setNameDraft] = useState(character.name)
-  const entries = character.characterBook?.entries || []
+  // Keep this boundary defensive as well: old localStorage records may have
+  // been written before the importer started filling optional V3 fields.
+  const entries = (Array.isArray(character.characterBook?.entries) ? character.characterBook.entries : [])
+    .map((entry, index) => normalizeWorldBookEntry(entry, index))
 
   useEffect(() => { setNameDraft(character.name) }, [character.id, character.name])
 
