@@ -23,7 +23,7 @@ import StoryProjectManager from './StoryProjectManager'
 import { normalizeStoryProjects, type StoryProject } from './storyProject'
 import { buildStoryProjectPrompt, selectConversationStoryProject } from './storyProjectPrompt'
 import { buildAutomaticContinuityInput, captureAssistantMessageIds, hasUnprocessedAssistantMessages, mergeAutomaticContinuity, parseAutomaticContinuityResponse } from './storyContinuity'
-import { buildReplyHelperMessages, cleanReplyHelperDraft } from './replyHelper'
+import { buildReplyHelperMessages, cleanReplyHelperDraft, REPLY_HELPER_MAX_TOKENS } from './replyHelper'
 import { planContextCompression, uncompressedMessages } from './contextCompression'
 import { findLatestActorContinuityAnchor } from './actorContinuity'
 import ReplyHelperSettingsPage from './ReplyHelperSettingsPage'
@@ -1327,7 +1327,7 @@ function App() {
         messages: promptMessages,
         temperature: .75,
         topP: .95,
-        maxTokens: Math.min(maxTokens, 1800),
+        maxTokens: REPLY_HELPER_MAX_TOKENS,
         streaming: false,
         signal: new AbortController().signal,
         onDelta: (delta) => { output += delta },
