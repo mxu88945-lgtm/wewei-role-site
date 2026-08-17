@@ -61,13 +61,14 @@ describe('character-card regex boundaries', () => {
     expect(applyRegexScripts(source, [], character, '惟惟', 2, 'prompt')).toBe(source)
   })
 
-  it('renders custom status tags as a compact fallback card too', () => {
-    const source = '正文。\n<czw_status>心理：正在核对文件\n动作：把文件夹推向惟惟</czw_status>'
+  it('renders custom status tags with the character-specific fallback card', () => {
+    const source = '正文。\n<czw_status>心理：正在核对\n文件，确认没有被改写\n动作：把文件夹推向惟惟\n对顾霆深：保留判断\n对惟惟：提供信息\n政治立场：支持独立审查\n情绪波动：冷静\n当前目标：等待回应</czw_status>'
     const rendered = applyRegexScripts(source, [], character, '惟惟', 2, 'display')
 
-    expect(rendered).toContain('class="weijing-status-card"')
+    expect(rendered).toContain('weijing-status-card-czw')
+    expect(rendered).toContain('岑知微 · 状态栏')
     expect(rendered).not.toContain('<czw_status>')
-    expect(rendered).toContain('正在核对文件')
+    expect(rendered).toContain('文件，确认没有被改写')
   })
 
   it('keeps a card-specific status panel when its exact format matches', () => {
