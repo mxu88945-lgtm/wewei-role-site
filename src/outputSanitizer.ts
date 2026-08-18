@@ -12,6 +12,7 @@ const STATUS_TAG_PATTERN = '(?:status|[a-z][\\w-]*_status)'
 const STATUS_TAG_NAME = new RegExp(`^${STATUS_TAG_PATTERN}$`, 'i')
 const STATUS_OPENING = new RegExp(`<(${STATUS_TAG_PATTERN})\\b[^>]*>`, 'i')
 const STATUS_FIELD_MARKER = /(?:^|[\n｜|；;])\s*([^：:\n｜|；;<>{}]{1,40}?)\s*[：:]\s*/g
+const STATUS_WRAPPER = new RegExp(`<\\/?${STATUS_TAG_PATTERN}\\b[^>]*>`, 'gi')
 
 export type StatusFieldValue = { label: string; value: string }
 
@@ -94,16 +95,17 @@ export function ensureStatusBlock(value: string, tag: string, fallbackContent: s
 /** Read labelled fields from the plain-text contents of a status block. */
 export function extractStatusFields(value: string): StatusFieldValue[] {
   const fields: StatusFieldValue[] = []
+  const plainValue = value.replace(STATUS_WRAPPER, '')
   STATUS_FIELD_MARKER.lastIndex = 0
-  const markers = Array.from(value.matchAll(STATUS_FIELD_MARKER))
+  const markers = Array.from(plainValue.matchAll(STATUS_FIELD_MARKER))
   STATUS_FIELD_MARKER.lastIndex = 0
   for (let index = 0; index < markers.length; index += 1) {
     const marker = markers[index]
     const next = markers[index + 1]
     const label = marker[1]?.trim()
     const start = (marker.index || 0) + marker[0].length
-    const end = next?.index ?? value.length
-    const fieldValue = value.slice(start, end).trim().replace(/[｜|；;]+$/, '').trim()
+    const end = next?.index ?? plainValue.length
+    const fieldValue = plainValue.slice(start, end).trim().replace(/[｜|；;]+$/, '').trim()
     if (label && fieldValue) fields.push({ label, value: fieldValue })
   }
   return fields
