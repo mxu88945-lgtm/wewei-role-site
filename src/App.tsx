@@ -11,7 +11,7 @@ import { buildChatPrompt } from './promptBuilder'
 import { createApiChannel, normalizeApiChannels, withApiModel, type ApiChannel } from './apiChannels'
 import { enabledPresetText, normalizePresetSections } from './presetConfig'
 import { durableGet, durableSet } from './persistentStore'
-import { containsHiddenReasoning, detectStatusTag, ensureStatusBlock, moveStatusBlockToEnd, sanitizeAssistantOutput, stripLeadingSpeakerLabels } from './outputSanitizer'
+import { completeStatusBlock, containsHiddenReasoning, moveStatusBlockToEnd, sanitizeAssistantOutput, stripLeadingSpeakerLabels } from './outputSanitizer'
 import { archivedMemoriesForConversation, memoriesForConversation, replaceConversationMemories, restoreMemoryToRevision } from './memoryEngine'
 import { findMentionedParticipantIds, selectGroupSpeakerIds, type GroupReplyMode } from './groupReplyRouting'
 import Pet from './Pet'
@@ -32,6 +32,7 @@ import { parseConversationTxt } from './conversationTxt'
 import { modelVisibleMessageText, stripUiOnlyStatusBlocks } from './modelContext'
 import { countConversationStats } from './conversationStats'
 import { enforceRelationshipStageFloor, extractRelationshipStage, highestRelationshipStage, relationshipStageLockInstruction, repairRelationshipStageHistory, type RelationshipStage } from './relationshipStage'
+import { buildStatusFallback, getStatusProtocol, latestStatusContent } from './statusProtocol'
 
 type Page = 'home' | 'story-projects' | 'characters' | 'create' | 'character-workshop' | 'group-create' | 'director-template' | 'group-greeting-picker' | 'import-preview' | 'character-detail' | 'card-data' | 'card-worldbook' | 'card-regex' | 'greeting-picker' | 'chat' | 'more' | 'api' | 'reply-helper-api' | 'model' | 'settings' | 'appearance' | 'font' | 'display-reply' | 'identity' | 'worldbook' | 'theater-world' | 'preset' | 'memory' | 'memory-api' | 'memory-list'
 type MessageEditor = { mode: 'assistant' | 'resend'; messageId: number; text: string }
@@ -1424,12 +1425,8 @@ function App() {
     try {
       const isGroup = conversation.kind === 'group'
       const isDirector = Boolean(conversation.directorCharacterId && speaker.id === conversation.directorCharacterId)
-      const statusTag = !isDirector ? detectStatusTag(
-        capturedCharacter.beautificationProtocol || '',
-        capturedCharacter.systemPrompt || '',
-        capturedCharacter.postHistoryInstructions || '',
-        ...capturedCharacter.regexScripts.map((script) => script.findRegex || ''),
-      ) : ''
+      const statusProtocol = !isDirector ? getStatusProtocol(capturedCharacter) : { tag: '', fields: [] }
+      const statusTag = statusProtocol.tag
       const requiresCharacterStatus = Boolean(statusTag)
       const groupNames = (conversation.participantIds || []).map((id) => characters.find((item) => item.id === id)?.name).filter(Boolean)
       const storyProject = selectConversationStoryProject(storyProjects, conversation.id)
@@ -1461,7 +1458,12 @@ function App() {
         : 0
       if (storedRelationshipStage) promptMessages.push({ role: 'system', content: relationshipStageLockInstruction(storedRelationshipStage) })
       if (isDirector) promptMessages.push({ role: 'system', content: DIRECTOR_OUTPUT_GUARD })
-      else if (requiresCharacterStatus) promptMessages.push({ role: 'system', content: `【最终输出结构校验】完成正文后必须检查：回复末尾有且只有一个闭合的 <${statusTag}>...</${statusTag}>。不得省略状态栏，不得把状态栏规则写进正文。` })
+      else if (requiresCharacterStatus) {
+        const fieldGuard = statusProtocol.fields.length
+          ? `状态栏还必须按卡片顺序逐项保留字段：${statusProtocol.fields.join('、')}。本轮没有变化的字段写“本轮未更新”，不能删除字段。`
+          : '状态栏字段不能省略；本轮没有变化的字段写“本轮未更新”。'
+        promptMessages.push({ role: 'system', content: `【最终输出结构校验】完成正文后必须检查：回复末尾有且只有一个闭合的 <${statusTag}>...</${statusTag}>。${fieldGuard}不得省略状态栏，不得把状态栏规则写进正文。` })
+      }
       const completion = await completeChat({
         api: speakerApi,
         messages: promptMessages,
@@ -1487,9 +1489,15 @@ function App() {
       const cleanOutput = sanitizeAssistantOutput(output, { director: isDirector })
       if (!cleanOutput && containsHiddenReasoning(output, isDirector)) throw new Error('模型只返回了内部分析，惟境已拦截且没有写入剧情。请重试或换一个更遵守指令的模型。')
       const visibleOutput = cleanOutput || output
-      const statusOutput = requiresCharacterStatus
+      const statusFallback = requiresCharacterStatus
+        ? buildStatusFallback(capturedCharacter, identity.name, {
+          output: visibleOutput,
+          previousStatusContent: latestStatusContent(nextMessages, statusTag, capturedCharacter.id),
+        })
+        : null
+      const statusOutput = requiresCharacterStatus && statusFallback
         ? moveStatusBlockToEnd(
-          ensureStatusBlock(visibleOutput, statusTag, `状态：${speaker.name}已完成本轮回应｜关系：延续当前剧情｜待回应：等待${identity.name}回应`),
+          completeStatusBlock(visibleOutput, statusTag, statusFallback.content, statusFallback.fields),
           statusTag,
         )
         : visibleOutput
