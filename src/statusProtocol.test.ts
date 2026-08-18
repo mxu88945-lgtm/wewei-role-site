@@ -38,6 +38,17 @@ describe('status protocol', () => {
     expect(fallback.content).toContain('五年前救命恩人：仍未确认')
   })
 
+  it('replaces empty prior placeholders with concrete values from the card', () => {
+    const fallback = buildStatusFallback(character, '惟惟', {
+      previousStatusContent: '<status>关系进展：延续当前剧情｜晏承聿当前认知：以本轮正文明确内容为准｜公开责任：本轮未更新｜私人立场：本轮未更新｜五年前救命恩人：以本轮正文明确内容为准</status>',
+      output: '他将晚宴流程表推到惟惟面前，明确由自己负责接下来的签约安排。',
+    })
+    expect(fallback.content).toContain('关系进展：阶段一')
+    expect(fallback.content).toContain('晏承聿当前认知：她是合作对象')
+    expect(fallback.content).toContain('公开责任：完成晚宴')
+    expect(fallback.content).not.toMatch(/本轮未更新|以本轮正文明确内容为准|延续当前剧情/)
+  })
+
   it('finds the newest status from the same actor history scan', () => {
     expect(latestStatusContent([
       { role: 'assistant', characterId: 'yan', text: '<status>关系进展：旧</status>' },
