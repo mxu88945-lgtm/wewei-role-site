@@ -11,6 +11,9 @@ const OPEN_HIDDEN_BLOCK = /<(?:think(?:ing)?|analysis|reasoning)\b[^>]*>[\s\S]*$
 const STATUS_TAG_PATTERN = '(?:status|[a-z][\\w-]*_status)'
 const STATUS_TAG_NAME = new RegExp(`^${STATUS_TAG_PATTERN}$`, 'i')
 const STATUS_OPENING = new RegExp(`<(${STATUS_TAG_PATTERN})\\b[^>]*>`, 'i')
+const STATUS_FIELD_MARKER = /(?:^|[\n｜|；;])\s*([^：:\n｜|；;<>{}]{1,40}?)\s*[：:]\s*/g
+
+export type StatusFieldValue = { label: string; value: string }
 
 function stripTaggedReasoning(value: string) {
   return value
@@ -86,6 +89,56 @@ export function ensureStatusBlock(value: string, tag: string, fallbackContent: s
   if (matches.length) return `${output}</${tag}>`
 
   return `${output}\n\n<${tag}>${fallbackContent.trim()}</${tag}>`
+}
+
+/** Read labelled fields from the plain-text contents of a status block. */
+export function extractStatusFields(value: string): StatusFieldValue[] {
+  const fields: StatusFieldValue[] = []
+  STATUS_FIELD_MARKER.lastIndex = 0
+  const markers = Array.from(value.matchAll(STATUS_FIELD_MARKER))
+  STATUS_FIELD_MARKER.lastIndex = 0
+  for (let index = 0; index < markers.length; index += 1) {
+    const marker = markers[index]
+    const next = markers[index + 1]
+    const label = marker[1]?.trim()
+    const start = (marker.index || 0) + marker[0].length
+    const end = next?.index ?? value.length
+    const fieldValue = value.slice(start, end).trim().replace(/[｜|；;]+$/, '').trim()
+    if (label && fieldValue) fields.push({ label, value: fieldValue })
+  }
+  return fields
+}
+
+/**
+ * Keep a status panel useful when the model emits the tag but drops some of
+ * the card's required fields. Existing model text wins; only absent fields are
+ * appended from the deterministic fallback values.
+ */
+export function completeStatusBlock(value: string, tag: string, fallbackContent: string, fallbackFields: StatusFieldValue[] = []) {
+  const ensured = ensureStatusBlock(value, tag, fallbackContent)
+  if (!ensured || !STATUS_TAG_NAME.test(tag) || !fallbackFields.length) return ensured
+
+  const escapedTag = tag.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
+  const complete = new RegExp(`<${escapedTag}\\b[^>]*>[\\s\\S]*?<\\/${escapedTag}\\s*>`, 'ig')
+  const matches = Array.from(ensured.matchAll(complete))
+  const last = matches[matches.length - 1]
+  if (!last || last.index === undefined) return ensured
+
+  const block = last[0]
+  const contentStart = block.indexOf('>') + 1
+  const closingStart = block.toLowerCase().lastIndexOf(`</${tag.toLowerCase()}`)
+  if (contentStart <= 0 || closingStart < contentStart) return ensured
+
+  const content = block.slice(contentStart, closingStart).trim()
+  const existingLabels = new Set(extractStatusFields(content).map((field) => field.label))
+  const missing = fallbackFields.filter((field) => field.label && !existingLabels.has(field.label))
+  if (!missing.length) return ensured
+
+  const separator = content ? (content.includes('\n') ? '\n' : '｜') : ''
+  const additions = missing.map((field) => `${field.label}：${field.value}`).join(separator || '｜')
+  const mergedContent = content ? `${content}${separator}${additions}` : additions
+  const mergedBlock = `${block.slice(0, contentStart)}${mergedContent}${block.slice(closingStart)}`
+  return `${ensured.slice(0, last.index)}${mergedBlock}${ensured.slice(last.index + block.length)}`
 }
 
 /**
