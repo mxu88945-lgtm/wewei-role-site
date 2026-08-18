@@ -363,6 +363,21 @@ button { cursor: pointer; }
 .director-template-card > label { margin: 0; display: grid; gap: 6px; color: #847b88; font-size: 10px; font-weight: 800; }
 .director-template-card > label select { width: 100%; border: 1px solid rgba(71,55,80,.08); outline: 0; border-radius: 14px; padding: 11px 12px; color: #443e48; background: rgba(255,255,255,.72); }
 .director-editor-page { padding-bottom: 36px; }
+.director-assistant-card { padding: 13px; display: grid; grid-template-columns: 40px minmax(0,1fr) auto; align-items: center; gap: 11px; border: 1px solid rgba(127,79,190,.12); border-radius: 21px; background: linear-gradient(145deg,#f0e9f7,#f7eef5); box-shadow: 0 10px 26px rgba(74,48,91,.07); }
+.director-assistant-card > span { width: 40px; height: 40px; display: grid; place-items: center; border-radius: 14px; color: white; background: linear-gradient(145deg,var(--theme-accent-strong),var(--theme-accent-end)); font-size: 17px; box-shadow: 0 8px 18px var(--theme-accent-shadow); }
+.director-assistant-card strong, .director-assistant-card small { display: block; }
+.director-assistant-card strong { font-size: 13px; }
+.director-assistant-card small { margin-top: 4px; color: #8f8595; font-size: 9px; line-height: 1.45; }
+.director-assistant-card > button { min-height: 38px; padding: 0 12px; border: 0; border-radius: 13px; color: white; background: linear-gradient(145deg,var(--theme-accent-strong),var(--theme-accent-end)); font-size: 10px; font-weight: 850; white-space: nowrap; }
+.director-assistant-card > button:disabled { opacity: .55; }
+.director-assistant-card.done { border-color: rgba(74,143,105,.2); background: linear-gradient(145deg,#eaf4ee,#f4f7f4); }
+.director-assistant-card.error { border-color: rgba(174,78,99,.2); background: #f7e9ed; }
+.director-source-cards, .director-source-empty { padding: 12px 14px; border-radius: 17px; color: #8c8391; background: #f0edf3; font-size: 10px; line-height: 1.5; }
+.director-source-cards > small { display: block; margin-bottom: 8px; color: #9a919d; }
+.director-source-cards > div { display: flex; flex-wrap: wrap; gap: 7px; }
+.director-source-cards span { display: inline-flex; align-items: center; gap: 5px; padding: 5px 8px 5px 5px; border-radius: 999px; color: #74538f; background: rgba(255,255,255,.72); font-weight: 800; }
+.director-source-cards img { width: 22px; height: 22px; border-radius: 50%; object-fit: cover; }
+.director-source-empty { color: #a05c69; background: #f6e8eb; }
 .director-rule-card { padding: 17px; border-radius: 21px; color: #684c80; background: linear-gradient(145deg,#ece3f4,#f2eaf3); }
 .director-rule-card strong { font-size: 14px; }
 .director-rule-card p { margin: 7px 0 0; color: #817487; font-size: 11px; line-height: 1.65; }
@@ -372,6 +387,7 @@ button { cursor: pointer; }
 .director-field > span small { margin-top: 4px; color: #9a919d; font-size: 10px; line-height: 1.5; }
 .director-field input, .director-field textarea { width: 100%; box-sizing: border-box; border: 1px solid rgba(76,60,86,.08); outline: 0; border-radius: 17px; padding: 13px 14px; color: #423b47; background: #f0edf2; font: inherit; font-size: 13px; line-height: 1.65; resize: vertical; }
 .director-field textarea:focus, .director-field input:focus { border-color: rgba(133,82,190,.35); background: #f6f2f7; }
+@media(max-width:390px){.director-assistant-card{grid-template-columns:38px minmax(0,1fr)}.director-assistant-card>button{grid-column:1/-1;width:100%}}
 .group-title-field { display: grid; gap: 8px; color: #6e6872; font-size: 12px; font-weight: 800; }
 .group-title-field input, .group-member-list select { width: 100%; border: 1px solid rgba(71,55,80,.08); outline: 0; border-radius: 16px; padding: 13px 14px; color: #37313a; background: #efedf0; }
 .group-member-list { display: grid; gap: 12px; }
