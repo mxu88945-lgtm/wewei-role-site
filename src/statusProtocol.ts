@@ -1,5 +1,5 @@
 import type { Character } from './characterCard'
-import { detectStatusTag, extractStatusFields, type StatusFieldValue } from './outputSanitizer'
+import { detectStatusTag, extractStatusFields, isStatusPlaceholder, type StatusFieldValue } from './outputSanitizer'
 
 const DEFAULT_STATUS_FIELDS = ['状态', '关系', '待回应']
 
@@ -63,17 +63,41 @@ function sceneValues(output: string) {
   return { time, location }
 }
 
-function valueForField(label: string, characterName: string, userName: string, previous: Map<string, string>, scene: ReturnType<typeof sceneValues>) {
+function statusTemplateValues(character: Character, tag: string) {
+  const samples = statusSamples(statusSources(character), tag).map((sample) => extractStatusFields(sample))
+  return samples.reduce<StatusFieldValue[]>((best, current) => current.length > best.length ? current : best, [])
+}
+
+function storySentences(output: string) {
+  const visible = output
+    .replace(/<(?:status|[a-z][\w-]*_status)\b[^>]*>[\s\S]*?<\/(?:status|[a-z][\w-]*_status)\s*>/gi, '')
+    .replace(/<[^>]+>/g, ' ')
+    .replace(/\s+/g, ' ')
+    .trim()
+  return visible.split(/(?<=[。！？!?])\s*/u).map((item) => item.trim()).filter((item) => item.length >= 8)
+}
+
+function storyValue(label: string, output: string, characterName: string, userName: string) {
+  const sentences = storySentences(output)
+  const matchers: RegExp[] = [/联姻|婚约|未婚|恋人|关系|合作|盟友|疏远/u]
+  if (/认知|已知|线索|救命恩人/u.test(label)) matchers.unshift(/得知|知道|发现|认出|线索|救命|恩人|怀疑|确认/u)
+  if (/公开责任|事件|任务|目标/u.test(label)) matchers.unshift(/负责|协议|项目|签约|晚宴|宴会|会议|发布|安排|处理/u)
+  if (/私人立场|想法|态度|心理/u.test(label)) matchers.unshift(/不(?:会|再|想)|仍(?:然)?|决定|愿意|在意|拒绝|默许/u)
+  const sentence = sentences.find((item) => matchers.some((matcher) => matcher.test(item)))
+    || sentences.find((item) => item.includes(userName) || item.includes(characterName))
+    || sentences[0]
+  return sentence ? sentence.slice(0, 96) : ''
+}
+
+function valueForField(label: string, characterName: string, userName: string, previous: Map<string, string>, template: Map<string, string>, scene: ReturnType<typeof sceneValues>, output: string) {
   const oldValue = previous.get(label)
+  const templateValue = template.get(label)
+  const carriedValue = oldValue && !isStatusPlaceholder(oldValue) ? oldValue : templateValue && !isStatusPlaceholder(templateValue) ? templateValue : ''
   if (/^待回应$/.test(label)) return `等待${userName}回应`
   if (/^状态$/.test(label)) return `${characterName}已完成本轮回应`
-  if (/^(?:时间|当前时间)$/.test(label)) return scene.time || oldValue || '本轮未更新'
-  if (/^(?:地点|当前地点)$/.test(label)) return scene.location || oldValue || '本轮未更新'
-  if (/^(?:关系|关系进展)$/.test(label)) return oldValue || '延续当前剧情'
-  if (oldValue) return oldValue
-  if (/当前认知|已知信息|线索|救命恩人/.test(label)) return '以本轮正文明确内容为准'
-  if (/公开责任|当前事件|当前任务|当前目标/.test(label)) return '本轮未更新'
-  return '本轮未更新'
+  if (/^(?:时间|当前时间)$/.test(label)) return scene.time || carriedValue || storyValue(label, output, characterName, userName)
+  if (/^(?:地点|当前地点)$/.test(label)) return scene.location || carriedValue || storyValue(label, output, characterName, userName)
+  return carriedValue || storyValue(label, output, characterName, userName) || `${characterName}正在等待${userName}回应`
 }
 
 /** Return the newest complete status content for a speaker in conversation history. */
@@ -98,8 +122,10 @@ export function buildStatusFallback(character: Character, userName: string, opti
   const fields = protocol.fields.length ? protocol.fields : DEFAULT_STATUS_FIELDS
   const previous = new Map<string, string>()
   for (const field of extractStatusFields(options.previousStatusContent || '')) previous.set(field.label, field.value)
+  const template = new Map<string, string>()
+  for (const field of statusTemplateValues(character, protocol.tag)) template.set(field.label, field.value)
   const scene = sceneValues(options.output || '')
-  const fallbackFields = fields.map((label) => ({ label, value: valueForField(label, character.name, userName, previous, scene) }))
+  const fallbackFields = fields.map((label) => ({ label, value: valueForField(label, character.name, userName, previous, template, scene, options.output || '') }))
   return {
     tag: protocol.tag,
     fields: fallbackFields,

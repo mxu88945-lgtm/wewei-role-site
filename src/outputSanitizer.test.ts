@@ -86,7 +86,7 @@ describe('status block fallback', () => {
       .toBe('正文结束。\n\n<czw_status>状态：等待惟惟回应</czw_status>')
   })
 
-  it('fills fields omitted from an otherwise complete status block', () => {
+  it('fills omitted fields and replaces empty status placeholders', () => {
     const result = completeStatusBlock(
       '正文。\n<status>关系：延续当前剧情</status>',
       'status',
@@ -101,6 +101,21 @@ describe('status block fallback', () => {
     expect(result).toContain('关系进展：延续当前剧情')
     expect(result).toContain('当前认知：本轮未更新')
     expect(result).toContain('待回应：等待惟惟回应')
+  })
+
+  it('replaces a model placeholder with the last concrete value', () => {
+    const result = completeStatusBlock(
+      '正文。\n<status>关系进展：延续当前剧情｜当前认知：以本轮正文明确内容为准</status>',
+      'status',
+      '关系进展：阶段二｜当前认知：她已是重要合作者',
+      [
+        { label: '关系进展', value: '阶段二' },
+        { label: '当前认知', value: '她已是重要合作者' },
+      ],
+    )
+    expect(result).toContain('关系进展：阶段二')
+    expect(result).toContain('当前认知：她已是重要合作者')
+    expect(result).not.toMatch(/延续当前剧情|以本轮正文明确内容为准/)
   })
 
   it('parses compact bar fields separated by full-width pipes', () => {

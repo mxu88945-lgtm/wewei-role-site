@@ -16,6 +16,11 @@ const STATUS_WRAPPER = new RegExp(`<\\/?${STATUS_TAG_PATTERN}\\b[^>]*>`, 'gi')
 
 export type StatusFieldValue = { label: string; value: string }
 
+/** Values that look complete but communicate no state are treated as omissions. */
+export function isStatusPlaceholder(value: string) {
+  return /^(?:本轮未更新|以(?:本轮)?正文明确内容为准|延续当前剧情|当前剧情(?:继续|延续)?|暂无(?:更新|变化)?|未更新|待定)$/u.test(value.trim())
+}
+
 function stripTaggedReasoning(value: string) {
   return value
     .replace(HIDDEN_BLOCK, '')
@@ -113,8 +118,8 @@ export function extractStatusFields(value: string): StatusFieldValue[] {
 
 /**
  * Keep a status panel useful when the model emits the tag but drops some of
- * the card's required fields. Existing model text wins; only absent fields are
- * appended from the deterministic fallback values.
+ * the card's required fields. Concrete model text wins; absent or placeholder
+ * values are replaced from the deterministic fallback values.
  */
 export function completeStatusBlock(value: string, tag: string, fallbackContent: string, fallbackFields: StatusFieldValue[] = []) {
   const ensured = ensureStatusBlock(value, tag, fallbackContent)
@@ -131,14 +136,23 @@ export function completeStatusBlock(value: string, tag: string, fallbackContent:
   const closingStart = block.toLowerCase().lastIndexOf(`</${tag.toLowerCase()}`)
   if (contentStart <= 0 || closingStart < contentStart) return ensured
 
-  const content = block.slice(contentStart, closingStart).trim()
+  let content = block.slice(contentStart, closingStart).trim()
+  const originalContent = content
+  const existingFields = extractStatusFields(content)
+  for (const fallback of fallbackFields) {
+    const existing = existingFields.find((field) => field.label === fallback.label)
+    if (!existing || !isStatusPlaceholder(existing.value)) continue
+    const label = fallback.label.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
+    const field = new RegExp(`(${label}\\s*[：:]\\s*)[^\\n｜|；;<>{}]+`, 'u')
+    content = content.replace(field, `$1${fallback.value}`)
+  }
   const existingLabels = new Set(extractStatusFields(content).map((field) => field.label))
   const missing = fallbackFields.filter((field) => field.label && !existingLabels.has(field.label))
-  if (!missing.length) return ensured
+  if (!missing.length && content === originalContent) return ensured
 
   const separator = content ? (content.includes('\n') ? '\n' : '｜') : ''
   const additions = missing.map((field) => `${field.label}：${field.value}`).join(separator || '｜')
-  const mergedContent = content ? `${content}${separator}${additions}` : additions
+  const mergedContent = !additions ? content : content ? `${content}${separator}${additions}` : additions
   const mergedBlock = `${block.slice(0, contentStart)}${mergedContent}${block.slice(closingStart)}`
   return `${ensured.slice(0, last.index)}${mergedBlock}${ensured.slice(last.index + block.length)}`
 }

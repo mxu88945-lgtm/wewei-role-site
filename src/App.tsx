@@ -426,11 +426,15 @@ function App() {
     return target
   }
   const scrollChatToLatest = (list: HTMLDivElement) => {
+    const marker = messageListLayoutMarkerRef.current
+    // Use the physical end marker as well as scrollTop. On mobile Safari a flex
+    // scroller can report its old extent for a frame after rich content mounts.
+    // scrollIntoView asks the browser to find the actual scroll parent instead.
+    marker?.scrollIntoView({ block: 'end', inline: 'nearest', behavior: 'auto' })
     const target = Math.max(0, list.scrollHeight - list.clientHeight)
-    // iOS Safari occasionally ignores the first assignment while a flex scroller
-    // is being mounted. Assigning both paths makes the request stick reliably.
     list.scrollTo({ top: target, left: 0, behavior: 'auto' })
     list.scrollTop = target
+    marker?.scrollIntoView({ block: 'end', inline: 'nearest', behavior: 'auto' })
     return target
   }
   const requestChatLatestScroll = (conversationKey: string) => {
@@ -677,7 +681,7 @@ function App() {
           if (pendingChatLatestScrollRef.current !== conversationKey) return
           const latestTarget = scrollChatToLatest(list)
           chatScrollSnapshotsRef.current.set(conversationKey, { top: latestTarget, stickToBottom: true })
-          pendingChatLatestScrollRef.current = null
+          if (!generationControllers.current.has(conversationKey)) pendingChatLatestScrollRef.current = null
           setChatJump({ up: latestTarget > 240, down: false, visible: false })
         }, 180)
       }
@@ -771,7 +775,7 @@ function App() {
     const conversationKey = chatScrollKey
     let firstFrame: number | null = null
     let secondFrame: number | null = null
-    let settleTimer: number | null = null
+    const settleTimers: number[] = []
     const settleLatestScroll = () => {
       if (pendingChatLatestScrollRef.current !== conversationKey) return
       const target = scrollChatToLatest(list)
@@ -782,14 +786,19 @@ function App() {
       settleLatestScroll()
       secondFrame = window.requestAnimationFrame(settleLatestScroll)
     })
-    settleTimer = window.setTimeout(() => {
-      settleLatestScroll()
-      if (!generatingIds.includes(conversationKey)) pendingChatLatestScrollRef.current = null
-    }, 180)
+    // Rich cards, iframe responses and iOS keyboard/layout changes can land long
+    // after React commits a streamed chunk. Re-pin across that entire settling
+    // window; the request is released only when generation has actually ended.
+    ;[80, 220, 460, 760].forEach((delay, index) => {
+      settleTimers.push(window.setTimeout(() => {
+        settleLatestScroll()
+        if (index === 3 && !generationControllers.current.has(conversationKey)) pendingChatLatestScrollRef.current = null
+      }, delay))
+    })
     return () => {
       if (firstFrame !== null) window.cancelAnimationFrame(firstFrame)
       if (secondFrame !== null) window.cancelAnimationFrame(secondFrame)
-      if (settleTimer !== null) window.clearTimeout(settleTimer)
+      settleTimers.forEach((timer) => window.clearTimeout(timer))
     }
     // Message identity changes on each streamed render; rerun the settling pass
     // so late status bars, rich cards, and iframe height reports cannot move the view.
@@ -1502,8 +1511,8 @@ function App() {
       if (isDirector) promptMessages.push({ role: 'system', content: DIRECTOR_OUTPUT_GUARD })
       else if (requiresCharacterStatus) {
         const fieldGuard = statusProtocol.fields.length
-          ? `状态栏还必须按卡片顺序逐项保留字段：${statusProtocol.fields.join('、')}。本轮没有变化的字段写“本轮未更新”，不能删除字段。`
-          : '状态栏字段不能省略；本轮没有变化的字段写“本轮未更新”。'
+          ? `状态栏必须按卡片顺序逐项保留字段：${statusProtocol.fields.join('、')}。每一项都写本轮结束时的具体事实；没有变化就沿用上一轮的具体值，不能写“本轮未更新”“以正文为准”“延续当前剧情”等占位话，也不能删除字段。`
+          : '状态栏字段不能省略；每项都写具体事实，没有变化则沿用上一轮的具体值，禁止使用空泛占位话。'
         promptMessages.push({ role: 'system', content: `【最终输出结构校验】完成正文后必须检查：回复末尾有且只有一个闭合的 <${statusTag}>...</${statusTag}>。${fieldGuard}不得省略状态栏，不得把状态栏规则写进正文。` })
       }
       const completion = await completeChat({
@@ -1821,7 +1830,8 @@ function App() {
 
   const jumpChat = (edge: 'top' | 'bottom') => {
     const list = messageListRef.current; if (!list) return
-    list.scrollTo({ top: edge === 'top' ? 0 : list.scrollHeight, behavior: 'smooth' })
+    if (edge === 'bottom') scrollChatToLatest(list)
+    else list.scrollTo({ top: 0, behavior: 'smooth' })
     window.requestAnimationFrame(() => rememberChatScroll())
     setChatJump((current) => ({ ...current, visible: false }))
   }
