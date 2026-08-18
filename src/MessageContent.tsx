@@ -2,7 +2,8 @@ import { memo, useLayoutEffect, useMemo, useRef, useState } from 'react'
 import DOMPurify from 'dompurify'
 import type { Character } from './characterCard'
 import { applyMacros, applyRegexScripts } from './regexEngine'
-import { containsHiddenReasoning, detectStatusTag, moveStatusBlockToEnd, sanitizeAssistantOutput } from './outputSanitizer'
+import { completeStatusBlock, containsHiddenReasoning, detectStatusTag, moveStatusBlockToEnd, sanitizeAssistantOutput } from './outputSanitizer'
+import { buildStatusFallback, getStatusProtocol } from './statusProtocol'
 
 function unwrapCodeFence(value: string) {
   return value
@@ -185,14 +186,21 @@ function MessageContent({ text, role, character, userName, layout = 'bubble' }: 
     const visibleText = role === 'assistant' && !cleanText && containsHiddenReasoning(text, director)
       ? '（已拦截模型内部分析；未计入正式剧情。）'
       : cleanText
-    const statusTag = role === 'assistant' ? detectStatusTag(
+    const statusProtocol = role === 'assistant' && !director ? getStatusProtocol(character) : { tag: '', fields: [] }
+    const statusTag = role === 'assistant' ? statusProtocol.tag || detectStatusTag(
       character.beautificationProtocol || '',
       character.systemPrompt || '',
       character.postHistoryInstructions || '',
       ...character.regexScripts.map((script) => script.findRegex || ''),
       visibleText,
     ) : ''
-    const orderedText = statusTag ? moveStatusBlockToEnd(visibleText, statusTag) : visibleText
+    const statusFallback = role === 'assistant' && !director && statusTag
+      ? buildStatusFallback(character, userName, { output: visibleText })
+      : null
+    const normalizedText = statusFallback
+      ? completeStatusBlock(visibleText, statusTag, statusFallback.content, statusFallback.fields)
+      : visibleText
+    const orderedText = statusTag ? moveStatusBlockToEnd(normalizedText, statusTag) : normalizedText
     return role === 'assistant'
       ? applyRegexScripts(orderedText, character.regexScripts, character, userName, 2, 'display')
       : applyMacros(visibleText, character, userName)
