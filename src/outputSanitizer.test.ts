@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { containsHiddenReasoning, detectStatusTag, ensureStatusBlock, moveStatusBlockToEnd, sanitizeAssistantOutput, stripLeadingSpeakerLabels } from './outputSanitizer'
+import { completeStatusBlock, containsHiddenReasoning, detectStatusTag, ensureStatusBlock, extractStatusFields, moveStatusBlockToEnd, sanitizeAssistantOutput, stripLeadingSpeakerLabels } from './outputSanitizer'
 
 describe('assistant prompt-leak sanitizer', () => {
   it('removes leaked status instructions and keeps the real formatted reply', () => {
@@ -84,6 +84,31 @@ describe('status block fallback', () => {
   it('supports card-specific status tags when the model omitted the block', () => {
     expect(ensureStatusBlock('正文结束。', 'czw_status', '状态：等待惟惟回应'))
       .toBe('正文结束。\n\n<czw_status>状态：等待惟惟回应</czw_status>')
+  })
+
+  it('fills fields omitted from an otherwise complete status block', () => {
+    const result = completeStatusBlock(
+      '正文。\n<status>关系：延续当前剧情</status>',
+      'status',
+      '关系进展：延续当前剧情｜当前认知：本轮未更新｜待回应：等待惟惟回应',
+      [
+        { label: '关系进展', value: '延续当前剧情' },
+        { label: '当前认知', value: '本轮未更新' },
+        { label: '待回应', value: '等待惟惟回应' },
+      ],
+    )
+    expect(result).toContain('关系：延续当前剧情')
+    expect(result).toContain('关系进展：延续当前剧情')
+    expect(result).toContain('当前认知：本轮未更新')
+    expect(result).toContain('待回应：等待惟惟回应')
+  })
+
+  it('parses compact bar fields separated by full-width pipes', () => {
+    expect(extractStatusFields('关系进展：阶段一｜公开责任：完成晚宴｜私人立场：维持现状')).toEqual([
+      { label: '关系进展', value: '阶段一' },
+      { label: '公开责任', value: '完成晚宴' },
+      { label: '私人立场', value: '维持现状' },
+    ])
   })
 
   it('moves a prematurely emitted status block behind the story and keeps only the newest one', () => {
