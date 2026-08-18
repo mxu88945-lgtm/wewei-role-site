@@ -433,6 +433,13 @@ function App() {
     list.scrollTop = target
     return target
   }
+  const requestChatLatestScroll = (conversationKey: string) => {
+    pendingChatLatestScrollRef.current = conversationKey
+    chatScrollSnapshotsRef.current.set(conversationKey, {
+      top: Math.max(0, messageListRef.current?.scrollTop || 0),
+      stickToBottom: true,
+    })
+  }
   const memoryConfigFor = (characterId: string) => {
     const config = memoryConfigs[characterId] || defaultMemoryConfig()
     return { ...config, api: config.useGlobalApi === false ? config.api : globalMemoryApi }
@@ -732,15 +739,18 @@ function App() {
     }
 
     const richContentObserver = typeof ResizeObserver === 'undefined' ? null : new ResizeObserver(refreshScrollGeometry)
-    const observeRichContent = () => list.querySelectorAll<HTMLElement>('.message-safe-html').forEach((node) => richContentObserver?.observe(node))
-    const messageObserver = typeof MutationObserver === 'undefined' ? null : new MutationObserver(observeRichContent)
+    const observeMessageContent = () => list.querySelectorAll<HTMLElement>('.message-row, .message-safe-html, .message-script-frame').forEach((node) => richContentObserver?.observe(node))
+    const messageObserver = typeof MutationObserver === 'undefined' ? null : new MutationObserver(() => {
+      observeMessageContent()
+      refreshScrollGeometry()
+    })
     const composerObserver = composer && typeof ResizeObserver !== 'undefined' ? new ResizeObserver(() => {
       syncComposerClearance()
       refreshScrollGeometry()
     }) : null
 
     list.addEventListener('toggle', handleDetailsToggle, true)
-    observeRichContent()
+    observeMessageContent()
     messageObserver?.observe(list, { childList: true, subtree: true })
     if (composer && composerObserver) composerObserver.observe(composer)
     syncComposerClearance()
@@ -754,6 +764,37 @@ function App() {
       list.style.removeProperty('--composer-clearance')
     }
   }, [page, chatScrollKey])
+  useLayoutEffect(() => {
+    if (page !== 'chat' || pendingChatLatestScrollRef.current !== chatScrollKey) return
+    const list = messageListRef.current
+    if (!list) return
+    const conversationKey = chatScrollKey
+    let firstFrame: number | null = null
+    let secondFrame: number | null = null
+    let settleTimer: number | null = null
+    const settleLatestScroll = () => {
+      if (pendingChatLatestScrollRef.current !== conversationKey) return
+      const target = scrollChatToLatest(list)
+      chatScrollSnapshotsRef.current.set(conversationKey, { top: target, stickToBottom: true })
+      setChatJump({ up: target > 240, down: false, visible: false })
+    }
+    firstFrame = window.requestAnimationFrame(() => {
+      settleLatestScroll()
+      secondFrame = window.requestAnimationFrame(settleLatestScroll)
+    })
+    settleTimer = window.setTimeout(() => {
+      settleLatestScroll()
+      if (!generatingIds.includes(conversationKey)) pendingChatLatestScrollRef.current = null
+    }, 180)
+    return () => {
+      if (firstFrame !== null) window.cancelAnimationFrame(firstFrame)
+      if (secondFrame !== null) window.cancelAnimationFrame(secondFrame)
+      if (settleTimer !== null) window.clearTimeout(settleTimer)
+    }
+    // Message identity changes on each streamed render; rerun the settling pass
+    // so late status bars, rich cards, and iframe height reports cannot move the view.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [page, chatScrollKey, messages, generatingIds.length])
   const pageTitle = useMemo(() => page === 'home' ? '惟境' : page === 'characters' ? '角色' : '', [page])
   const navigate = (target: Page, reopenDrawer?: Drawer) => {
     if (page === 'chat' && reopenDrawer === 'right') pendingChatLatestScrollRef.current = chatScrollKey
@@ -1393,6 +1434,7 @@ function App() {
     }
     const conversationId = conversation.id
     if (generationControllers.current.has(conversationId)) return nextMessages
+    requestChatLatestScroll(conversationId)
 
     const capturedCharacter = speaker
     const capturedMemoryConfig = memoryConfigFor(capturedCharacter.id)
@@ -1548,6 +1590,7 @@ function App() {
       setConversations((current) => [...current, conversation!])
       setActiveConversationId(conversation.id)
     }
+    requestChatLatestScroll(conversation.id)
     const sourceMessages = historyOverride ?? messages
     const userMessage = { id: nextMessageId(sourceMessages), role: 'user' as const, text }
     setDraft('')
