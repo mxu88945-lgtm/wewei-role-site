@@ -388,6 +388,23 @@ function App() {
   const sourceGroupConversation = conversations.find((item) => item.id === newConversationSourceId && item.kind === 'group')
   const groupGreetingCharacters = (sourceGroupConversation?.participantIds || groupDraft.participantIds).map((id) => characters.find((item) => item.id === id)).filter(Boolean) as Character[]
   const groupGreetingUserName = newConversationSourceId ? identity.name : (identities.find((item) => item.id === activePersonaId) || identity).name
+  const directorEditorSourceIds = directorEditorTarget === 'draft'
+    ? groupDraft.participantIds
+    : (activeConversation?.kind === 'group' ? activeConversation.participantIds || [] : activeConversation ? [activeConversation.characterId] : [])
+  const directorEditorSourceCharacters = directorEditorSourceIds
+    .filter((id) => id !== activeConversation?.directorCharacterId)
+    .map((id) => characters.find((item) => item.id === id))
+    .filter(Boolean) as Character[]
+  const directorEditorChannelId = directorEditorTarget === 'draft'
+    ? groupDirectorDraft.apiId
+    : activeConversation?.directorCharacterId ? activeConversation.participantApiIds?.[activeConversation.directorCharacterId] || activeConversation.directorConfig?.apiId : api.id
+  const directorEditorBaseApi = apiChannels.find((channel) => channel.id === directorEditorChannelId) || api
+  const directorEditorModelName = directorEditorTarget === 'draft'
+    ? groupDirectorDraft.modelName || directorEditorBaseApi.modelName
+    : directorEditorTarget === 'conversation' && activeConversation?.directorCharacterId
+      ? activeConversation.participantModelNames?.[activeConversation.directorCharacterId] || activeConversation.directorConfig?.modelName || directorEditorBaseApi.modelName
+      : directorEditorBaseApi.modelName
+  const directorEditorApi = withApiModel(directorEditorBaseApi, directorEditorModelName)
   const messages = activeConversation?.messages || [{ id: 1, role: 'assistant' as const, text: activeCharacter.greeting }]
   const conversationStats = countConversationStats(messages)
   const chatScrollKey = activeConversation?.id || `character:${activeCharacter.id}`
@@ -1851,7 +1868,7 @@ function App() {
       return <article className={selected ? 'selected' : ''} key={character.id}><button className="group-member-toggle" onClick={() => setGroupDraft((current) => ({ ...current, participantIds: selected ? current.participantIds.filter((id) => id !== character.id) : [...current.participantIds, character.id], apiIds: { ...current.apiIds, [character.id]: current.apiIds[character.id] || api.id }, modelNames: { ...current.modelNames, [character.id]: current.modelNames[character.id] || api.modelName } }))}><CharacterPortrait item={character} /><div><strong>{character.name}</strong><small>{character.tagline}</small></div><span>{selected ? '✓' : '＋'}</span></button>{selected && <MemberApiBinding channels={apiChannels} channelId={channel.id} modelName={groupDraft.modelNames[character.id] || channel.modelName} onChannelChange={(nextChannelId) => { const nextModelName = apiChannels.find((item) => item.id === nextChannelId)?.modelName || ''; setGroupDraft((current) => ({ ...current, apiIds: { ...current.apiIds, [character.id]: nextChannelId }, modelNames: { ...current.modelNames, [character.id]: nextModelName } })) }} onModelChange={(modelName) => setGroupDraft((current) => ({ ...current, modelNames: { ...current.modelNames, [character.id]: modelName } }))} />}</article>
     })}</div><button className="primary-button full" disabled={groupDraft.participantIds.length < (groupDirectorDraft.enabled ? 1 : 2)} onClick={openGroupGreetingPicker}>下一步：选择开场白</button></section></>}
 
-    {page === 'director-template' && <DirectorTemplateEditor value={directorEditorTarget === 'conversation' ? (activeConversation?.directorConfig || createDirectorTemplateConfig()) : groupDirectorDraft} existing={directorEditorTarget === 'conversation'} contextLabel={directorEditorTarget === 'conversation-new' ? '当前对话升级' : undefined} submitLabel={directorEditorTarget === 'conversation-new' ? '添加导演并保留当前剧情' : undefined} onCancel={goBack} onSave={(config) => { if (directorEditorTarget === 'conversation') saveConversationDirector(config); else if (directorEditorTarget === 'conversation-new') addConversationDirector(config); else { setGroupDirectorDraft(config); goBack() } }} />}
+    {page === 'director-template' && <DirectorTemplateEditor value={directorEditorTarget === 'conversation' ? (activeConversation?.directorConfig || createDirectorTemplateConfig()) : groupDirectorDraft} existing={directorEditorTarget === 'conversation'} contextLabel={directorEditorTarget === 'conversation-new' ? '当前对话升级' : undefined} submitLabel={directorEditorTarget === 'conversation-new' ? '添加导演并保留当前剧情' : undefined} sourceCharacters={directorEditorSourceCharacters} userName={identity.name} api={directorEditorApi} onCancel={goBack} onSave={(config) => { if (directorEditorTarget === 'conversation') saveConversationDirector(config); else if (directorEditorTarget === 'conversation-new') addConversationDirector(config); else { setGroupDirectorDraft(config); goBack() } }} />}
 
     {page === 'import-preview' && pendingImport && <ImportPreview character={pendingImport} onCancel={() => { setPendingImport(null); goBack() }} onConfirm={({ includeBook, includeRegex }) => {
     const character = { ...pendingImport, characterBook: includeBook ? pendingImport.characterBook : undefined, regexScripts: includeRegex ? pendingImport.regexScripts : [] }
