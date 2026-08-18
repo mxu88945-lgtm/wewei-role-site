@@ -5,6 +5,7 @@ import { selectRelevantMemories, type LongMemoryEntry } from './memoryEngine'
 import { stripStageGateMetadata } from './actorContinuity'
 import { uncompressedMessages } from './contextCompression'
 import { modelVisibleMessageText, stripUiOnlyStatusBlocks } from './modelContext'
+import { getStatusProtocol } from './statusProtocol'
 
 type SourceMessage = { role: 'user' | 'assistant'; text: string; characterId?: string }
 type MemoryInput = { entries: LongMemoryEntry[]; injectPosition: string; injectPrompt: string }
@@ -132,13 +133,14 @@ const DISPLAY_FIELD_NAMES = ['时间', '地点', '状态', '心理', '阶段', '
  * same scene/status UI instead of only the opening looking complete.
  */
 export function displayContinuityInstruction(character: Character, messages: SourceMessage[]) {
+  const statusProtocol = getStatusProtocol(character)
   const displayScripts = character.regexScripts.filter((script) =>
     !script.disabled
     && !script.promptOnly
     && script.placement.includes(2)
     && /<(?:div|section|article|details|summary|table|span|p)\b/i.test(script.replaceString),
   )
-  if (!displayScripts.length) return ''
+  if (!displayScripts.length && !statusProtocol.tag) return ''
 
   const firstAssistant = messages.find((message) => message.role === 'assistant')?.text || ''
   const source = [
@@ -158,11 +160,15 @@ export function displayContinuityInstruction(character: Character, messages: Sou
     uniqueTags.length ? `结构标签 ${uniqueTags.map((tag) => `<${tag}>…</${tag}>`).join('、')}` : '',
     fields.length ? `字段 ${fields.join('、')}` : '',
   ].filter(Boolean).join('；')
+  const statusFields = statusProtocol.tag && statusProtocol.fields.length
+    ? `末尾 <${statusProtocol.tag}> 内的字段顺序固定为：${statusProtocol.fields.join('、')}。本轮没有变化的字段写“本轮未更新”，不得删除字段。`
+    : ''
 
   return `【角色消息美化连续性】
 这张卡的消息 UI 依赖开场中已有的文本结构。后续每次角色回复都必须继续输出同一套结构，不能只在开场使用：${structures}。
 每轮输出顺序固定为：顶部场景结构（本卡有则必须输出）→剧情正文→末尾状态结构（本卡有则必须输出）。不得只输出正文，也不得省略开头或结尾结构。
-每轮只更新对应的时间、地点、状态与剧情内容；保留原有标签、标题和字段名称。正文按自然段输出：叙述每 2—4 句或约 80—120 字换一段；独立台词单独成段；段与段之间保留一个空行，禁止长段文字挤成一整块。输出结束前必须核对顶部和末尾标签都已实际写出且闭合：缺少状态结构视为本轮回复不完整，不能只输出正文。不要输出正则替换模板里的 div、CSS 或格式说明，界面会自行完成美化。`
+每轮只更新对应的时间、地点、状态与剧情内容；保留原有标签、标题和字段名称。${statusFields}
+正文按自然段输出：叙述每 2—4 句或约 80—120 字换一段；独立台词单独成段；段与段之间保留一个空行，禁止长段文字挤成一整块。输出结束前必须核对顶部和末尾标签都已实际写出且闭合：缺少状态结构或缺少状态字段视为本轮回复不完整，不能只输出正文。不要输出正则替换模板里的 div、CSS 或格式说明，界面会自行完成美化。`
 }
 
 export function buildChatPrompt(input: PromptInput): ChatApiMessage[] {
