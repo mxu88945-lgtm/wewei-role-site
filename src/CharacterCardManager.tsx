@@ -141,7 +141,7 @@ export default function CharacterCardManager({ character, onChange, onBack, init
     </div>
 
     <nav className="card-tabs">
-      {([['overview', '主体'], ['greetings', `开场 ${character.alternateGreetings.length + 1}`], ['worldbook', `世界书 ${entries.length}`], ['regex', `正则 ${character.regexScripts.length}`], ['memory', `私有记忆 ${memoryEntries.filter((entry) => entry.enabled !== false).length}`]] as const).map(([value, label]) => <button key={value} className={section === value ? 'active' : ''} onClick={() => setSection(value)}>{label}</button>)}
+      {([['overview', '主体'], ['greetings', `开场 ${character.alternateGreetings.length + 1}`], ['worldbook', `世界书 ${entries.length}`], ['regex', `正则 ${character.regexScripts.length}`], ['memory', `私有记忆 ${memoryEntries.filter((entry) => entry.enabled !== false && entry.content.trim()).length}`]] as const).map(([value, label]) => <button key={value} className={section === value ? 'active' : ''} onClick={() => setSection(value)}>{label}</button>)}
     </nav>
 
     {section === 'overview' && <div className="metadata-stack">
