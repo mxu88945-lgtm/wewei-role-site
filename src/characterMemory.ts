@@ -3,12 +3,230 @@ import {
   CHARACTER_MEMORY_STATUS_OPTIONS,
   createCharacterMemoryEntry,
   type Character,
+  type CharacterMemoryCategory,
   type CharacterMemoryEntry,
+  type CharacterMemoryStatus,
 } from './characterCard'
 import { stripUiOnlyStatusBlocks } from './modelContext'
 
 const categoryLabels = Object.fromEntries(CHARACTER_MEMORY_CATEGORY_OPTIONS.map((item) => [item.value, item.label])) as Record<string, string>
 const statusLabels = Object.fromEntries(CHARACTER_MEMORY_STATUS_OPTIONS.map((item) => [item.value, item.label])) as Record<string, string>
+
+const categoryAliases: Record<string, CharacterMemoryCategory> = {
+  event: 'event',
+  '重大事件': 'event',
+  task: 'task',
+  '任务进度': 'task',
+  truth: 'truth',
+  '已查明真相': 'truth',
+  relationship: 'relationship',
+  '关系定论': 'relationship',
+  fact: 'fact',
+  '重要事实': 'fact',
+}
+
+const statusAliases: Record<string, CharacterMemoryStatus> = {
+  confirmed: 'confirmed',
+  '已确认': 'confirmed',
+  completed: 'completed',
+  '已完成': 'completed',
+  ongoing: 'ongoing',
+  '进行中': 'ongoing',
+  superseded: 'superseded',
+  '已撤销/被更新': 'superseded',
+  '已撤销': 'superseded',
+  '被更新': 'superseded',
+}
+
+/**
+ * This is intentionally a separate extraction pass from the editable rolling
+ * summary. The normal summary may retain clues and open threads; this pass is
+ * only allowed to emit facts that are safe to pin permanently to one card.
+ */
+export const characterMemoryExtractionPrompt = `【角色卡核心记忆自动提炼器｜只输出 JSON，不要续写剧情】
+你要从“本次新增对话”里找出值得永久写入当前角色卡的核心记忆。角色卡记忆会长期注入模型，只有高置信度、已经落地的事实才可以进入。
+
+只允许记录：
+- 已经明确发生的重大事件；
+- 已经明确完成的任务、调查或行动；
+- 已经查明、被证据确认或被对话明确纠正的真相；
+- 已经明确成立且必须持续保持的关系定论或重要事实。
+
+严格禁止记录：
+- 线索、猜测、怀疑、传闻、角色内心推断；
+- 计划、承诺但尚未完成的事，或任何“进行中”事项；
+- 只在旧长期记忆、开场白或状态栏里出现、但本次新增对话没有确认的内容；
+- 模型自己补写的动机、幕后真相、日期、地点、用户未做出的决定；
+- 普通寒暄、临时情绪、场景氛围和不会影响后续连续性的细节。
+
+只记录当前角色已经亲自经历、知道或在本次对话中明确确认的事实。不要把角色不知道的幕后信息塞进角色私有认知。
+如果没有符合条件的内容，返回 {"memories":[]}。
+
+输出必须是一个 JSON 对象，不要 Markdown 代码围栏、解释或其他文字：
+{"memories":[{"title":"简短标题","content":"用一两句话写已经发生的事实及其结果","category":"event|task|truth|relationship|fact","status":"confirmed|completed"}]}
+
+每一条都必须是独立事实；不要把多个未确认线索拼成真相。已有角色私有记忆只用于查重和识别状态更新，不要重复输出完全相同的事实。`
+
+type CharacterMemoryExtractionOptions = {
+  sourceMemoryId?: string
+  now?: number
+}
+
+const stringValue = (value: unknown) => typeof value === 'string' ? value.trim() : ''
+
+function balancedJsonFragments(raw: string) {
+  const fragments: string[] = []
+  for (let start = 0; start < raw.length; start += 1) {
+    if (raw[start] !== '{' && raw[start] !== '[') continue
+    let depth = 0
+    let quoted = false
+    let escaped = false
+    for (let index = start; index < raw.length; index += 1) {
+      const char = raw[index]
+      if (quoted) {
+        if (escaped) escaped = false
+        else if (char === '\\') escaped = true
+        else if (char === '"') quoted = false
+        continue
+      }
+      if (char === '"') {
+        quoted = true
+        continue
+      }
+      if (char === '{' || char === '[') depth += 1
+      if (char === '}' || char === ']') depth -= 1
+      if (depth === 0) {
+        fragments.push(raw.slice(start, index + 1))
+        break
+      }
+    }
+  }
+  return fragments
+}
+
+function extractionItems(value: unknown): unknown[] {
+  if (Array.isArray(value)) return value
+  if (!value || typeof value !== 'object') return []
+  const object = value as Record<string, unknown>
+  for (const key of ['memories', 'entries', 'items', 'data']) {
+    if (Array.isArray(object[key])) return object[key]
+  }
+  return typeof object.title === 'string' || typeof object.content === 'string' || typeof object.summary === 'string' ? [object] : []
+}
+
+function parseExtractionPayload(raw: string) {
+  const codeFence = String.fromCharCode(96).repeat(3)
+  const cleaned = raw
+    .replace(new RegExp('^\\s*' + codeFence + '(?:json)?\\s*', 'i'), '')
+    .replace(new RegExp('\\s*' + codeFence + '\\s*$', 'i'), '')
+    .trim()
+  const candidates = [cleaned, ...balancedJsonFragments(cleaned)]
+  for (const candidate of candidates) {
+    try {
+      const parsed = JSON.parse(candidate) as unknown
+      const items = extractionItems(parsed)
+      if (items.length || (parsed && typeof parsed === 'object' && 'memories' in parsed)) return items
+    } catch {
+      // Some providers prepend a sentence despite the JSON-only rule; the
+      // balanced fragments below still recover a valid object.
+    }
+  }
+  return []
+}
+
+const normalizedMemoryText = (value: string) => value
+  .toLocaleLowerCase()
+  .replace(/[\s，。！？；：、“”‘’"'（）()【】［］《》<>…,.!?;:/\\|·]/g, '')
+
+function memoryTerms(value: string) {
+  return new Set(value.match(/[\u4e00-\u9fff]{2,4}|[a-z0-9]{3,}/gi) || [])
+}
+
+function nearDuplicate(left: CharacterMemoryEntry, right: CharacterMemoryEntry) {
+  const leftTitle = normalizedMemoryText(left.title)
+  const rightTitle = normalizedMemoryText(right.title)
+  if (leftTitle.length >= 4 && leftTitle === rightTitle) return true
+
+  const leftContent = normalizedMemoryText(left.content)
+  const rightContent = normalizedMemoryText(right.content)
+  if (leftContent && leftContent === rightContent) return true
+  if (left.category !== right.category) return false
+
+  const leftTerms = memoryTerms(left.content)
+  const rightTerms = memoryTerms(right.content)
+  if (leftTerms.size < 3 || rightTerms.size < 3) return false
+  let shared = 0
+  leftTerms.forEach((term) => { if (rightTerms.has(term)) shared += 1 })
+  return shared / Math.max(leftTerms.size, rightTerms.size) >= .72
+}
+
+/** Parse and strictly filter the model's JSON before anything touches a card. */
+export function parseCharacterMemoryCandidates(raw: string, options: CharacterMemoryExtractionOptions = {}) {
+  const now = options.now || Date.now()
+  const seen = new Set<string>()
+  const entries: CharacterMemoryEntry[] = []
+
+  for (const item of parseExtractionPayload(raw)) {
+    if (!item || typeof item !== 'object') continue
+    const object = item as Record<string, unknown>
+    const title = stringValue(object.title || object.name || object.subject)
+    const content = stripUiOnlyStatusBlocks(stringValue(object.content || object.summary || object.fact)).trim()
+    const rawCategory = stringValue(object.category || object.type)
+    const rawStatus = stringValue(object.status || object.state)
+    const category = categoryAliases[rawCategory] || 'fact'
+    const status = statusAliases[rawStatus]
+
+    // Auto-promotion is deliberately narrower than the manual editor: an
+    // omitted or unknown status is rejected instead of silently becoming fact.
+    if (!title || !content || !status || !(['confirmed', 'completed'] as CharacterMemoryStatus[]).includes(status)) continue
+    if (/(可能|也许|或许|疑似|推测|猜测|怀疑|传闻|据说|未证实|尚未|待查|未知|不确定|进行中|未完成|调查中)/.test(content)) continue
+    const key = category + ':' + normalizedMemoryText(title) + ':' + normalizedMemoryText(content)
+    if (seen.has(key)) continue
+    seen.add(key)
+    entries.push(createCharacterMemoryEntry({
+      title: title.slice(0, 120),
+      content: content.slice(0, 1800),
+      category,
+      status,
+      enabled: true,
+      createdAt: now,
+      updatedAt: now,
+      sourceMemoryId: options.sourceMemoryId,
+      autoGenerated: true,
+    }))
+  }
+  return entries
+}
+
+/** Merge automatic facts without duplicating a truth every time a summary runs. */
+export function mergeCharacterMemoryEntries(existing: CharacterMemoryEntry[], incoming: CharacterMemoryEntry[]) {
+  const merged = existing.slice()
+  for (const candidate of incoming) {
+    const matchIndex = merged.findIndex((entry) => nearDuplicate(entry, candidate))
+    if (matchIndex < 0) {
+      merged.push(candidate)
+      continue
+    }
+
+    const previous = merged[matchIndex]
+    const sameContent = normalizedMemoryText(previous.content) === normalizedMemoryText(candidate.content)
+    if (previous.status === 'superseded' || (!sameContent && previous.autoGenerated !== true && previous.status !== 'ongoing')) continue
+    // A later confirmed/completed extraction may close an older manually
+    // entered ongoing item. Keep a user's disabled choice intact.
+    merged[matchIndex] = {
+      ...previous,
+      title: candidate.title,
+      content: candidate.content,
+      category: candidate.category,
+      status: candidate.status,
+      enabled: previous.enabled,
+      updatedAt: candidate.updatedAt,
+      sourceMemoryId: candidate.sourceMemoryId || previous.sourceMemoryId,
+      autoGenerated: true,
+    }
+  }
+  return merged
+}
 
 export function activeCharacterMemory(character: Character) {
   return (character.characterMemory || [])
