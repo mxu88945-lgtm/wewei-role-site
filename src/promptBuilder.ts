@@ -6,6 +6,7 @@ import { stripStageGateMetadata } from './actorContinuity'
 import { uncompressedMessages } from './contextCompression'
 import { modelVisibleMessageText, stripUiOnlyStatusBlocks } from './modelContext'
 import { getStatusProtocol } from './statusProtocol'
+import { characterMemoryContinuityGuard, characterMemoryPrompt } from './characterMemory'
 
 type SourceMessage = { role: 'user' | 'assistant'; text: string; characterId?: string }
 type MemoryInput = { entries: LongMemoryEntry[]; injectPosition: string; injectPrompt: string }
@@ -180,6 +181,8 @@ export function buildChatPrompt(input: PromptInput): ChatApiMessage[] {
   const scanSource = recent.map((message) => message.text).join('\n')
   const entries = activeEntries(character.characterBook, scanSource)
   const memory = memoryText(modelInput)
+  const characterMemory = characterMemoryPrompt(character)
+  const characterMemoryGuard = characterMemoryContinuityGuard(character)
   const displayContinuity = displayContinuityInstruction(character, input.messages)
   const result: ChatApiMessage[] = []
 
@@ -195,6 +198,7 @@ export function buildChatPrompt(input: PromptInput): ChatApiMessage[] {
     character.scenario && `【当前场景】\n${character.scenario}`,
     character.beautificationProtocol && `【每轮开场白与角色回复美化协议｜必须执行】\n${character.beautificationProtocol}`,
     character.systemPrompt && `【角色系统提示词】\n${character.systemPrompt}`,
+    characterMemory,
     displayContinuity,
     CONTEXT_PRIORITY_GUARD,
     // The live project snapshot must follow persisted card instructions so an
@@ -247,6 +251,7 @@ ${stripStageGateMetadata(input.actorContinuityAnchor || '')}`,
   // response boundary so every turn preserves the opening scene/status shell.
   appendSystem(result, CONTEXT_PRIORITY_GUARD)
   appendSystem(result, displayContinuity)
+  appendSystem(result, characterMemoryGuard)
   // Repeat the non-negotiable agency boundary last so depth lore, examples,
   // history, or post-history instructions cannot silently override it.
   appendSystem(result, applyMacros(USER_AGENCY_GUARD, character, user.name))

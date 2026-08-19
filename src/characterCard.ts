@@ -43,6 +43,74 @@ export type CharacterBook = {
   [key: string]: unknown
 }
 
+export const CHARACTER_MEMORY_CATEGORY_OPTIONS = [
+  { value: 'event', label: '重大事件' },
+  { value: 'task', label: '任务进度' },
+  { value: 'truth', label: '已查明真相' },
+  { value: 'relationship', label: '关系定论' },
+  { value: 'fact', label: '重要事实' },
+] as const
+
+export const CHARACTER_MEMORY_STATUS_OPTIONS = [
+  { value: 'confirmed', label: '已确认' },
+  { value: 'completed', label: '已完成' },
+  { value: 'ongoing', label: '进行中' },
+  { value: 'superseded', label: '已撤销/被更新' },
+] as const
+
+export type CharacterMemoryCategory = typeof CHARACTER_MEMORY_CATEGORY_OPTIONS[number]['value']
+export type CharacterMemoryStatus = typeof CHARACTER_MEMORY_STATUS_OPTIONS[number]['value']
+
+export type CharacterMemoryEntry = {
+  id: string
+  title: string
+  content: string
+  category: CharacterMemoryCategory
+  status: CharacterMemoryStatus
+  enabled: boolean
+  createdAt: number
+  updatedAt: number
+  [key: string]: unknown
+}
+
+const characterMemoryId = () => {
+  if (typeof crypto !== 'undefined' && typeof crypto.randomUUID === 'function') return crypto.randomUUID()
+  return `character-memory-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`
+}
+
+const characterMemoryCategoryValues = new Set<CharacterMemoryCategory>(CHARACTER_MEMORY_CATEGORY_OPTIONS.map((item) => item.value))
+const characterMemoryStatusValues = new Set<CharacterMemoryStatus>(CHARACTER_MEMORY_STATUS_OPTIONS.map((item) => item.value))
+
+export function createCharacterMemoryEntry(input: Partial<CharacterMemoryEntry> = {}): CharacterMemoryEntry {
+  const now = Date.now()
+  const category = characterMemoryCategoryValues.has(input.category as CharacterMemoryCategory) ? input.category as CharacterMemoryCategory : 'fact'
+  const status = characterMemoryStatusValues.has(input.status as CharacterMemoryStatus) ? input.status as CharacterMemoryStatus : 'confirmed'
+  return {
+    ...input,
+    id: typeof input.id === 'string' && input.id.trim() ? input.id : characterMemoryId(),
+    title: typeof input.title === 'string' && input.title.trim() ? input.title.trim() : '新的角色记忆',
+    content: typeof input.content === 'string' ? input.content.trim() : '',
+    category,
+    status,
+    enabled: input.enabled !== false,
+    createdAt: Number.isFinite(input.createdAt) ? Number(input.createdAt) : now,
+    updatedAt: Number.isFinite(input.updatedAt) ? Number(input.updatedAt) : now,
+  }
+}
+
+export function normalizeCharacterMemory(value: unknown): CharacterMemoryEntry[] {
+  if (typeof value === 'string' && value.trim()) return [createCharacterMemoryEntry({ title: '角色长期记忆', content: value })]
+  const source = value && typeof value === 'object' && !Array.isArray(value) && Array.isArray((value as Record<string, unknown>).entries)
+    ? (value as Record<string, unknown>).entries
+    : value
+  if (!Array.isArray(source)) return []
+  return source.flatMap((item) => {
+    if (!item || typeof item !== 'object') return []
+    const entry = createCharacterMemoryEntry(item as Partial<CharacterMemoryEntry>)
+    return entry.content.trim() ? [entry] : []
+  })
+}
+
 export type RegexScript = {
   id: string
   scriptName: string
@@ -82,6 +150,7 @@ export type Character = {
   cardSpecVersion?: string
   sourceFileName?: string
   characterBook?: CharacterBook
+  characterMemory?: CharacterMemoryEntry[]
   regexScripts: RegexScript[]
   rawCard?: Record<string, unknown>
 }
@@ -138,6 +207,7 @@ export function characterCardV3Payload(character: Character): RawCard {
       extensions: {
         regex_scripts: character.regexScripts,
         ...(character.beautificationProtocol?.trim() ? { beautification_protocol: character.beautificationProtocol } : {}),
+        ...(character.characterMemory?.length ? { weijing_character_memory: character.characterMemory } : {}),
       },
     },
   }
@@ -165,6 +235,7 @@ export function characterCardV2Payload(character: Character): RawCard {
       extensions: {
         regex_scripts: character.regexScripts,
         ...(character.beautificationProtocol?.trim() ? { beautification_protocol: character.beautificationProtocol } : {}),
+        ...(character.characterMemory?.length ? { weijing_character_memory: character.characterMemory } : {}),
       },
     },
   }
@@ -434,6 +505,10 @@ export async function importCharacterCard(file: File): Promise<Character> {
   const characterBook = data.character_book && typeof data.character_book === 'object'
     ? data.character_book as CharacterBook
     : undefined
+  const rawCharacterMemory = extensions.weijing_character_memory
+    ?? extensions.character_memory
+    ?? (data as Record<string, unknown>).character_memory
+    ?? (rawCard as Record<string, unknown>).character_memory
 
   return normalizeStoredCharacter({
     id: crypto.randomUUID(),
@@ -457,6 +532,7 @@ export async function importCharacterCard(file: File): Promise<Character> {
     cardSpecVersion: rawCard.spec_version,
     sourceFileName: file.name,
     characterBook,
+    characterMemory: normalizeCharacterMemory(rawCharacterMemory),
     regexScripts,
     rawCard,
   })
@@ -833,6 +909,7 @@ export function normalizeStoredCharacter(character: Partial<Character>): Charact
     cardSpecVersion: character.cardSpecVersion,
     sourceFileName: character.sourceFileName,
     characterBook: normalizeCharacterBook(character.characterBook, character.name || ''),
+    characterMemory: normalizeCharacterMemory(character.characterMemory),
     regexScripts: character.regexScripts || [],
     rawCard: character.rawCard,
   }

@@ -1,7 +1,16 @@
 import { useEffect, useState } from 'react'
-import { normalizeWorldBookEntry, type Character, type RegexScript, type WorldBookEntry } from './characterCard'
+import {
+  CHARACTER_MEMORY_CATEGORY_OPTIONS,
+  CHARACTER_MEMORY_STATUS_OPTIONS,
+  createCharacterMemoryEntry,
+  normalizeWorldBookEntry,
+  type Character,
+  type CharacterMemoryEntry,
+  type RegexScript,
+  type WorldBookEntry,
+} from './characterCard'
 
-export type CharacterCardSection = 'overview' | 'greetings' | 'worldbook' | 'regex'
+export type CharacterCardSection = 'overview' | 'greetings' | 'worldbook' | 'regex' | 'memory'
 type LongCharacterField = 'description' | 'personality' | 'scenario' | 'systemPrompt' | 'postHistoryInstructions' | 'beautificationProtocol' | 'mesExample' | 'creatorNotes'
 type FullEditorField = LongCharacterField | 'greeting'
 
@@ -75,6 +84,7 @@ export default function CharacterCardManager({ character, onChange, onBack, init
   const [section, setSection] = useState<CharacterCardSection>(initialSection)
   const [expandedWorld, setExpandedWorld] = useState<number | null>(null)
   const [expandedRegex, setExpandedRegex] = useState<string | null>(null)
+  const [expandedMemory, setExpandedMemory] = useState<string | null>(null)
   const [fullEditorField, setFullEditorField] = useState<FullEditorField | null>(null)
   const [nameEditorOpen, setNameEditorOpen] = useState(false)
   const [nameDraft, setNameDraft] = useState(character.name)
@@ -82,6 +92,7 @@ export default function CharacterCardManager({ character, onChange, onBack, init
   // been written before the importer started filling optional V3 fields.
   const entries = (Array.isArray(character.characterBook?.entries) ? character.characterBook.entries : [])
     .map((entry, index) => normalizeWorldBookEntry(entry, index))
+  const memoryEntries = Array.isArray(character.characterMemory) ? character.characterMemory : []
 
   useEffect(() => { setNameDraft(character.name) }, [character.id, character.name])
 
@@ -95,10 +106,12 @@ export default function CharacterCardManager({ character, onChange, onBack, init
   }
   const setEntries = (nextEntries: WorldBookEntry[]) => patch({ characterBook: { ...(character.characterBook || { name: `${character.name}世界书` }), entries: nextEntries } })
   const setRegexScripts = (regexScripts: RegexScript[]) => patch({ regexScripts })
+  const setCharacterMemory = (characterMemory: CharacterMemoryEntry[]) => patch({ characterMemory })
 
   const updateEntry = (id: number, value: Partial<WorldBookEntry>) => setEntries(entries.map((entry) => entry.id === id ? { ...entry, ...value } : entry))
   const updateEntryExtensions = (id: number, value: Record<string, unknown>) => setEntries(entries.map((entry) => entry.id === id ? { ...entry, extensions: { ...entry.extensions, ...value } } : entry))
   const updateRegex = (id: string, value: Partial<RegexScript>) => setRegexScripts(character.regexScripts.map((script) => script.id === id ? { ...script, ...value } : script))
+  const updateCharacterMemory = (id: string, value: Partial<CharacterMemoryEntry>) => setCharacterMemory(memoryEntries.map((entry) => entry.id === id ? { ...entry, ...value, updatedAt: Date.now() } : entry))
 
   if (nameEditorOpen) {
     return <section className="metadata-full-page character-name-full-page" aria-label="修改角色名称">
@@ -128,7 +141,7 @@ export default function CharacterCardManager({ character, onChange, onBack, init
     </div>
 
     <nav className="card-tabs">
-      {([['overview', '主体'], ['greetings', `开场 ${character.alternateGreetings.length + 1}`], ['worldbook', `世界书 ${entries.length}`], ['regex', `正则 ${character.regexScripts.length}`]] as const).map(([value, label]) => <button key={value} className={section === value ? 'active' : ''} onClick={() => setSection(value)}>{label}</button>)}
+      {([['overview', '主体'], ['greetings', `开场 ${character.alternateGreetings.length + 1}`], ['worldbook', `世界书 ${entries.length}`], ['regex', `正则 ${character.regexScripts.length}`], ['memory', `私有记忆 ${memoryEntries.filter((entry) => entry.enabled !== false).length}`]] as const).map(([value, label]) => <button key={value} className={section === value ? 'active' : ''} onClick={() => setSection(value)}>{label}</button>)}
     </nav>
 
     {section === 'overview' && <div className="metadata-stack">
@@ -140,6 +153,22 @@ export default function CharacterCardManager({ character, onChange, onBack, init
         </div>
       </article>
       {longCharacterFields.map((field) => <MetadataArea key={field.key} label={field.label} value={character[field.key] || ''} onOpenFull={() => setFullEditorField(field.key)} />)}
+    </div>}
+
+    {section === 'memory' && <div className="metadata-stack character-memory-stack">
+      <div className="manager-intro character-memory-intro"><div><strong>角色私有长期记忆</strong><small>固定随“{character.name}”注入模型；不会随着近期摘要滚动，也不会被其他角色共享。</small></div><button className="soft-button" onClick={() => { const entry = createCharacterMemoryEntry(); setCharacterMemory([...memoryEntries, entry]); setExpandedMemory(entry.id) }}>＋ 添加</button></div>
+      <div className="character-memory-notice"><strong>适合写什么？</strong><span>已经发生的重大事件、已经完成的任务、已经查明的真相、关系定论和必须保持的后果。</span><small>标记为“已确认／已完成”的内容不会再被模型写成“待查”或重新演一遍；当前对话中的明确新事实仍然优先。</small></div>
+      {memoryEntries.length === 0 && <EmptyMetadata text="这张角色卡还没有固定记忆" />}
+      {memoryEntries.map((entry) => <article className={`metadata-editor character-memory-editor ${entry.enabled === false ? 'disabled' : ''}`} key={entry.id}>
+        <button className="metadata-summary" onClick={() => setExpandedMemory(expandedMemory === entry.id ? null : entry.id)}><span className={`status-dot ${entry.enabled !== false ? 'on' : ''}`} /><div><strong>{entry.title || '未命名记忆'}</strong><small>{CHARACTER_MEMORY_CATEGORY_OPTIONS.find((item) => item.value === entry.category)?.label || '重要事实'} · {CHARACTER_MEMORY_STATUS_OPTIONS.find((item) => item.value === entry.status)?.label || '已确认'}</small></div><span>⌄</span></button>
+        {expandedMemory === entry.id && <div className="editor-body">
+          <label>记忆标题<input value={entry.title} onChange={(event) => updateCharacterMemory(entry.id, { title: event.target.value })} placeholder="例如：三年前事故真相已经查明" /></label>
+          <div className="two-column-fields"><label>记忆类型<select value={entry.category} onChange={(event) => updateCharacterMemory(entry.id, { category: event.target.value as CharacterMemoryEntry['category'] })}>{CHARACTER_MEMORY_CATEGORY_OPTIONS.map((item) => <option key={item.value} value={item.value}>{item.label}</option>)}</select></label><label>当前状态<select value={entry.status} onChange={(event) => updateCharacterMemory(entry.id, { status: event.target.value as CharacterMemoryEntry['status'] })}>{CHARACTER_MEMORY_STATUS_OPTIONS.map((item) => <option key={item.value} value={item.value}>{item.label}</option>)}</select></label></div>
+          <label>记忆摘要<textarea rows={8} value={entry.content} onChange={(event) => updateCharacterMemory(entry.id, { content: event.target.value })} placeholder="只写已经发生或已经确认的事实，并写清结果与当前后果。" /></label>
+          <div className="toggle-grid"><Toggle label="固定注入" value={entry.enabled !== false} onChange={(enabled) => updateCharacterMemory(entry.id, { enabled })} /></div>
+          <button className="danger-button" onClick={() => setCharacterMemory(memoryEntries.filter((item) => item.id !== entry.id))}>删除这条角色记忆</button>
+        </div>}
+      </article>)}
     </div>}
 
     {section === 'greetings' && <div className="metadata-stack">
