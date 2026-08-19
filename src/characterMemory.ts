@@ -67,6 +67,30 @@ export const characterMemoryExtractionPrompt = `【角色卡核心记忆自动�
 
 每一条都必须是独立事实；不要把多个未确认线索拼成真相。已有角色私有记忆只用于查重和识别状态更新，不要重复输出完全相同的事实。`
 
+export const characterMemorySummaryProtocol = `【角色卡核心记忆同次提炼协议】
+在完成普通长期记忆总结后，再在正文末尾追加一个机器读取区块。普通总结仍按前面的长期记忆格式输出；不要把下面这个区块的 JSON 内容混进普通总结正文。
+
+只有当前角色已经明确经历、知道或在本次新增对话中确认的核心事实，才可以写入。只允许：已发生的重大事件、已完成的任务或调查、已查明的真相、已成立且必须保持的关系定论或重要事实。
+禁止写入猜测、怀疑、传闻、线索、计划、未完成事项、进行中事项、角色不知道的幕后信息，以及模型自行补写的动机、日期、结局。
+每条状态只能是 confirmed 或 completed；没有符合条件的内容就返回空数组。
+已有角色私有记忆只用于查重和识别旧状态更新，不要重复输出完全相同的事实。
+
+区块必须严格放在普通总结最后，且只包含一个 JSON 对象，不要 Markdown 围栏、解释或其他文字：
+<character_core_memories>
+{"memories":[{"title":"简短标题","content":"已经发生的事实及其结果","category":"event|task|truth|relationship|fact","status":"confirmed|completed"}]}
+</character_core_memories>
+
+客户端会自动移除整个区块，不会把它显示在普通长期记忆里。`
+
+export function splitCharacterMemorySummary(raw: string) {
+  const payloads: string[] = []
+  const summary = raw.replace(/<character_core_memories\b[^>]*>([\s\S]*?)<\/character_core_memories>/gi, (_match, payload: string) => {
+    payloads.push(payload.trim())
+    return ''
+  }).trim()
+  return { summary, coreMemoryPayload: payloads.join('\n') }
+}
+
 type CharacterMemoryExtractionOptions = {
   sourceMemoryId?: string
   now?: number
