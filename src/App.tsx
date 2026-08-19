@@ -6,7 +6,7 @@ import CharacterCardManager from './CharacterCardManager'
 import { GreetingPicker, GroupGreetingPicker, ImportPreview, type GroupGreetingChoice } from './ImportFlow'
 import MessageContent from './MessageContent'
 import { createBlankCharacter, importCharacterCard, normalizeStoredCharacter, type Character } from './characterCard'
-import { activeCharacterMemory, characterMemoryEntryFromConversation, characterMemoryExtractionPrompt, mergeCharacterMemoryEntries, parseCharacterMemoryCandidates } from './characterMemory'
+import { activeCharacterMemory, characterMemoryEntryFromConversation, characterMemorySummaryProtocol, mergeCharacterMemoryEntries, parseCharacterMemoryCandidates, splitCharacterMemorySummary } from './characterMemory'
 import { completeChat, fetchApiModels, testApiConnection, type ApiConfig, type ApiModel } from './chatApi'
 import { buildChatPrompt } from './promptBuilder'
 import { createApiChannel, normalizeApiChannels, withApiModel, type ApiChannel } from './apiChannels'
@@ -1332,47 +1332,22 @@ function App() {
     }
   }
 
-  const extractCharacterCoreMemories = async (config: MemoryConfig, targetCharacter: Character, transcript: string, sourceMemoryId: string) => {
+  const recordCharacterCoreMemories = (config: MemoryConfig, targetCharacter: Character, rawPayload: string, sourceMemoryId: string) => {
     if (config.autoCharacterMemory === false) {
       setAutoCharacterMemoryNotice({ characterId: targetCharacter.id, text: '自动提炼已关闭；长记忆仍会照常总结。' })
       return
     }
 
-    setAutoCharacterMemoryNotice({ characterId: targetCharacter.id, text: '正在检查本轮有没有需要固定的核心记忆…' })
-    try {
-      const existing = activeCharacterMemory(targetCharacter)
-        .map((entry) => '- 【' + entry.title + '】' + entry.content)
-        .join('\n')
-        .slice(-12000)
-      let output = ''
-      await completeChat({
-        api: config.api,
-        messages: [
-          { role: 'system', content: characterMemoryExtractionPrompt },
-          { role: 'user', content: '当前角色：' + targetCharacter.name + '\n用户：' + identity.name + '\n已有角色私有记忆（仅供查重与识别更新）：\n' + (existing || '暂无') + '\n\n本次新增对话（唯一可新增来源）：\n' + transcript },
-        ],
-        temperature: .1,
-        topP: 1,
-        maxTokens: 1400,
-        streaming: false,
-        signal: new AbortController().signal,
-        onDelta: (delta) => { output += delta },
-      })
-
-      const candidates = parseCharacterMemoryCandidates(output, { sourceMemoryId })
-      if (!candidates.length) {
-        setAutoCharacterMemoryNotice({ characterId: targetCharacter.id, text: '本轮没有发现需要固定的核心记忆。' })
-        return
-      }
-
-      setCharacters((current) => current.map((character) => character.id === targetCharacter.id
-        ? { ...character, characterMemory: mergeCharacterMemoryEntries(character.characterMemory || [], candidates) }
-        : character))
-      setAutoCharacterMemoryNotice({ characterId: targetCharacter.id, text: '已自动检查 ' + candidates.length + ' 条核心记忆，并写入角色卡（重复内容已合并）。' })
-    } catch (error) {
-      console.warn('自动提炼角色核心记忆失败，保留本轮长记忆', error)
-      setAutoCharacterMemoryNotice({ characterId: targetCharacter.id, text: '本轮长记忆已保存；核心记忆自动提炼失败，下次总结会再试。' })
+    const candidates = parseCharacterMemoryCandidates(rawPayload, { sourceMemoryId })
+    if (!candidates.length) {
+      setAutoCharacterMemoryNotice({ characterId: targetCharacter.id, text: '本轮没有发现需要固定的核心记忆。' })
+      return
     }
+
+    setCharacters((current) => current.map((character) => character.id === targetCharacter.id
+      ? { ...character, characterMemory: mergeCharacterMemoryEntries(character.characterMemory || [], candidates) }
+      : character))
+    setAutoCharacterMemoryNotice({ characterId: targetCharacter.id, text: '已在本次总结中自动检查 ' + candidates.length + ' 条核心记忆，并写入角色卡（重复内容已合并）。' })
   }
 
   const summarizeMemory = async (sourceMessages = messages, targetConversation = activeConversation, targetCharacter = activeCharacter) => {
@@ -1386,6 +1361,7 @@ function App() {
     const transcript = pendingMessages.map((item) => `${item.role === 'user' ? identity.name : characters.find((character) => character.id === item.characterId)?.name || targetCharacter.name}：${modelVisibleMessageText(item)}`).join('\n')
     const conversationMemories = memoriesForConversation(memoryEntries, scopeId, targetCharacter.id, targetRevision) as MemoryEntry[]
     const previous = [...conversationMemories.filter((item) => item.pinned), ...conversationMemories.filter((item) => !item.pinned).slice(-6)].map((item) => item.content).join('\n\n').slice(-12000)
+    const characterPrivateMemories = activeCharacterMemory(targetCharacter).map((item) => '- 【' + item.title + '】' + item.content).join('\n').slice(-8000)
     try {
       const endpoint = `${config.api.baseUrl.replace(/\/$/, '')}/chat/completions`
       const response = await fetch(endpoint, {
@@ -1395,22 +1371,25 @@ function App() {
           model: config.api.modelName,
           temperature: 0.2,
           messages: [
-            { role: 'system', content: `${config.summaryPrompt}\n\n${memorySummarySafetyPrompt}` },
-            { role: 'user', content: `角色：${targetCharacter.name}\n用户：${identity.name}\n已有长期记忆（仅供查重）：\n${previous || '暂无'}\n\n本次新增对话（只总结这一段）：\n${transcript}` },
+            { role: 'system', content: config.summaryPrompt + '\n\n' + memorySummarySafetyPrompt + (config.autoCharacterMemory === false ? '' : '\n\n' + characterMemorySummaryProtocol) },
+            { role: 'user', content: '角色：' + targetCharacter.name + '\n用户：' + identity.name + '\n已有长期记忆（仅供查重）：\n' + (previous || '暂无') + '\n\n已有角色私有核心记忆（仅供查重与识别更新）：\n' + (characterPrivateMemories || '暂无') + '\n\n本次新增对话（只总结这一段）：\n' + transcript },
           ],
         }),
       })
       if (!response.ok) throw new Error(`HTTP ${response.status}`)
       const data = await response.json()
-      const content = data?.choices?.[0]?.message?.content?.trim()
-      if (!content) throw new Error('empty memory')
-      if (/^无新增长期记忆[。！!]?$/.test(content)) {
-        await extractCharacterCoreMemories(config, targetCharacter, transcript, 'memory-scan-' + targetConversation.id + '-' + targetRevision + '-' + sourceMessages.length)
+      const rawContent = data?.choices?.[0]?.message?.content?.trim()
+      if (!rawContent) throw new Error('empty memory')
+      const { summary: content, coreMemoryPayload } = splitCharacterMemorySummary(rawContent)
+      const summaryContent = content || '无新增长期记忆'
+      const sourceMemoryId = 'memory-scan-' + targetConversation.id + '-' + targetRevision + '-' + sourceMessages.length
+      if (/^无新增长期记忆[。！!]?$/.test(summaryContent)) {
+        recordCharacterCoreMemories(config, targetCharacter, coreMemoryPayload, sourceMemoryId)
         setConversations((current) => current.map((item) => item.id === targetConversation.id && (item.historyRevision || 0) === targetRevision ? { ...item, memorySummarizedCount: sourceMessages.length } : item))
         setMemoryState('ok')
         return
       }
-      const entry: MemoryEntry = { id: crypto.randomUUID(), createdAt: Date.now(), title: `${new Date().toLocaleDateString()} · 新增 ${pendingMessages.length} 条`, content, sourceCount: pendingMessages.length, historyRevision: targetRevision }
+      const entry: MemoryEntry = { id: crypto.randomUUID(), createdAt: Date.now(), title: `${new Date().toLocaleDateString()} · 新增 ${pendingMessages.length} 条`, content: summaryContent, sourceCount: pendingMessages.length, historyRevision: targetRevision }
       let nextEntries = [...conversationMemories.filter((item) => item.pinned), ...[...conversationMemories.filter((item) => !item.pinned), entry].slice(-config.maxEntries)]
       const ordinary = nextEntries.filter((item) => !item.pinned)
       if (ordinary.length >= 12) {
@@ -1435,7 +1414,7 @@ function App() {
         } catch (error) { console.warn('自动整理长期记忆失败，保留原记忆', error) }
       }
       setMemoryEntries((current) => replaceConversationMemories(current, scopeId, targetCharacter.id, targetRevision, nextEntries) as MemoryEntryMap)
-      await extractCharacterCoreMemories(config, targetCharacter, transcript, entry.id)
+      recordCharacterCoreMemories(config, targetCharacter, coreMemoryPayload, entry.id)
       setConversations((current) => current.map((item) => item.id === targetConversation.id && (item.historyRevision || 0) === targetRevision ? { ...item, memorySummarizedCount: sourceMessages.length } : item))
       setMemoryState('ok')
     } catch (error) {
