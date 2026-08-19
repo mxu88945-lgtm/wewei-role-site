@@ -3,7 +3,7 @@
 .card-format-banner > img, .card-format-banner > span { width: 66px; height: 76px; border-radius: 18px; object-fit: cover; display: grid; place-items: center; color: white; font-size: 25px; font-weight: 800; background: linear-gradient(145deg, #8260da, #d78fc7); }
 .card-format-banner strong, .card-format-banner small { display: block; }
 .card-format-banner small { margin-top: 4px; overflow: hidden; color: #8e8792; font-size: 11px; text-overflow: ellipsis; white-space: nowrap; }
-.card-tabs { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 5px; padding: 5px; border-radius: 17px; background: #ece8ee; }
+.card-tabs { display: grid; grid-template-columns: repeat(5, minmax(0, 1fr)); gap: 5px; padding: 5px; border-radius: 17px; background: #ece8ee; }
 .card-tabs button { min-width: 0; border: 0; border-radius: 13px; padding: 10px 4px; color: #8e8792; background: transparent; font-size: 11px; font-weight: 700; }
 .card-tabs button.active { color: #7446c3; background: white; box-shadow: 0 7px 18px rgba(67,39,107,.08); }
 .metadata-stack { display: grid; gap: 13px; }
@@ -21,6 +21,12 @@
 .manager-intro { padding: 17px; border-radius: 22px; background: #efedf0; }
 .manager-intro strong, .manager-intro small { display: block; }
 .manager-intro small { margin-top: 5px; color: #918a95; line-height: 1.45; }
+.character-memory-intro { background: linear-gradient(135deg, #eee9f7, #f5edf3); }
+.character-memory-notice { display: grid; gap: 5px; padding: 16px 17px; border: 1px solid rgba(116,70,195,.1); border-radius: 20px; color: #655b70; background: rgba(255,255,255,.72); line-height: 1.55; }
+.character-memory-notice strong { color: #7446c3; }
+.character-memory-notice small { color: #93899b; font-size: 11px; }
+.character-memory-editor.disabled { opacity: .72; }
+.character-memory-editor.disabled .metadata-summary strong { text-decoration: line-through; text-decoration-color: rgba(116,70,195,.35); }
 .metadata-summary { width: 100%; border: 0; padding: 16px; display: grid; grid-template-columns: 10px 1fr auto; align-items: center; gap: 12px; color: inherit; background: transparent; text-align: left; }
 .metadata-summary strong, .metadata-summary small { display: block; }
 .metadata-summary small { margin-top: 5px; overflow: hidden; color: #958e99; font-size: 11px; text-overflow: ellipsis; white-space: nowrap; }
