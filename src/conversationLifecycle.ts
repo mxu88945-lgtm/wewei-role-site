@@ -76,3 +76,34 @@ export function createFreshConversationFrom(source: Conversation, greeting: stri
     directorConfig: source.directorConfig ? { ...source.directorConfig } : undefined,
   }
 }
+
+const pendingAssistantText = /^(?:正在回应|正在整理回复)(?:…|\.{3}|。)?$/
+
+/**
+ * Restart the current conversation in place. The conversation identity and
+ * presentation settings stay attached to the same chat, while all plot
+ * history becomes an archived memory branch and the visible timeline returns
+ * to its original opening message.
+ */
+export function restartConversationInPlace(source: Conversation, fallbackGreeting: string, fallbackCharacterId?: string): Conversation {
+  const firstAssistant = source.messages.find((message) => message.role === 'assistant')
+  const opening = firstAssistant && firstAssistant.text.trim() && !pendingAssistantText.test(firstAssistant.text.trim()) ? firstAssistant : undefined
+  const openingMessage: Message = {
+    id: Math.max(Date.now() + 1, ...source.messages.map((message) => message.id + 1)),
+    role: 'assistant',
+    text: opening?.text || fallbackGreeting,
+    ...((opening?.characterId || fallbackCharacterId) ? { characterId: opening?.characterId || fallbackCharacterId } : {}),
+  }
+
+  return {
+    ...source,
+    messages: [openingMessage],
+    updatedAt: Date.now(),
+    contextSummary: undefined,
+    contextSummaryRevision: undefined,
+    compressedUntil: undefined,
+    historyRevision: (source.historyRevision || 0) + 1,
+    memorySummarizedCount: 0,
+    relationshipStages: undefined,
+  }
+}

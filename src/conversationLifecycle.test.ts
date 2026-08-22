@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { addConversationParticipant, createFreshConversationFrom, type Conversation } from './conversationLifecycle'
+import { addConversationParticipant, createFreshConversationFrom, restartConversationInPlace, type Conversation } from './conversationLifecycle'
 
 describe('new conversation lifecycle', () => {
   it('creates a clean single-role conversation without changing the source history', () => {
@@ -66,5 +66,46 @@ describe('new conversation lifecycle', () => {
     expect(upgraded.messages[1].characterId).toBeUndefined()
     expect(upgraded.contextSummary).toBe('保留摘要')
     expect(source.messages[0].characterId).toBeUndefined()
+  })
+
+  it('restarts the current chat at its opening without changing its identity or settings', () => {
+    const source: Conversation = {
+      id: 'restart-me', characterId: 'pei', title: '与裴季野的对话',
+      messages: [
+        { id: 10, role: 'assistant', text: '原始开场' },
+        { id: 11, role: 'user', text: '已经不想要的剧情' },
+        { id: 12, role: 'assistant', text: '旧回复' },
+      ],
+      createdAt: 10, updatedAt: 12, personaId: 'persona-weiwei', themePresetId: 'mist',
+      contextSummary: '旧摘要', contextSummaryRevision: 2, compressedUntil: 2,
+      historyRevision: 2, memorySummarizedCount: 3, relationshipStages: { pei: 4 },
+    }
+
+    const restarted = restartConversationInPlace(source, '角色卡开场')
+
+    expect(restarted.id).toBe(source.id)
+    expect(restarted.title).toBe(source.title)
+    expect(restarted.personaId).toBe(source.personaId)
+    expect(restarted.themePresetId).toBe(source.themePresetId)
+    expect(restarted.messages).toHaveLength(1)
+    expect(restarted.messages[0].text).toBe('原始开场')
+    expect(restarted.contextSummary).toBeUndefined()
+    expect(restarted.compressedUntil).toBeUndefined()
+    expect(restarted.historyRevision).toBe(3)
+    expect(restarted.memorySummarizedCount).toBe(0)
+    expect(restarted.relationshipStages).toBeUndefined()
+    expect(source.messages).toHaveLength(3)
+    expect(source.contextSummary).toBe('旧摘要')
+  })
+
+  it('uses the card greeting when a chat only contains a pending placeholder', () => {
+    const source: Conversation = {
+      id: 'pending-chat', characterId: 'lead', title: '新戏',
+      messages: [{ id: 1, role: 'assistant', text: '正在回应…' }], createdAt: 1, updatedAt: 1,
+    }
+
+    const restarted = restartConversationInPlace(source, '卡片原始开场')
+
+    expect(restarted.messages[0].text).toBe('卡片原始开场')
   })
 })

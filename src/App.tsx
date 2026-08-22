@@ -28,7 +28,7 @@ import { buildReplyHelperMessages, cleanReplyHelperDraft, REPLY_HELPER_MAX_TOKEN
 import { planContextCompression, uncompressedMessages } from './contextCompression'
 import { findLatestActorContinuityAnchor } from './actorContinuity'
 import ReplyHelperSettingsPage from './ReplyHelperSettingsPage'
-import { addConversationParticipant, createFreshConversationFrom, type Conversation, type Message } from './conversationLifecycle'
+import { addConversationParticipant, createFreshConversationFrom, restartConversationInPlace, type Conversation, type Message } from './conversationLifecycle'
 import { parseConversationTxt } from './conversationTxt'
 import { modelVisibleMessageText, stripUiOnlyStatusBlocks } from './modelContext'
 import { countConversationStats } from './conversationStats'
@@ -863,13 +863,21 @@ function App() {
     setGeneratingIds((current) => current.filter((id) => id !== conversationId))
   }
 
-  const markStoryHistoryForReview = (conversationId: string) => {
+  const markStoryHistoryForReview = (conversationId: string, baselineAssistantMessageId?: number) => {
     setStoryProjects((current) => current.map((project) => project.conversationIds.includes(conversationId) ? {
       ...project,
       autoContinuity: {
         ...project.autoContinuity,
         needsReview: true,
-        lastError: '检测到对话历史改写：旧分支事实待复核；关系阶段和指定事件仍会保留并继续生效。请重新分析并保存驾驶舱。',
+        ...(baselineAssistantMessageId ? {
+          lastProcessedAssistantMessageIds: {
+            ...project.autoContinuity.lastProcessedAssistantMessageIds,
+            [conversationId]: baselineAssistantMessageId,
+          },
+          lastError: '当前对话已重启：旧剧情不再作为当前剧本依据；如需继续使用剧本场记，请重新检查并保存驾驶舱。',
+        } : {
+          lastError: '检测到对话历史改写：旧分支事实待复核；关系阶段和指定事件仍会保留并继续生效。请重新分析并保存驾驶舱。',
+        }),
         lastSummary: undefined,
       },
       updatedAt: Date.now(),
@@ -1296,6 +1304,30 @@ function App() {
     replacePage('greeting-picker')
   }
 
+  const restartConversation = (conversation: Conversation) => {
+    if (!window.confirm(`重启“${conversation.title}”？\n\n当前剧情消息、摘要和本轮记忆会清空，回到原始开场白。角色卡、世界书、主题、成员和 API 设置会保留；如果想保留这段旧剧情，请先使用“克隆对话”。`)) return
+    abortConversation(conversation.id)
+    const fallbackCharacterId = conversation.kind === 'group' ? conversation.participantIds?.[0] : undefined
+    const fallbackCharacter = characters.find((item) => item.id === (fallbackCharacterId || conversation.characterId)) || demoCharacter
+    const restarted = restartConversationInPlace(conversation, fallbackCharacter.greeting, fallbackCharacterId)
+    setConversations((current) => current.map((item) => item.id === conversation.id ? restarted : item))
+    markStoryHistoryForReview(conversation.id, restarted.messages[0]?.id)
+    setActiveId(restarted.participantIds?.[0] || restarted.characterId)
+    setActiveConversationId(restarted.id)
+    setNewConversationSourceId(null)
+    setMessageMenuId(null)
+    setMessageEditor(null)
+    setDraft('')
+    setChatError('')
+    setReplyHelperState('idle')
+    setComposerToolsOpen(false)
+    setComposerExpanded(false)
+    setConversationMenuId(null)
+    setDrawer(null)
+    requestChatLatestScroll(restarted.id)
+    replacePage('chat')
+  }
+
   const cloneConversation = (conversation: Conversation) => {
     const copy: Conversation = { ...conversation, id: `${conversation.characterId}-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`, title: `${conversation.title} · 副本`, messages: conversation.messages.map((message) => ({ ...message })), createdAt: Date.now(), updatedAt: Date.now() }
     setConversations((current) => [...current, copy])
@@ -1532,7 +1564,9 @@ function App() {
       const requiresCharacterStatus = Boolean(statusTag)
       const groupNames = (conversation.participantIds || []).map((id) => characters.find((item) => item.id === id)?.name).filter(Boolean)
       const storyProject = selectConversationStoryProject(storyProjects, conversation.id)
-      const storyProjectContext = storyProject ? buildStoryProjectPrompt({ project: storyProject, speakerId: speaker.id, characters }) : ''
+      const storyProjectContext = storyProject && !storyProject.autoContinuity.needsReview
+        ? buildStoryProjectPrompt({ project: storyProject, speakerId: speaker.id, characters })
+        : ''
       const actorContinuityAnchor = isGroup ? findLatestActorContinuityAnchor(nextMessages, speaker.id, speaker.name) : ''
       const sanitizedHistory = nextMessages.flatMap((message) => {
         const fromDirector = message.role === 'assistant' && message.characterId === conversation.directorCharacterId
@@ -2056,6 +2090,7 @@ function App() {
         <header><div><small>会话操作</small><strong>{menuConversation.title}</strong></div><button onClick={() => setConversationMenuId(null)}>×</button></header>
         <button onClick={() => renameConversation(menuConversation)}>重命名</button>
         <button onClick={() => startNewConversation(menuConversation)}>新对话（保留旧聊天）</button>
+        <button className="restart-action" onClick={() => restartConversation(menuConversation)}>重启剧情（回到开场白）</button>
         <button onClick={() => cloneConversation(menuConversation)}>克隆对话</button>
         <button className="danger" onClick={() => deleteConversation(menuConversation)}>删除对话</button>
       </section>}
