@@ -50,6 +50,12 @@ function styledPlainText(value: string) {
 const SENTENCE_RE = /[^。！？!?…]+(?:[。！？!?]+[”」』】）)]*|…+[”」』】）)]*|$)/g
 const COMPACT_MARKUP_TAG = /^(?:scene|status|[a-z][\w-]*_status)$/i
 
+const PENDING_ASSISTANT_PLACEHOLDER = /^正在回应(?:…|\.{3}|。)?$/
+
+export function isPendingAssistantText(value: string) {
+  return PENDING_ASSISTANT_PLACEHOLDER.test(value.trim())
+}
+
 function segmentLongChineseParagraph(value: string) {
   if (value.length < 100) return [value]
   const sentences = value.match(SENTENCE_RE)?.map((sentence) => sentence.trim()).filter(Boolean) || [value]
@@ -186,6 +192,7 @@ function MessageContent({ text, role, character, userName, layout = 'bubble' }: 
     const visibleText = role === 'assistant' && !cleanText && containsHiddenReasoning(text, director)
       ? '（已拦截模型内部分析；未计入正式剧情。）'
       : cleanText
+    const pendingAssistant = role === 'assistant' && isPendingAssistantText(visibleText)
     const statusProtocol = role === 'assistant' && !director ? getStatusProtocol(character) : { tag: '', fields: [] }
     const statusTag = role === 'assistant' ? statusProtocol.tag || detectStatusTag(
       character.beautificationProtocol || '',
@@ -194,7 +201,7 @@ function MessageContent({ text, role, character, userName, layout = 'bubble' }: 
       ...character.regexScripts.map((script) => script.findRegex || ''),
       visibleText,
     ) : ''
-    const statusFallback = role === 'assistant' && !director && statusTag
+    const statusFallback = role === 'assistant' && !director && statusTag && !pendingAssistant
       ? buildStatusFallback(character, userName, { output: visibleText })
       : null
     const normalizedText = statusFallback
