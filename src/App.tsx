@@ -9,7 +9,7 @@ import { createBlankCharacter, importCharacterCard, normalizeStoredCharacter, ty
 import { activeCharacterMemory, characterMemoryEntryFromConversation, characterMemorySummaryProtocol, mergeCharacterMemoryEntries, parseCharacterMemoryCandidates, splitCharacterMemorySummary } from './characterMemory'
 import { completeChat, fetchApiModels, testApiConnection, type ApiConfig, type ApiModel } from './chatApi'
 import { buildChatPrompt } from './promptBuilder'
-import { createApiChannel, normalizeApiChannels, withApiModel, type ApiChannel } from './apiChannels'
+import { createApiChannel, isApiChannelComplete, normalizeApiChannels, resolveApiChannel, withApiModel, type ApiChannel } from './apiChannels'
 import { enabledPresetText, normalizePresetSections } from './presetConfig'
 import { durableGet, durableSet } from './persistentStore'
 import { completeStatusBlock, containsHiddenReasoning, moveStatusBlockToEnd, sanitizeAssistantOutput, stripLeadingSpeakerLabels } from './outputSanitizer'
@@ -392,6 +392,12 @@ function App() {
   const groupLeadId = explicitConversation?.kind === 'group' ? explicitConversation.participantIds?.[0] : undefined
   const activeCharacter = characters.find((item) => item.id === (groupLeadId || activeId)) || characters[0] || demoCharacter
   const api = apiChannels.find((item) => item.id === activeApiId) || apiChannels[0]
+  const conversationApiFor = (conversation: Conversation, characterId: string, fallback = api) => resolveApiChannel(
+    apiChannels,
+    fallback,
+    conversation.participantApiIds?.[characterId],
+    conversation.participantModelNames?.[characterId],
+  )
   const activeConversation = (explicitConversation?.kind === 'group' ? explicitConversation : conversations.find((item) => item.id === activeConversationId && item.characterId === activeCharacter.id))
     || conversations.filter((item) => item.characterId === activeCharacter.id).sort((a, b) => b.updatedAt - a.updatedAt)[0]
   const identity = identities.find((item) => item.id === activeConversation?.personaId) || identities.find((item) => item.id === activePersonaId) || identities[0] || { id: 'persona-default', name: '周惟惟', description: '由用户亲自决定言行、心理与关键选择。' }
@@ -490,11 +496,9 @@ function App() {
     continuityRunningProjectIds.current.add(project.id)
     const checkpoint = captureAssistantMessageIds(project, conversations)
     const directorConversation = conversations.find((conversation) => project.conversationIds.includes(conversation.id) && conversation.directorCharacterId === project.directorCharacterId)
-    const directorApiId = project.directorCharacterId ? directorConversation?.participantApiIds?.[project.directorCharacterId] : undefined
-    const baseChannel = apiChannels.find((channel) => channel.id === directorApiId) || api
-    const storyApi = project.directorCharacterId && directorConversation?.participantModelNames?.[project.directorCharacterId]
-      ? withApiModel(baseChannel, directorConversation.participantModelNames[project.directorCharacterId])
-      : baseChannel
+    const storyApi = project.directorCharacterId && directorConversation
+      ? conversationApiFor(directorConversation, project.directorCharacterId, api)
+      : api
     setStoryProjects((current) => current.map((item) => item.id === project.id ? { ...item, autoContinuity: { ...item.autoContinuity, lastSummary: '自动场记正在整理本轮进展…', lastError: undefined } } : item))
     try {
       if (!storyApi?.apiKey?.trim() || !storyApi.baseUrl?.trim() || !storyApi.modelName?.trim()) throw new Error('导演 API 尚未配置完整')
@@ -1483,7 +1487,8 @@ function App() {
   }
 
   const generateAssistant = async (conversation: Conversation, nextMessages: Message[], speaker = activeCharacter, speakerApi = api): Promise<Message[]> => {
-    if (!speakerApi.baseUrl.trim() || !speakerApi.apiKey.trim() || !speakerApi.modelName.trim()) {
+    const resolvedSpeakerApi = conversationApiFor(conversation, speaker.id, speakerApi)
+    if (!isApiChannelComplete(resolvedSpeakerApi)) {
       setChatError(`请先为 ${speaker.name} 配置完整的 API 渠道。`)
       return nextMessages
     }
@@ -1562,7 +1567,7 @@ function App() {
         promptMessages.push({ role: 'system', content: `【最终输出结构校验】完成正文后必须检查：回复末尾有且只有一个闭合的 <${statusTag}>...</${statusTag}>。${fieldGuard}不得省略状态栏，不得把状态栏规则写进正文。` })
       }
       const completion = await completeChat({
-        api: speakerApi,
+        api: resolvedSpeakerApi,
         messages: promptMessages,
         temperature,
         topP,
@@ -1669,9 +1674,7 @@ function App() {
       for (const speakerId of speakerIds) {
         const speaker = characters.find((item) => item.id === speakerId)
         if (!speaker) continue
-        const channelId = conversation.participantApiIds?.[speakerId]
-        const baseChannel = apiChannels.find((item) => item.id === channelId) || api
-        const channel = withApiModel(baseChannel, conversation.participantModelNames?.[speakerId])
+        const channel = conversationApiFor(conversation, speakerId, api)
         const nextGroupMessages = await generateAssistant(conversation, groupMessages, speaker, channel)
         if (nextGroupMessages.length === groupMessages.length) break
         groupMessages = nextGroupMessages
@@ -1729,8 +1732,7 @@ function App() {
     if (index < 0) return
     setMessageMenuId(null)
     const speaker = characters.find((item) => item.id === message.characterId) || activeCharacter
-    const baseChannel = activeConversation.kind === 'group' ? apiChannels.find((item) => item.id === activeConversation.participantApiIds?.[speaker.id]) || api : api
-    const channel = activeConversation.kind === 'group' ? withApiModel(baseChannel, activeConversation.participantModelNames?.[speaker.id]) : baseChannel
+    const channel = conversationApiFor(activeConversation, speaker.id, api)
     const nextMessages = messages.slice(0, index)
     const rewritten = rewriteConversationHistory(activeConversation, nextMessages)
     markStoryHistoryForReview(activeConversation.id)
