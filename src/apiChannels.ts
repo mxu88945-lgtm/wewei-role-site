@@ -75,7 +75,11 @@ export function normalizeApiChannels(value: unknown, legacy: ApiConfig): ApiChan
   return value.map((item, index) => {
     const channel = item && typeof item === 'object' ? item as Partial<ApiChannel> : {}
     const protocol = channel.protocol === 'anthropic' ? 'anthropic' : 'openai'
-    const baseUrl = channel.baseUrl || 'https://api.openai.com/v1'
+    // Older builds stored the only API under `weijing.api`. If a channel was
+    // created before that value was migrated, keep its name/model but restore
+    // missing connection fields from the legacy config.
+    const legacyFallback = index === 0 ? legacy : undefined
+    const baseUrl = channel.baseUrl?.trim() || legacyFallback?.baseUrl?.trim() || 'https://api.openai.com/v1'
     const platform = channel.platform && PRESET_BY_ID.has(channel.platform) ? channel.platform : inferApiPlatform(baseUrl, protocol)
     return {
       id: channel.id || crypto.randomUUID(),
@@ -83,9 +87,13 @@ export function normalizeApiChannels(value: unknown, legacy: ApiConfig): ApiChan
       platform,
       protocol: getApiPlatformPreset(platform).protocol,
       baseUrl,
-      apiKey: channel.apiKey || '',
-      modelName: channel.modelName || '',
-      maxTokenField: channel.maxTokenField === 'max_tokens' || channel.maxTokenField === 'max_completion_tokens' ? channel.maxTokenField : 'auto',
+      apiKey: channel.apiKey?.trim() || legacyFallback?.apiKey?.trim() || '',
+      modelName: channel.modelName?.trim() || legacyFallback?.modelName?.trim() || '',
+      maxTokenField: channel.maxTokenField === 'max_tokens' || channel.maxTokenField === 'max_completion_tokens'
+        ? channel.maxTokenField
+        : legacyFallback?.maxTokenField === 'max_tokens' || legacyFallback?.maxTokenField === 'max_completion_tokens'
+          ? legacyFallback.maxTokenField
+          : 'auto',
     }
   })
 }
@@ -93,4 +101,36 @@ export function normalizeApiChannels(value: unknown, legacy: ApiConfig): ApiChan
 export function withApiModel(channel: ApiChannel, modelName?: string): ApiChannel {
   const override = modelName?.trim()
   return override ? { ...channel, modelName: override } : channel
+}
+
+export function isApiChannelComplete(channel?: Pick<ApiConfig, 'baseUrl' | 'apiKey' | 'modelName'> | null): boolean {
+  return Boolean(channel?.baseUrl?.trim() && channel.apiKey?.trim() && channel.modelName?.trim())
+}
+
+/**
+ * Resolve a member's channel without letting stale conversation bindings
+ * block a reply. Conversations can outlive deleted/renamed channels, and
+ * single chats can still carry the per-member settings written by the member
+ * picker. A complete bound channel wins; otherwise use the current channel,
+ * then any other complete channel as a last-resort migration path.
+ */
+export function resolveApiChannel(
+  channels: ApiChannel[],
+  fallback: ApiChannel,
+  channelId?: string,
+  modelName?: string,
+): ApiChannel {
+  const bound = channelId ? channels.find((channel) => channel.id === channelId) : undefined
+  const boundWithModel = bound ? withApiModel(bound, modelName) : undefined
+  if (boundWithModel && isApiChannelComplete(boundWithModel)) return boundWithModel
+
+  const fallbackWithModel = withApiModel(fallback, modelName)
+  if (isApiChannelComplete(fallbackWithModel)) return fallbackWithModel
+
+  const otherComplete = channels.find((channel) => isApiChannelComplete(channel))
+  if (otherComplete) return otherComplete
+
+  // Preserve the most relevant incomplete object so the caller can show the
+  // existing, character-specific configuration message when nothing works.
+  return boundWithModel || fallbackWithModel
 }
