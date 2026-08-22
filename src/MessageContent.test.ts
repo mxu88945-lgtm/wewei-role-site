@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { isFullHtmlDocument, normalizeMixedMarkup, plainTextParagraphs, userTextParagraphs } from './MessageContent'
+import { isFullHtmlDocument, isPendingAssistantText, normalizeMixedMarkup, plainTextParagraphs, userTextParagraphs } from './MessageContent'
 
 describe('character-card mixed markup', () => {
   it('renders Tavo-style plot fences, inline thoughts and paragraph spacing', () => {
@@ -37,4 +37,10 @@ describe('character-card mixed markup', () => {
     const result = normalizeMixedMarkup(`<plot>⏰时间:2034年02月18日</plot>${narrative}`)
     expect(result.match(/<p class="message-story-paragraph">/g)?.length).toBeGreaterThan(1)
   })
+  it('does not synthesize a status panel for the pending response placeholder', () => {
+    expect(isPendingAssistantText('正在回应…')).toBe(true)
+    expect(isPendingAssistantText('正在回应...')).toBe(true)
+    expect(isPendingAssistantText('他正在回应你的问题。')).toBe(false)
+  })
+
 })
