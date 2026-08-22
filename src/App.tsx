@@ -6,13 +6,12 @@ import CharacterCardManager from './CharacterCardManager'
 import { GreetingPicker, GroupGreetingPicker, ImportPreview, type GroupGreetingChoice } from './ImportFlow'
 import MessageContent from './MessageContent'
 import { createBlankCharacter, importCharacterCard, normalizeStoredCharacter, type Character } from './characterCard'
-import { activeCharacterMemory, characterMemoryEntryFromConversation, characterMemorySummaryProtocol, mergeCharacterMemoryEntries, parseCharacterMemoryCandidates, splitCharacterMemorySummary } from './characterMemory'
 import { completeChat, fetchApiModels, testApiConnection, type ApiConfig, type ApiModel } from './chatApi'
 import { buildChatPrompt } from './promptBuilder'
-import { createApiChannel, normalizeApiChannels, withApiModel, type ApiChannel } from './apiChannels'
+import { createApiChannel, isApiChannelComplete, normalizeApiChannels, resolveApiChannel, withApiModel, type ApiChannel } from './apiChannels'
 import { enabledPresetText, normalizePresetSections } from './presetConfig'
 import { durableGet, durableSet } from './persistentStore'
-import { completeStatusBlock, containsHiddenReasoning, moveStatusBlockToEnd, sanitizeAssistantOutput, stripLeadingSpeakerLabels } from './outputSanitizer'
+import { containsHiddenReasoning, ensureStatusBlock, sanitizeAssistantOutput, stripLeadingSpeakerLabels } from './outputSanitizer'
 import { archivedMemoriesForConversation, memoriesForConversation, replaceConversationMemories, restoreMemoryToRevision } from './memoryEngine'
 import { findMentionedParticipantIds, selectGroupSpeakerIds, type GroupReplyMode } from './groupReplyRouting'
 import Pet from './Pet'
@@ -24,18 +23,15 @@ import StoryProjectManager from './StoryProjectManager'
 import { normalizeStoryProjects, type StoryProject } from './storyProject'
 import { buildStoryProjectPrompt, selectConversationStoryProject } from './storyProjectPrompt'
 import { buildAutomaticContinuityInput, captureAssistantMessageIds, hasUnprocessedAssistantMessages, mergeAutomaticContinuity, parseAutomaticContinuityResponse } from './storyContinuity'
-import { buildReplyHelperMessages, cleanReplyHelperDraft, REPLY_HELPER_MAX_TOKENS } from './replyHelper'
+import { buildReplyHelperMessages, cleanReplyHelperDraft } from './replyHelper'
 import { planContextCompression, uncompressedMessages } from './contextCompression'
 import { findLatestActorContinuityAnchor } from './actorContinuity'
 import ReplyHelperSettingsPage from './ReplyHelperSettingsPage'
 import { addConversationParticipant, createFreshConversationFrom, type Conversation, type Message } from './conversationLifecycle'
 import { parseConversationTxt } from './conversationTxt'
 import { modelVisibleMessageText, stripUiOnlyStatusBlocks } from './modelContext'
-import { countConversationStats } from './conversationStats'
-import { enforceRelationshipStageFloor, extractRelationshipStage, highestRelationshipStage, relationshipStageLockInstruction, repairRelationshipStageHistory, type RelationshipStage } from './relationshipStage'
-import { buildStatusFallback, getStatusProtocol, latestStatusContent } from './statusProtocol'
 
-type Page = 'home' | 'story-projects' | 'characters' | 'create' | 'character-workshop' | 'group-create' | 'director-template' | 'group-greeting-picker' | 'import-preview' | 'character-detail' | 'card-data' | 'card-worldbook' | 'card-regex' | 'card-memory' | 'greeting-picker' | 'chat' | 'more' | 'api' | 'reply-helper-api' | 'model' | 'settings' | 'appearance' | 'font' | 'display-reply' | 'identity' | 'worldbook' | 'theater-world' | 'preset' | 'memory' | 'memory-api' | 'memory-list'
+type Page = 'home' | 'story-projects' | 'characters' | 'create' | 'character-workshop' | 'group-create' | 'director-template' | 'group-greeting-picker' | 'import-preview' | 'character-detail' | 'card-data' | 'card-worldbook' | 'card-regex' | 'greeting-picker' | 'chat' | 'more' | 'api' | 'reply-helper-api' | 'model' | 'settings' | 'appearance' | 'font' | 'display-reply' | 'identity' | 'worldbook' | 'theater-world' | 'preset' | 'memory' | 'memory-api' | 'memory-list'
 type MessageEditor = { mode: 'assistant' | 'resend'; messageId: number; text: string }
 type Drawer = 'left' | 'right'
 type HistoryEntry = { page: Page; reopenDrawer?: Drawer }
@@ -45,7 +41,6 @@ type MemoryConfig = {
   api: ApiConfig
   useGlobalApi?: boolean
   autoEvery: number
-  autoCharacterMemory?: boolean
   maxEntries: number
   summaryPrompt: string
   injectPosition: string
@@ -119,7 +114,6 @@ const defaultMemoryConfig = (): MemoryConfig => ({
   api: { baseUrl: 'https://api.openai.com/v1', apiKey: '', modelName: 'gpt-4.1-mini' },
   useGlobalApi: true,
   autoEvery: 50,
-  autoCharacterMemory: true,
   maxEntries: 2000,
   summaryPrompt: defaultMemoryPrompt,
   injectPosition: 'after-main-prompt',
@@ -135,7 +129,6 @@ const builtInThemes: ChatThemePreset[] = [
 const migrateMemoryConfigs = (configs: MemoryConfigMap) => Object.fromEntries(Object.entries(configs).map(([id, config]) => [id, {
   ...config,
   useGlobalApi: config.useGlobalApi ?? !config.api?.apiKey,
-  autoCharacterMemory: config.autoCharacterMemory !== false,
   summaryPrompt: config.summaryPrompt === legacyMemoryPrompt || config.summaryPrompt === previousMemoryPrompt ? defaultMemoryPrompt : config.summaryPrompt,
 }]))
 
@@ -234,11 +227,7 @@ function exportableCharacter(character: Character) {
       creator: character.creator,
       character_version: character.characterVersion,
       character_book: character.characterBook,
-      extensions: {
-        regex_scripts: character.regexScripts,
-        ...(character.beautificationProtocol?.trim() ? { beautification_protocol: character.beautificationProtocol } : {}),
-        ...(character.characterMemory?.length ? { weijing_character_memory: character.characterMemory } : {}),
-      },
+      extensions: { regex_scripts: character.regexScripts },
     },
   }
 }
@@ -252,30 +241,9 @@ const createConversation = (character: Character, greeting = character.greeting,
   updatedAt: Date.now(),
 })
 
-const repairGuTingshenConversationStages = (source: Conversation[], characters: Character[]) => {
-  const guTingshenIds = characters.filter((character) => character.name === '顾霆深').map((character) => character.id)
-  if (!guTingshenIds.length) return source
-  return source.map((conversation) => {
-    let nextConversation = conversation
-    guTingshenIds.forEach((characterId) => {
-      if (conversation.characterId !== characterId && !conversation.participantIds?.includes(characterId)) return
-      const repaired = repairRelationshipStageHistory(nextConversation.messages, characterId)
-      const stored = nextConversation.relationshipStages?.[characterId]
-      const highest = Math.max(stored || 0, repaired.highest || 0)
-      if (!repaired.changed && highest === stored) return
-      nextConversation = {
-        ...nextConversation,
-        messages: repaired.messages as Message[],
-        relationshipStages: highest ? { ...(nextConversation.relationshipStages || {}), [characterId]: highest } : nextConversation.relationshipStages,
-      }
-    })
-    return nextConversation
-  })
-}
-
 const loadConversations = (characters: Character[]): Conversation[] => {
   const stored = read<Conversation[]>('weijing.conversations', [])
-  if (Array.isArray(stored) && stored.length) return repairGuTingshenConversationStages(stored, characters)
+  if (Array.isArray(stored) && stored.length) return stored
 
   const legacy = read<LegacySessionMap>('weijing.sessions', {})
   const migrated = Object.entries(legacy).map(([characterId, messages], index) => {
@@ -290,7 +258,7 @@ const loadConversations = (characters: Character[]): Conversation[] => {
       updatedAt: timestamp,
     }
   })
-  return repairGuTingshenConversationStages(migrated.length ? migrated : [createConversation(characters[0] || demoCharacter)], characters)
+  return migrated.length ? migrated : [createConversation(characters[0] || demoCharacter)]
 }
 
 function BackHeader({ title, onBack, action }: { title: string; onBack: () => void; action?: React.ReactNode }) {
@@ -360,7 +328,6 @@ function App() {
   const [memoryConfigs, setMemoryConfigs] = useState<MemoryConfigMap>(() => migrateMemoryConfigs(read('weijing.memoryConfigs', { [demoCharacter.id]: defaultMemoryConfig() })))
   const [memoryEntries, setMemoryEntries] = useState<MemoryEntryMap>(() => read('weijing.memoryEntries', { [demoCharacter.id]: [] }))
   const [memoryState, setMemoryState] = useState<'idle' | 'summarizing' | 'ok' | 'error'>('idle')
-  const [autoCharacterMemoryNotice, setAutoCharacterMemoryNotice] = useState<{ characterId: string; text: string } | null>(null)
   const [importState, setImportState] = useState<'idle' | 'reading' | 'error'>('idle')
   const [importError, setImportError] = useState('')
   const [pendingImport, setPendingImport] = useState<Character | null>(null)
@@ -382,9 +349,6 @@ function App() {
   const messageListLayoutMarkerRef = useRef<HTMLDivElement>(null)
   const scrollUiFrameRef = useRef<number | null>(null)
   const chatJumpHideTimerRef = useRef<number | null>(null)
-  const chatScrollSnapshotsRef = useRef(new Map<string, { top: number; stickToBottom: boolean }>())
-  const pendingChatScrollRestoreRef = useRef<string | null>(null)
-  const pendingChatLatestScrollRef = useRef<string | null>(null)
   const generationControllers = useRef(new Map<string, AbortController>())
   const continuityRunningProjectIds = useRef(new Set<string>())
 
@@ -392,67 +356,19 @@ function App() {
   const groupLeadId = explicitConversation?.kind === 'group' ? explicitConversation.participantIds?.[0] : undefined
   const activeCharacter = characters.find((item) => item.id === (groupLeadId || activeId)) || characters[0] || demoCharacter
   const api = apiChannels.find((item) => item.id === activeApiId) || apiChannels[0]
+  const conversationApiFor = (conversation: Conversation, characterId: string, fallback = api) => resolveApiChannel(
+    apiChannels,
+    fallback,
+    conversation.participantApiIds?.[characterId],
+    conversation.participantModelNames?.[characterId],
+  )
   const activeConversation = (explicitConversation?.kind === 'group' ? explicitConversation : conversations.find((item) => item.id === activeConversationId && item.characterId === activeCharacter.id))
     || conversations.filter((item) => item.characterId === activeCharacter.id).sort((a, b) => b.updatedAt - a.updatedAt)[0]
   const identity = identities.find((item) => item.id === activeConversation?.personaId) || identities.find((item) => item.id === activePersonaId) || identities[0] || { id: 'persona-default', name: '周惟惟', description: '由用户亲自决定言行、心理与关键选择。' }
   const sourceGroupConversation = conversations.find((item) => item.id === newConversationSourceId && item.kind === 'group')
   const groupGreetingCharacters = (sourceGroupConversation?.participantIds || groupDraft.participantIds).map((id) => characters.find((item) => item.id === id)).filter(Boolean) as Character[]
   const groupGreetingUserName = newConversationSourceId ? identity.name : (identities.find((item) => item.id === activePersonaId) || identity).name
-  const directorEditorSourceIds = directorEditorTarget === 'draft'
-    ? groupDraft.participantIds
-    : (activeConversation?.kind === 'group' ? activeConversation.participantIds || [] : activeConversation ? [activeConversation.characterId] : [])
-  const directorEditorSourceCharacters = directorEditorSourceIds
-    .filter((id) => id !== activeConversation?.directorCharacterId)
-    .map((id) => characters.find((item) => item.id === id))
-    .filter(Boolean) as Character[]
-  const directorEditorChannelId = directorEditorTarget === 'draft'
-    ? groupDirectorDraft.apiId
-    : activeConversation?.directorCharacterId ? activeConversation.participantApiIds?.[activeConversation.directorCharacterId] || activeConversation.directorConfig?.apiId : api.id
-  const directorEditorBaseApi = apiChannels.find((channel) => channel.id === directorEditorChannelId) || api
-  const directorEditorModelName = directorEditorTarget === 'draft'
-    ? groupDirectorDraft.modelName || directorEditorBaseApi.modelName
-    : directorEditorTarget === 'conversation' && activeConversation?.directorCharacterId
-      ? activeConversation.participantModelNames?.[activeConversation.directorCharacterId] || activeConversation.directorConfig?.modelName || directorEditorBaseApi.modelName
-      : directorEditorBaseApi.modelName
-  const directorEditorApi = withApiModel(directorEditorBaseApi, directorEditorModelName)
   const messages = activeConversation?.messages || [{ id: 1, role: 'assistant' as const, text: activeCharacter.greeting }]
-  const conversationStats = countConversationStats(messages)
-  const chatScrollKey = activeConversation?.id || `character:${activeCharacter.id}`
-  const rememberChatScroll = (conversationKey = chatScrollKey) => {
-    const list = messageListRef.current
-    if (!list) return
-    const distanceToBottom = Math.max(0, list.scrollHeight - list.scrollTop - list.clientHeight)
-    chatScrollSnapshotsRef.current.set(conversationKey, {
-      top: Math.max(0, list.scrollTop),
-      stickToBottom: distanceToBottom <= 96,
-    })
-  }
-  const applyChatScrollSnapshot = (list: HTMLDivElement, conversationKey: string) => {
-    const snapshot = chatScrollSnapshotsRef.current.get(conversationKey)
-    const maxScrollTop = Math.max(0, list.scrollHeight - list.clientHeight)
-    const target = snapshot?.stickToBottom ? maxScrollTop : Math.min(snapshot?.top || 0, maxScrollTop)
-    list.scrollTop = target
-    return target
-  }
-  const scrollChatToLatest = (list: HTMLDivElement) => {
-    const marker = messageListLayoutMarkerRef.current
-    // Use the physical end marker as well as scrollTop. On mobile Safari a flex
-    // scroller can report its old extent for a frame after rich content mounts.
-    // scrollIntoView asks the browser to find the actual scroll parent instead.
-    marker?.scrollIntoView({ block: 'end', inline: 'nearest', behavior: 'auto' })
-    const target = Math.max(0, list.scrollHeight - list.clientHeight)
-    list.scrollTo({ top: target, left: 0, behavior: 'auto' })
-    list.scrollTop = target
-    marker?.scrollIntoView({ block: 'end', inline: 'nearest', behavior: 'auto' })
-    return target
-  }
-  const requestChatLatestScroll = (conversationKey: string) => {
-    pendingChatLatestScrollRef.current = conversationKey
-    chatScrollSnapshotsRef.current.set(conversationKey, {
-      top: Math.max(0, messageListRef.current?.scrollTop || 0),
-      stickToBottom: true,
-    })
-  }
   const memoryConfigFor = (characterId: string) => {
     const config = memoryConfigs[characterId] || defaultMemoryConfig()
     return { ...config, api: config.useGlobalApi === false ? config.api : globalMemoryApi }
@@ -466,19 +382,6 @@ function App() {
     const entries = memoriesForConversation(current, activeConversation?.id, activeCharacter.id, activeHistoryRevision) as MemoryEntry[]
     return replaceConversationMemories(current, activeConversation?.id, activeCharacter.id, activeHistoryRevision, transform(entries)) as MemoryEntryMap
   })
-  const isMemoryFixedToCharacter = (entry: MemoryEntry) => {
-    const content = characterMemoryEntryFromConversation(entry).content.trim()
-    return activeCharacterMemory(activeCharacter).some((item) => item.sourceMemoryId === entry.id || (content && item.content.trim() === content))
-  }
-  const promoteMemoryToCharacter = (entry: MemoryEntry) => {
-    const fixed = characterMemoryEntryFromConversation(entry)
-    setCharacters((current) => current.map((character) => {
-      if (character.id !== activeCharacter.id) return character
-      const existing = activeCharacterMemory(character).some((item) => item.sourceMemoryId === entry.id || item.content.trim() === fixed.content.trim())
-      if (existing) return character
-      return { ...character, characterMemory: [...(character.characterMemory || []), fixed] }
-    }))
-  }
   const restoreArchivedMemory = (entry: MemoryEntry) => setMemoryEntries((current) => {
     const key = activeConversation?.id || activeCharacter.id
     const source = current[key] || []
@@ -490,11 +393,9 @@ function App() {
     continuityRunningProjectIds.current.add(project.id)
     const checkpoint = captureAssistantMessageIds(project, conversations)
     const directorConversation = conversations.find((conversation) => project.conversationIds.includes(conversation.id) && conversation.directorCharacterId === project.directorCharacterId)
-    const directorApiId = project.directorCharacterId ? directorConversation?.participantApiIds?.[project.directorCharacterId] : undefined
-    const baseChannel = apiChannels.find((channel) => channel.id === directorApiId) || api
-    const storyApi = project.directorCharacterId && directorConversation?.participantModelNames?.[project.directorCharacterId]
-      ? withApiModel(baseChannel, directorConversation.participantModelNames[project.directorCharacterId])
-      : baseChannel
+    const storyApi = project.directorCharacterId && directorConversation
+      ? conversationApiFor(directorConversation, project.directorCharacterId, api)
+      : api
     setStoryProjects((current) => current.map((item) => item.id === project.id ? { ...item, autoContinuity: { ...item.autoContinuity, lastSummary: '自动场记正在整理本轮进展…', lastError: undefined } } : item))
     try {
       if (!storyApi?.apiKey?.trim() || !storyApi.baseUrl?.trim() || !storyApi.modelName?.trim()) throw new Error('导演 API 尚未配置完整')
@@ -674,61 +575,21 @@ function App() {
   }, [composerExpanded])
   useEffect(() => setComposerExpanded(false), [activeConversation?.id])
   useLayoutEffect(() => {
-    if (page !== 'chat') phoneCanvasRef.current?.scrollTo({ top: 0, left: 0 })
+    phoneCanvasRef.current?.scrollTo({ top: 0, left: 0 })
   }, [page])
   useLayoutEffect(() => {
     if (page !== 'chat') return
     const list = messageListRef.current
     if (!list) return
-    const conversationKey = chatScrollKey
-    const returnToLatest = pendingChatLatestScrollRef.current === conversationKey
-    pendingChatScrollRestoreRef.current = conversationKey
-    let firstFrame: number | null = null
-    let secondFrame: number | null = null
-    let settleTimer: number | null = null
-    const restore = () => {
-      if (pendingChatScrollRestoreRef.current !== conversationKey) return
-      const target = returnToLatest ? scrollChatToLatest(list) : applyChatScrollSnapshot(list, conversationKey)
-      pendingChatScrollRestoreRef.current = null
-      const distanceToBottom = Math.max(0, list.scrollHeight - target - list.clientHeight)
-      chatScrollSnapshotsRef.current.set(conversationKey, {
-        top: target,
-        stickToBottom: distanceToBottom <= 96,
-      })
-      setChatJump({ up: target > 240, down: distanceToBottom > 280, visible: false })
-      if (returnToLatest) {
-        // Let iOS finish laying out the header, composer and rich message cards,
-        // then pin to the actual final message instead of the stale first extent.
-        settleTimer = window.setTimeout(() => {
-          if (pendingChatLatestScrollRef.current !== conversationKey) return
-          const latestTarget = scrollChatToLatest(list)
-          chatScrollSnapshotsRef.current.set(conversationKey, { top: latestTarget, stickToBottom: true })
-          if (!generationControllers.current.has(conversationKey)) pendingChatLatestScrollRef.current = null
-          setChatJump({ up: latestTarget > 240, down: false, visible: false })
-        }, 180)
-      }
-    }
-    firstFrame = window.requestAnimationFrame(() => {
-      secondFrame = window.requestAnimationFrame(restore)
-    })
-    return () => {
-      rememberChatScroll(conversationKey)
-      if (firstFrame !== null) window.cancelAnimationFrame(firstFrame)
-      if (secondFrame !== null) window.cancelAnimationFrame(secondFrame)
-      if (settleTimer !== null) window.clearTimeout(settleTimer)
-      if (pendingChatScrollRestoreRef.current === conversationKey) pendingChatScrollRestoreRef.current = null
-    }
-    // The helper intentionally closes over the current conversation key; adding it here would
-    // recreate the restoration effect on every render and lose the saved position.
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [page, chatScrollKey])
+    const bottom = () => { list.scrollTop = list.scrollHeight; setChatJump({ up: list.scrollTop > 240, down: false, visible: false }) }
+    window.requestAnimationFrame(() => window.requestAnimationFrame(bottom))
+  }, [page, activeConversation?.id])
   useLayoutEffect(() => {
     if (page !== 'chat') return
     const list = messageListRef.current
     const marker = messageListLayoutMarkerRef.current
     const composer = composerDockRef.current
     if (!list || !marker) return
-    const conversationKey = chatScrollKey
 
     let layoutFrame: number | null = null
     let markerHeight = 1
@@ -744,14 +605,7 @@ function App() {
           marker.style.flexBasis = `${markerHeight}px`
           marker.style.height = `${markerHeight}px`
           void list.offsetHeight
-          const snapshot = chatScrollSnapshotsRef.current.get(conversationKey)
-          if (pendingChatLatestScrollRef.current === conversationKey) {
-            scrollChatToLatest(list)
-          } else if (pendingChatScrollRestoreRef.current === conversationKey || snapshot?.stickToBottom) {
-            applyChatScrollSnapshot(list, conversationKey)
-          } else {
-            list.scrollTop = Math.min(previousScrollTop, Math.max(0, list.scrollHeight - list.clientHeight))
-          }
+          list.scrollTop = Math.min(previousScrollTop, Math.max(0, list.scrollHeight - list.clientHeight))
         })
       })
     }
@@ -765,18 +619,15 @@ function App() {
     }
 
     const richContentObserver = typeof ResizeObserver === 'undefined' ? null : new ResizeObserver(refreshScrollGeometry)
-    const observeMessageContent = () => list.querySelectorAll<HTMLElement>('.message-row, .message-safe-html, .message-script-frame').forEach((node) => richContentObserver?.observe(node))
-    const messageObserver = typeof MutationObserver === 'undefined' ? null : new MutationObserver(() => {
-      observeMessageContent()
-      refreshScrollGeometry()
-    })
+    const observeRichContent = () => list.querySelectorAll<HTMLElement>('.message-safe-html').forEach((node) => richContentObserver?.observe(node))
+    const messageObserver = typeof MutationObserver === 'undefined' ? null : new MutationObserver(observeRichContent)
     const composerObserver = composer && typeof ResizeObserver !== 'undefined' ? new ResizeObserver(() => {
       syncComposerClearance()
       refreshScrollGeometry()
     }) : null
 
     list.addEventListener('toggle', handleDetailsToggle, true)
-    observeMessageContent()
+    observeRichContent()
     messageObserver?.observe(list, { childList: true, subtree: true })
     if (composer && composerObserver) composerObserver.observe(composer)
     syncComposerClearance()
@@ -789,46 +640,9 @@ function App() {
       if (layoutFrame !== null) window.cancelAnimationFrame(layoutFrame)
       list.style.removeProperty('--composer-clearance')
     }
-  }, [page, chatScrollKey])
-  useLayoutEffect(() => {
-    if (page !== 'chat' || pendingChatLatestScrollRef.current !== chatScrollKey) return
-    const list = messageListRef.current
-    if (!list) return
-    const conversationKey = chatScrollKey
-    let firstFrame: number | null = null
-    let secondFrame: number | null = null
-    const settleTimers: number[] = []
-    const settleLatestScroll = () => {
-      if (pendingChatLatestScrollRef.current !== conversationKey) return
-      const target = scrollChatToLatest(list)
-      chatScrollSnapshotsRef.current.set(conversationKey, { top: target, stickToBottom: true })
-      setChatJump({ up: target > 240, down: false, visible: false })
-    }
-    firstFrame = window.requestAnimationFrame(() => {
-      settleLatestScroll()
-      secondFrame = window.requestAnimationFrame(settleLatestScroll)
-    })
-    // Rich cards, iframe responses and iOS keyboard/layout changes can land long
-    // after React commits a streamed chunk. Re-pin across that entire settling
-    // window; the request is released only when generation has actually ended.
-    ;[80, 220, 460, 760].forEach((delay, index) => {
-      settleTimers.push(window.setTimeout(() => {
-        settleLatestScroll()
-        if (index === 3 && !generationControllers.current.has(conversationKey)) pendingChatLatestScrollRef.current = null
-      }, delay))
-    })
-    return () => {
-      if (firstFrame !== null) window.cancelAnimationFrame(firstFrame)
-      if (secondFrame !== null) window.cancelAnimationFrame(secondFrame)
-      settleTimers.forEach((timer) => window.clearTimeout(timer))
-    }
-    // Message identity changes on each streamed render; rerun the settling pass
-    // so late status bars, rich cards, and iframe height reports cannot move the view.
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [page, chatScrollKey, messages, generatingIds.length])
+  }, [page, activeConversation?.id])
   const pageTitle = useMemo(() => page === 'home' ? '惟境' : page === 'characters' ? '角色' : '', [page])
   const navigate = (target: Page, reopenDrawer?: Drawer) => {
-    if (page === 'chat' && reopenDrawer === 'right') pendingChatLatestScrollRef.current = chatScrollKey
     setHistory((current) => [...current, { page, reopenDrawer }])
     setDrawer(null)
     setConversationMenuId(null)
@@ -846,7 +660,6 @@ function App() {
   const goBack = () => {
     const previous = history[history.length - 1]
     if (!previous) { goHome(); return }
-    if (previous.page === 'chat' && previous.reopenDrawer === 'right') pendingChatLatestScrollRef.current = chatScrollKey
     setHistory((current) => current.slice(0, -1))
     setPage(previous.page)
     setDrawer(previous.reopenDrawer || null)
@@ -1332,24 +1145,6 @@ function App() {
     }
   }
 
-  const recordCharacterCoreMemories = (config: MemoryConfig, targetCharacter: Character, rawPayload: string, sourceMemoryId: string) => {
-    if (config.autoCharacterMemory === false) {
-      setAutoCharacterMemoryNotice({ characterId: targetCharacter.id, text: '自动提炼已关闭；长记忆仍会照常总结。' })
-      return
-    }
-
-    const candidates = parseCharacterMemoryCandidates(rawPayload, { sourceMemoryId })
-    if (!candidates.length) {
-      setAutoCharacterMemoryNotice({ characterId: targetCharacter.id, text: '本轮没有发现需要固定的核心记忆。' })
-      return
-    }
-
-    setCharacters((current) => current.map((character) => character.id === targetCharacter.id
-      ? { ...character, characterMemory: mergeCharacterMemoryEntries(character.characterMemory || [], candidates) }
-      : character))
-    setAutoCharacterMemoryNotice({ characterId: targetCharacter.id, text: '已在本次总结中自动检查 ' + candidates.length + ' 条核心记忆，并写入角色卡（重复内容已合并）。' })
-  }
-
   const summarizeMemory = async (sourceMessages = messages, targetConversation = activeConversation, targetCharacter = activeCharacter) => {
     const config = memoryConfigFor(targetCharacter.id)
     const targetRevision = targetConversation?.historyRevision || 0
@@ -1361,7 +1156,6 @@ function App() {
     const transcript = pendingMessages.map((item) => `${item.role === 'user' ? identity.name : characters.find((character) => character.id === item.characterId)?.name || targetCharacter.name}：${modelVisibleMessageText(item)}`).join('\n')
     const conversationMemories = memoriesForConversation(memoryEntries, scopeId, targetCharacter.id, targetRevision) as MemoryEntry[]
     const previous = [...conversationMemories.filter((item) => item.pinned), ...conversationMemories.filter((item) => !item.pinned).slice(-6)].map((item) => item.content).join('\n\n').slice(-12000)
-    const characterPrivateMemories = activeCharacterMemory(targetCharacter).map((item) => '- 【' + item.title + '】' + item.content).join('\n').slice(-8000)
     try {
       const endpoint = `${config.api.baseUrl.replace(/\/$/, '')}/chat/completions`
       const response = await fetch(endpoint, {
@@ -1371,25 +1165,21 @@ function App() {
           model: config.api.modelName,
           temperature: 0.2,
           messages: [
-            { role: 'system', content: config.summaryPrompt + '\n\n' + memorySummarySafetyPrompt + (config.autoCharacterMemory === false ? '' : '\n\n' + characterMemorySummaryProtocol) },
-            { role: 'user', content: '角色：' + targetCharacter.name + '\n用户：' + identity.name + '\n已有长期记忆（仅供查重）：\n' + (previous || '暂无') + '\n\n已有角色私有核心记忆（仅供查重与识别更新）：\n' + (characterPrivateMemories || '暂无') + '\n\n本次新增对话（只总结这一段）：\n' + transcript },
+            { role: 'system', content: `${config.summaryPrompt}\n\n${memorySummarySafetyPrompt}` },
+            { role: 'user', content: `角色：${targetCharacter.name}\n用户：${identity.name}\n已有长期记忆（仅供查重）：\n${previous || '暂无'}\n\n本次新增对话（只总结这一段）：\n${transcript}` },
           ],
         }),
       })
       if (!response.ok) throw new Error(`HTTP ${response.status}`)
       const data = await response.json()
-      const rawContent = data?.choices?.[0]?.message?.content?.trim()
-      if (!rawContent) throw new Error('empty memory')
-      const { summary: content, coreMemoryPayload } = splitCharacterMemorySummary(rawContent)
-      const summaryContent = content || '无新增长期记忆'
-      const sourceMemoryId = 'memory-scan-' + targetConversation.id + '-' + targetRevision + '-' + sourceMessages.length
-      if (/^无新增长期记忆[。！!]?$/.test(summaryContent)) {
-        recordCharacterCoreMemories(config, targetCharacter, coreMemoryPayload, sourceMemoryId)
+      const content = data?.choices?.[0]?.message?.content?.trim()
+      if (!content) throw new Error('empty memory')
+      if (/^无新增长期记忆[。！!]?$/.test(content)) {
         setConversations((current) => current.map((item) => item.id === targetConversation.id && (item.historyRevision || 0) === targetRevision ? { ...item, memorySummarizedCount: sourceMessages.length } : item))
         setMemoryState('ok')
         return
       }
-      const entry: MemoryEntry = { id: crypto.randomUUID(), createdAt: Date.now(), title: `${new Date().toLocaleDateString()} · 新增 ${pendingMessages.length} 条`, content: summaryContent, sourceCount: pendingMessages.length, historyRevision: targetRevision }
+      const entry: MemoryEntry = { id: crypto.randomUUID(), createdAt: Date.now(), title: `${new Date().toLocaleDateString()} · 新增 ${pendingMessages.length} 条`, content, sourceCount: pendingMessages.length, historyRevision: targetRevision }
       let nextEntries = [...conversationMemories.filter((item) => item.pinned), ...[...conversationMemories.filter((item) => !item.pinned), entry].slice(-config.maxEntries)]
       const ordinary = nextEntries.filter((item) => !item.pinned)
       if (ordinary.length >= 12) {
@@ -1414,7 +1204,6 @@ function App() {
         } catch (error) { console.warn('自动整理长期记忆失败，保留原记忆', error) }
       }
       setMemoryEntries((current) => replaceConversationMemories(current, scopeId, targetCharacter.id, targetRevision, nextEntries) as MemoryEntryMap)
-      recordCharacterCoreMemories(config, targetCharacter, coreMemoryPayload, entry.id)
       setConversations((current) => current.map((item) => item.id === targetConversation.id && (item.historyRevision || 0) === targetRevision ? { ...item, memorySummarizedCount: sourceMessages.length } : item))
       setMemoryState('ok')
     } catch (error) {
@@ -1465,7 +1254,7 @@ function App() {
         messages: promptMessages,
         temperature: .75,
         topP: .95,
-        maxTokens: REPLY_HELPER_MAX_TOKENS,
+        maxTokens: Math.min(maxTokens, 1800),
         streaming: false,
         signal: new AbortController().signal,
         onDelta: (delta) => { output += delta },
@@ -1483,13 +1272,13 @@ function App() {
   }
 
   const generateAssistant = async (conversation: Conversation, nextMessages: Message[], speaker = activeCharacter, speakerApi = api): Promise<Message[]> => {
-    if (!speakerApi.baseUrl.trim() || !speakerApi.apiKey.trim() || !speakerApi.modelName.trim()) {
+    const resolvedSpeakerApi = conversationApiFor(conversation, speaker.id, speakerApi)
+    if (!isApiChannelComplete(resolvedSpeakerApi)) {
       setChatError(`请先为 ${speaker.name} 配置完整的 API 渠道。`)
       return nextMessages
     }
     const conversationId = conversation.id
     if (generationControllers.current.has(conversationId)) return nextMessages
-    requestChatLatestScroll(conversationId)
 
     const capturedCharacter = speaker
     const capturedMemoryConfig = memoryConfigFor(capturedCharacter.id)
@@ -1522,9 +1311,11 @@ function App() {
     try {
       const isGroup = conversation.kind === 'group'
       const isDirector = Boolean(conversation.directorCharacterId && speaker.id === conversation.directorCharacterId)
-      const statusProtocol = !isDirector ? getStatusProtocol(capturedCharacter) : { tag: '', fields: [] }
-      const statusTag = statusProtocol.tag
-      const requiresCharacterStatus = Boolean(statusTag)
+      const requiresCharacterStatus = !isDirector && /<gts_status>/i.test([
+        capturedCharacter.beautificationProtocol,
+        capturedCharacter.systemPrompt,
+        capturedCharacter.postHistoryInstructions,
+      ].filter(Boolean).join('\n'))
       const groupNames = (conversation.participantIds || []).map((id) => characters.find((item) => item.id === id)?.name).filter(Boolean)
       const storyProject = selectConversationStoryProject(storyProjects, conversation.id)
       const storyProjectContext = storyProject ? buildStoryProjectPrompt({ project: storyProject, speakerId: speaker.id, characters }) : ''
@@ -1550,19 +1341,10 @@ function App() {
         contextSummary: hasValidContextSummary ? conversation.contextSummary : undefined,
         compressedUntil: hasValidContextSummary ? conversation.compressedUntil : undefined,
       })
-      const storedRelationshipStage = capturedCharacter.name === '顾霆深'
-        ? Math.max(conversation.relationshipStages?.[capturedCharacter.id] || 0, highestRelationshipStage(nextMessages, capturedCharacter.id) || 0) as RelationshipStage
-        : 0
-      if (storedRelationshipStage) promptMessages.push({ role: 'system', content: relationshipStageLockInstruction(storedRelationshipStage) })
       if (isDirector) promptMessages.push({ role: 'system', content: DIRECTOR_OUTPUT_GUARD })
-      else if (requiresCharacterStatus) {
-        const fieldGuard = statusProtocol.fields.length
-          ? `状态栏必须按卡片顺序逐项保留字段：${statusProtocol.fields.join('、')}。每一项都写本轮结束时的具体事实；没有变化就沿用上一轮的具体值，不能写“本轮未更新”“以正文为准”“延续当前剧情”等占位话，也不能删除字段。`
-          : '状态栏字段不能省略；每项都写具体事实，没有变化则沿用上一轮的具体值，禁止使用空泛占位话。'
-        promptMessages.push({ role: 'system', content: `【最终输出结构校验】完成正文后必须检查：回复末尾有且只有一个闭合的 <${statusTag}>...</${statusTag}>。${fieldGuard}不得省略状态栏，不得把状态栏规则写进正文。` })
-      }
+      else if (requiresCharacterStatus) promptMessages.push({ role: 'system', content: '【最终输出结构校验】完成正文后必须检查：回复末尾有且只有一个闭合的 <gts_status>...</gts_status>。不得省略状态栏，不得把状态栏规则写进正文。' })
       const completion = await completeChat({
-        api: speakerApi,
+        api: resolvedSpeakerApi,
         messages: promptMessages,
         temperature,
         topP,
@@ -1586,27 +1368,10 @@ function App() {
       const cleanOutput = sanitizeAssistantOutput(output, { director: isDirector })
       if (!cleanOutput && containsHiddenReasoning(output, isDirector)) throw new Error('模型只返回了内部分析，惟境已拦截且没有写入剧情。请重试或换一个更遵守指令的模型。')
       const visibleOutput = cleanOutput || output
-      const statusFallback = requiresCharacterStatus
-        ? buildStatusFallback(capturedCharacter, identity.name, {
-          output: visibleOutput,
-          previousStatusContent: latestStatusContent(nextMessages, statusTag, capturedCharacter.id),
-        })
-        : null
-      const statusOutput = requiresCharacterStatus && statusFallback
-        ? moveStatusBlockToEnd(
-          completeStatusBlock(visibleOutput, statusTag, statusFallback.content, statusFallback.fields),
-          statusTag,
-        )
+      const finalOutput = requiresCharacterStatus
+        ? ensureStatusBlock(visibleOutput, 'gts_status', `状态：${speaker.name}已完成本轮回应｜关系：延续当前剧情｜待回应：等待${identity.name}回应`)
         : visibleOutput
-      const finalOutput = storedRelationshipStage ? enforceRelationshipStageFloor(statusOutput, storedRelationshipStage) : statusOutput
-      const reportedRelationshipStage = capturedCharacter.name === '顾霆深' ? extractRelationshipStage(finalOutput) : undefined
-      const nextRelationshipStage = Math.max(storedRelationshipStage || 0, reportedRelationshipStage || 0)
-      setConversations((current) => current.map((item) => item.id === conversationId ? {
-        ...item,
-        messages: item.messages.map((message) => message.id === assistantMessage.id ? { ...message, text: finalOutput } : message),
-        relationshipStages: nextRelationshipStage ? { ...(item.relationshipStages || {}), [capturedCharacter.id]: nextRelationshipStage } : item.relationshipStages,
-        updatedAt: Date.now(),
-      } : item))
+      setConversations((current) => current.map((item) => item.id === conversationId ? { ...item, messages: item.messages.map((message) => message.id === assistantMessage.id ? { ...message, text: finalOutput } : message), updatedAt: Date.now() } : item))
       const completed = [...nextMessages, { ...assistantMessage, text: finalOutput }]
       const summarizedCount = Math.min(conversation.memorySummarizedCount || 0, completed.length)
       if (!isGroup && capturedMemoryConfig.autoEvery > 0 && completed.length - summarizedCount >= capturedMemoryConfig.autoEvery && capturedMemoryConfig.api.apiKey) summarizeMemory(completed, conversation, capturedCharacter)
@@ -1645,7 +1410,6 @@ function App() {
       setConversations((current) => [...current, conversation!])
       setActiveConversationId(conversation.id)
     }
-    requestChatLatestScroll(conversation.id)
     const sourceMessages = historyOverride ?? messages
     const userMessage = { id: nextMessageId(sourceMessages), role: 'user' as const, text }
     setDraft('')
@@ -1669,9 +1433,7 @@ function App() {
       for (const speakerId of speakerIds) {
         const speaker = characters.find((item) => item.id === speakerId)
         if (!speaker) continue
-        const channelId = conversation.participantApiIds?.[speakerId]
-        const baseChannel = apiChannels.find((item) => item.id === channelId) || api
-        const channel = withApiModel(baseChannel, conversation.participantModelNames?.[speakerId])
+        const channel = conversationApiFor(conversation, speakerId, api)
         const nextGroupMessages = await generateAssistant(conversation, groupMessages, speaker, channel)
         if (nextGroupMessages.length === groupMessages.length) break
         groupMessages = nextGroupMessages
@@ -1729,8 +1491,7 @@ function App() {
     if (index < 0) return
     setMessageMenuId(null)
     const speaker = characters.find((item) => item.id === message.characterId) || activeCharacter
-    const baseChannel = activeConversation.kind === 'group' ? apiChannels.find((item) => item.id === activeConversation.participantApiIds?.[speaker.id]) || api : api
-    const channel = activeConversation.kind === 'group' ? withApiModel(baseChannel, activeConversation.participantModelNames?.[speaker.id]) : baseChannel
+    const channel = conversationApiFor(activeConversation, speaker.id, api)
     const nextMessages = messages.slice(0, index)
     const rewritten = rewriteConversationHistory(activeConversation, nextMessages)
     markStoryHistoryForReview(activeConversation.id)
@@ -1863,7 +1624,6 @@ function App() {
       const list = messageListRef.current; if (!list) return
       const distanceToBottom = list.scrollHeight - list.scrollTop - list.clientHeight
       const next = { up: list.scrollTop > 280, down: distanceToBottom > 280 }
-      rememberChatScroll()
       const visible = next.up || next.down
       setChatJump({ ...next, visible })
       if (chatJumpHideTimerRef.current !== null) window.clearTimeout(chatJumpHideTimerRef.current)
@@ -1876,9 +1636,7 @@ function App() {
 
   const jumpChat = (edge: 'top' | 'bottom') => {
     const list = messageListRef.current; if (!list) return
-    if (edge === 'bottom') scrollChatToLatest(list)
-    else list.scrollTo({ top: 0, behavior: 'smooth' })
-    window.requestAnimationFrame(() => rememberChatScroll())
+    list.scrollTo({ top: edge === 'top' ? 0 : list.scrollHeight, behavior: 'smooth' })
     setChatJump((current) => ({ ...current, visible: false }))
   }
 
@@ -1975,7 +1733,7 @@ function App() {
       return <article className={selected ? 'selected' : ''} key={character.id}><button className="group-member-toggle" onClick={() => setGroupDraft((current) => ({ ...current, participantIds: selected ? current.participantIds.filter((id) => id !== character.id) : [...current.participantIds, character.id], apiIds: { ...current.apiIds, [character.id]: current.apiIds[character.id] || api.id }, modelNames: { ...current.modelNames, [character.id]: current.modelNames[character.id] || api.modelName } }))}><CharacterPortrait item={character} /><div><strong>{character.name}</strong><small>{character.tagline}</small></div><span>{selected ? '✓' : '＋'}</span></button>{selected && <MemberApiBinding channels={apiChannels} channelId={channel.id} modelName={groupDraft.modelNames[character.id] || channel.modelName} onChannelChange={(nextChannelId) => { const nextModelName = apiChannels.find((item) => item.id === nextChannelId)?.modelName || ''; setGroupDraft((current) => ({ ...current, apiIds: { ...current.apiIds, [character.id]: nextChannelId }, modelNames: { ...current.modelNames, [character.id]: nextModelName } })) }} onModelChange={(modelName) => setGroupDraft((current) => ({ ...current, modelNames: { ...current.modelNames, [character.id]: modelName } }))} />}</article>
     })}</div><button className="primary-button full" disabled={groupDraft.participantIds.length < (groupDirectorDraft.enabled ? 1 : 2)} onClick={openGroupGreetingPicker}>下一步：选择开场白</button></section></>}
 
-    {page === 'director-template' && <DirectorTemplateEditor value={directorEditorTarget === 'conversation' ? (activeConversation?.directorConfig || createDirectorTemplateConfig()) : groupDirectorDraft} existing={directorEditorTarget === 'conversation'} contextLabel={directorEditorTarget === 'conversation-new' ? '当前对话升级' : undefined} submitLabel={directorEditorTarget === 'conversation-new' ? '添加导演并保留当前剧情' : undefined} sourceCharacters={directorEditorSourceCharacters} userName={identity.name} api={directorEditorApi} onCancel={goBack} onSave={(config) => { if (directorEditorTarget === 'conversation') saveConversationDirector(config); else if (directorEditorTarget === 'conversation-new') addConversationDirector(config); else { setGroupDirectorDraft(config); goBack() } }} />}
+    {page === 'director-template' && <DirectorTemplateEditor value={directorEditorTarget === 'conversation' ? (activeConversation?.directorConfig || createDirectorTemplateConfig()) : groupDirectorDraft} existing={directorEditorTarget === 'conversation'} contextLabel={directorEditorTarget === 'conversation-new' ? '当前对话升级' : undefined} submitLabel={directorEditorTarget === 'conversation-new' ? '添加导演并保留当前剧情' : undefined} onCancel={goBack} onSave={(config) => { if (directorEditorTarget === 'conversation') saveConversationDirector(config); else if (directorEditorTarget === 'conversation-new') addConversationDirector(config); else { setGroupDirectorDraft(config); goBack() } }} />}
 
     {page === 'import-preview' && pendingImport && <ImportPreview character={pendingImport} onCancel={() => { setPendingImport(null); goBack() }} onConfirm={({ includeBook, includeRegex }) => {
     const character = { ...pendingImport, characterBook: includeBook ? pendingImport.characterBook : undefined, regexScripts: includeRegex ? pendingImport.regexScripts : [] }
@@ -1983,11 +1741,11 @@ function App() {
       addImportedCharacter(character)
     }} />}
 
-    {page === 'character-detail' && <><BackHeader title={activeCharacter.name} onBack={goBack} /><section className="detail-stack"><div className="character-hero"><CharacterPortrait item={activeCharacter} large /><div><p className="eyebrow">{activeCharacter.cardSpecVersion ? `CHARACTER CARD ${activeCharacter.cardSpecVersion}` : 'CHARACTER'}</p><h2>{activeCharacter.name}</h2><p>{activeCharacter.tagline}</p></div></div><div className={`detail-card character-intro-card ${characterIntroExpanded ? 'expanded' : ''}`}><div className="detail-card-heading"><h3>角色简介</h3><button onClick={() => setCharacterIntroExpanded(!characterIntroExpanded)}>{characterIntroExpanded ? '收起⌃' : '展开⌄'}</button></div><p>{activeCharacter.description || '还没有填写角色简介。'}</p><div className="chips left">{activeCharacter.tags.map((tag) => <span key={tag}>{tag}</span>)}</div></div><button className="data-summary-card" onClick={() => navigate('card-data')}><div><strong>角色卡主体与开场白</strong><small>{activeCharacter.alternateGreetings.length + 1} 个开场 · Card {activeCharacter.cardSpecVersion || '本地'}</small></div><span>›</span></button><button className="data-summary-card compact" onClick={() => navigate('card-worldbook')}><div><strong>角色世界书</strong><small>{activeCharacter.characterBook?.entries.length || 0} 条 · 可编辑、启停和调整插入位置</small></div><span>›</span></button><button className="data-summary-card compact" onClick={() => navigate('card-regex')}><div><strong>角色正则与美化</strong><small>{activeCharacter.regexScripts.length} 条 · {activeCharacter.regexScripts.filter((script) => !script.disabled).length} 条启用</small></div><span>›</span></button><div className="detail-card character-private-memory-card"><h3>角色私有记忆</h3><p>固定注入这张角色卡的长期事实，目前启用 {activeCharacterMemory(activeCharacter).length} 条。</p><button className="inline-link" onClick={() => navigate('card-memory')}>管理角色私有记忆 ›</button></div><div className="detail-card"><h3>当前对话长期记忆</h3><p>这个角色拥有独立记忆库，目前保存 {currentMemories.length} 条记忆。</p><button className="inline-link" onClick={() => navigate('memory')}>管理记忆与总结模型 ›</button></div><div className="detail-card"><h3>开场白</h3><blockquote>{activeCharacter.greeting}</blockquote></div><div className="detail-actions">{conversations.some((item) => item.characterId === activeCharacter.id) ? <><button className="primary-button full" onClick={() => continueConversation()}>继续共演</button><button className="secondary-button" onClick={newSession}>选择开场并新建对话</button></> : <button className="primary-button full" onClick={newSession}>选择开场并开始共演</button>}</div></section></>}
+    {page === 'character-detail' && <><BackHeader title={activeCharacter.name} onBack={goBack} /><section className="detail-stack"><div className="character-hero"><CharacterPortrait item={activeCharacter} large /><div><p className="eyebrow">{activeCharacter.cardSpecVersion ? `CHARACTER CARD ${activeCharacter.cardSpecVersion}` : 'CHARACTER'}</p><h2>{activeCharacter.name}</h2><p>{activeCharacter.tagline}</p></div></div><div className={`detail-card character-intro-card ${characterIntroExpanded ? 'expanded' : ''}`}><div className="detail-card-heading"><h3>角色简介</h3><button onClick={() => setCharacterIntroExpanded(!characterIntroExpanded)}>{characterIntroExpanded ? '收起⌃' : '展开⌄'}</button></div><p>{activeCharacter.description || '还没有填写角色简介。'}</p><div className="chips left">{activeCharacter.tags.map((tag) => <span key={tag}>{tag}</span>)}</div></div><button className="data-summary-card" onClick={() => navigate('card-data')}><div><strong>角色卡主体与开场白</strong><small>{activeCharacter.alternateGreetings.length + 1} 个开场 · Card {activeCharacter.cardSpecVersion || '本地'}</small></div><span>›</span></button><button className="data-summary-card compact" onClick={() => navigate('card-worldbook')}><div><strong>角色世界书</strong><small>{activeCharacter.characterBook?.entries.length || 0} 条 · 可编辑、启停和调整插入位置</small></div><span>›</span></button><button className="data-summary-card compact" onClick={() => navigate('card-regex')}><div><strong>角色正则与美化</strong><small>{activeCharacter.regexScripts.length} 条 · {activeCharacter.regexScripts.filter((script) => !script.disabled).length} 条启用</small></div><span>›</span></button><div className="detail-card"><h3>长期记忆</h3><p>这个角色拥有独立记忆库，目前保存 {currentMemories.length} 条记忆。</p><button className="inline-link" onClick={() => navigate('memory')}>管理记忆与总结模型 ›</button></div><div className="detail-card"><h3>开场白</h3><blockquote>{activeCharacter.greeting}</blockquote></div><div className="detail-actions">{conversations.some((item) => item.characterId === activeCharacter.id) ? <><button className="primary-button full" onClick={() => continueConversation()}>继续共演</button><button className="secondary-button" onClick={newSession}>选择开场并新建对话</button></> : <button className="primary-button full" onClick={newSession}>选择开场并开始共演</button>}</div></section></>}
 
     {page === 'card-data' && <CharacterCardManager character={activeCharacter} onChange={updateActiveCharacter} onBack={goBack} />}
     {page === 'card-worldbook' && <CharacterCardManager character={activeCharacter} onChange={updateActiveCharacter} onBack={goBack} initialSection="worldbook" />}
-    {page === 'card-regex' && <CharacterCardManager character={activeCharacter} onChange={updateActiveCharacter} onBack={goBack} initialSection="regex" />}{page === 'card-memory' && <CharacterCardManager character={activeCharacter} onChange={updateActiveCharacter} onBack={goBack} initialSection="memory" />}
+    {page === 'card-regex' && <CharacterCardManager character={activeCharacter} onChange={updateActiveCharacter} onBack={goBack} initialSection="regex" />}
 
     {page === 'greeting-picker' && <GreetingPicker character={activeCharacter} userName={identity.name} onCancel={() => { const creatingFromConversation = Boolean(newConversationSourceId); setNewConversationSourceId(null); if (creatingFromConversation) replacePage('chat'); else goBack() }} onConfirm={beginWithGreeting} />}
 
@@ -2005,11 +1763,11 @@ function App() {
     {page === 'theater-world' && activeConversation && <EditablePage title="本剧场世界观背景" value={activeConversation.theaterWorldBackground || ''} onChange={(value) => setConversations((current) => current.map((item) => item.id === activeConversation.id ? { ...item, theaterWorldBackground: value, updatedAt: Date.now() } : item))} onBack={goBack} fieldLabel="本剧场共用背景与人物关系" description={`这份设定只属于“${activeConversation.title}”。本剧场里的所有角色和 NPC 都会读取；切换到其他对话或群聊时不会带过去。`} note="自动保存并随本剧场独立存放。角色各自的人设、世界书与长期记忆仍会叠加生效。" placeholder="填写本剧场的时代与地点、公共背景、人物关系、共同经历、势力结构和所有成员必须知道的事实……" />}
     {page === 'preset' && <PresetEditor sections={presetSections} onChange={setPresetSections} onBack={goBack} />}
 
-    {page === 'memory' && <><BackHeader title={`${activeCharacter.name} · 长记忆`} onBack={goBack} action={<button className="soft-button" onClick={() => updateMemoryConfig({ ...defaultMemoryConfig(), api: currentMemoryConfig.api, useGlobalApi: currentMemoryConfig.useGlobalApi })}>恢复默认</button>} /><section className="settings-stack memory-settings"><div className="memory-character-banner"><div className="character-art"><span>{activeCharacter.name.slice(-1)}</span><i>✦</i></div><div><strong>独立记忆库</strong><small>仅属于 {activeCharacter.name}，不会与其他角色混用</small></div></div><div className="memory-api-mode"><div><strong>记忆 API 来源</strong><small>默认共用全局接口，需要时可为当前角色单独覆盖。</small></div><div><button className={currentMemoryConfig.useGlobalApi !== false ? 'active' : ''} onClick={() => updateMemoryConfig({ useGlobalApi: true })}>全局默认</button><button className={currentMemoryConfig.useGlobalApi === false ? 'active' : ''} onClick={() => updateMemoryConfig({ useGlobalApi: false, api: currentMemoryConfig.api.apiKey ? currentMemoryConfig.api : { ...globalMemoryApi } })}>当前角色独立</button></div></div><button className="memory-api-row" onClick={() => navigate('memory-api')}><div><strong>{currentMemoryConfig.useGlobalApi === false ? '当前角色独立 API' : '全局默认记忆 API'}</strong><small>{currentMemoryApi.modelName || '未设置模型'} · {currentMemoryApi.apiKey ? '已配置' : '未填写密钥'}</small></div><span>›</span></button><div className="settings-group range-group"><RangeRow label="自动总结" hint={`每 ${currentMemoryConfig.autoEvery} 条消息总结一次，0 为禁用`} value={currentMemoryConfig.autoEvery} min={0} max={200} step={10} onChange={(value) => updateMemoryConfig({ autoEvery: value })} /><RangeRow label="记忆上限" hint={`最多保留 ${currentMemoryConfig.maxEntries} 条长期记忆`} value={currentMemoryConfig.maxEntries} min={100} max={3000} step={100} onChange={(value) => updateMemoryConfig({ maxEntries: value })} /></div><div className="settings-group toggle-row"><div><strong>自动提炼角色核心记忆</strong><small>长记忆总结后，自动记录已发生、已完成、已查明的事实；线索和进行中事项不会录入。</small></div><button className={'switch ' + (currentMemoryConfig.autoCharacterMemory !== false ? 'on' : '')} onClick={() => updateMemoryConfig({ autoCharacterMemory: currentMemoryConfig.autoCharacterMemory === false })}><span /></button></div>{autoCharacterMemoryNotice?.characterId === activeCharacter.id && <div className="memory-auto-notice">{autoCharacterMemoryNotice.text}</div>}<label className="memory-text-card"><strong>记忆总结提示词</strong><textarea rows={12} value={currentMemoryConfig.summaryPrompt} onChange={(e) => updateMemoryConfig({ summaryPrompt: e.target.value })} /><small>只总结本轮新增消息；默认模板会保留知情边界、情感阶段、线索与当前场景锚点。</small></label><label className="memory-select-card"><strong>记忆注入位置</strong><select value={currentMemoryConfig.injectPosition} onChange={(e) => updateMemoryConfig({ injectPosition: e.target.value })}><option value="none">不注入</option><option value="before-main-prompt">↑ Main Prompt</option><option value="after-main-prompt">↓ Main Prompt</option><option value="before-chat-history">↑ Chat History</option><option value="after-chat-history">↓ Chat History</option><option value="depth-system">@Depth · system</option><option value="depth-user">@Depth · user</option><option value="depth-assistant">@Depth · assistant</option></select></label><label className="memory-text-card"><strong>记忆注入提示词</strong><textarea rows={6} value={currentMemoryConfig.injectPrompt} onChange={(e) => updateMemoryConfig({ injectPrompt: e.target.value })} /><small>使用 {'{{memories}}'} 作为记忆内容占位符。</small></label><div className="memory-actions"><button className="primary-button full" onClick={() => summarizeMemory()} disabled={memoryState === 'summarizing'}>{memoryState === 'summarizing' ? '正在总结…' : memoryState === 'error' ? '配置不完整或总结失败，重试' : '立即总结当前对话'}</button><button className="secondary-button" onClick={() => navigate('memory-list')}>查看与管理记忆（当前 {currentMemories.length}{archivedMemories.length ? ` · 历史 ${archivedMemories.length}` : ''}）</button></div></section></>}
+    {page === 'memory' && <><BackHeader title={`${activeCharacter.name} · 长记忆`} onBack={goBack} action={<button className="soft-button" onClick={() => updateMemoryConfig({ ...defaultMemoryConfig(), api: currentMemoryConfig.api, useGlobalApi: currentMemoryConfig.useGlobalApi })}>恢复默认</button>} /><section className="settings-stack memory-settings"><div className="memory-character-banner"><div className="character-art"><span>{activeCharacter.name.slice(-1)}</span><i>✦</i></div><div><strong>独立记忆库</strong><small>仅属于 {activeCharacter.name}，不会与其他角色混用</small></div></div><div className="memory-api-mode"><div><strong>记忆 API 来源</strong><small>默认共用全局接口，需要时可为当前角色单独覆盖。</small></div><div><button className={currentMemoryConfig.useGlobalApi !== false ? 'active' : ''} onClick={() => updateMemoryConfig({ useGlobalApi: true })}>全局默认</button><button className={currentMemoryConfig.useGlobalApi === false ? 'active' : ''} onClick={() => updateMemoryConfig({ useGlobalApi: false, api: currentMemoryConfig.api.apiKey ? currentMemoryConfig.api : { ...globalMemoryApi } })}>当前角色独立</button></div></div><button className="memory-api-row" onClick={() => navigate('memory-api')}><div><strong>{currentMemoryConfig.useGlobalApi === false ? '当前角色独立 API' : '全局默认记忆 API'}</strong><small>{currentMemoryApi.modelName || '未设置模型'} · {currentMemoryApi.apiKey ? '已配置' : '未填写密钥'}</small></div><span>›</span></button><div className="settings-group range-group"><RangeRow label="自动总结" hint={`每 ${currentMemoryConfig.autoEvery} 条消息总结一次，0 为禁用`} value={currentMemoryConfig.autoEvery} min={0} max={200} step={10} onChange={(value) => updateMemoryConfig({ autoEvery: value })} /><RangeRow label="记忆上限" hint={`最多保留 ${currentMemoryConfig.maxEntries} 条长期记忆`} value={currentMemoryConfig.maxEntries} min={100} max={3000} step={100} onChange={(value) => updateMemoryConfig({ maxEntries: value })} /></div><label className="memory-text-card"><strong>记忆总结提示词</strong><textarea rows={12} value={currentMemoryConfig.summaryPrompt} onChange={(e) => updateMemoryConfig({ summaryPrompt: e.target.value })} /><small>只总结本轮新增消息；默认模板会保留知情边界、情感阶段、线索与当前场景锚点。</small></label><label className="memory-select-card"><strong>记忆注入位置</strong><select value={currentMemoryConfig.injectPosition} onChange={(e) => updateMemoryConfig({ injectPosition: e.target.value })}><option value="none">不注入</option><option value="before-main-prompt">↑ Main Prompt</option><option value="after-main-prompt">↓ Main Prompt</option><option value="before-chat-history">↑ Chat History</option><option value="after-chat-history">↓ Chat History</option><option value="depth-system">@Depth · system</option><option value="depth-user">@Depth · user</option><option value="depth-assistant">@Depth · assistant</option></select></label><label className="memory-text-card"><strong>记忆注入提示词</strong><textarea rows={6} value={currentMemoryConfig.injectPrompt} onChange={(e) => updateMemoryConfig({ injectPrompt: e.target.value })} /><small>使用 {'{{memories}}'} 作为记忆内容占位符。</small></label><div className="memory-actions"><button className="primary-button full" onClick={() => summarizeMemory()} disabled={memoryState === 'summarizing'}>{memoryState === 'summarizing' ? '正在总结…' : memoryState === 'error' ? '配置不完整或总结失败，重试' : '立即总结当前对话'}</button><button className="secondary-button" onClick={() => navigate('memory-list')}>查看与管理记忆（当前 {currentMemories.length}{archivedMemories.length ? ` · 历史 ${archivedMemories.length}` : ''}）</button></div></section></>}
 
     {page === 'memory-api' && <><BackHeader title={currentMemoryConfig.useGlobalApi === false ? `${activeCharacter.name} · 独立记忆 API` : '全局默认记忆 API'} onBack={goBack} action={<span className="saved-label">自动保存</span>} /><section className="content-stack form-stack" data-memory-api-scope={currentMemoryConfig.useGlobalApi === false ? activeCharacter.id : 'global'}><div className="api-status"><span className={currentMemoryApi.apiKey ? 'ok' : ''}></span><div><strong>{currentMemoryApi.apiKey ? '记忆接口已配置' : '尚未填写密钥'}</strong><small>{currentMemoryConfig.useGlobalApi === false ? `仅覆盖 ${activeCharacter.name}，其他角色仍使用全局接口` : '所有选择“全局默认”的角色与新剧场都会使用此接口'}</small></div></div><label>Base URL<input value={currentMemoryApi.baseUrl} onChange={(e) => updateMemoryApi({ baseUrl: e.target.value })} /></label><label>API Key<input type="password" value={currentMemoryApi.apiKey} onChange={(e) => updateMemoryApi({ apiKey: e.target.value })} placeholder="sk-••••••••" /></label><label>模型名称<input value={currentMemoryApi.modelName} onChange={(e) => updateMemoryApi({ modelName: e.target.value })} /></label><div className="privacy-note">此接口独立于聊天 API。密钥只保存在当前设备，不上传仓库；切回全局接口不会删除当前角色已保存的独立配置。</div></section></>}
 
-    {page === 'memory-list' && <><BackHeader title={`${activeConversation?.title || activeCharacter.name} · 记忆库`} onBack={goBack} /><section className="content-stack"><div className="privacy-note">这份记忆只属于当前对话。历史改写后，旧分支记忆会保留但不再注入新分支。</div>{currentMemories.length === 0 ? <div className="empty-memory"><span>✦</span><strong>{archivedMemories.length ? '当前分支还没有已启用记忆' : '还没有长期记忆'}</strong><p>{archivedMemories.length ? '旧分支记忆仍在下方，确认后可逐条复制回来。' : '返回上一页，配置总结 API 后可立即总结当前对话。'}</p></div> : currentMemories.slice().reverse().map((entry) => <article className={`memory-entry ${entry.pinned ? 'pinned' : ''}`} key={entry.id}><div><strong>{entry.pinned ? '★ 核心 · ' : entry.consolidated ? '阶段整理 · ' : ''}{entry.title}</strong><small>{new Date(entry.createdAt).toLocaleString()} · 来源 {entry.sourceCount} 条消息</small></div><textarea rows={8} value={entry.content} onChange={(e) => updateCurrentMemories((entries) => entries.map((item) => item.id === entry.id ? { ...item, content: e.target.value } : item))} /><div className="memory-entry-actions"><button className="soft-button" disabled={isMemoryFixedToCharacter(entry)} onClick={() => promoteMemoryToCharacter(entry)}>{isMemoryFixedToCharacter(entry) ? '已固定到角色卡' : '固定到角色卡'}</button><button className="soft-button" onClick={() => updateCurrentMemories((entries) => entries.map((item) => item.id === entry.id ? { ...item, pinned: !item.pinned } : item))}>{entry.pinned ? '取消核心' : '设为核心记忆'}</button><button className="danger-link" onClick={() => updateCurrentMemories((entries) => entries.filter((item) => item.id !== entry.id))}>删除</button></div></article>)}{archivedMemories.length > 0 && <div className="memory-archive-section"><div className="privacy-note"><strong>历史分支记忆（{archivedMemories.length}）</strong><br />这些内容没有被删除，只因对话改写而停止注入。确认仍适用于当前剧情后，可以复制回当前分支，也可以直接固定到角色卡。</div>{archivedMemories.slice().reverse().map((entry) => { const restored = Boolean(entry.id && currentMemories.some((item) => item.restoredFromId === entry.id)); return <article className="memory-entry archived" key={`archived-${entry.historyRevision || 0}-${entry.id}`}><div><strong>历史分支 · {entry.title}</strong><small>{new Date(entry.createdAt).toLocaleString()} · 来源 {entry.sourceCount} 条消息 · 分支版本 {entry.historyRevision || 0}</small></div><textarea rows={8} value={entry.content} readOnly /><div className="memory-entry-actions"><button className="soft-button" disabled={isMemoryFixedToCharacter(entry)} onClick={() => promoteMemoryToCharacter(entry)}>{isMemoryFixedToCharacter(entry) ? '已固定到角色卡' : '固定到角色卡'}</button><button className="soft-button" disabled={restored} onClick={() => restoreArchivedMemory(entry)}>{restored ? '已复制到当前分支' : '复制到当前分支'}</button></div></article> })}</div>}</section></>}
+    {page === 'memory-list' && <><BackHeader title={`${activeConversation?.title || activeCharacter.name} · 记忆库`} onBack={goBack} /><section className="content-stack"><div className="privacy-note">这份记忆只属于当前对话。历史改写后，旧分支记忆会保留但不再注入新分支。</div>{currentMemories.length === 0 ? <div className="empty-memory"><span>✦</span><strong>{archivedMemories.length ? '当前分支还没有已启用记忆' : '还没有长期记忆'}</strong><p>{archivedMemories.length ? '旧分支记忆仍在下方，确认后可逐条复制回来。' : '返回上一页，配置总结 API 后可立即总结当前对话。'}</p></div> : currentMemories.slice().reverse().map((entry) => <article className={`memory-entry ${entry.pinned ? 'pinned' : ''}`} key={entry.id}><div><strong>{entry.pinned ? '★ 核心 · ' : entry.consolidated ? '阶段整理 · ' : ''}{entry.title}</strong><small>{new Date(entry.createdAt).toLocaleString()} · 来源 {entry.sourceCount} 条消息</small></div><textarea rows={8} value={entry.content} onChange={(e) => updateCurrentMemories((entries) => entries.map((item) => item.id === entry.id ? { ...item, content: e.target.value } : item))} /><div className="memory-entry-actions"><button className="soft-button" onClick={() => updateCurrentMemories((entries) => entries.map((item) => item.id === entry.id ? { ...item, pinned: !item.pinned } : item))}>{entry.pinned ? '取消核心' : '设为核心记忆'}</button><button className="danger-link" onClick={() => updateCurrentMemories((entries) => entries.filter((item) => item.id !== entry.id))}>删除</button></div></article>)}{archivedMemories.length > 0 && <div className="memory-archive-section"><div className="privacy-note"><strong>历史分支记忆（{archivedMemories.length}）</strong><br />这些内容没有被删除，只因对话改写而停止注入。确认仍适用于当前剧情后，可以逐条复制回来。</div>{archivedMemories.slice().reverse().map((entry) => { const restored = Boolean(entry.id && currentMemories.some((item) => item.restoredFromId === entry.id)); return <article className="memory-entry archived" key={`archived-${entry.historyRevision || 0}-${entry.id}`}><div><strong>历史分支 · {entry.title}</strong><small>{new Date(entry.createdAt).toLocaleString()} · 来源 {entry.sourceCount} 条消息 · 分支版本 {entry.historyRevision || 0}</small></div><textarea rows={8} value={entry.content} readOnly /><div className="memory-entry-actions"><button className="soft-button" disabled={restored} onClick={() => restoreArchivedMemory(entry)}>{restored ? '已复制到当前分支' : '复制到当前分支'}</button></div></article> })}</div>}</section></>}
 
     {page === 'model' && <><BackHeader title="模型设置" onBack={goBack} /><section className="settings-stack compact-settings"><div className="settings-group range-group"><RangeRow label="记忆长度" value={memoryLength} min={10} max={100} step={1} onChange={setMemoryLength} /><RangeRow label="回复令牌限制" hint={`当前最多请求 ${maxTokens} 个输出令牌`} value={maxTokens} min={1000} max={64000} step={1000} onChange={setMaxTokens} /></div><div className="settings-group range-group"><RangeRow label="温度" value={temperature} min={0} max={2} step={0.05} onChange={setTemperature} /><RangeRow label="Top-P" value={topP} min={0} max={1} step={0.05} onChange={setTopP} /></div><div className="settings-group toggle-row"><div><strong>流式传输</strong><small>立即逐字显示回复</small></div><button className={`switch ${streaming ? 'on' : ''}`} onClick={() => setStreaming(!streaming)}><span /></button></div></section></>}
     {page === 'settings' && <><BackHeader title="应用设置" onBack={goBack} /><section className="settings-stack compact-settings"><div className="storage-health-card"><div><strong>本地数据保险库</strong><small>惟境真实数据：{appDataUsage}</small><small>Safari 站点总占用：{storageUsage}（含 PWA 缓存与系统预留，刷新波动不代表聊天重复增长）</small></div><span>{appDataUsage}</span></div><div className="settings-group"><button onClick={() => navigate('appearance')}><span>外观 · 自定义主题</span><span>›</span></button><button><span>语言 · 简体中文</span><span>›</span></button><button onClick={() => navigate('font')}><span>字体 · 界面 {uiFontScale}% / 正文 {chatFontSize}px</span><span>›</span></button></div><BackupCard /><UpdateCard /></section></>}
@@ -2042,7 +1800,6 @@ function App() {
       {drawer === 'right' && <aside className="app-drawer right-drawer" aria-label="聊天设置">
         <header className="drawer-character compact"><div><small>{activeConversation?.kind === 'group' ? '群聊设置' : '聊天设置'}</small><h2>{activeConversation?.title || activeCharacter.name}</h2></div><button onClick={() => setDrawer(null)}>×</button></header>
         <div className="right-drawer-scroll">
-          <section className="conversation-stats-card" aria-label="本次共演统计"><div className="conversation-stats-heading"><strong>本次共演</strong><small>你每发送一次计一轮</small></div><div className="conversation-stats-grid"><div><strong>{conversationStats.rounds}</strong><span>对话轮数</span></div><div><strong>{conversationStats.replies}</strong><span>角色回复</span></div><div><strong>{conversationStats.total}</strong><span>消息总数</span></div></div></section>
           <section className="drawer-members-section"><div className="drawer-section-title"><strong>成员（{conversationMemberIds().length}）</strong><button onClick={() => { setDrawer(null); setMemberPickerOpen(true) }}>＋ 添加 / 配置 API</button></div><div className="drawer-member-row">{conversationMemberIds().map((id) => { const member = characters.find((item) => item.id === id); if (!member) return null; return <div className="drawer-member-chip" key={id}>{member.avatar ? <img src={member.avatar} alt="" /> : <span>{member.name.slice(-1)}</span>}<small>{member.name}</small>{conversationMemberIds().length > 1 && <button aria-label={`移除${member.name}`} onClick={() => removeConversationMember(id)}>×</button>}</div> })}</div></section>
           <section className="drawer-compact-group"><div className="drawer-section-title"><strong>聊天设置</strong></div>{activeConversation?.directorCharacterId ? <button onClick={() => { setDirectorEditorTarget('conversation'); navigate('director-template', 'right') }}><span>共演导演资料 · 已启用</span><i>›</i></button> : <button onClick={openConversationDirectorCreator}><span>添加共演导演 · 保留当前剧情</span><i>＋</i></button>}{[['情景与角色资料', 'card-data'], [`本剧场世界观背景 · ${activeConversation?.theaterWorldBackground?.trim() ? '已填写' : '未填写'}`, 'theater-world'], ['用户身份', 'identity'], ['主题与背景', 'appearance'], ['字体与文字颜色', 'font'], ['显示与回复', 'display-reply']].map(([label, target]) => <button key={label} onClick={() => navigate(target as Page, 'right')}><span>{label}</span><i>›</i></button>)}</section>
           <section className="drawer-compact-group"><div className="drawer-section-title"><strong>角色与高级设置</strong></div>{[['世界书', 'card-worldbook'], ['正则与美化', 'card-regex'], ['长期记忆', 'memory'], [`AI 帮答 · ${(apiChannels.find((item) => item.id === replyHelperApiId) || api).name || '未配置'}`, 'reply-helper-api'], [`API · ${api.name || '当前渠道'}`, 'api'], ['模型设置', 'model'], ['预设', 'preset'], ['应用设置', 'settings']].map(([label, target]) => <button key={label} onClick={() => navigate(target as Page, 'right')}><span>{label}</span><i>›</i></button>)}</section>
