@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { applyApiPlatform, createApiChannel, normalizeApiChannels, withApiModel } from './apiChannels'
+import { applyApiPlatform, createApiChannel, isApiChannelComplete, normalizeApiChannels, resolveApiChannel, withApiModel } from './apiChannels'
 
 describe('api channels', () => {
   it('将旧单渠道配置迁移为默认渠道', () => {
@@ -37,5 +37,41 @@ describe('api channels', () => {
     expect(memberChannel).toMatchObject({ id: channel.id, baseUrl: channel.baseUrl, apiKey: channel.apiKey, modelName: 'member-model' })
     expect(channel.modelName).toBe('default-model')
     expect(withApiModel(channel, '')).toBe(channel)
+  })
+
+  it('已有多渠道配置缺字段时，会从旧版单渠道配置补回连接信息', () => {
+    const channels = normalizeApiChannels([
+      { id: 'nodex', name: 'Nodex', modelName: '[按次]gemini-3.7-flash' },
+    ], { baseUrl: 'https://relay.example/v1', apiKey: 'legacy-key', modelName: 'legacy-model', maxTokenField: 'max_tokens' })
+
+    expect(channels[0]).toMatchObject({
+      id: 'nodex',
+      name: 'Nodex',
+      baseUrl: 'https://relay.example/v1',
+      apiKey: 'legacy-key',
+      modelName: '[按次]gemini-3.7-flash',
+      maxTokenField: 'max_tokens',
+    })
+  })
+
+  it('成员绑定不完整时回退到当前可用渠道', () => {
+    const configured = createApiChannel(1, { baseUrl: 'https://configured.example/v1', apiKey: 'key', modelName: 'default-model' })
+    configured.id = 'configured'
+    const stale = createApiChannel(2, { baseUrl: '', apiKey: '', modelName: 'member-model' })
+    stale.id = 'stale'
+
+    const resolved = resolveApiChannel([stale, configured], stale, 'stale', 'member-model')
+
+    expect(isApiChannelComplete(resolved)).toBe(true)
+    expect(resolved).toMatchObject({ id: 'configured', modelName: 'default-model' })
+  })
+
+  it('成员绑定完整时保留成员自己的模型覆盖', () => {
+    const channel = createApiChannel(1, { baseUrl: 'https://configured.example/v1', apiKey: 'key', modelName: 'default-model' })
+    channel.id = 'configured'
+
+    const resolved = resolveApiChannel([channel], channel, 'configured', 'member-model')
+
+    expect(resolved).toMatchObject({ id: 'configured', modelName: 'member-model' })
   })
 })
