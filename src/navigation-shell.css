@@ -164,6 +164,7 @@
 .conversation-menu header button { width: 36px; min-height: 36px; padding: 0; font-size: 23px; }
 .conversation-menu > button { min-height: 50px; border: 0; border-radius: 16px; padding: 0 14px; color: #4d4651; background: transparent; text-align: left; font-weight: 700; }
 .conversation-menu > button:active { background: #eee9f1; }
+.conversation-menu > button.restart-action { color: var(--theme-accent); background: rgba(139, 112, 158, .08); }
 .conversation-menu > button.danger { color: #b25365; }
 
 .update-card { padding: 20px; border-radius: 26px; display: grid; gap: 14px; background: #efedf0; }
