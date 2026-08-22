@@ -1,3 +1,5 @@
+import { normalizeRegexScript } from './regexPolicy'
+
 export type CardSpec = 'chara_card_v2' | 'chara_card_v3' | string
 
 export type WorldBookEntryExtensions = {
@@ -910,7 +912,9 @@ export function normalizeStoredCharacter(character: Partial<Character>): Charact
     sourceFileName: character.sourceFileName,
     characterBook: normalizeCharacterBook(character.characterBook, character.name || ''),
     characterMemory: normalizeCharacterMemory(character.characterMemory),
-    regexScripts: character.regexScripts || [],
+    regexScripts: Array.isArray(character.regexScripts)
+      ? character.regexScripts.map((script) => normalizeRegexScript(script))
+      : [],
     rawCard: character.rawCard,
   }
 }
