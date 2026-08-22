@@ -1,4 +1,5 @@
 import { normalizeStoredCharacter, type Character, type CharacterBook, type RegexScript, type WorldBookEntry } from './characterCard'
+import { normalizeRegexPlacement, normalizeRegexScript } from './regexPolicy'
 
 export type CharacterWorkshopBrief = {
   concept: string
@@ -69,42 +70,13 @@ export const DEFAULT_BEAUTIFICATION_PROTOCOL = `【每轮美化输出协议】
 const text = (value: unknown) => typeof value === 'string' ? value.trim() : ''
 const texts = (value: unknown) => Array.isArray(value) ? value.map(text).filter(Boolean) : []
 
-const normalizeRegexPlacement = (value: unknown, fallback: number[] = [2]) => {
-  const raw = Array.isArray(value)
-    ? value.map((item) => Number(item)).filter(Number.isFinite)
-    : []
-
-  // 旧版工坊提示词曾误把 3 当成角色/开场位置；惟境实际只运行 1 和 2。
-  if (raw.includes(3) && !raw.includes(2)) return [2]
-
-  const valid = [...new Set(raw.filter((item) => item === 1 || item === 2))]
-  return valid.length ? valid : fallback
-}
-
 const freshRegex = (): RegexScript => ({
   id: crypto.randomUUID(), scriptName: '新 UI 美化', findRegex: '', replaceString: '', trimStrings: [], placement: [2],
   disabled: false, markdownOnly: false, promptOnly: false, runOnEdit: true, substituteRegex: 0, minDepth: null, maxDepth: null,
 })
 
 export function normalizeWorkshopRegexScript(script: RegexScript): RegexScript {
-  const fallback = freshRegex()
-  return {
-    ...fallback,
-    ...script,
-    id: text(script.id) || fallback.id,
-    scriptName: text(script.scriptName) || fallback.scriptName,
-    findRegex: text(script.findRegex),
-    replaceString: text(script.replaceString),
-    trimStrings: texts(script.trimStrings),
-    placement: normalizeRegexPlacement(script.placement),
-    disabled: Boolean(script.disabled),
-    markdownOnly: Boolean(script.markdownOnly),
-    promptOnly: Boolean(script.promptOnly),
-    runOnEdit: script.runOnEdit !== false,
-    substituteRegex: Number.isFinite(Number(script.substituteRegex)) ? Number(script.substituteRegex) : 0,
-    minDepth: script.minDepth == null ? null : Number(script.minDepth),
-    maxDepth: script.maxDepth == null ? null : Number(script.maxDepth),
-  }
+  return normalizeRegexScript(script)
 }
 
 function parseGeneratedRegexScripts(value: unknown): RegexScript[] {
@@ -333,6 +305,7 @@ export function buildCharacterWorkshopPrompt(brief: CharacterWorkshopBrief) {
 6. 开场白要有具体时间、地点、局面和可回应入口，但不得替用户发言或行动。
 7. 每张新卡都必须生成 beautificationProtocol：它是开场白和后续角色回复共用的原始文本协议，默认采用“<scene> 场景栏 → 剧情正文 → <gts_status> 状态栏”的顺序。协议必须明确标签、字段、连续性、用户主权和“只输出文本标记、不输出 HTML/CSS”。开场白正文必须实际遵守这套协议，而不是只在说明里提到。
 8. 如果美化偏好适合视觉气泡，可生成 regexScripts；视觉代码只写进正则，所有开场白与角色回复美化使用 placement [2]，绝不使用 3。没有必要的视觉脚本时返回空数组，但 beautificationProtocol 仍然必须存在；原始标签在没有正则时也必须可读。
+9. 正则替换模板必须让无背景的剧情正文使用 color: var(--chat-text-color, #000000) 或继承颜色，不能使用 #d1d5db、#e2e8f0、#cbd5e1、#f8fafc、白色等浅色作为通用正文色；只有明确写在深色背景面板上的标题或状态字才允许使用浅色。禁止 script、iframe、事件属性、position:fixed/sticky、100vh/100dvh 固定高度和 touch-action:none。
 
 只输出一个 JSON 对象，不要 Markdown 代码围栏，不要解释。必须完全符合：
 {
@@ -350,7 +323,7 @@ export function buildCharacterWorkshopPrompt(brief: CharacterWorkshopBrief) {
   "beautificationProtocol":"每轮角色回复的原始文本美化协议，必须包含 <scene>、剧情正文和 <gts_status> 的稳定顺序",
   "tags":["标签"],
   "worldbook":[{"title":"条目名","keywords":["关键词"],"content":"精简正文","constant":false}],
-  "regexScripts":[{"scriptName":"开场气泡美化","findRegex":"/^([\\\\s\\\\S]+)$/","replaceString":"安全的静态 HTML/CSS，正文用 $1","placement":[2],"disabled":false,"markdownOnly":false,"promptOnly":false,"runOnEdit":true}]
+  "regexScripts":[]
 }`
 }
 

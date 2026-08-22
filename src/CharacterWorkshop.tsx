@@ -25,6 +25,8 @@ const initialBrief: CharacterWorkshopBrief = {
   boundaries: '不替用户决定言行、心理与关键选择',
   beautificationHint: '结构化场景栏 + 剧情正文 + 状态栏；每轮回复沿用同一套标签，原始文本也必须可读',
 }
+const WORKSHOP_STORAGE_KEY = 'weijing.characterWorkshop'
+const MAX_PERSISTED_COPILOT_MESSAGES = 30
 const blankWorldEntry = () => ({ title: '新世界书条目', keywords: [] as string[], content: '', constant: false })
 const blankRegex = (): RegexScript => ({
   id: crypto.randomUUID(), scriptName: '新 UI 美化', findRegex: '', replaceString: '', trimStrings: [],
@@ -68,7 +70,13 @@ const prepareCopilotImage = async (file: File): Promise<PendingCopilotImage> => 
   }
 }
 const loadSaved = (): SavedWorkshop => {
-  try { return JSON.parse(localStorage.getItem('weijing.characterWorkshop') || '') as SavedWorkshop } catch { return { brief: initialBrief, result: null } }
+  try {
+    const raw = localStorage.getItem(WORKSHOP_STORAGE_KEY)
+    if (!raw) return { brief: initialBrief, result: null }
+    const parsed = JSON.parse(raw) as Partial<SavedWorkshop> | null
+    if (!parsed || typeof parsed !== 'object') return { brief: initialBrief, result: null }
+    return { brief: parsed.brief || initialBrief, result: parsed.result || null, avatar: parsed.avatar, copilotMessages: parsed.copilotMessages || [], copilotMemory: parsed.copilotMemory || '', pendingCopilotPatch: parsed.pendingCopilotPatch || null, copilotUndoSnapshot: parsed.copilotUndoSnapshot || null }
+  } catch { return { brief: initialBrief, result: null } }
 }
 
 const normalizeSavedBrief = (brief?: CharacterWorkshopBrief): CharacterWorkshopBrief => ({
@@ -115,13 +123,25 @@ export default function CharacterWorkshop({ channels, defaultChannelId, onBack, 
   const [copilotError, setCopilotError] = useState('')
   const controllerRef = useRef<AbortController | null>(null)
   const copilotControllerRef = useRef<AbortController | null>(null)
+  const generationRevisionRef = useRef(0)
   const copilotEndRef = useRef<HTMLDivElement | null>(null)
   const copilotImageInputRef = useRef<HTMLInputElement | null>(null)
   const channel = channels.find((item) => item.id === channelId) || channels[0]
 
   useEffect(() => {
-    try { localStorage.setItem('weijing.characterWorkshop', JSON.stringify({ brief, result, avatar, copilotMessages, copilotMemory, pendingCopilotPatch, copilotUndoSnapshot })) } catch {
-      // The workshop remains usable when storage is unavailable; this draft is best-effort.
+    const persistedMessages = copilotMessages.slice(-MAX_PERSISTED_COPILOT_MESSAGES).map(({ images: _images, ...message }) => message)
+    const payload = { brief, result, avatar, copilotMessages: persistedMessages, copilotMemory, pendingCopilotPatch, copilotUndoSnapshot }
+    try {
+      localStorage.setItem(WORKSHOP_STORAGE_KEY, JSON.stringify(payload))
+    } catch {
+      // Screenshots are useful in the live conversation but too large for many
+      // mobile localStorage quotas. Keep the draft even if the full transcript
+      // cannot fit, then retry with only the latest text turns.
+      try {
+        localStorage.setItem(WORKSHOP_STORAGE_KEY, JSON.stringify({ ...payload, copilotMessages: persistedMessages.slice(-8), copilotMemory: copilotMemory.slice(-6000) }))
+      } catch {
+        // The workshop remains usable when storage is unavailable; this draft is best-effort.
+      }
     }
   }, [brief, result, avatar, copilotMessages, copilotMemory, pendingCopilotPatch, copilotUndoSnapshot])
 
@@ -143,6 +163,8 @@ export default function CharacterWorkshop({ channels, defaultChannelId, onBack, 
   const generate = async () => {
     if (!brief.concept.trim()) { setError('先告诉我你想做一个什么样的角色。'); setState('error'); return }
     if (!channel?.apiKey.trim() || !channel.modelName.trim()) { setError('当前 API 渠道还没有可用的密钥或模型，请先去 API 设置。'); setState('error'); return }
+    const revision = ++generationRevisionRef.current
+    copilotControllerRef.current?.abort()
     controllerRef.current?.abort()
     const controller = new AbortController()
     controllerRef.current = controller
@@ -162,7 +184,9 @@ export default function CharacterWorkshop({ channels, defaultChannelId, onBack, 
         signal: controller.signal,
         onDelta: (delta) => { raw += delta },
       })
+      if (revision !== generationRevisionRef.current) return
       setResult(parseCharacterWorkshopDraft(raw))
+      setCopilotMessages([]); setCopilotMemory(''); setPendingCopilotPatch(null); setCopilotUndoSnapshot(null); setCopilotInput(''); setCopilotImages([]); setCopilotError(''); setCopilotState('idle')
       setState('idle')
     } catch (cause) {
       if (controller.signal.aborted) { setState('idle'); return }
@@ -183,6 +207,7 @@ export default function CharacterWorkshop({ channels, defaultChannelId, onBack, 
     if (!request || copilotState !== 'idle' || copilotImageBusy) return
     if (!channel?.apiKey.trim() || !channel.modelName.trim()) { setCopilotError('当前 API 渠道还没有可用的密钥或模型，请先去 API 设置。'); return }
     const draft = result || createEmptyCharacterWorkshopDraft()
+    const revision = generationRevisionRef.current
     copilotControllerRef.current?.abort()
     const controller = new AbortController()
     copilotControllerRef.current = controller
@@ -207,6 +232,7 @@ export default function CharacterWorkshop({ channels, defaultChannelId, onBack, 
         temperature: .66, topP: .9, maxTokens: 16000, streaming: false, signal: controller.signal,
         onDelta: (delta) => { raw += delta },
       })
+      if (revision !== generationRevisionRef.current || controller.signal.aborted) return
       const response = parseWorkshopCopilotResponse(raw)
       appendCopilotMessage('assistant', response.reply)
       if (response.patch) setPendingCopilotPatch(response.patch)
@@ -324,11 +350,12 @@ export default function CharacterWorkshop({ channels, defaultChannelId, onBack, 
     } finally { setPngExporting(false) }
   }
   const clear = () => {
+    generationRevisionRef.current += 1
     controllerRef.current?.abort()
     copilotControllerRef.current?.abort()
     setBrief(initialBrief); setResult(null); setAvatar(''); setCardImage(''); setError(''); setExportNotice(''); setState('idle')
     setCopilotMessages([]); setCopilotMemory(''); setPendingCopilotPatch(null); setCopilotUndoSnapshot(null); setCopilotInput(''); setCopilotError(''); setCopilotState('idle')
-    localStorage.removeItem('weijing.characterWorkshop')
+    localStorage.removeItem(WORKSHOP_STORAGE_KEY)
   }
 
   return <div className="workshop-page">

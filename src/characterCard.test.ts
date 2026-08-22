@@ -186,6 +186,23 @@ describe('角色卡世界书字段兼容', () => {
   })
 })
 
+describe('角色卡正则展示兼容', () => {
+  it('导入旧卡时也会修正浅色正文和错误运行位置', () => {
+    const result = normalizeStoredCharacter({
+      name: '周肆野',
+      regexScripts: [{
+        id: 'zhou-opening', scriptName: '开场气泡美化', findRegex: '/^([\\s\\S]+)$/',
+        replaceString: '<div style="color:#d1d5db"><p style="color:#e2e8f0">$1</p></div>',
+        placement: [3],
+      } as unknown as Character['regexScripts'][number]],
+    })
+
+    expect(result.regexScripts[0].placement).toEqual([2])
+    expect(result.regexScripts[0].replaceString).toContain('var(--chat-text-color, #000000)')
+    expect(result.regexScripts[0].replaceString).not.toContain('#d1d5db')
+  })
+})
+
 describe('星轨独立卡自主角色迁移', () => {
   const entry = (id: number, comment: string, content: string) => ({
     id, keys: [], secondary_keys: [], comment, content, constant: true, selective: false,
