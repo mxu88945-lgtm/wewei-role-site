@@ -12,9 +12,9 @@ import { buildChatPrompt } from './promptBuilder'
 import { createApiChannel, isApiChannelComplete, normalizeApiChannels, resolveApiChannel, withApiModel, type ApiChannel } from './apiChannels'
 import { enabledPresetText, normalizePresetSections } from './presetConfig'
 import { durableGet, durableSet } from './persistentStore'
-import { completeStatusBlock, containsHiddenReasoning, moveStatusBlockToEnd, sanitizeAssistantOutput, stripLeadingSpeakerLabels } from './outputSanitizer'
+import { completeStatusBlock, containsHiddenReasoning, moveStatusBlockToEnd, normalizeDirectorStatusOutput, sanitizeAssistantOutput, stripLeadingSpeakerLabels, stripStatusBlocksForStreaming } from './outputSanitizer'
 import { archivedMemoriesForConversation, memoriesForConversation, replaceConversationMemories, restoreMemoryToRevision } from './memoryEngine'
-import { findMentionedParticipantIds, selectGroupSpeakerIds, type GroupReplyMode } from './groupReplyRouting'
+import { findMentionedParticipantIds, selectGroupSpeakerIds, stripParticipantMentions, type GroupReplyMode } from './groupReplyRouting'
 import Pet from './Pet'
 import PetCritter, { PET_CHOICES, type PetVariant } from './PetCritter'
 import DirectorTemplateEditor from './DirectorTemplateEditor'
@@ -1610,7 +1610,7 @@ function App() {
         signal: controller.signal,
         onDelta: (delta) => {
           output += delta
-          stagedVisibleOutput = sanitizeAssistantOutput(output, { director: isDirector })
+          stagedVisibleOutput = stripStatusBlocksForStreaming(sanitizeAssistantOutput(output, { director: isDirector }))
           // About 20 visual updates per second still looks fluid, while avoiding a full
           // React + regex + HTML sanitization pass for every tiny network chunk.
           if (streamRenderTimer === null) streamRenderTimer = window.setTimeout(commitStreamOutput, 48)
@@ -1624,7 +1624,9 @@ function App() {
 
       const cleanOutput = sanitizeAssistantOutput(output, { director: isDirector })
       if (!cleanOutput && containsHiddenReasoning(output, isDirector)) throw new Error('模型只返回了内部分析，惟境已拦截且没有写入剧情。请重试或换一个更遵守指令的模型。')
-      const visibleOutput = cleanOutput || output
+      const visibleOutput = isDirector
+        ? normalizeDirectorStatusOutput(cleanOutput || output)
+        : cleanOutput || output
       const statusFallback = requiresCharacterStatus
         ? buildStatusFallback(capturedCharacter, identity.name, {
           output: visibleOutput,
@@ -1686,16 +1688,18 @@ function App() {
     }
     requestChatLatestScroll(conversation.id)
     const sourceMessages = historyOverride ?? messages
-    const userMessage = { id: nextMessageId(sourceMessages), role: 'user' as const, text }
     setDraft('')
-    const baseMessages: Message[] = [...sourceMessages, userMessage]
     if (conversation.kind === 'group') {
-      setConversations((current) => current.map((item) => item.id === conversation.id ? { ...item, messages: baseMessages, updatedAt: Date.now() } : item))
       const participantIds = conversation.participantIds || []
-      const mentionedIds = findMentionedParticipantIds(text, participantIds.map((id) => {
+      const participants = participantIds.map((id) => {
         const character = characters.find((item) => item.id === id)
         return { id, name: character?.name || '' }
-      }))
+      })
+      const mentionedIds = findMentionedParticipantIds(text, participants)
+      const visibleText = stripParticipantMentions(text, participants)
+      const userMessage = visibleText ? { id: nextMessageId(sourceMessages), role: 'user' as const, text: visibleText } : null
+      const baseMessages: Message[] = userMessage ? [...sourceMessages, userMessage] : sourceMessages
+      setConversations((current) => current.map((item) => item.id === conversation.id ? { ...item, messages: baseMessages, updatedAt: Date.now() } : item))
       const lastSpeakerId = [...baseMessages].reverse().find((item) => item.role === 'assistant')?.characterId
       const speakerIds = selectGroupSpeakerIds({ participantIds, mentionedIds, mode: groupReplyMode, directorCharacterId: conversation.directorCharacterId, lastSpeakerId, text })
       if (!speakerIds.length) {
@@ -1719,6 +1723,8 @@ function App() {
       if (groupMemoryConfig.autoEvery > 0 && groupMessages.length - summarizedCount >= groupMemoryConfig.autoEvery && groupMemoryConfig.api.apiKey) void summarizeMemory(groupMessages, conversation, memoryCharacter)
       return
     }
+    const userMessage = { id: nextMessageId(sourceMessages), role: 'user' as const, text }
+    const baseMessages: Message[] = [...sourceMessages, userMessage]
     await generateAssistant(conversation, baseMessages)
   }
 
@@ -1961,7 +1967,8 @@ function App() {
       ])
     }
     if (isUser && !displayText) return null
-    const content = <MessageContent text={displayText} role={message.role} character={messageCharacter} userName={identity.name} layout={chatLayout} />
+    const streaming = message.role === 'assistant' && isGenerating && message.id === messages[messages.length - 1]?.id
+    const content = <MessageContent text={displayText} role={message.role} character={messageCharacter} userName={identity.name} layout={chatLayout} streaming={streaming} />
 
     return <div key={message.id} className={`message-row ${message.role} message-layout-${chatLayout}`}>
       {chatLayout === 'flat' ? <div className="message-line message-line-flat">

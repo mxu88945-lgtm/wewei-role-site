@@ -13,6 +13,8 @@ const STATUS_TAG_NAME = new RegExp(`^${STATUS_TAG_PATTERN}$`, 'i')
 const STATUS_OPENING = new RegExp(`<(${STATUS_TAG_PATTERN})\\b[^>]*>`, 'i')
 const STATUS_FIELD_MARKER = /(?:^|[\n｜|；;])\s*([^：:\n｜|；;<>{}]{1,40}?)\s*[：:]\s*/g
 const STATUS_WRAPPER = new RegExp(`<\\/?${STATUS_TAG_PATTERN}\\b[^>]*>`, 'gi')
+const COMPLETE_STATUS_BLOCK = new RegExp(`<(${STATUS_TAG_PATTERN})\\b[^>]*>[\\s\\S]*?<\\/\\1\\s*>`, 'gi')
+const OPEN_OR_PARTIAL_STATUS_BLOCK = new RegExp(`<(${STATUS_TAG_PATTERN})\\b[^>]*>[\\s\\S]*?(?:<\\/\\1\\s*>|$)`, 'gi')
 
 export type StatusFieldValue = { label: string; value: string }
 
@@ -175,6 +177,21 @@ export function moveStatusBlockToEnd(value: string, tag: string) {
   const body = output.replace(complete, '').replace(/\n{3,}/g, '\n\n').trim()
   const finalBlock = blocks[blocks.length - 1]
   return body ? `${body}\n\n${finalBlock}` : finalBlock
+}
+
+/** Streaming replies must not show a half-written or synthesized status panel. */
+export function stripStatusBlocksForStreaming(value: string) {
+  OPEN_OR_PARTIAL_STATUS_BLOCK.lastIndex = 0
+  return value.replace(OPEN_OR_PARTIAL_STATUS_BLOCK, '').replace(/\n{3,}/g, '\n\n').trimEnd()
+}
+
+/** Directors own one final director_status panel; discard accidental character-status tags. */
+export function normalizeDirectorStatusOutput(value: string) {
+  COMPLETE_STATUS_BLOCK.lastIndex = 0
+  const directorOnly = value.replace(COMPLETE_STATUS_BLOCK, (block, tag: string) => tag.toLowerCase() === 'director_status' ? block : '')
+  const withoutPartialForeignStatus = directorOnly.replace(new RegExp(`<(?!(?:director_status)\\b)${STATUS_TAG_PATTERN}\\b[^>]*>[\\s\\S]*$`, 'i'), '')
+  const fallback = '当前外部事件：本轮剧情已推进｜待回应钩子：等待用户或独立角色回应'
+  return moveStatusBlockToEnd(ensureStatusBlock(withoutPartialForeignStatus, 'director_status', fallback), 'director_status')
 }
 
 function escapeRegex(value: string) {

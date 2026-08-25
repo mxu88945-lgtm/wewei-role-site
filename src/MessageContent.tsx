@@ -2,7 +2,7 @@ import { memo, useLayoutEffect, useMemo, useRef, useState } from 'react'
 import DOMPurify from 'dompurify'
 import type { Character } from './characterCard'
 import { applyMacros, applyRegexScripts } from './regexEngine'
-import { completeStatusBlock, containsHiddenReasoning, detectStatusTag, moveStatusBlockToEnd, sanitizeAssistantOutput } from './outputSanitizer'
+import { completeStatusBlock, containsHiddenReasoning, detectStatusTag, moveStatusBlockToEnd, normalizeDirectorStatusOutput, sanitizeAssistantOutput, stripStatusBlocksForStreaming } from './outputSanitizer'
 import { buildStatusFallback, getStatusProtocol } from './statusProtocol'
 
 function unwrapCodeFence(value: string) {
@@ -185,13 +185,18 @@ function SandboxHtml({ html }: { html: string }) {
   return <iframe ref={frameRef} className={`message-script-frame ${fullDocument ? 'full-document' : 'inline-script'}`} title="角色卡互动内容" sandbox="allow-scripts" srcDoc={source} style={{ height }} />
 }
 
-function MessageContent({ text, role, character, userName, layout = 'bubble' }: { text: string; role: 'user' | 'assistant'; character: Character; userName: string; layout?: 'bubble' | 'flat' }) {
+function MessageContent({ text, role, character, userName, layout = 'bubble', streaming = false }: { text: string; role: 'user' | 'assistant'; character: Character; userName: string; layout?: 'bubble' | 'flat'; streaming?: boolean }) {
   const rendered = useMemo(() => {
     const director = character.tags.includes('共演导演') || character.tags.includes('旁白导演')
     const cleanText = role === 'assistant' ? sanitizeAssistantOutput(text, { director }) : text
-    const visibleText = role === 'assistant' && !cleanText && containsHiddenReasoning(text, director)
+    const sanitizedText = role === 'assistant' && streaming
+      ? stripStatusBlocksForStreaming(cleanText)
+      : role === 'assistant' && director
+        ? normalizeDirectorStatusOutput(cleanText)
+        : cleanText
+    const visibleText = role === 'assistant' && !sanitizedText && containsHiddenReasoning(text, director)
       ? '（已拦截模型内部分析；未计入正式剧情。）'
-      : cleanText
+      : sanitizedText
     const pendingAssistant = role === 'assistant' && isPendingAssistantText(visibleText)
     const statusProtocol = role === 'assistant' && !director ? getStatusProtocol(character) : { tag: '', fields: [] }
     const statusTag = role === 'assistant' ? statusProtocol.tag || detectStatusTag(
@@ -201,7 +206,7 @@ function MessageContent({ text, role, character, userName, layout = 'bubble' }: 
       ...character.regexScripts.map((script) => script.findRegex || ''),
       visibleText,
     ) : ''
-    const statusFallback = role === 'assistant' && !director && statusTag && !pendingAssistant
+    const statusFallback = role === 'assistant' && !streaming && !director && statusTag && !pendingAssistant
       ? buildStatusFallback(character, userName, { output: visibleText })
       : null
     const normalizedText = statusFallback
@@ -211,7 +216,7 @@ function MessageContent({ text, role, character, userName, layout = 'bubble' }: 
     return role === 'assistant'
       ? applyRegexScripts(orderedText, character.regexScripts, character, userName, 2, 'display')
       : applyMacros(visibleText, character, userName)
-  }, [text, role, character, userName])
+  }, [text, role, character, userName, streaming])
 
   if (hasExecutableScript(rendered) || isFullHtmlDocument(rendered)) return <div className="message-content message-content-rich"><SandboxHtml html={rendered} /></div>
   if (looksLikeHtml(rendered)) return <div className="message-content message-content-rich"><SafeInlineHtml html={rendered} /></div>

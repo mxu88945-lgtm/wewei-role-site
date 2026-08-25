@@ -26,6 +26,17 @@ export function findMentionedParticipantIds(text: string, participants: GroupPar
   return mentionedIds
 }
 
+/** @成员 only chooses who replies; it is routing metadata, not visible dialogue. */
+export function stripParticipantMentions(text: string, participants: GroupParticipant[]) {
+  const names = participants.map((participant) => participant.name).filter(Boolean).sort((left, right) => right.length - left.length)
+  let output = text
+  for (const name of names) {
+    const escaped = name.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
+    output = output.replace(new RegExp(`[@＠]${escaped}(?=\\s|[，。！？、,:：；;]|$)`, 'g'), '')
+  }
+  return output.replace(/\s{2,}/g, ' ').replace(/^\s*[，、,:：；;]\s*/, '').trim()
+}
+
 export function selectGroupSpeakerIds({ participantIds, mentionedIds, mode, directorCharacterId, lastSpeakerId, text, random = Math.random }: SelectGroupSpeakersOptions) {
   const explicitMentions = participantIds.filter((id) => mentionedIds.includes(id))
   const resolvedDirectorId = directorCharacterId || participantIds.find((id) => /director/i.test(id))
