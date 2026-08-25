@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { completeStatusBlock, containsHiddenReasoning, detectStatusTag, ensureStatusBlock, extractStatusFields, moveStatusBlockToEnd, sanitizeAssistantOutput, stripLeadingSpeakerLabels } from './outputSanitizer'
+import { completeStatusBlock, containsHiddenReasoning, detectStatusTag, ensureStatusBlock, extractStatusFields, moveStatusBlockToEnd, normalizeDirectorStatusOutput, sanitizeAssistantOutput, stripLeadingSpeakerLabels, stripStatusBlocksForStreaming } from './outputSanitizer'
 
 describe('assistant prompt-leak sanitizer', () => {
   it('removes leaked status instructions and keeps the real formatted reply', () => {
@@ -131,6 +131,19 @@ describe('status block fallback', () => {
     expect(moveStatusBlockToEnd(`${status}\n<scene>深夜｜书房</scene>\n他没有立刻回答。`, 'gts_status'))
       .toBe(`<scene>深夜｜书房</scene>\n他没有立刻回答。\n\n${status}`)
     expect(moveStatusBlockToEnd(`正文\n${status}\n${status}`, 'gts_status')).toBe(`正文\n\n${status}`)
+  })
+
+  it('hides complete and partial status blocks while a reply is still streaming', () => {
+    expect(stripStatusBlocksForStreaming('正文。\n<gts_status>状态：正在写</gts_status>')).toBe('正文。')
+    expect(stripStatusBlocksForStreaming('正文。\n<gts_status>状态：正在写')).toBe('正文。')
+  })
+
+  it('keeps only one final director status block', () => {
+    const output = '<scene>夜晚｜大厅</scene>\n侍者停在门前。\n<gts_status>心理：不应显示</gts_status>\n<director_status>当前外部事件：递来邀请函</director_status>\n<director_status>当前外部事件：邀请函等待回应</director_status>'
+    const normalized = normalizeDirectorStatusOutput(output)
+    expect(normalized).not.toContain('gts_status')
+    expect(normalized.match(/<director_status>/g)).toHaveLength(1)
+    expect(normalized).toContain('邀请函等待回应')
   })
 })
 

@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { findMentionedParticipantIds, selectGroupSpeakerIds } from './groupReplyRouting'
+import { findMentionedParticipantIds, selectGroupSpeakerIds, stripParticipantMentions } from './groupReplyRouting'
 
 describe('group reply routing', () => {
   const participantIds = ['male-lead', 'director']
@@ -51,5 +51,12 @@ describe('group reply routing', () => {
       { id: 'director', name: '裴成砚剧场·旁白导演' },
     ]
     expect(findMentionedParticipantIds('@裴成砚剧场·旁白导演 先说，@裴成砚 再说', participants)).toEqual(['director', 'male-lead'])
+  })
+
+  it('keeps @ routing metadata out of the visible user message', () => {
+    const participants = [{ id: 'male-lead', name: '沈时墨' }, { id: 'director', name: 'SSM 导演卡' }]
+    expect(stripParticipantMentions('@沈时墨 继续刚才的话', participants)).toBe('继续刚才的话')
+    expect(stripParticipantMentions('@SSM 导演卡，推进一下', participants)).toBe('推进一下')
+    expect(stripParticipantMentions('@沈时墨 @SSM 导演卡', participants)).toBe('')
   })
 })
