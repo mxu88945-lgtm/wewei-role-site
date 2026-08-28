@@ -74,6 +74,26 @@ export function sanitizeAssistantOutput(value: string, options: { director?: boo
   return output.slice(start).trimStart()
 }
 
+/**
+ * A status panel is useful UI metadata, never a complete roleplay reply. Keep
+ * the check deliberately small: short in-character answers remain valid, but
+ * an empty body can no longer be persisted as a finished message.
+ */
+export function hasVisibleStoryBody(value: string) {
+  const body = value
+    .replace(OPEN_OR_PARTIAL_STATUS_BLOCK, '')
+    .replace(/<(?:scene|plot)\b[^>]*>[\s\S]*?<\/(?:scene|plot)\s*>/gi, '')
+    .replace(/<\/?[A-Za-z][^>]*>/g, '')
+    .replace(/\s+/g, '')
+  return Boolean(body)
+}
+
+/** Directors also need their scene header; otherwise the next turn has no stable handoff point. */
+export function hasCompleteRoleplayBody(value: string, director = false) {
+  if (!hasVisibleStoryBody(value)) return false
+  return !director || /<(?:scene|plot)\b[^>]*>[\s\S]*?<\/(?:scene|plot)\s*>/i.test(value)
+}
+
 /** Find the card-specific status tag used by a character's output protocol. */
 export function detectStatusTag(...sources: string[]) {
   for (const source of sources) {
