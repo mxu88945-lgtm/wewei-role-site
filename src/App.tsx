@@ -12,7 +12,7 @@ import { buildChatPrompt } from './promptBuilder'
 import { createApiChannel, isApiChannelComplete, normalizeApiChannels, resolveApiChannel, withApiModel, type ApiChannel } from './apiChannels'
 import { enabledPresetText, normalizePresetSections } from './presetConfig'
 import { durableGet, durableSet } from './persistentStore'
-import { completeStatusBlock, containsHiddenReasoning, moveStatusBlockToEnd, normalizeDirectorStatusOutput, sanitizeAssistantOutput, stripLeadingSpeakerLabels, stripStatusBlocksForStreaming } from './outputSanitizer'
+import { completeStatusBlock, containsHiddenReasoning, hasCompleteRoleplayBody, moveStatusBlockToEnd, normalizeDirectorStatusOutput, sanitizeAssistantOutput, stripLeadingSpeakerLabels, stripStatusBlocksForStreaming } from './outputSanitizer'
 import { archivedMemoriesForConversation, memoriesForConversation, replaceConversationMemories, restoreMemoryToRevision } from './memoryEngine'
 import { findMentionedParticipantIds, selectGroupSpeakerIds, stripParticipantMentions, type GroupReplyMode } from './groupReplyRouting'
 import Pet from './Pet'
@@ -26,7 +26,7 @@ import { buildStoryProjectPrompt, selectConversationStoryProject } from './story
 import { buildAutomaticContinuityInput, captureAssistantMessageIds, hasUnprocessedAssistantMessages, mergeAutomaticContinuity, parseAutomaticContinuityResponse } from './storyContinuity'
 import { buildReplyHelperMessages, cleanReplyHelperDraft, REPLY_HELPER_MAX_TOKENS } from './replyHelper'
 import { planContextCompression, uncompressedMessages } from './contextCompression'
-import { findLatestActorContinuityAnchor } from './actorContinuity'
+import { findLatestActorContinuityAnchor, findLatestGroupSceneAnchor } from './actorContinuity'
 import ReplyHelperSettingsPage from './ReplyHelperSettingsPage'
 import { addConversationParticipant, createFreshConversationFrom, restartConversationInPlace, type Conversation, type Message } from './conversationLifecycle'
 import { parseConversationTxt } from './conversationTxt'
@@ -1567,6 +1567,7 @@ function App() {
       const storyProjectContext = storyProject && !storyProject.autoContinuity.needsReview
         ? buildStoryProjectPrompt({ project: storyProject, speakerId: speaker.id, characters })
         : ''
+      const sceneContinuityAnchor = isGroup ? findLatestGroupSceneAnchor(nextMessages) : ''
       const actorContinuityAnchor = isGroup ? findLatestActorContinuityAnchor(nextMessages, speaker.id, speaker.name) : ''
       const sanitizedHistory = nextMessages.flatMap((message) => {
         const fromDirector = message.role === 'assistant' && message.characterId === conversation.directorCharacterId
@@ -1583,6 +1584,7 @@ function App() {
         globalWorldbook: worldbook,
         theaterWorldBackground: conversation.theaterWorldBackground || '',
         storyProjectContext,
+        sceneContinuityAnchor,
         actorContinuityAnchor,
         memory: { entries: capturedMemories, injectPosition: capturedMemoryConfig.injectPosition, injectPrompt: capturedMemoryConfig.injectPrompt },
         memoryLength,
@@ -1600,7 +1602,7 @@ function App() {
           : '状态栏字段不能省略；每项都写具体事实，没有变化则沿用上一轮的具体值，禁止使用空泛占位话。'
         promptMessages.push({ role: 'system', content: `【最终输出结构校验】完成正文后必须检查：回复末尾有且只有一个闭合的 <${statusTag}>...</${statusTag}>。${fieldGuard}不得省略状态栏，不得把状态栏规则写进正文。` })
       }
-      const completion = await completeChat({
+      const runCompletion = async () => completeChat({
         api: resolvedSpeakerApi,
         messages: promptMessages,
         temperature,
@@ -1616,13 +1618,27 @@ function App() {
           if (streamRenderTimer === null) streamRenderTimer = window.setTimeout(commitStreamOutput, 48)
         },
       })
+      let completion = await runCompletion()
       cancelQueuedStreamRender()
       if (!output.trim()) throw new Error('模型没有返回内容')
+      let cleanOutput = sanitizeAssistantOutput(output, { director: isDirector })
+      if (!hasCompleteRoleplayBody(cleanOutput || output, isDirector)) {
+        output = ''
+        stagedVisibleOutput = ''
+        setConversations((current) => current.map((item) => item.id === conversationId ? { ...item, messages: item.messages.map((message) => message.id === assistantMessage.id ? { ...message, text: '正在补全正文…' } : message) } : item))
+        promptMessages.push({ role: 'system', content: isDirector
+          ? '刚才输出不完整：只写了状态栏或缺少场景正文。现在从“群聊当前场景锚点”续写，必须输出 <scene>...</scene>、至少一段实际剧情正文，最后再输出唯一的 <director_status>...</director_status>；不得解释、分析或只输出状态栏。'
+          : '刚才输出不完整：只写了状态栏，缺少实际剧情正文。现在从当前场景继续，必须先写至少一段角色正文，再在结尾输出状态栏；不得解释或只输出状态栏。' })
+        completion = await runCompletion()
+        cancelQueuedStreamRender()
+        if (!output.trim()) throw new Error('模型补全正文失败，请重试或更换模型。')
+        cleanOutput = sanitizeAssistantOutput(output, { director: isDirector })
+        if (!hasCompleteRoleplayBody(cleanOutput || output, isDirector)) throw new Error('模型连续两次只返回状态栏或缺少剧情正文，未写入本轮剧情。请重试或更换模型。')
+      }
       if (completion.finishReason) {
         setConversations((current) => current.map((item) => item.id === conversationId ? { ...item, messages: item.messages.map((message) => message.id === assistantMessage.id ? { ...message, finishReason: completion.finishReason } : message) } : item))
       }
 
-      const cleanOutput = sanitizeAssistantOutput(output, { director: isDirector })
       if (!cleanOutput && containsHiddenReasoning(output, isDirector)) throw new Error('模型只返回了内部分析，惟境已拦截且没有写入剧情。请重试或换一个更遵守指令的模型。')
       const visibleOutput = isDirector
         ? normalizeDirectorStatusOutput(cleanOutput || output)

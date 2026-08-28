@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { completeStatusBlock, containsHiddenReasoning, detectStatusTag, ensureStatusBlock, extractStatusFields, moveStatusBlockToEnd, normalizeDirectorStatusOutput, sanitizeAssistantOutput, stripLeadingSpeakerLabels, stripStatusBlocksForStreaming } from './outputSanitizer'
+import { completeStatusBlock, containsHiddenReasoning, detectStatusTag, ensureStatusBlock, extractStatusFields, hasCompleteRoleplayBody, hasVisibleStoryBody, moveStatusBlockToEnd, normalizeDirectorStatusOutput, sanitizeAssistantOutput, stripLeadingSpeakerLabels, stripStatusBlocksForStreaming } from './outputSanitizer'
 
 describe('assistant prompt-leak sanitizer', () => {
   it('removes leaked status instructions and keeps the real formatted reply', () => {
@@ -61,6 +61,12 @@ describe('assistant prompt-leak sanitizer', () => {
 })
 
 describe('status block fallback', () => {
+  it('does not treat a status panel as a completed roleplay reply', () => {
+    expect(hasVisibleStoryBody('<gts_status>状态：等待回应</gts_status>')).toBe(false)
+    expect(hasCompleteRoleplayBody('<director_status>当前外部事件：等待回应</director_status>', true)).toBe(false)
+    expect(hasCompleteRoleplayBody('<scene>晚上｜书房</scene>他放下手机，示意助理出去。<director_status>当前外部事件：等待回应</director_status>', true)).toBe(true)
+  })
+
   it('detects a card-specific status tag', () => {
     expect(detectStatusTag('每轮结尾输出 <czw_status>...</czw_status>')).toBe('czw_status')
     expect(detectStatusTag('<scene>时间</scene>\n正文')).toBe('')
