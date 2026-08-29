@@ -2,6 +2,7 @@ import { normalizeStoryCockpit, type StoryCockpit, type StoryEvidence, type Stor
 import { parseCockpitAssistantResponse, type CockpitSourceCharacter } from './storyCockpitAssistant'
 import { sanitizeAssistantOutput } from './outputSanitizer'
 import { modelVisibleMessageText } from './modelContext'
+import { safeStatusSceneFactText } from './actorContinuity'
 
 export type ContinuityMessage = {
   id: number
@@ -18,6 +19,7 @@ export type ContinuityConversation = {
 
 export type AutomaticContinuityResult = {
   cockpit: StoryCockpit
+  providedFields: { presentCharacterIds: boolean }
   consumedOpenHooks: string[]
   plannedEventUpdates: { id: string; status: StoryPlannedEventStatus; progressNote: string }[]
   changeSummary: string
@@ -60,7 +62,9 @@ export function buildAutomaticContinuityInput({ project, characters, conversatio
         messages: conversation.messages.slice(checkpointIndex + 1).slice(-20).flatMap((message) => {
           const fromDirector = message.role === 'assistant' && message.characterId === project.directorCharacterId
           const visibleText = modelVisibleMessageText(message)
-          const text = fromDirector ? sanitizeAssistantOutput(visibleText, { director: true }) : visibleText
+          const bodyText = fromDirector ? sanitizeAssistantOutput(visibleText, { director: true }) : visibleText
+          const safeSceneFacts = message.role === 'assistant' ? safeStatusSceneFactText(message.text) : ''
+          const text = [bodyText, safeSceneFacts && `【状态栏场景事实】${safeSceneFacts}`].filter(Boolean).join('\n')
           if (message.role === 'assistant' && !text.trim()) return []
           return [{
             messageId: message.id,
@@ -91,6 +95,7 @@ export function buildAutomaticContinuityInput({ project, characters, conversatio
 12. “指定事件”是用户原文，不是已经发生的事实，也不是供你改写的草稿。只能通过 plannedEventUpdates 更新现有事件的状态和进度备注，禁止修改标题、内容、触发条件、创建新事件或删除事件。
 13. 只有新增对话明确显示事件已经开始，才可从 pending 更新为 active；只有事件在实际对话中完整发生，才可更新为 completed。状态只能向前推进，不得倒退。条件刚满足但尚未演绎，不算 active；没有客观变化则不要输出该事件的更新。
 14. 若指定事件涉及用户主角或独立角色，模型越权代写的行动、台词、心理或决定不能作为事件开始或完成的依据。
+15. presentCharacterIds 没有明确变化时必须原样复制当前值；只有新增对话明确显示所有独立角色均已离场时才可返回空数组。不得因为无法判断、状态栏缺失或本轮没有提及某人就清空在场人物。
 
 【当前项目与驾驶舱】
 ${JSON.stringify({ title: project.title, summary: project.summary, worldBackground: project.worldBackground, cockpit: project.cockpit }, null, 2)}
@@ -125,8 +130,10 @@ export function parseAutomaticContinuityResponse(raw: string, allowedCharacterId
   try { value = JSON.parse(cleaned.slice(start, end + 1)) } catch { throw new Error('自动场记返回的 JSON 不完整') }
   if (!value || typeof value !== 'object') throw new Error('自动场记返回的数据格式不正确')
   const result = value as { cockpit?: unknown; consumedOpenHooks?: unknown; plannedEventUpdates?: unknown; changeSummary?: unknown }
+  const cockpitSource = result.cockpit && typeof result.cockpit === 'object' ? result.cockpit as Record<string, unknown> : {}
   return {
-    cockpit: parseCockpitAssistantResponse(JSON.stringify(result.cockpit || {}), allowedCharacterIds),
+    cockpit: parseCockpitAssistantResponse(JSON.stringify(cockpitSource), allowedCharacterIds),
+    providedFields: { presentCharacterIds: Array.isArray(cockpitSource.presentCharacterIds) },
     consumedOpenHooks: Array.isArray(result.consumedOpenHooks) ? unique(result.consumedOpenHooks.filter((item): item is string => typeof item === 'string')) : [],
     plannedEventUpdates: Array.isArray(result.plannedEventUpdates) ? result.plannedEventUpdates.map((item) => {
       if (!item || typeof item !== 'object') return null
@@ -169,7 +176,7 @@ export function mergeAutomaticContinuity(existingValue: StoryCockpit, result: Au
     canon: existing.canon,
     currentTime: proposed.currentTime || existing.currentTime,
     currentLocation: proposed.currentLocation || existing.currentLocation,
-    presentCharacterIds: proposed.presentCharacterIds,
+    presentCharacterIds: result.providedFields.presentCharacterIds ? proposed.presentCharacterIds : existing.presentCharacterIds,
     relationshipStage: proposed.relationshipStage || existing.relationshipStage,
     currentTask: proposed.currentTask || existing.currentTask,
     completedEvents: unique([...completedEvents, ...completedPlannedEvents]),

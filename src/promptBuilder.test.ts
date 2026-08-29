@@ -53,6 +53,8 @@ describe('buildChatPrompt', () => {
     expect(all).toContain('细腻慢热')
     expect(all).toContain('现代都市')
     expect(all).toContain('【全局世界书】')
+    expect(all).toContain('【角色卡初始场景｜只作开局背景，不得覆盖最近对话现状】')
+    expect(all).not.toContain('【当前场景】\n后台。')
     expect(all).toContain('【每轮开场白与角色回复美化协议｜必须执行】')
     expect(all).toContain('<gts_status>关系：试探</gts_status>')
     expect(all.match(/现代都市/g)).toHaveLength(1)
@@ -241,6 +243,8 @@ describe('buildChatPrompt', () => {
     expect(all).toContain('不能只在开场使用')
     expect(all).toContain('顶部场景结构（本卡有则必须输出）→剧情正文→末尾状态结构（本卡有则必须输出）')
     expect(all).toContain('不得只输出正文')
+    expect(all).toContain('没有变化的字段沿用上一轮具体值')
+    expect(all).not.toContain('本轮没有变化的字段写“本轮未更新”')
     expect(all).toContain('不要输出正则替换模板里的 div、CSS')
     const finalContinuityIndex = result.map((message) =>
       typeof message.content === 'string' && message.content.includes('【角色消息美化连续性】'),

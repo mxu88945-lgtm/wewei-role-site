@@ -9,6 +9,7 @@ import { createBlankCharacter, importCharacterCard, normalizeStoredCharacter, ty
 import { activeCharacterMemory, characterMemoryEntryFromConversation, characterMemorySummaryProtocol, mergeCharacterMemoryEntries, parseCharacterMemoryCandidates, splitCharacterMemorySummary } from './characterMemory'
 import { completeChat, fetchApiModels, testApiConnection, type ApiConfig, type ApiModel } from './chatApi'
 import { buildChatPrompt } from './promptBuilder'
+import { resolveChatScrollTarget, type ChatScrollSnapshot } from './chatScroll'
 import { createApiChannel, isApiChannelComplete, normalizeApiChannels, resolveApiChannel, withApiModel, type ApiChannel } from './apiChannels'
 import { enabledPresetText, normalizePresetSections } from './presetConfig'
 import { durableGet, durableSet } from './persistentStore'
@@ -26,7 +27,7 @@ import { buildStoryProjectPrompt, selectConversationStoryProject } from './story
 import { buildAutomaticContinuityInput, captureAssistantMessageIds, hasUnprocessedAssistantMessages, mergeAutomaticContinuity, parseAutomaticContinuityResponse } from './storyContinuity'
 import { buildReplyHelperMessages, cleanReplyHelperDraft, REPLY_HELPER_MAX_TOKENS } from './replyHelper'
 import { planContextCompression, uncompressedMessages } from './contextCompression'
-import { findLatestActorContinuityAnchor, findLatestGroupSceneAnchor } from './actorContinuity'
+import { findLatestActorContinuityAnchor, findLatestSceneContinuityAnchor } from './actorContinuity'
 import ReplyHelperSettingsPage from './ReplyHelperSettingsPage'
 import { addConversationParticipant, createFreshConversationFrom, restartConversationInPlace, type Conversation, type Message } from './conversationLifecycle'
 import { parseConversationTxt } from './conversationTxt'
@@ -382,7 +383,7 @@ function App() {
   const messageListLayoutMarkerRef = useRef<HTMLDivElement>(null)
   const scrollUiFrameRef = useRef<number | null>(null)
   const chatJumpHideTimerRef = useRef<number | null>(null)
-  const chatScrollSnapshotsRef = useRef(new Map<string, { top: number; stickToBottom: boolean }>())
+  const chatScrollSnapshotsRef = useRef(new Map<string, ChatScrollSnapshot>())
   const pendingChatScrollRestoreRef = useRef<string | null>(null)
   const pendingChatLatestScrollRef = useRef<string | null>(null)
   const generationControllers = useRef(new Map<string, AbortController>())
@@ -421,7 +422,8 @@ function App() {
       ? activeConversation.participantModelNames?.[activeConversation.directorCharacterId] || activeConversation.directorConfig?.modelName || directorEditorBaseApi.modelName
       : directorEditorBaseApi.modelName
   const directorEditorApi = withApiModel(directorEditorBaseApi, directorEditorModelName)
-  const messages = activeConversation?.messages || [{ id: 1, role: 'assistant' as const, text: activeCharacter.greeting }]
+  const fallbackMessages = useMemo(() => [{ id: 1, role: 'assistant' as const, text: activeCharacter.greeting }], [activeCharacter.greeting])
+  const messages = activeConversation?.messages || fallbackMessages
   const conversationStats = countConversationStats(messages)
   const chatScrollKey = activeConversation?.id || `character:${activeCharacter.id}`
   const rememberChatScroll = (conversationKey = chatScrollKey) => {
@@ -436,7 +438,7 @@ function App() {
   const applyChatScrollSnapshot = (list: HTMLDivElement, conversationKey: string) => {
     const snapshot = chatScrollSnapshotsRef.current.get(conversationKey)
     const maxScrollTop = Math.max(0, list.scrollHeight - list.clientHeight)
-    const target = snapshot?.stickToBottom ? maxScrollTop : Math.min(snapshot?.top || 0, maxScrollTop)
+    const target = resolveChatScrollTarget(snapshot, maxScrollTop)
     list.scrollTop = target
     return target
   }
@@ -828,7 +830,6 @@ function App() {
     }
     // Message identity changes on each streamed render; rerun the settling pass
     // so late status bars, rich cards, and iframe height reports cannot move the view.
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [page, chatScrollKey, messages, generatingIds.length])
   const pageTitle = useMemo(() => page === 'home' ? '惟境' : page === 'characters' ? '角色' : '', [page])
   const navigate = (target: Page, reopenDrawer?: Drawer) => {
@@ -1242,10 +1243,12 @@ function App() {
     }
     setActiveId(character.id)
     setActiveConversationId(conversation.id)
+    requestChatLatestScroll(conversation.id)
     navigate('chat')
   }
 
   const openConversation = (conversation: Conversation) => {
+    requestChatLatestScroll(conversation.id)
     setActiveConversationId(conversation.id)
     setActiveId(conversation.participantIds?.[0] || conversation.characterId)
     setDrawer(null)
@@ -1333,6 +1336,7 @@ function App() {
     setConversations((current) => [...current, copy])
     setActiveId(copy.characterId)
     setActiveConversationId(copy.id)
+    requestChatLatestScroll(copy.id)
     setConversationMenuId(null)
     setDrawer(null)
     replacePage('chat')
@@ -1567,7 +1571,7 @@ function App() {
       const storyProjectContext = storyProject && !storyProject.autoContinuity.needsReview
         ? buildStoryProjectPrompt({ project: storyProject, speakerId: speaker.id, characters })
         : ''
-      const sceneContinuityAnchor = isGroup ? findLatestGroupSceneAnchor(nextMessages) : ''
+      const sceneContinuityAnchor = findLatestSceneContinuityAnchor(nextMessages)
       const actorContinuityAnchor = isGroup ? findLatestActorContinuityAnchor(nextMessages, speaker.id, speaker.name) : ''
       const sanitizedHistory = nextMessages.flatMap((message) => {
         const fromDirector = message.role === 'assistant' && message.characterId === conversation.directorCharacterId
@@ -1627,7 +1631,7 @@ function App() {
         stagedVisibleOutput = ''
         setConversations((current) => current.map((item) => item.id === conversationId ? { ...item, messages: item.messages.map((message) => message.id === assistantMessage.id ? { ...message, text: '正在补全正文…' } : message) } : item))
         promptMessages.push({ role: 'system', content: isDirector
-          ? '刚才输出不完整：只写了状态栏或缺少场景正文。现在从“群聊当前场景锚点”续写，必须输出 <scene>...</scene>、至少一段实际剧情正文，最后再输出唯一的 <director_status>...</director_status>；不得解释、分析或只输出状态栏。'
+          ? '刚才输出不完整：只写了状态栏或缺少场景正文。现在从“最新场景锚点”续写，必须输出 <scene>...</scene>、至少一段实际剧情正文，最后再输出唯一的 <director_status>...</director_status>；不得解释、分析或只输出状态栏。'
           : '刚才输出不完整：只写了状态栏，缺少实际剧情正文。现在从当前场景继续，必须先写至少一段角色正文，再在结尾输出状态栏；不得解释或只输出状态栏。' })
         completion = await runCompletion()
         cancelQueuedStreamRender()

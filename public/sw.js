@@ -1,5 +1,15 @@
-const CACHE_NAME = 'weijing-shell-v17'
+const CACHE_NAME = 'weijing-shell-v18'
 const APP_ROOT = '/wewei-role-site/'
+
+async function rememberResponse(key, response) {
+  if (!response.ok) return
+  try {
+    const cache = await caches.open(CACHE_NAME)
+    await cache.put(key, response.clone())
+  } catch {
+    // A full or unavailable cache must never hide a successful network reply.
+  }
+}
 
 self.addEventListener('install', () => {
   self.skipWaiting()
@@ -27,7 +37,9 @@ self.addEventListener('fetch', (event) => {
   if (request.mode === 'navigate') {
     event.respondWith((async () => {
       try {
-        return await fetch(request, { cache: 'no-store' })
+        const response = await fetch(request, { cache: 'no-store' })
+        await rememberResponse(APP_ROOT, response)
+        return response
       } catch {
         const cached = await caches.match(APP_ROOT)
         return cached || Response.error()
@@ -40,6 +52,7 @@ self.addEventListener('fetch', (event) => {
     const cached = await caches.match(request)
     try {
       const response = await fetch(request, { cache: 'no-store' })
+      if (url.pathname.startsWith(APP_ROOT)) await rememberResponse(request, response)
       return response
     } catch {
       return cached || Response.error()

@@ -60,12 +60,15 @@ describe('automatic story continuity', () => {
       conversations: [{
         id: 'chat-one', title: '机场', messages: [{
           id: 12, role: 'assistant', characterId: 'lu',
-          text: '陆星屹换回了行李箱。\n<gts_status>隐藏信息边界：寒砚是AL-01，陆景衡喜欢裴允茉。</gts_status>',
+          text: '陆星屹换回了行李箱。\n<gts_status>时间：16:48｜地点：机场确认台｜当前事件：行李已经换回｜隐藏信息边界：寒砚是AL-01，陆景衡喜欢裴允茉。</gts_status>',
         }],
       }],
     })
 
     expect(input).toContain('陆星屹换回了行李箱')
+    expect(input).toContain('时间：16:48')
+    expect(input).toContain('地点：机场确认台')
+    expect(input).toContain('当前事件：行李已经换回')
     expect(input).not.toContain('寒砚是AL-01')
     expect(input).not.toContain('陆景衡喜欢裴允茉')
   })
@@ -115,6 +118,29 @@ describe('automatic story continuity', () => {
     expect(merged.completedEvents).toEqual(['抵达画展', '取得调查结果'])
     expect(merged.openHooks).toEqual(['参加慈善晚宴', '追查幕后人物'])
     expect(merged.currentTask).toBe('核对资金流向')
+  })
+
+  it('preserves present characters when the model omits that field', () => {
+    const existing = {
+      ...createStoryProject(1).cockpit,
+      presentCharacterIds: ['pei', 'zhou'],
+      currentLocation: '岚影科技顶层',
+    }
+    const parsed = parseAutomaticContinuityResponse(JSON.stringify({
+      changeSummary: '只更新当前任务',
+      cockpit: { currentTask: '核对董事会记录' },
+    }), ['pei', 'zhou'])
+
+    expect(parsed.providedFields.presentCharacterIds).toBe(false)
+    expect(mergeAutomaticContinuity(existing, parsed).presentCharacterIds).toEqual(['pei', 'zhou'])
+  })
+
+  it('allows an explicit empty present-character list when the dialogue confirms everyone left', () => {
+    const existing = { ...createStoryProject(1).cockpit, presentCharacterIds: ['pei'] }
+    const parsed = parseAutomaticContinuityResponse(JSON.stringify({ cockpit: { presentCharacterIds: [] } }), ['pei'])
+
+    expect(parsed.providedFields.presentCharacterIds).toBe(true)
+    expect(mergeAutomaticContinuity(existing, parsed).presentCharacterIds).toEqual([])
   })
 
   it('advances user-planned events without letting automatic continuity rewrite them', () => {

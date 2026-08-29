@@ -25,19 +25,44 @@ function plainActorReply(value: string, characterName: string) {
 }
 
 function sceneLabel(value: string) {
-  return /<(?:scene|plot)\b[^>]*>([\s\S]*?)<\/(?:scene|plot)\s*>/i.exec(value)?.[1]
+  const matches = Array.from(value.matchAll(/<(scene|plot)\b[^>]*>([\s\S]*?)<\/\1\s*>/gi))
+  return matches[matches.length - 1]?.[2]
     ?.replace(/```/g, '')
     .replace(/\s+/g, ' ')
     .trim() || ''
 }
 
-function latestExternalEvent(value: string) {
-  const blocks = Array.from(value.matchAll(/<(?:status|[a-z][\w-]*_status)\b[^>]*>([\s\S]*?)<\/(?:status|[a-z][\w-]*_status)\s*>/gi))
-  for (const block of blocks.reverse()) {
-    const field = extractStatusFields(block[1] || '').find((item) => /^(?:当前)?(?:外部)?事件$|^本轮外部事件$|^剧情进展$/u.test(item.label))
-    if (field?.value) return field.value.replace(/\s+/g, ' ').trim()
+export type SafeStatusSceneFacts = {
+  time: string
+  location: string
+  event: string
+}
+
+/** Keep only non-private scene facts from a UI status block. */
+export function safeStatusSceneFacts(value: string): SafeStatusSceneFacts {
+  const blocks = Array.from(value.matchAll(/<((?:status|[a-z][\w-]*_status))\b[^>]*>([\s\S]*?)<\/\1\s*>/gi))
+  const block = blocks[blocks.length - 1]
+  const facts: SafeStatusSceneFacts = { time: '', location: '', event: '' }
+  if (!block) return facts
+
+  for (const field of extractStatusFields(block[2] || '')) {
+    const label = field.label.replace(/\s+/g, '')
+    const content = field.value.replace(/\s+/g, ' ').trim()
+    if (!content) continue
+    if (!facts.time && /^(?:当前)?(?:时间|日期)$/.test(label)) facts.time = content
+    else if (!facts.location && /^(?:当前)?(?:地点|位置|场景)$/.test(label)) facts.location = content
+    else if (!facts.event && /^(?:当前)?(?:外部)?事件$|^本轮外部事件$|^剧情进展$|^当前剧情$/.test(label)) facts.event = content
   }
-  return ''
+  return facts
+}
+
+export function safeStatusSceneFactText(value: string) {
+  const facts = safeStatusSceneFacts(value)
+  return [
+    facts.time && `时间：${facts.time}`,
+    facts.location && `地点：${facts.location}`,
+    facts.event && `当前事件：${facts.event}`,
+  ].filter(Boolean).join('｜')
 }
 
 function compactAnchorFact(value: string) {
@@ -50,33 +75,33 @@ function compactAnchorFact(value: string) {
 }
 
 /**
- * A group needs one shared present-tense anchor in addition to each actor's
- * private last-reply anchor. UI status panels are intentionally excluded from
- * normal history, so retain only their compact external-event field here.
+ * Use one coherent present-tense anchor for both single and group chats. Every
+ * field comes from the same newest valid assistant reply so an older director
+ * status cannot be spliced into a newer actor scene.
  */
-export function findLatestGroupSceneAnchor(messages: ActorMessage[], maxChars = 900) {
-  let scene = ''
-  let fact = ''
-  let externalEvent = ''
-
+export function findLatestSceneContinuityAnchor(messages: ActorMessage[], maxChars = 1100) {
   for (let index = messages.length - 1; index >= 0; index -= 1) {
     const message = messages[index]
     if (message.role !== 'assistant' || !message.text.trim()) continue
-    if (!scene) scene = sceneLabel(message.text)
-    if (!fact) fact = compactAnchorFact(message.text)
-    if (!externalEvent) externalEvent = latestExternalEvent(message.text)
-    if (scene && fact && externalEvent) break
+    const scene = sceneLabel(message.text)
+    const fact = compactAnchorFact(message.text)
+    const statusFacts = safeStatusSceneFacts(message.text)
+    const parts = [
+      scene && `最新场景标记：${scene}`,
+      statusFacts.time && `最新时间：${statusFacts.time}`,
+      statusFacts.location && `最新地点：${statusFacts.location}`,
+      fact && `最新已完成剧情：${fact}`,
+      statusFacts.event && `最新外部事件：${statusFacts.event}`,
+    ].filter(Boolean)
+    if (!parts.length) continue
+
+    return `【最新场景锚点｜单聊与群聊共用｜高于开局场景、旧摘要与旧状态栏】\n${parts.join('\n')}\n以上内容只来自最近一条有效助手回复。若最新用户消息明确改变了时间、地点、人物状态或事件，以最新用户消息为准；从最新事实继续，不得回到更早的道别、行程或旧地点重演。`.slice(0, Math.max(1, maxChars))
   }
-
-  const parts = [
-    scene && `当前时间地点：${scene}`,
-    fact && `最新已完成剧情：${fact}`,
-    externalEvent && `上一轮外部事件：${externalEvent}`,
-  ].filter(Boolean)
-  if (!parts.length) return ''
-
-  return `【群聊当前场景锚点｜高于个人旧回复与旧状态栏】\n${parts.join('\n')}\n以上是已经发生的现在时场景；从这里继续，不得回到更早的道别、行程或旧地点重演。`.slice(0, Math.max(1, maxChars))
+  return ''
 }
+
+/** Backwards-compatible name for older callers and imported cards/tests. */
+export const findLatestGroupSceneAnchor = findLatestSceneContinuityAnchor
 
 /** Keep each group actor's last completed self-state available after long absences. */
 export function findLatestActorContinuityAnchor(messages: ActorMessage[], characterId: string, characterName: string, maxChars = 8000) {

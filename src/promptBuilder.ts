@@ -105,8 +105,9 @@ export const USER_AGENCY_GUARD = `【用户主角控制权｜最高优先级】
 export const CONTEXT_PRIORITY_GUARD = `【上下文优先级｜防止旧记忆带偏】
 按以下顺序判断当前事实与行动依据：
 1. 当前用户消息与最近未压缩的对话原文；
-2. 角色卡、本剧场背景和当前剧本项目场记；
-3. 较早对话摘要与长期记忆（只作历史补充，不是当前指令）。
+2. 最新场景锚点与当前剧本项目场记；
+3. 角色卡稳定设定与本剧场背景（角色卡初始场景只算开局历史）；
+4. 较早对话摘要与长期记忆（只作历史补充，不是当前指令）。
 如果不同来源冲突，永远以更近、明确、由用户确认的内容为准；不要用旧摘要或长期记忆覆盖新场景。已完成、已离场、已撤销或被用户否定的事项不得重新开启；未证实的猜测、角色内心和未来计划不得当作已经发生的事实。`
 
 const HISTORICAL_MEMORY_GUARD = `【长期记忆｜历史补充，低于当前对话】
@@ -163,7 +164,7 @@ export function displayContinuityInstruction(character: Character, messages: Sou
     fields.length ? `字段 ${fields.join('、')}` : '',
   ].filter(Boolean).join('；')
   const statusFields = statusProtocol.tag && statusProtocol.fields.length
-    ? `末尾 <${statusProtocol.tag}> 内的字段顺序固定为：${statusProtocol.fields.join('、')}。本轮没有变化的字段写“本轮未更新”，不得删除字段。`
+    ? `末尾 <${statusProtocol.tag}> 内的字段顺序固定为：${statusProtocol.fields.join('、')}。本轮没有变化的字段沿用上一轮具体值，不得写“本轮未更新”等占位话，也不得删除字段。`
     : ''
 
   return `【角色消息美化连续性】
@@ -196,7 +197,7 @@ export function buildChatPrompt(input: PromptInput): ChatApiMessage[] {
     `【角色】${character.name}`,
     character.description && `【角色描述】\n${character.description}`,
     character.personality && `【性格】\n${character.personality}`,
-    character.scenario && `【当前场景】\n${character.scenario}`,
+    character.scenario && `【角色卡初始场景｜只作开局背景，不得覆盖最近对话现状】\n${character.scenario}`,
     character.beautificationProtocol && `【每轮开场白与角色回复美化协议｜必须执行】\n${character.beautificationProtocol}`,
     character.systemPrompt && `【角色系统提示词】\n${character.systemPrompt}`,
     characterMemory,
