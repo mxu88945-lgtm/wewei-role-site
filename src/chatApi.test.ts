@@ -47,6 +47,27 @@ describe('chatApi', () => {
     expect(result.finishReason).toBeNull()
   })
 
+  it('兼容忽略 stream:false 但仍返回 SSE 的渠道', async () => {
+    vi.stubGlobal('fetch', vi.fn(async () => new Response([
+      'data: {"choices":[{"delta":{"content":"{\\"name\\":\\"测试角色\\""}}]}',
+      '',
+      'data: {"choices":[{"delta":{"content":"}"}}]}',
+      '',
+      'data: [DONE]',
+      '',
+    ].join('\n'), { headers: { 'content-type': 'text/event-stream; charset=utf-8' } })))
+
+    let output = ''
+    await completeChat({
+      api: { baseUrl: 'https://example.com/v1', apiKey: 'test', modelName: 'model' },
+      messages: [{ role: 'user', content: '生成角色卡' }],
+      temperature: 1, topP: 1, maxTokens: 100, streaming: false,
+      signal: new AbortController().signal,
+      onDelta: (delta) => { output += delta },
+    })
+    expect(output).toBe('{"name":"测试角色"}')
+  })
+
   it('保留最后一个未闭合分片并识别长度截断', async () => {
     let requestBody: Record<string, unknown> = {}
     vi.stubGlobal('fetch', vi.fn(async (_url: string, init?: RequestInit) => {
