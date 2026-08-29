@@ -214,6 +214,14 @@ export async function completeChat(options: CompletionOptions) {
   if (!response.ok) throw new Error(await readError(response))
 
   const contentType = response.headers.get('content-type') || ''
-  if (streaming && (contentType.includes('text/event-stream') || !contentType.includes('application/json'))) return consumeEventStream(response, onDelta)
+  // Some OpenAI-compatible relays ignore `stream: false` and still answer with
+  // SSE. The workshop deliberately uses non-streaming requests because it must
+  // parse one complete JSON card, so selecting the decoder from the requested
+  // mode made those otherwise successful replies fail at response.json().
+  // Trust the actual response format first; keep the looser fallback for
+  // streaming channels that omit the content-type header.
+  if (contentType.includes('text/event-stream') || (streaming && !contentType.includes('application/json'))) {
+    return consumeEventStream(response, onDelta)
+  }
   return consumeJson(response, onDelta)
 }
