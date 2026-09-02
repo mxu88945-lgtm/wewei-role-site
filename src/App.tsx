@@ -35,6 +35,7 @@ import { modelVisibleMessageText, stripUiOnlyStatusBlocks } from './modelContext
 import { countConversationStats } from './conversationStats'
 import { enforceRelationshipStageFloor, extractRelationshipStage, highestRelationshipStage, relationshipStageLockInstruction, repairRelationshipStageHistory, type RelationshipStage } from './relationshipStage'
 import { buildStatusFallback, getStatusProtocol, latestStatusContent } from './statusProtocol'
+import { planCharacterDeletion } from './characterDeletion'
 
 type Page = 'home' | 'story-projects' | 'characters' | 'create' | 'character-workshop' | 'group-create' | 'director-template' | 'group-greeting-picker' | 'import-preview' | 'character-detail' | 'card-data' | 'card-worldbook' | 'card-regex' | 'card-memory' | 'greeting-picker' | 'chat' | 'more' | 'api' | 'reply-helper-api' | 'model' | 'settings' | 'appearance' | 'font' | 'display-reply' | 'identity' | 'worldbook' | 'theater-world' | 'preset' | 'memory' | 'memory-api' | 'memory-list'
 type MessageEditor = { mode: 'assistant' | 'resend'; messageId: number; text: string }
@@ -307,6 +308,8 @@ function App() {
   const [messageEditor, setMessageEditor] = useState<MessageEditor | null>(null)
   const [characterMenuId, setCharacterMenuId] = useState<string | null>(null)
   const [characterQuery, setCharacterQuery] = useState('')
+  const [characterSelectionMode, setCharacterSelectionMode] = useState(false)
+  const [selectedCharacterIds, setSelectedCharacterIds] = useState<string[]>([])
   const [groupDraft, setGroupDraft] = useState<{ title: string; participantIds: string[]; apiIds: Record<string, string>; modelNames: Record<string, string> }>({ title: '', participantIds: [], apiIds: {}, modelNames: {} })
   const [groupDirectorDraft, setGroupDirectorDraft] = useState<DirectorTemplateConfig>(() => createDirectorTemplateConfig())
   const [directorEditorTarget, setDirectorEditorTarget] = useState<'draft' | 'conversation-new' | 'conversation'>('draft')
@@ -1174,44 +1177,67 @@ function App() {
     setMemoryEntries((current) => ({ ...current, [copy.id]: [] }))
     setCharacterMenuId(null)
   }
-  const deleteCharacter = (character: Character) => {
-    if (characters.length <= 1) { window.alert('至少保留一个角色。'); return }
-    if (!window.confirm(`删除角色“${character.name}”以及他的全部会话和记忆？`)) return
-    const deletedConversations = conversations.filter((item) => item.characterId === character.id || item.participantIds?.includes(character.id))
-    const deletedConversationIds = new Set(deletedConversations.map((item) => item.id))
+  const removeCharacters = (characterIds: string[]) => {
+    const deletion = planCharacterDeletion({ characters, conversations, characterIds, activeId, activeConversationId })
+    const { deletedCharacterIds, deletedConversations, deletedConversationIds, nextCharacters, nextConversations, nextActiveId, nextActiveConversationId } = deletion
+    if (!deletedCharacterIds.size) return
+    if (characters.length - deletedCharacterIds.size < 1) { window.alert('至少保留一个角色。'); return }
     deletedConversations.forEach((item) => abortConversation(item.id))
-    const nextCharacters = characters.filter((item) => item.id !== character.id)
-    const nextConversations = conversations.filter((item) => item.characterId !== character.id && !item.participantIds?.includes(character.id))
     setCharacters(nextCharacters)
     setConversations(nextConversations)
-    setMemoryConfigs((current) => { const next = { ...current }; delete next[character.id]; return next })
+    setMemoryConfigs((current) => {
+      const next = { ...current }
+      deletedCharacterIds.forEach((id) => delete next[id])
+      return next
+    })
     setMemoryEntries((current) => {
       const next = { ...current }
-      delete next[character.id]
+      deletedCharacterIds.forEach((id) => delete next[id])
       deletedConversationIds.forEach((id) => delete next[id])
       return next
     })
     setStoryProjects((current) => current.map((project) => {
-      const touched = project.characterIds.includes(character.id) || project.conversationIds.some((id) => deletedConversationIds.has(id)) || project.directorCharacterId === character.id
+      const touched = project.characterIds.some((id) => deletedCharacterIds.has(id)) || project.conversationIds.some((id) => deletedConversationIds.has(id)) || Boolean(project.directorCharacterId && deletedCharacterIds.has(project.directorCharacterId))
       if (!touched) return project
       const checkpoints = { ...project.autoContinuity.lastProcessedAssistantMessageIds }
       deletedConversationIds.forEach((id) => delete checkpoints[id])
       return {
         ...project,
-        characterIds: project.characterIds.filter((id) => id !== character.id),
+        characterIds: project.characterIds.filter((id) => !deletedCharacterIds.has(id)),
         conversationIds: project.conversationIds.filter((id) => !deletedConversationIds.has(id)),
-        directorCharacterId: project.directorCharacterId === character.id ? undefined : project.directorCharacterId,
+        directorCharacterId: project.directorCharacterId && deletedCharacterIds.has(project.directorCharacterId) ? undefined : project.directorCharacterId,
         autoContinuity: { ...project.autoContinuity, needsReview: true, lastProcessedAssistantMessageIds: checkpoints, lastError: '角色或绑定对话已删除，请复核驾驶舱。', lastSummary: undefined },
         updatedAt: Date.now(),
       }
     }))
     setCharacterMenuId(null)
-    if (activeId === character.id) {
-      const nextCharacter = nextCharacters[0]
-      const nextConversation = nextConversations.filter((item) => item.characterId === nextCharacter.id).sort((a, b) => b.updatedAt - a.updatedAt)[0]
-      setActiveId(nextCharacter.id)
-      setActiveConversationId(nextConversation?.id || '')
+    setSelectedCharacterIds((current) => current.filter((id) => !deletedCharacterIds.has(id)))
+    if (nextActiveId !== activeId || deletedConversationIds.has(activeConversationId)) {
+      setActiveId(nextActiveId)
+      setActiveConversationId(nextActiveConversationId)
     }
+  }
+  const deleteCharacter = (character: Character) => {
+    if (characters.length <= 1) { window.alert('至少保留一个角色。'); return }
+    if (!window.confirm(`删除角色“${character.name}”以及他的全部会话和记忆？`)) return
+    removeCharacters([character.id])
+  }
+  const toggleCharacterSelection = (characterId: string) => setSelectedCharacterIds((current) => current.includes(characterId)
+    ? current.filter((id) => id !== characterId)
+    : [...current, characterId])
+  const closeCharacterSelection = () => {
+    setCharacterSelectionMode(false)
+    setSelectedCharacterIds([])
+  }
+  const deleteSelectedCharacters = () => {
+    const selectedCharacters = characters.filter((character) => selectedCharacterIds.includes(character.id))
+    if (!selectedCharacters.length) return
+    if (characters.length - selectedCharacters.length < 1) { window.alert('至少保留一个角色。'); return }
+    const preview = selectedCharacters.slice(0, 3).map((character) => `“${character.name}”`).join('、')
+    const remaining = selectedCharacters.length > 3 ? `等 ${selectedCharacters.length} 个角色` : ''
+    if (!window.confirm(`删除${preview}${remaining}以及相关的全部会话、记忆和剧本绑定？此操作无法撤销。`)) return
+    removeCharacters(selectedCharacters.map((character) => character.id))
+    closeCharacterSelection()
   }
   const exportCharacter = (character: Character) => {
     downloadJson(`${character.name}-character-card-v3.json`, exportableCharacter(character))
@@ -1959,7 +1985,18 @@ function App() {
   }
 
   const CharacterPortrait = ({ item, large = false }: { item: Character; large?: boolean }) => <div className={large ? 'hero-portrait' : 'character-art'}>{item.avatar ? <img src={item.avatar} alt="" /> : <><span>{item.name.slice(-1)}</span><i>✦</i></>}</div>
-  const CharacterCard = ({ item }: { item: Character }) => <div className="character-card-shell"><button className="character-card" onClick={() => openCharacter(item.id)}><CharacterPortrait item={item} /><div className="character-copy"><div className="character-title"><strong>{item.name}</strong><span>{item.id === activeId ? '最近共演' : item.cardSpecVersion ? `Card ${item.cardSpecVersion}` : '角色卡'}</span></div><p>{item.tagline}</p><small>“{item.greeting}”</small></div></button><button className="character-card-more" aria-label={`管理${item.name}`} onClick={() => setCharacterMenuId(item.id)}>•••</button></div>
+  const CharacterCard = ({ item }: { item: Character }) => {
+    const selected = selectedCharacterIds.includes(item.id)
+    return <div className={`character-card-shell${characterSelectionMode ? ' selection-mode' : ''}${selected ? ' selected' : ''}`}>
+      <button className="character-card" onClick={() => characterSelectionMode ? toggleCharacterSelection(item.id) : openCharacter(item.id)}>
+        <CharacterPortrait item={item} />
+        <div className="character-copy"><div className="character-title"><strong>{item.name}</strong><span>{item.id === activeId ? '最近共演' : item.cardSpecVersion ? `Card ${item.cardSpecVersion}` : '角色卡'}</span></div><p>{item.tagline}</p><small>“{item.greeting}”</small></div>
+      </button>
+      {characterSelectionMode
+        ? <button className={`character-card-select${selected ? ' selected' : ''}`} aria-label={`${selected ? '取消选择' : '选择'}${item.name}`} aria-pressed={selected} onClick={() => toggleCharacterSelection(item.id)}>{selected ? '✓' : ''}</button>
+        : <button className="character-card-more" aria-label={`管理${item.name}`} onClick={() => setCharacterMenuId(item.id)}>•••</button>}
+    </div>
+  }
   const sortedConversations = conversations.slice().sort((a, b) => b.updatedAt - a.updatedAt)
   const menuConversation = conversations.find((item) => item.id === conversationMenuId)
   const menuMessage = messages.find((item) => item.id === messageMenuId)
@@ -1970,6 +2007,13 @@ function App() {
     const query = characterQuery.trim().toLocaleLowerCase()
     return !query || [item.name, item.tagline, item.creator, ...item.tags].some((value) => value.toLocaleLowerCase().includes(query))
   })
+  const allFilteredCharactersSelected = filteredCharacters.length > 0 && filteredCharacters.every((item) => selectedCharacterIds.includes(item.id))
+  const toggleAllFilteredCharacters = () => {
+    const filteredIds = new Set(filteredCharacters.map((item) => item.id))
+    setSelectedCharacterIds((current) => allFilteredCharactersSelected
+      ? current.filter((id) => !filteredIds.has(id))
+      : [...new Set([...current, ...filteredIds])])
+  }
   const isGenerating = Boolean(activeConversation && generatingIds.includes(activeConversation.id))
   const renderChatMessage = (message: Message) => {
     const messageCharacter = resolveMessageCharacter(message)
@@ -2020,7 +2064,7 @@ function App() {
       </div>
     </section>}
 
-    {page === 'characters' && <><BackHeader title="角色库" onBack={goBack} /><section className="content-stack"><div className="section-heading"><div><h2>全部角色</h2><p>支持 Tavern PNG · Card V2/V3</p></div><div className="library-actions"><button className="workshop-entry-button" onClick={() => navigate('character-workshop')}>✦ AI 工坊</button><button onClick={() => navigate('create')}>＋ 新建</button></div></div><div className="character-search"><span>⌕</span><input value={characterQuery} onChange={(event) => setCharacterQuery(event.target.value)} placeholder="搜索名字、作者或标签" />{characterQuery && <button onClick={() => setCharacterQuery('')}>×</button>}</div>{importState === 'reading' && <div className="import-notice">正在解析角色卡、世界书与正则…</div>}{importState === 'error' && <div className="import-notice error">{importError}</div>}{filteredCharacters.map((item) => <CharacterCard key={item.id} item={item} />)}{filteredCharacters.length === 0 && <div className="library-empty">没有找到匹配的角色。</div>}</section></>}
+    {page === 'characters' && <><BackHeader title="角色库" onBack={characterSelectionMode ? closeCharacterSelection : goBack} /><section className="content-stack"><div className="section-heading"><div><h2>{characterSelectionMode ? '选择角色' : '全部角色'}</h2><p>{characterSelectionMode ? `已选择 ${selectedCharacterIds.length} 个角色` : '支持 Tavern PNG · Card V2/V3'}</p></div><div className="library-actions">{characterSelectionMode ? <button className="library-manage-button active" onClick={closeCharacterSelection}>完成</button> : <><button className="workshop-entry-button" onClick={() => navigate('character-workshop')}>✦ AI 工坊</button><button onClick={() => navigate('create')}>＋ 新建</button><button className="library-manage-button" onClick={() => { setCharacterSelectionMode(true); setSelectedCharacterIds([]) }}>管理</button></>}</div></div><div className="character-search"><span>⌕</span><input value={characterQuery} onChange={(event) => setCharacterQuery(event.target.value)} placeholder="搜索名字、作者或标签" />{characterQuery && <button onClick={() => setCharacterQuery('')}>×</button>}</div>{characterSelectionMode && <div className="character-bulk-toolbar"><button onClick={toggleAllFilteredCharacters} disabled={!filteredCharacters.length}>{allFilteredCharactersSelected ? '取消全选' : characterQuery.trim() ? '全选结果' : '全选'}</button><span>已选 {selectedCharacterIds.length}</span><button className="danger" onClick={deleteSelectedCharacters} disabled={!selectedCharacterIds.length}>删除所选</button></div>}{importState === 'reading' && <div className="import-notice">正在解析角色卡、世界书与正则…</div>}{importState === 'error' && <div className="import-notice error">{importError}</div>}{filteredCharacters.map((item) => <CharacterCard key={item.id} item={item} />)}{filteredCharacters.length === 0 && <div className="library-empty">没有找到匹配的角色。</div>}</section></>}
 
     {page === 'create' && <><BackHeader title="新建角色" onBack={goBack} action={<button className="text-button" onClick={createCharacter}>保存</button>} /><section className="content-stack form-stack"><button className="drop-zone compact" onClick={() => fileInputRef.current?.click()}><span className="drop-plus">＋</span><strong>{importState === 'reading' ? '正在读取角色卡…' : '从文件导入角色卡'}</strong><small>支持带元数据的 PNG 与 JSON</small></button><div className="url-import-card"><div><strong>从 URL 导入角色卡</strong><small>粘贴 PNG 或 JSON 角色卡直链</small></div><div><input type="url" value={characterUrl} onChange={(event) => setCharacterUrl(event.target.value)} onKeyDown={(event) => { if (event.key === 'Enter') { event.preventDefault(); handleCharacterUrl() } }} placeholder="https://…/character.png" /><button onClick={handleCharacterUrl} disabled={!characterUrl.trim() || importState === 'reading'}>{importState === 'reading' ? '读取中' : '导入'}</button></div></div>{importState === 'error' && <div className="import-notice error">{importError}</div>}<div className="form-divider"><span>或者手动创建</span></div><label className="avatar-upload-row"><span className="avatar-upload-preview">{newCharacter.avatar ? <img src={newCharacter.avatar} alt="" /> : '＋'}</span><span><strong>角色头像</strong><small>选择照片并自动裁成方形</small></span><input type="file" accept="image/*" onChange={async (event) => { const file = event.target.files?.[0]; if (file) setNewCharacter({ ...newCharacter, avatar: await imageThumbnail(file) }); event.currentTarget.value = '' }} /></label><label>角色名称<input value={newCharacter.name} onChange={(e) => setNewCharacter({ ...newCharacter, name: e.target.value })} placeholder="例如：霍烬" /></label><label>一句话简介<input value={newCharacter.tagline} onChange={(e) => setNewCharacter({ ...newCharacter, tagline: e.target.value })} /></label><label>角色设定<textarea rows={7} value={newCharacter.description} onChange={(e) => setNewCharacter({ ...newCharacter, description: e.target.value })} /></label><label>开场白<textarea rows={4} value={newCharacter.greeting} onChange={(e) => setNewCharacter({ ...newCharacter, greeting: e.target.value })} /></label><label>标签<input value={newCharacter.tags} onChange={(e) => setNewCharacter({ ...newCharacter, tags: e.target.value })} placeholder="慢热，守护，剧情向" /></label><button className="primary-button full" onClick={createCharacter}>创建并保存</button></section></>}
 
@@ -2200,7 +2244,7 @@ function UpdateCard() {
     }
   }
 
-  return <section className="update-card"><strong>应用更新</strong><p>主动检查并拉取最新网页版本，不会删除角色、聊天记录或本地设置。</p><small>当前版本：2026.07.14 · 惟境桌宠</small><button onClick={refresh} disabled={state === 'checking'}>{state === 'checking' ? '正在检查更新…' : state === 'error' ? '更新失败，点我重试' : '强制刷新到最新版'}</button></section>
+  return <section className="update-card"><strong>应用更新</strong><p>主动检查并拉取最新网页版本，不会删除角色、聊天记录或本地设置。</p><small>当前版本：2026.09.02 · 角色批量管理</small><button onClick={refresh} disabled={state === 'checking'}>{state === 'checking' ? '正在检查更新…' : state === 'error' ? '更新失败，点我重试' : '强制刷新到最新版'}</button></section>
 }
 
 function PersonaPage({ identities, selectedId, isBound, onSelect, onAdd, onDelete, onUpdate, onBack }: { identities: UserIdentity[]; selectedId: string; isBound: boolean; onSelect: (id: string) => void; onAdd: () => void; onDelete: (id: string) => void; onUpdate: (patch: Partial<UserIdentity>) => void; onBack: () => void }) {
