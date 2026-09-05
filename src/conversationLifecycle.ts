@@ -1,4 +1,5 @@
 import type { DirectorTemplateConfig } from './directorTemplate'
+import type { Character } from './characterCard'
 
 export type Message = { id: number; role: 'user' | 'assistant'; text: string; characterId?: string; finishReason?: string | null }
 
@@ -25,6 +26,13 @@ export type Conversation = {
   directorCharacterId?: string
   directorConfig?: DirectorTemplateConfig
   relationshipStages?: Record<string, number>
+  /**
+   * A deleted group member's display card is retained here so historical
+   * messages keep their original author name, avatar and regex rendering.
+   * It is deliberately not a live participant and is never injected as a
+   * selectable speaker.
+   */
+  archivedCharacters?: Record<string, Character>
 }
 
 export function addConversationParticipant(source: Conversation, participantId: string, defaults: { apiId: string; modelName: string; title?: string }): Conversation {
@@ -46,6 +54,46 @@ export function addConversationParticipant(source: Conversation, participantId: 
     participantModelNames,
     title: source.kind === 'group' ? source.title : defaults.title || source.title,
     messages: source.messages.map((message) => message.role === 'assistant' && !message.characterId ? { ...message, characterId: source.characterId } : message),
+    updatedAt: Date.now(),
+  }
+}
+
+/** Remove one member while retaining the conversation, message history and conversation memory. */
+export function removeConversationParticipant(source: Conversation, participantId: string, singleMemberName = '角色'): Conversation | null {
+  const existingIds = source.kind === 'group' && source.participantIds?.length ? source.participantIds : [source.characterId]
+  if (!existingIds.includes(participantId)) return source
+  const participantIds = existingIds.filter((id) => id !== participantId)
+  if (!participantIds.length) return null
+
+  const participantApiIds = { ...(source.participantApiIds || {}) }
+  const participantModelNames = { ...(source.participantModelNames || {}) }
+  delete participantApiIds[participantId]
+  delete participantModelNames[participantId]
+  const removedDirector = source.directorCharacterId === participantId
+  const directorPatch = removedDirector ? { directorCharacterId: undefined, directorConfig: undefined, theaterWorldBackground: undefined } : {}
+
+  if (participantIds.length === 1) {
+    return {
+      ...source,
+      ...directorPatch,
+      kind: 'single',
+      characterId: participantIds[0],
+      participantIds: undefined,
+      participantApiIds: undefined,
+      participantModelNames: undefined,
+      title: `与${singleMemberName}的对话`,
+      updatedAt: Date.now(),
+    }
+  }
+
+  return {
+    ...source,
+    ...directorPatch,
+    kind: 'group',
+    characterId: participantIds[0],
+    participantIds,
+    participantApiIds,
+    participantModelNames,
     updatedAt: Date.now(),
   }
 }
