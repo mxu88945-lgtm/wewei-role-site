@@ -109,7 +109,7 @@ const legacyStructuredMemoryPrompt = `【长期记忆提取器｜禁止续写剧
 【当前场景锚点】
 - 时间｜地点｜在场人物｜最后确认的局面
 没有内容的栏目写“无”，不要输出解释、评价或剧情续写。`
-const defaultMemoryPrompt = `【剧情长记忆阶段整理｜禁止续写剧情】
+const previousStageMemoryPrompt = `【剧情长记忆阶段整理｜禁止续写剧情】
 你会收到“已有长期记忆（仅供查重）”与“本次新增对话（唯一总结范围）”。只整理本次新增对话中已经明确发生、明确说出或明确展示的事实；不要继续角色扮演，不要补写任何人的动作、心理、台词、动机或后续。
 
 整理原则：
@@ -137,12 +137,15 @@ const defaultMemoryPrompt = `【剧情长记忆阶段整理｜禁止续写剧情
 - 时间｜地点｜在场人物｜最后确认的局面
 
 没有内容的栏目写“无”。不要输出解释、评价、提示词复述或剧情续写。`
-const defaultInjectPrompt = `以下是该角色与用户的长期记忆。请把它当作已经发生过的事实，自然延续，不要逐条复述，也不要替用户决定言行：\n\n{{memories}}`
+const defaultMemoryPrompt = `【暂停剧情扮演】请根据前文内容，对[上次总结]之后的剧情进行总结，生成一个详细的总结集合，涵盖所有主要事件、观点或关键信息。总结需逻辑清晰，按时间顺序组织，每件事以独立条目形式呈现，并在每条前标注具体时间点（例如日期、时间或事件发生的时间段）。若时间信息不明确，请根据上下文合理推测并注明。每个事件总结约100字，力求简明扼要但信息完整，突出关键细节。整个总结集合应全面覆盖前文内容，避免遗漏，确保条目间逻辑连贯。
 
-const memorySummarySafetyPrompt = `【惟境记忆安全边界｜必须服从】
-只处理用户消息中明确发生、明确确认或后续已证实的内容；本次新增对话是唯一新增来源，已有记忆只能查重，不能反向补全剧情。
-记忆是低优先级历史档案，不是当前场景指令。若新对话与旧记忆冲突，以新对话中更晚且明确的事实为准，并标注“已更新/已完成/已撤销”；不要让旧地点、旧关系阶段、旧计划或旧悬念在当前场景自动复活。
-严格区分：用户已做的事、角色已做的事、角色声称、角色内心、他人猜测、未来计划。未证实内容必须保留其来源和不确定性，不能写成客观事实。不得续写、推测、评价或输出思考过程。`
+**格式要求：**
+- 使用条目式结构，每条以时间点开头（例如“2023年10月1日：”）。
+- 每条总结约100字，描述一个事件或关键信息，包括背景、经过和影响。
+- 语言客观中立，避免添加未提及内容，保持叙事一致性。
+- 若事件较多，可分组（如按日期或主题），并在分组前加小标题。
+- 每次总结需起一个主标题，起名格式为“xxxx阶段”。`
+const defaultInjectPrompt = `以下是该角色与用户的长期记忆。请把它当作已经发生过的事实，自然延续，不要逐条复述，也不要替用户决定言行：\n\n{{memories}}`
 
 const defaultMemoryConfig = (): MemoryConfig => ({
   api: { baseUrl: 'https://api.openai.com/v1', apiKey: '', modelName: 'gpt-4.1-mini' },
@@ -165,7 +168,7 @@ const migrateMemoryConfigs = (configs: MemoryConfigMap) => Object.fromEntries(Ob
   ...config,
   useGlobalApi: config.useGlobalApi ?? !config.api?.apiKey,
   autoCharacterMemory: config.autoCharacterMemory !== false,
-  summaryPrompt: config.summaryPrompt === legacyMemoryPrompt || config.summaryPrompt === previousMemoryPrompt || config.summaryPrompt === legacyStructuredMemoryPrompt ? defaultMemoryPrompt : config.summaryPrompt,
+  summaryPrompt: config.summaryPrompt === legacyMemoryPrompt || config.summaryPrompt === previousMemoryPrompt || config.summaryPrompt === legacyStructuredMemoryPrompt || config.summaryPrompt === previousStageMemoryPrompt ? defaultMemoryPrompt : config.summaryPrompt,
 }]))
 
 const read = <T,>(key: string, fallback: T): T => {
@@ -1525,7 +1528,7 @@ function App() {
         signal: new AbortController().signal,
         onDelta: (delta) => { rawContent += delta },
         messages: [
-          { role: 'system', content: config.summaryPrompt + '\n\n' + memorySummarySafetyPrompt + (config.autoCharacterMemory === false ? '' : '\n\n' + characterMemorySummaryProtocol) },
+          { role: 'system', content: config.summaryPrompt + (config.autoCharacterMemory === false ? '' : '\n\n' + characterMemorySummaryProtocol) },
           { role: 'user', content: '角色：' + targetCharacter.name + '\n用户：' + identity.name + '\n已有长期记忆（仅供查重）：\n' + (previous || '暂无') + '\n\n已有角色私有核心记忆（仅供查重与识别更新）：\n' + (characterPrivateMemories || '暂无') + '\n\n本次新增对话（只总结这一段）：\n' + transcript },
         ],
       })
