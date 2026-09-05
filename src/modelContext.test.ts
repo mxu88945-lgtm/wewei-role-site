@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { modelVisibleMessageText, stripUiOnlyStatusBlocks } from './modelContext'
+import { isFailedTransportAssistantMessage, modelVisibleMessageText, stripUiOnlyStatusBlocks } from './modelContext'
 
 describe('model-only message context', () => {
   it('keeps public scene and story text while removing every supported status block', () => {
@@ -21,5 +21,12 @@ describe('model-only message context', () => {
   it('removes a dangling generated status block without changing user text', () => {
     expect(stripUiOnlyStatusBlocks('正文。\n<status>隐藏内容')).toBe('正文。')
     expect(modelVisibleMessageText({ role: 'user', text: '我输入 <status> 只是普通文字。' })).toBe('我输入 <status> 只是普通文字。')
+  })
+
+  it('keeps failed transport placeholders out of future model context', () => {
+    const failed = { role: 'assistant' as const, text: '(消息没送到： This request requires more credits, or fewer max_tokens. You requested up to 2048 tokens, but can only afford 1670.)' }
+    expect(isFailedTransportAssistantMessage(failed)).toBe(true)
+    expect(modelVisibleMessageText(failed)).toBe('')
+    expect(isFailedTransportAssistantMessage({ role: 'user', text: failed.text })).toBe(false)
   })
 })
