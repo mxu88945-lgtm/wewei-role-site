@@ -29,13 +29,12 @@ import { buildReplyHelperMessages, cleanReplyHelperDraft, REPLY_HELPER_MAX_TOKEN
 import { planContextCompression, uncompressedMessages } from './contextCompression'
 import { findLatestActorContinuityAnchor, findLatestSceneContinuityAnchor } from './actorContinuity'
 import ReplyHelperSettingsPage from './ReplyHelperSettingsPage'
-import { addConversationParticipant, createFreshConversationFrom, restartConversationInPlace, type Conversation, type Message } from './conversationLifecycle'
+import { addConversationParticipant, createFreshConversationFrom, removeConversationParticipant, restartConversationInPlace, type Conversation, type Message } from './conversationLifecycle'
 import { parseConversationTxt } from './conversationTxt'
-import { modelVisibleMessageText, stripUiOnlyStatusBlocks } from './modelContext'
+import { isFailedTransportAssistantMessage, modelVisibleMessageText, stripUiOnlyStatusBlocks } from './modelContext'
 import { countConversationStats } from './conversationStats'
 import { enforceRelationshipStageFloor, extractRelationshipStage, highestRelationshipStage, relationshipStageLockInstruction, repairRelationshipStageHistory, type RelationshipStage } from './relationshipStage'
 import { buildStatusFallback, getStatusProtocol, latestStatusContent } from './statusProtocol'
-import { planCharacterDeletion } from './characterDeletion'
 
 type Page = 'home' | 'story-projects' | 'characters' | 'create' | 'character-workshop' | 'group-create' | 'director-template' | 'group-greeting-picker' | 'import-preview' | 'character-detail' | 'card-data' | 'card-worldbook' | 'card-regex' | 'card-memory' | 'greeting-picker' | 'chat' | 'more' | 'api' | 'reply-helper-api' | 'model' | 'settings' | 'appearance' | 'font' | 'display-reply' | 'identity' | 'worldbook' | 'theater-world' | 'preset' | 'memory' | 'memory-api' | 'memory-list'
 type MessageEditor = { mode: 'assistant' | 'resend'; messageId: number; text: string }
@@ -275,9 +274,14 @@ const repairGuTingshenConversationStages = (source: Conversation[], characters: 
   })
 }
 
+const removeFailedTransportMessages = (source: Conversation[]) => source.map((conversation) => ({
+  ...conversation,
+  messages: conversation.messages.filter((message) => !isFailedTransportAssistantMessage(message)),
+}))
+
 const loadConversations = (characters: Character[]): Conversation[] => {
   const stored = read<Conversation[]>('weijing.conversations', [])
-  if (Array.isArray(stored) && stored.length) return repairGuTingshenConversationStages(stored, characters)
+  if (Array.isArray(stored) && stored.length) return repairGuTingshenConversationStages(removeFailedTransportMessages(stored), characters)
 
   const legacy = read<LegacySessionMap>('weijing.sessions', {})
   const migrated = Object.entries(legacy).map(([characterId, messages], index) => {
@@ -292,7 +296,7 @@ const loadConversations = (characters: Character[]): Conversation[] => {
       updatedAt: timestamp,
     }
   })
-  return repairGuTingshenConversationStages(migrated.length ? migrated : [createConversation(characters[0] || demoCharacter)], characters)
+  return repairGuTingshenConversationStages(removeFailedTransportMessages(migrated.length ? migrated : [createConversation(characters[0] || demoCharacter)]), characters)
 }
 
 function BackHeader({ title, onBack, action }: { title: string; onBack: () => void; action?: React.ReactNode }) {
@@ -427,6 +431,10 @@ function App() {
   const directorEditorApi = withApiModel(directorEditorBaseApi, directorEditorModelName)
   const fallbackMessages = useMemo(() => [{ id: 1, role: 'assistant' as const, text: activeCharacter.greeting }], [activeCharacter.greeting])
   const messages = activeConversation?.messages || fallbackMessages
+  const characterForMessage = (message: Message, conversation = activeConversation) => characters.find((character) => character.id === message.characterId)
+    || conversation?.archivedCharacters?.[message.characterId || '']
+    || activeCharacter
+  const messageCharacterName = (message: Message, conversation = activeConversation) => characterForMessage(message, conversation).name
   const conversationStats = countConversationStats(messages)
   const chatScrollKey = activeConversation?.id || `character:${activeCharacter.id}`
   const rememberChatScroll = (conversationKey = chatScrollKey) => {
@@ -580,7 +588,10 @@ function App() {
     ]).then(([storedCharacters, storedConversations, storedIdentities, storedIdentity, storedConfigs, storedEntries, storedBackground, storedGlobalMemoryApi, storedStoryProjects]) => {
       if (cancelled) return
       if (storedCharacters?.length) setCharacters(storedCharacters.map(normalizeStoredCharacter))
-      if (storedConversations?.length) setConversations(storedConversations)
+      if (storedConversations?.length) {
+        const persistedCharacters = (storedCharacters?.length ? storedCharacters : read<Partial<Character>[]>('weijing.characters', [demoCharacter])).map(normalizeStoredCharacter)
+        setConversations(repairGuTingshenConversationStages(removeFailedTransportMessages(storedConversations), persistedCharacters))
+      }
       if (storedIdentities?.length) setIdentities(storedIdentities)
       else if (storedIdentity) setIdentities([{ ...storedIdentity, id: storedIdentity.id || 'persona-default' }])
       if (storedConfigs) setMemoryConfigs(migrateMemoryConfigs(storedConfigs))
@@ -1094,15 +1105,8 @@ function App() {
     if (!activeConversation) return
     const remaining = conversationMemberIds().filter((id) => id !== characterId)
     if (!remaining.length) return
-    setConversations((current) => current.map((item) => {
-      if (item.id !== activeConversation.id) return item
-      const participantApiIds = { ...(item.participantApiIds || {}) }; delete participantApiIds[characterId]
-      const participantModelNames = { ...(item.participantModelNames || {}) }; delete participantModelNames[characterId]
-      const removedDirector = item.directorCharacterId === characterId
-      const directorPatch = removedDirector ? { directorCharacterId: undefined, directorConfig: undefined, theaterWorldBackground: undefined } : {}
-      if (remaining.length === 1) return { ...item, ...directorPatch, kind: 'single', characterId: remaining[0], participantIds: undefined, participantApiIds: undefined, participantModelNames: undefined, title: `与${characters.find((character) => character.id === remaining[0])?.name || '角色'}的对话`, updatedAt: Date.now() }
-      return { ...item, ...directorPatch, characterId: remaining[0], participantIds: remaining, participantApiIds, participantModelNames, updatedAt: Date.now() }
-    }))
+    const remainingName = characters.find((character) => character.id === remaining[0])?.name || '角色'
+    setConversations((current) => current.map((item) => item.id === activeConversation.id ? removeConversationParticipant(item, characterId, remainingName) || item : item))
     setActiveId(remaining[0])
   }
   const updateConversationMemberApi = (characterId: string, channelId: string) => {
@@ -1178,11 +1182,42 @@ function App() {
     setCharacterMenuId(null)
   }
   const removeCharacters = (characterIds: string[]) => {
-    const deletion = planCharacterDeletion({ characters, conversations, characterIds, activeId, activeConversationId })
-    const { deletedCharacterIds, deletedConversations, deletedConversationIds, nextCharacters, nextConversations, nextActiveId, nextActiveConversationId } = deletion
+    const deletedCharacterIds = new Set(characterIds.filter((id) => characters.some((character) => character.id === id)))
     if (!deletedCharacterIds.size) return
     if (characters.length - deletedCharacterIds.size < 1) { window.alert('至少保留一个角色。'); return }
-    deletedConversations.forEach((item) => abortConversation(item.id))
+
+    const deletedCharacters = characters.filter((character) => deletedCharacterIds.has(character.id))
+    const nextCharacters = characters.filter((character) => !deletedCharacterIds.has(character.id))
+    const snapshots = new Map<string, Character>(deletedCharacters.map((character): [string, Character] => [character.id, { ...character, rawCard: undefined, characterBook: undefined, characterMemory: undefined }]))
+    const singleConversations = conversations.filter((conversation) => conversation.kind !== 'group' && deletedCharacterIds.has(conversation.characterId))
+    const affectedGroups = conversations.filter((conversation) => conversation.kind === 'group' && conversation.participantIds?.some((id) => deletedCharacterIds.has(id)))
+    const deletedConversationIds = new Set(singleConversations.map((conversation) => conversation.id))
+    const preservedGroupConversationIds = new Set<string>()
+    ;[...singleConversations, ...affectedGroups].forEach((conversation) => abortConversation(conversation.id))
+
+    const nextConversations = conversations.flatMap((conversation) => {
+      if (deletedConversationIds.has(conversation.id)) return []
+      if (conversation.kind !== 'group' || !conversation.participantIds?.some((id) => deletedCharacterIds.has(id))) return [conversation]
+      const remaining = conversation.participantIds.filter((id) => !deletedCharacterIds.has(id))
+      if (!remaining.length) {
+        deletedConversationIds.add(conversation.id)
+        return []
+      }
+      let detached: Conversation | null = conversation
+      for (const removedId of conversation.participantIds.filter((id) => deletedCharacterIds.has(id))) {
+        const remainingName = nextCharacters.find((candidate) => candidate.id === detached?.participantIds?.find((id) => id !== removedId))?.name || '角色'
+        detached = detached ? removeConversationParticipant(detached, removedId, remainingName) : null
+      }
+      if (!detached) {
+        deletedConversationIds.add(conversation.id)
+        return []
+      }
+      preservedGroupConversationIds.add(conversation.id)
+      const archived = Object.fromEntries([...deletedCharacterIds]
+        .map((id) => [id, snapshots.get(id)])
+        .filter((entry): entry is [string, Character] => Boolean(entry[1])))
+      return [{ ...detached, archivedCharacters: { ...(conversation.archivedCharacters || {}), ...archived } }]
+    })
     setCharacters(nextCharacters)
     setConversations(nextConversations)
     setMemoryConfigs((current) => {
@@ -1206,20 +1241,31 @@ function App() {
         characterIds: project.characterIds.filter((id) => !deletedCharacterIds.has(id)),
         conversationIds: project.conversationIds.filter((id) => !deletedConversationIds.has(id)),
         directorCharacterId: project.directorCharacterId && deletedCharacterIds.has(project.directorCharacterId) ? undefined : project.directorCharacterId,
-        autoContinuity: { ...project.autoContinuity, needsReview: true, lastProcessedAssistantMessageIds: checkpoints, lastError: '角色或绑定对话已删除，请复核驾驶舱。', lastSummary: undefined },
+        autoContinuity: { ...project.autoContinuity, needsReview: true, lastProcessedAssistantMessageIds: checkpoints, lastError: project.conversationIds.some((id) => preservedGroupConversationIds.has(id)) ? '角色已从群聊移出；对话与记忆已保留，请复核驾驶舱角色绑定。' : '角色或绑定对话已删除，请复核驾驶舱。', lastSummary: undefined },
         updatedAt: Date.now(),
       }
     }))
     setCharacterMenuId(null)
     setSelectedCharacterIds((current) => current.filter((id) => !deletedCharacterIds.has(id)))
-    if (nextActiveId !== activeId || deletedConversationIds.has(activeConversationId)) {
-      setActiveId(nextActiveId)
-      setActiveConversationId(nextActiveConversationId)
+    const activeRetainedConversation = nextConversations.find((item) => item.id === activeConversationId)
+    if (activeRetainedConversation) {
+      setActiveId(activeRetainedConversation.participantIds?.[0] || activeRetainedConversation.characterId)
+      setActiveConversationId(activeRetainedConversation.id)
+    } else if (deletedCharacterIds.has(activeId) || deletedConversationIds.has(activeConversationId)) {
+      const nextCharacter = nextCharacters[0]
+      const nextConversation = nextConversations.filter((item) => item.characterId === nextCharacter.id).sort((a, b) => b.updatedAt - a.updatedAt)[0]
+      setActiveId(nextCharacter.id)
+      setActiveConversationId(nextConversation?.id || '')
     }
   }
   const deleteCharacter = (character: Character) => {
     if (characters.length <= 1) { window.alert('至少保留一个角色。'); return }
-    if (!window.confirm(`删除角色“${character.name}”以及他的全部会话和记忆？`)) return
+    const singleCount = conversations.filter((conversation) => conversation.kind !== 'group' && conversation.characterId === character.id).length
+    const groupCount = conversations.filter((conversation) => conversation.kind === 'group' && conversation.participantIds?.includes(character.id)).length
+    const prompt = groupCount
+      ? `删除角色“${character.name}”？\n\n会删除角色卡、专属记忆和 ${singleCount} 段单聊；${groupCount} 个群聊会保留全部消息与群聊记忆，仅移出这个旧角色实例。之后可重新导入新版角色卡并拉回群聊。`
+      : `删除角色“${character.name}”以及他的 ${singleCount} 段单聊和专属记忆？`
+    if (!window.confirm(prompt)) return
     removeCharacters([character.id])
   }
   const toggleCharacterSelection = (characterId: string) => setSelectedCharacterIds((current) => current.includes(characterId)
@@ -1499,9 +1545,7 @@ function App() {
     }
 
     const project = selectConversationStoryProject(storyProjects, activeConversation.id)
-    const authorOf = (message: Message) => message.role === 'user'
-      ? identity.name
-      : characters.find((character) => character.id === message.characterId)?.name || activeCharacter.name
+    const authorOf = (message: Message) => message.role === 'user' ? identity.name : messageCharacterName(message)
     const hasValidContextSummary = Boolean(activeConversation.contextSummary && (activeConversation.contextSummaryRevision || 0) === (activeConversation.historyRevision || 0))
     const replyHistory = uncompressedMessages(messages, activeConversation.compressedUntil, hasValidContextSummary)
     const promptMessages = buildReplyHelperMessages({
@@ -1609,7 +1653,7 @@ function App() {
       const promptMessages = buildChatPrompt({
         character: capturedCharacter,
         user: identity,
-        messages: sanitizedHistory.map((message) => ({ ...message, text: message.role === 'assistant' && isGroup ? `【${characters.find((item) => item.id === message.characterId)?.name || '其他角色'}】\n${message.text}` : message.text })),
+        messages: sanitizedHistory.map((message) => ({ ...message, text: message.role === 'assistant' && isGroup ? `【${messageCharacterName(message, conversation)}】\n${message.text}` : message.text })),
         preset: [enabledPresetText(presetSections), isGroup && `【群聊发言边界｜最高优先级】\n本轮你只能扮演 ${speaker.name}。群聊成员为：${groupNames.join('、')}。不得替用户发言、行动或思考；不得代替其他群聊角色说话、行动或决定。你可以观察并回应其他成员，但本轮输出只能属于 ${speaker.name}。`].filter(Boolean).join('\n\n'),
         globalWorldbook: worldbook,
         theaterWorldBackground: conversation.theaterWorldBackground || '',
@@ -1855,7 +1899,7 @@ function App() {
 
   const exportConversationTxt = () => {
     if (!activeConversation) return
-    const body = messages.map((message) => `${message.role === 'user' ? identity.name : characters.find((item) => item.id === message.characterId)?.name || activeCharacter.name}\n${message.text}`).join('\n\n--------------------\n\n')
+    const body = messages.map((message) => `${message.role === 'user' ? identity.name : messageCharacterName(message)}\n${message.text}`).join('\n\n--------------------\n\n')
     const participantNames = activeConversation.kind === 'group' ? (activeConversation.participantIds || []).map((id) => characters.find((item) => item.id === id)?.name).filter(Boolean).join('、') : activeCharacter.name
     const blob = new Blob([`${activeConversation.title}\n角色：${participantNames}\n用户：${identity.name}\n导出时间：${new Date().toLocaleString()}\n\n${body}`], { type: 'text/plain;charset=utf-8' })
     const url = URL.createObjectURL(blob); const anchor = document.createElement('a'); anchor.href = url; anchor.download = `${activeConversation.title.replace(/[\\/:*?"<>|]/g, '_')}.txt`; anchor.click(); URL.revokeObjectURL(url)
@@ -2002,7 +2046,7 @@ function App() {
   const menuMessage = messages.find((item) => item.id === messageMenuId)
   const menuCharacter = characters.find((item) => item.id === characterMenuId)
   const groupParticipants = activeConversation?.kind === 'group' ? (activeConversation.participantIds || []).map((id) => characters.find((item) => item.id === id)).filter(Boolean) as Character[] : []
-  const resolveMessageCharacter = (message: Message) => characters.find((item) => item.id === message.characterId) || activeCharacter
+  const resolveMessageCharacter = (message: Message) => characterForMessage(message)
   const filteredCharacters = characters.filter((item) => {
     const query = characterQuery.trim().toLocaleLowerCase()
     return !query || [item.name, item.tagline, item.creator, ...item.tags].some((value) => value.toLocaleLowerCase().includes(query))
