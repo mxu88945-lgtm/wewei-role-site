@@ -6,7 +6,7 @@ import CharacterCardManager from './CharacterCardManager'
 import { GreetingPicker, GroupGreetingPicker, ImportPreview, type GroupGreetingChoice } from './ImportFlow'
 import MessageContent from './MessageContent'
 import { createBlankCharacter, importCharacterCard, normalizeStoredCharacter, type Character } from './characterCard'
-import { activeCharacterMemory, characterMemoryEntryFromConversation, characterMemorySummaryProtocol, mergeCharacterMemoryEntries, parseCharacterMemoryCandidates, splitCharacterMemorySummary } from './characterMemory'
+import { activeCharacterMemory, characterMemoryEntryFromConversation, characterMemoryExtractionPrompt, characterMemorySummaryProtocol, mergeCharacterMemoryEntries, parseCharacterMemoryCandidates, splitCharacterMemorySummary } from './characterMemory'
 import { completeChat, fetchApiModels, testApiConnection, type ApiConfig, type ApiModel } from './chatApi'
 import { buildChatPrompt } from './promptBuilder'
 import { resolveChatScrollTarget, type ChatScrollSnapshot } from './chatScroll'
@@ -1523,7 +1523,26 @@ function App() {
     const characterPrivateMemories = memoryTargetCharacters.flatMap((character) => activeCharacterMemory(character)
       .map((item) => `- 【${character.name}｜${item.title}】${item.content}`)).join('\n').slice(-12000)
     const recordCoreMemoriesForConversation = (rawPayload: string, sourceMemoryId: string) => {
-      memoryTargetCharacters.forEach((character) => recordCharacterCoreMemories(memoryConfigFor(character.id), character, rawPayload, sourceMemoryId))
+      if (targetConversation.kind !== 'group') {
+        recordCharacterCoreMemories(config, targetCharacter, rawPayload, sourceMemoryId)
+        return
+      }
+      const enabledTargetIds = new Set(memoryTargetCharacters
+        .filter((character) => memoryConfigFor(character.id).autoCharacterMemory !== false)
+        .map((character) => character.id))
+      if (!enabledTargetIds.size) {
+        setAutoCharacterMemoryNotice({ characterId: targetCharacter.id, text: '群内所有角色均已关闭自动提炼；长记忆仍会照常总结。' })
+        return
+      }
+      const candidates = parseCharacterMemoryCandidates(rawPayload, { sourceMemoryId })
+      if (!candidates.length) {
+        setAutoCharacterMemoryNotice({ characterId: targetCharacter.id, text: '本轮没有提炼出可同步到角色卡的已确认核心事实。' })
+        return
+      }
+      setCharacters((current) => current.map((character) => enabledTargetIds.has(character.id)
+        ? { ...character, characterMemory: mergeCharacterMemoryEntries(character.characterMemory || [], candidates) }
+        : character))
+      setAutoCharacterMemoryNotice({ characterId: targetCharacter.id, text: `已提炼 ${candidates.length} 条核心记忆，并同步到群内 ${enabledTargetIds.size} 位角色（重复内容已合并）。` })
     }
     try {
       const endpoint = `${config.api.baseUrl.replace(/\/$/, '')}/chat/completions`
@@ -1543,9 +1562,31 @@ function App() {
       })
       rawContent = rawContent.trim()
       if (!rawContent) throw new Error('empty memory')
-      const { summary: content, coreMemoryPayload } = splitCharacterMemorySummary(rawContent)
+      const { summary: content, coreMemoryPayload: inlineCoreMemoryPayload } = splitCharacterMemorySummary(rawContent)
       const summaryContent = content || '无新增长期记忆'
       const sourceMemoryId = 'memory-scan-' + targetConversation.id + '-' + targetRevision + '-' + sourceMessages.length
+      let coreMemoryPayload = inlineCoreMemoryPayload
+      if (shouldExtractCharacterMemory && !parseCharacterMemoryCandidates(coreMemoryPayload, { sourceMemoryId }).length) {
+        try {
+          let extractionPayload = ''
+          await completeChat({
+            api: config.api,
+            temperature: 0.1,
+            topP: 1,
+            maxTokens: 3000,
+            streaming: false,
+            signal: new AbortController().signal,
+            onDelta: (delta) => { extractionPayload += delta },
+            messages: [
+              { role: 'system', content: characterMemoryExtractionPrompt },
+              { role: 'user', content: (targetConversation.kind === 'group' ? '这些事实属于同一群聊的共用剧情连续性，群聊成员为：' + memoryTargetCharacters.map((character) => character.name).join('、') + '。请提炼所有成员后续都必须记住的已确认事实。' : '当前角色：' + targetCharacter.name) + '\n\n已有角色私有核心记忆（仅供查重）：\n' + (characterPrivateMemories || '暂无') + '\n\n刚生成的本轮长期记忆总结：\n' + summaryContent },
+            ],
+          })
+          coreMemoryPayload = extractionPayload.trim()
+        } catch (error) {
+          console.warn('独立核心记忆提炼失败，仍保留普通长期记忆总结', error)
+        }
+      }
       if (/^无新增长期记忆[。！!]?$/.test(summaryContent)) {
         recordCoreMemoriesForConversation(coreMemoryPayload, sourceMemoryId)
         setConversations((current) => current.map((item) => item.id === targetConversation.id && (item.historyRevision || 0) === targetRevision ? { ...item, memorySummarizedCount: sourceMessages.length } : item))
