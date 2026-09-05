@@ -1575,6 +1575,21 @@ function App() {
     }
   }
 
+  const rebuildMemoryFromConversation = () => {
+    if (!activeConversation) {
+      setMemoryError('当前没有可重新总结的对话。')
+      setMemoryState('error')
+      return
+    }
+    const resetConversation: Conversation = { ...activeConversation, memorySummarizedCount: 0 }
+    setConversations((current) => current.map((conversation) => conversation.id === resetConversation.id
+      ? { ...conversation, memorySummarizedCount: 0 }
+      : conversation))
+    setMemoryError('')
+    setMemoryState('idle')
+    void summarizeMemory(resetConversation.messages, resetConversation, activeCharacter)
+  }
+
   const generateReplyHelperDraft = async () => {
     if (!activeConversation || replyHelperState === 'generating' || generatingIds.includes(activeConversation.id)) return
     const baseChannel = apiChannels.find((item) => item.id === replyHelperApiId) || api
@@ -2209,7 +2224,7 @@ function App() {
         <label className="memory-text-card"><strong>记忆总结提示词</strong><textarea rows={12} value={currentMemoryConfig.summaryPrompt} onChange={(e) => updateMemoryConfig({ summaryPrompt: e.target.value })} /><small>自动保存。点右上“恢复默认”即可应用新的阶段式总结模板；也可直接改成你的专属指令。</small></label>
         <label className="memory-select-card"><strong>记忆注入位置</strong><select value={currentMemoryConfig.injectPosition} onChange={(e) => updateMemoryConfig({ injectPosition: e.target.value })}><option value="none">不注入</option><option value="before-main-prompt">↑ Main Prompt</option><option value="after-main-prompt">↓ Main Prompt</option><option value="before-chat-history">↑ Chat History</option><option value="after-chat-history">↓ Chat History</option><option value="depth-system">@Depth · system</option><option value="depth-user">@Depth · user</option><option value="depth-assistant">@Depth · assistant</option></select></label>
         <label className="memory-text-card"><strong>记忆注入提示词</strong><textarea rows={6} value={currentMemoryConfig.injectPrompt} onChange={(e) => updateMemoryConfig({ injectPrompt: e.target.value })} /><small>使用 {'{{memories}}'} 作为记忆内容占位符。</small></label>
-        <div className="memory-actions"><button className="primary-button full" onClick={() => summarizeMemory()} disabled={memoryState === 'summarizing'}>{memoryState === 'summarizing' ? '正在总结…' : memoryState === 'error' ? '重新尝试总结' : '立即总结当前对话'}</button><button className="secondary-button" onClick={() => navigate('memory-list')}>查看与管理记忆（当前 {currentMemories.length}{archivedMemories.length ? ` · 历史 ${archivedMemories.length}` : ''}）</button></div>
+        <div className="memory-actions"><button className="primary-button full" onClick={() => summarizeMemory()} disabled={memoryState === 'summarizing'}>{memoryState === 'summarizing' ? '正在总结…' : memoryState === 'error' ? '重新尝试总结' : '立即总结当前对话'}</button><button className="secondary-button" onClick={rebuildMemoryFromConversation} disabled={memoryState === 'summarizing'}>从头重新总结本对话</button><button className="secondary-button" onClick={() => navigate('memory-list')}>查看与管理记忆（当前 {currentMemories.length}{archivedMemories.length ? ` · 历史 ${archivedMemories.length}` : ''}）</button></div>
       </section>
     </>}
 
