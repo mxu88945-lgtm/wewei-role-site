@@ -174,4 +174,27 @@ describe('chatApi', () => {
     vi.stubGlobal('fetch', vi.fn(async () => new Response(JSON.stringify({ error: { message: '密钥无效' } }), { status: 401, headers: { 'content-type': 'application/json' } })))
     await expect(testApiConnection({ baseUrl: 'https://example.com/v1', apiKey: 'bad', modelName: 'model' })).rejects.toThrow('密钥无效')
   })
+
+  it('余额只能负担更少输出 token 时自动按服务端上限重试', async () => {
+    const requestBodies: Record<string, unknown>[] = []
+    vi.stubGlobal('fetch', vi.fn(async (_url: string, init?: RequestInit) => {
+      requestBodies.push(JSON.parse(String(init?.body)))
+      if (requestBodies.length === 1) {
+        return new Response(JSON.stringify({ error: { message: 'This request requires more credits, or fewer max_tokens. You requested up to 2048 tokens, but can only afford 1670.' } }), { status: 402 })
+      }
+      return new Response(JSON.stringify({ choices: [{ message: { content: '我在。' } }] }), { headers: { 'content-type': 'application/json' } })
+    }))
+
+    let output = ''
+    await completeChat({
+      api: { baseUrl: 'https://example.com/v1', apiKey: 'test', modelName: 'claude-opus-5' },
+      messages: [{ role: 'user', content: '我回来了～' }], temperature: 1, topP: 1, maxTokens: 2048, streaming: false,
+      signal: new AbortController().signal, onDelta: (delta) => { output += delta },
+    })
+
+    expect(requestBodies).toHaveLength(2)
+    expect(requestBodies[0].max_tokens).toBe(2048)
+    expect(requestBodies[1].max_tokens).toBe(1670)
+    expect(output).toBe('我在。')
+  })
 })
