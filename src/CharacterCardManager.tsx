@@ -80,7 +80,7 @@ async function avatarThumbnail(file: File, size = 320) {
   return canvas.toDataURL('image/jpeg', .84)
 }
 
-export default function CharacterCardManager({ character, onChange, onBack, initialSection = 'overview' }: { character: Character; onChange: (next: Character) => void; onBack: () => void; initialSection?: CharacterCardSection }) {
+export default function CharacterCardManager({ character, onChange, onBack, initialSection = 'overview', groupCharacters = [], onSelectCharacter }: { character: Character; onChange: (next: Character) => void; onBack: () => void; initialSection?: CharacterCardSection; groupCharacters?: Character[]; onSelectCharacter?: (characterId: string) => void }) {
   const [section, setSection] = useState<CharacterCardSection>(initialSection)
   const [expandedWorld, setExpandedWorld] = useState<number | null>(null)
   const [expandedRegex, setExpandedRegex] = useState<string | null>(null)
@@ -133,6 +133,11 @@ export default function CharacterCardManager({ character, onChange, onBack, init
 
   return <section className="card-manager">
     <header className="page-header"><button className="icon-button" onClick={onBack}>‹</button><h1>角色卡数据</h1><div className="header-action"><span className="saved-label">自动保存</span></div></header>
+
+    {groupCharacters.length > 1 && <div className="group-card-switcher" aria-label="切换群聊角色资料">
+      <div><strong>群聊角色资料</strong><small>选择要查看或编辑的角色</small></div>
+      <nav>{groupCharacters.map((item) => <button type="button" key={item.id} className={item.id === character.id ? 'active' : ''} aria-pressed={item.id === character.id} onClick={() => onSelectCharacter?.(item.id)}>{item.avatar ? <img src={item.avatar} alt="" /> : <span>{item.name.slice(-1)}</span>}<em>{item.name}</em></button>)}</nav>
+    </div>}
 
     <div className="card-format-banner">
       {character.avatar ? <img src={character.avatar} alt="" /> : <span>{character.name.slice(-1)}</span>}
