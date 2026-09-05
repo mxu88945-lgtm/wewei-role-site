@@ -401,6 +401,7 @@ function App() {
   const [memoryState, setMemoryState] = useState<'idle' | 'summarizing' | 'ok' | 'error'>('idle')
   const [memoryError, setMemoryError] = useState('')
   const [autoCharacterMemoryNotice, setAutoCharacterMemoryNotice] = useState<{ characterId: string; text: string } | null>(null)
+  const [cardManagerCharacterId, setCardManagerCharacterId] = useState('')
   const [importState, setImportState] = useState<'idle' | 'reading' | 'error'>('idle')
   const [importError, setImportError] = useState('')
   const [pendingImport, setPendingImport] = useState<Character | null>(null)
@@ -1515,7 +1516,15 @@ function App() {
     const transcript = pendingMessages.map((item) => `${item.role === 'user' ? identity.name : characters.find((character) => character.id === item.characterId)?.name || targetCharacter.name}：${modelVisibleMessageText(item)}`).join('\n')
     const conversationMemories = memoriesForConversation(memoryEntries, scopeId, targetCharacter.id, targetRevision) as MemoryEntry[]
     const previous = [...conversationMemories.filter((item) => item.pinned), ...conversationMemories.filter((item) => !item.pinned).slice(-6)].map((item) => item.content).join('\n\n').slice(-12000)
-    const characterPrivateMemories = activeCharacterMemory(targetCharacter).map((item) => '- 【' + item.title + '】' + item.content).join('\n').slice(-8000)
+    const memoryTargetCharacters = targetConversation.kind === 'group'
+      ? [...new Set(targetConversation.participantIds || [])].map((id) => characters.find((character) => character.id === id)).filter(Boolean) as Character[]
+      : [targetCharacter]
+    const shouldExtractCharacterMemory = memoryTargetCharacters.some((character) => memoryConfigFor(character.id).autoCharacterMemory !== false)
+    const characterPrivateMemories = memoryTargetCharacters.flatMap((character) => activeCharacterMemory(character)
+      .map((item) => `- 【${character.name}｜${item.title}】${item.content}`)).join('\n').slice(-12000)
+    const recordCoreMemoriesForConversation = (rawPayload: string, sourceMemoryId: string) => {
+      memoryTargetCharacters.forEach((character) => recordCharacterCoreMemories(memoryConfigFor(character.id), character, rawPayload, sourceMemoryId))
+    }
     try {
       const endpoint = `${config.api.baseUrl.replace(/\/$/, '')}/chat/completions`
       let rawContent = ''
@@ -1528,8 +1537,8 @@ function App() {
         signal: new AbortController().signal,
         onDelta: (delta) => { rawContent += delta },
         messages: [
-          { role: 'system', content: config.summaryPrompt + (config.autoCharacterMemory === false ? '' : '\n\n' + characterMemorySummaryProtocol) },
-          { role: 'user', content: '角色：' + targetCharacter.name + '\n用户：' + identity.name + '\n已有长期记忆（仅供查重）：\n' + (previous || '暂无') + '\n\n已有角色私有核心记忆（仅供查重与识别更新）：\n' + (characterPrivateMemories || '暂无') + '\n\n本次新增对话（只总结这一段）：\n' + transcript },
+          { role: 'system', content: config.summaryPrompt + (shouldExtractCharacterMemory ? '\n\n' + characterMemorySummaryProtocol : '') },
+          { role: 'user', content: (targetConversation.kind === 'group' ? '群聊成员：' + memoryTargetCharacters.map((character) => character.name).join('、') : '角色：' + targetCharacter.name) + '\n用户：' + identity.name + '\n已有长期记忆（仅供查重）：\n' + (previous || '暂无') + '\n\n已有角色私有核心记忆（仅供查重与识别更新）：\n' + (characterPrivateMemories || '暂无') + '\n\n本次新增对话（只总结这一段）：\n' + transcript },
         ],
       })
       rawContent = rawContent.trim()
@@ -1538,7 +1547,7 @@ function App() {
       const summaryContent = content || '无新增长期记忆'
       const sourceMemoryId = 'memory-scan-' + targetConversation.id + '-' + targetRevision + '-' + sourceMessages.length
       if (/^无新增长期记忆[。！!]?$/.test(summaryContent)) {
-        recordCharacterCoreMemories(config, targetCharacter, coreMemoryPayload, sourceMemoryId)
+        recordCoreMemoriesForConversation(coreMemoryPayload, sourceMemoryId)
         setConversations((current) => current.map((item) => item.id === targetConversation.id && (item.historyRevision || 0) === targetRevision ? { ...item, memorySummarizedCount: sourceMessages.length } : item))
         setMemoryState('ok')
         return
@@ -1568,7 +1577,7 @@ function App() {
         } catch (error) { console.warn('自动整理长期记忆失败，保留原记忆', error) }
       }
       setMemoryEntries((current) => replaceConversationMemories(current, scopeId, targetCharacter.id, targetRevision, nextEntries) as MemoryEntryMap)
-      recordCharacterCoreMemories(config, targetCharacter, coreMemoryPayload, entry.id)
+      recordCoreMemoriesForConversation(coreMemoryPayload, entry.id)
       setConversations((current) => current.map((item) => item.id === targetConversation.id && (item.historyRevision || 0) === targetRevision ? { ...item, memorySummarizedCount: sourceMessages.length } : item))
       setMemoryState('ok')
     } catch (error) {
@@ -2104,6 +2113,12 @@ function App() {
   const menuMessage = messages.find((item) => item.id === messageMenuId)
   const menuCharacter = characters.find((item) => item.id === characterMenuId)
   const groupParticipants = activeConversation?.kind === 'group' ? (activeConversation.participantIds || []).map((id) => characters.find((item) => item.id === id)).filter(Boolean) as Character[] : []
+  const cardManagerCharacter = activeConversation?.kind === 'group'
+    ? groupParticipants.find((character) => character.id === cardManagerCharacterId) || groupParticipants[0] || activeCharacter
+    : activeCharacter
+  const cardManagerGroupProps = activeConversation?.kind === 'group'
+    ? { groupCharacters: groupParticipants, onSelectCharacter: setCardManagerCharacterId }
+    : {}
   const resolveMessageCharacter = (message: Message) => characterForMessage(message)
   const filteredCharacters = characters.filter((item) => {
     const query = characterQuery.trim().toLocaleLowerCase()
@@ -2194,9 +2209,9 @@ function App() {
 
     {page === 'character-detail' && <><BackHeader title={activeCharacter.name} onBack={goBack} /><section className="detail-stack"><div className="character-hero"><CharacterPortrait item={activeCharacter} large /><div><p className="eyebrow">{activeCharacter.cardSpecVersion ? `CHARACTER CARD ${activeCharacter.cardSpecVersion}` : 'CHARACTER'}</p><h2>{activeCharacter.name}</h2><p>{activeCharacter.tagline}</p></div></div><div className={`detail-card character-intro-card ${characterIntroExpanded ? 'expanded' : ''}`}><div className="detail-card-heading"><h3>角色简介</h3><button onClick={() => setCharacterIntroExpanded(!characterIntroExpanded)}>{characterIntroExpanded ? '收起⌃' : '展开⌄'}</button></div><p>{activeCharacter.description || '还没有填写角色简介。'}</p><div className="chips left">{activeCharacter.tags.map((tag) => <span key={tag}>{tag}</span>)}</div></div><button className="data-summary-card" onClick={() => navigate('card-data')}><div><strong>角色卡主体与开场白</strong><small>{activeCharacter.alternateGreetings.length + 1} 个开场 · Card {activeCharacter.cardSpecVersion || '本地'}</small></div><span>›</span></button><button className="data-summary-card compact" onClick={() => navigate('card-worldbook')}><div><strong>角色世界书</strong><small>{activeCharacter.characterBook?.entries.length || 0} 条 · 可编辑、启停和调整插入位置</small></div><span>›</span></button><button className="data-summary-card compact" onClick={() => navigate('card-regex')}><div><strong>角色正则与美化</strong><small>{activeCharacter.regexScripts.length} 条 · {activeCharacter.regexScripts.filter((script) => !script.disabled).length} 条启用</small></div><span>›</span></button><div className="detail-card character-private-memory-card"><h3>角色私有记忆</h3><p>固定注入这张角色卡的长期事实，目前启用 {activeCharacterMemory(activeCharacter).length} 条。</p><button className="inline-link" onClick={() => navigate('card-memory')}>管理角色私有记忆 ›</button></div><div className="detail-card"><h3>当前对话长期记忆</h3><p>这个角色拥有独立记忆库，目前保存 {currentMemories.length} 条记忆。</p><button className="inline-link" onClick={() => navigate('memory')}>管理记忆与总结模型 ›</button></div><div className="detail-card"><h3>开场白</h3><blockquote>{activeCharacter.greeting}</blockquote></div><div className="detail-actions">{conversations.some((item) => item.characterId === activeCharacter.id) ? <><button className="primary-button full" onClick={() => continueConversation()}>继续共演</button><button className="secondary-button" onClick={newSession}>选择开场并新建对话</button></> : <button className="primary-button full" onClick={newSession}>选择开场并开始共演</button>}</div></section></>}
 
-    {page === 'card-data' && <CharacterCardManager character={activeCharacter} onChange={updateActiveCharacter} onBack={goBack} />}
-    {page === 'card-worldbook' && <CharacterCardManager character={activeCharacter} onChange={updateActiveCharacter} onBack={goBack} initialSection="worldbook" />}
-    {page === 'card-regex' && <CharacterCardManager character={activeCharacter} onChange={updateActiveCharacter} onBack={goBack} initialSection="regex" />}{page === 'card-memory' && <CharacterCardManager character={activeCharacter} onChange={updateActiveCharacter} onBack={goBack} initialSection="memory" />}
+    {page === 'card-data' && <CharacterCardManager key={`card-data-${cardManagerCharacter.id}`} character={cardManagerCharacter} onChange={updateActiveCharacter} onBack={goBack} {...cardManagerGroupProps} />}
+    {page === 'card-worldbook' && <CharacterCardManager key={`card-worldbook-${cardManagerCharacter.id}`} character={cardManagerCharacter} onChange={updateActiveCharacter} onBack={goBack} initialSection="worldbook" {...cardManagerGroupProps} />}
+    {page === 'card-regex' && <CharacterCardManager key={`card-regex-${cardManagerCharacter.id}`} character={cardManagerCharacter} onChange={updateActiveCharacter} onBack={goBack} initialSection="regex" {...cardManagerGroupProps} />}{page === 'card-memory' && <CharacterCardManager key={`card-memory-${cardManagerCharacter.id}`} character={cardManagerCharacter} onChange={updateActiveCharacter} onBack={goBack} initialSection="memory" {...cardManagerGroupProps} />}
 
     {page === 'greeting-picker' && <GreetingPicker character={activeCharacter} userName={identity.name} onCancel={() => { const creatingFromConversation = Boolean(newConversationSourceId); setNewConversationSourceId(null); if (creatingFromConversation) replacePage('chat'); else goBack() }} onConfirm={beginWithGreeting} />}
 
