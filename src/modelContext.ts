@@ -26,6 +26,12 @@ export function stripUiOnlyStatusBlocks(value: string) {
     .trim()
 }
 
+export function isFailedTransportAssistantMessage(message: ModelContextMessage) {
+  if (message.role !== 'assistant') return false
+  return /^\s*[（(]?\s*消息没送到\s*[：:]?[\s\S]*(?:requires\s+more\s+credits|fewer\s+max_tokens|HTTP\s+4\d\d)/i.test(message.text)
+}
+
 export function modelVisibleMessageText(message: ModelContextMessage) {
+  if (isFailedTransportAssistantMessage(message)) return ''
   return message.role === 'assistant' ? stripUiOnlyStatusBlocks(message.text) : message.text
 }
