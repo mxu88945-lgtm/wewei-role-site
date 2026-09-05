@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { addConversationParticipant, createFreshConversationFrom, restartConversationInPlace, type Conversation } from './conversationLifecycle'
+import { addConversationParticipant, createFreshConversationFrom, removeConversationParticipant, restartConversationInPlace, type Conversation } from './conversationLifecycle'
 
 describe('new conversation lifecycle', () => {
   it('creates a clean single-role conversation without changing the source history', () => {
@@ -66,6 +66,29 @@ describe('new conversation lifecycle', () => {
     expect(upgraded.messages[1].characterId).toBeUndefined()
     expect(upgraded.contextSummary).toBe('保留摘要')
     expect(source.messages[0].characterId).toBeUndefined()
+  })
+
+  it('removes one group member without touching the shared conversation history or memory-facing identity', () => {
+    const source: Conversation = {
+      id: 'preserved-group', kind: 'group', characterId: 'yu', title: '裴晏清、虞山行',
+      participantIds: ['yu', 'pei', 'director'],
+      participantApiIds: { yu: 'api-yu', pei: 'api-pei', director: 'api-director' },
+      participantModelNames: { yu: 'gem-3.8', pei: 'claude', director: 'gem-3.8' },
+      messages: [{ id: 1, role: 'assistant', text: '虞山行的旧回复', characterId: 'yu' }, { id: 2, role: 'user', text: '继续' }],
+      createdAt: 1, updatedAt: 2, directorCharacterId: 'director', contextSummary: '已发生的剧情摘要', memorySummarizedCount: 2,
+    }
+
+    const detached = removeConversationParticipant(source, 'yu', '裴晏清')
+
+    expect(detached).not.toBeNull()
+    expect(detached?.id).toBe('preserved-group')
+    expect(detached?.kind).toBe('group')
+    expect(detached?.participantIds).toEqual(['pei', 'director'])
+    expect(detached?.participantApiIds).toEqual({ pei: 'api-pei', director: 'api-director' })
+    expect(detached?.messages).toEqual(source.messages)
+    expect(detached?.contextSummary).toBe('已发生的剧情摘要')
+    expect(detached?.memorySummarizedCount).toBe(2)
+    expect(source.participantIds).toEqual(['yu', 'pei', 'director'])
   })
 
   it('restarts the current chat at its opening without changing its identity or settings', () => {
