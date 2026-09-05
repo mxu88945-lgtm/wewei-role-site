@@ -34,6 +34,17 @@ async function readError(response: Response) {
   }
 }
 
+function affordableTokenLimit(message: string, requested: number) {
+  const match = message.match(/requested\s+up\s+to\s+([\d,]+)\s+tokens?[,;]?\s+but\s+can\s+only\s+afford\s+([\d,]+)/i)
+  if (!match) return null
+  const reportedRequested = Number(match[1].replace(/,/g, ''))
+  const affordable = Number(match[2].replace(/,/g, ''))
+  if (!Number.isFinite(reportedRequested) || !Number.isFinite(affordable) || affordable < 1) return null
+  const current = Math.max(1, Math.floor(requested))
+  const next = Math.min(current - 1, Math.floor(affordable))
+  return next >= 1 ? next : null
+}
+
 function apiHeaders(api: Pick<ApiConfig, 'apiKey' | 'protocol'>): Record<string, string> {
   if (api.protocol === 'anthropic') return {
     'x-api-key': api.apiKey,
@@ -179,7 +190,7 @@ function anthropicContent(content: ChatApiMessage['content']) {
   })
 }
 
-function anthropicPayload(options: CompletionOptions) {
+function anthropicPayload(options: CompletionOptions, maxTokens = options.maxTokens) {
   const system = options.messages.filter((message) => message.role === 'system').map((message) => messageContent(message.content)).filter(Boolean).join('\n\n')
   const messages = options.messages.filter((message) => message.role !== 'system').map((message) => ({ role: message.role, content: anthropicContent(message.content) }))
   if (messages[0]?.role === 'assistant') messages.unshift({ role: 'user', content: '以下是已经发生的对话记录。' })
@@ -189,7 +200,7 @@ function anthropicPayload(options: CompletionOptions) {
     messages,
     temperature: options.temperature,
     top_p: options.topP,
-    max_tokens: options.maxTokens,
+    max_tokens: maxTokens,
     stream: options.streaming,
   }
 }
@@ -198,19 +209,36 @@ export async function completeChat(options: CompletionOptions) {
   const { api, messages, temperature, topP, maxTokens, streaming, signal, onDelta } = options
   const limitField = tokenField(api)
   const anthropic = api.protocol === 'anthropic'
-  const response = await fetch(endpoint(api.baseUrl, anthropic ? 'messages' : 'chat/completions'), {
+  const request = (effectiveMaxTokens: number) => fetch(endpoint(api.baseUrl, anthropic ? 'messages' : 'chat/completions'), {
     method: 'POST',
     headers: { 'Content-Type': 'application/json', ...apiHeaders(api) },
-    body: JSON.stringify(anthropic ? anthropicPayload(options) : {
+    body: JSON.stringify(anthropic ? anthropicPayload(options, effectiveMaxTokens) : {
       model: api.modelName,
       messages,
       temperature,
       top_p: topP,
-      [limitField]: maxTokens,
+      [limitField]: effectiveMaxTokens,
       stream: streaming,
     }),
     signal,
   })
+
+  let effectiveMaxTokens = maxTokens
+  let response = await request(effectiveMaxTokens)
+  if (!response.ok) {
+    const message = await readError(response)
+    const affordable = affordableTokenLimit(message, effectiveMaxTokens)
+    // Some credit-metered relays price the request from its maximum possible
+    // output, then tell us the smaller budget the account can currently fund.
+    // Retry once with that server-provided ceiling instead of turning a
+    // recoverable budget mismatch into a failed chat turn.
+    if (affordable !== null) {
+      effectiveMaxTokens = affordable
+      response = await request(effectiveMaxTokens)
+    } else {
+      throw new Error(message)
+    }
+  }
   if (!response.ok) throw new Error(await readError(response))
 
   const contentType = response.headers.get('content-type') || ''
