@@ -94,7 +94,8 @@ export default function ApiSettingsPage({
       setQuery('')
     } catch (error) {
       setModelStates((current) => ({ ...current, [channel.id]: 'error' }))
-      setModelMessages((current) => ({ ...current, [channel.id]: error instanceof Error ? error.message : '获取模型失败' }))
+      const detail = error instanceof Error ? error.message : '获取模型失败'
+      setModelMessages((current) => ({ ...current, [channel.id]: `${detail}；若渠道不提供模型列表，可直接手填后点底部测试。` }))
     }
   }
 

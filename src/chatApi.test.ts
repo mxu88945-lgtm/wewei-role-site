@@ -172,7 +172,35 @@ describe('chatApi', () => {
 
   it('连接测试返回服务端错误信息', async () => {
     vi.stubGlobal('fetch', vi.fn(async () => new Response(JSON.stringify({ error: { message: '密钥无效' } }), { status: 401, headers: { 'content-type': 'application/json' } })))
-    await expect(testApiConnection({ baseUrl: 'https://example.com/v1', apiKey: 'bad', modelName: 'model' })).rejects.toThrow('密钥无效')
+    await expect(testApiConnection({ baseUrl: 'https://example.com/v1', apiKey: 'bad', modelName: 'model' })).rejects.toThrow('模型列表不可用：密钥无效；对话接口也不可用：密钥无效')
+  })
+
+  it('模型列表不可用时改用最小对话请求验证渠道', async () => {
+    const urls: string[] = []
+    vi.stubGlobal('fetch', vi.fn(async (url: string) => {
+      urls.push(url)
+      if (url.endsWith('/models')) return new Response(JSON.stringify({ error: { message: 'Not Found' } }), { status: 404 })
+      return new Response(JSON.stringify({ choices: [{ message: { content: 'OK' } }] }), { headers: { 'content-type': 'application/json' } })
+    }))
+
+    const result = await testApiConnection({ baseUrl: 'https://relay.example/v1', apiKey: 'key', modelName: 'model' })
+    expect(result).toEqual({ method: 'chat', modelListError: 'Not Found' })
+    expect(urls).toEqual(['https://relay.example/v1/models', 'https://relay.example/v1/chat/completions'])
+  })
+
+  it('连接探针遵循 Anthropic 原生协议', async () => {
+    const calls: Array<{ url: string; headers?: HeadersInit; body?: Record<string, unknown> }> = []
+    vi.stubGlobal('fetch', vi.fn(async (url: string, init?: RequestInit) => {
+      calls.push({ url, headers: init?.headers, body: init?.body ? JSON.parse(String(init.body)) : undefined })
+      if (url.endsWith('/models')) return new Response('not found', { status: 404 })
+      return new Response(JSON.stringify({ content: [{ type: 'text', text: 'OK' }] }), { headers: { 'content-type': 'application/json' } })
+    }))
+
+    const result = await testApiConnection({ protocol: 'anthropic', baseUrl: 'https://api.anthropic.com/v1', apiKey: 'key', modelName: 'claude-model' })
+    expect(result.method).toBe('chat')
+    expect(calls[1]).toMatchObject({ url: 'https://api.anthropic.com/v1/messages' })
+    expect(calls[1].headers).toMatchObject({ 'x-api-key': 'key', 'anthropic-version': '2023-06-01' })
+    expect(calls[1].body).toMatchObject({ model: 'claude-model', max_tokens: 16 })
   })
 
   it('余额只能负担更少输出 token 时自动按服务端上限重试', async () => {

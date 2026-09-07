@@ -117,6 +117,7 @@ function enhanceMemoryApiPage() {
   const scope = memoryApiScope(section)
 
   const labels = Array.from(section.querySelectorAll<HTMLLabelElement>('label'))
+  const protocolSelect = labels.find((label) => label.textContent?.trim().startsWith('API 格式'))?.querySelector<HTMLSelectElement>('select')
   const modelLabel = labels.find((label) => label.textContent?.trim().startsWith('模型名称'))
   const modelInput = modelLabel?.querySelector<HTMLInputElement>('input')
   const baseLabel = labels.find((label) => label.textContent?.trim().startsWith('Base URL'))
@@ -169,13 +170,14 @@ function enhanceMemoryApiPage() {
     message.classList.remove('error')
     message.textContent = '正在请求模型列表…'
     try {
-      const models = await fetchApiModels({ baseUrl: baseInput.value, apiKey: keyInput.value })
+      const models = await fetchApiModels({ baseUrl: baseInput.value, apiKey: keyInput.value, protocol: protocolSelect?.value === 'anthropic' ? 'anthropic' : 'openai' })
       if (!models.length) throw new Error('接口返回成功，但没有可用模型')
       message.textContent = `已获取 ${models.length} 个模型`
       openModelPicker(models, modelInput.value, (model) => setReactInputValue(modelInput, model))
     } catch (error) {
       message.classList.add('error')
-      message.textContent = error instanceof Error ? error.message : '获取模型失败'
+      const detail = error instanceof Error ? error.message : '获取模型失败'
+      message.textContent = `${detail}；若渠道不提供模型列表，可直接手填模型名称。`
     } finally {
       button.disabled = false
       button.textContent = '获取模型'

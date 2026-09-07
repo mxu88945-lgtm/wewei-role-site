@@ -4,6 +4,7 @@ export type ChatApiContentPart =
   | { type: 'image_url'; image_url: { url: string; detail?: 'auto' | 'low' | 'high' } }
 export type ChatApiMessage = { role: 'system' | 'user' | 'assistant'; content: string | ChatApiContentPart[] }
 export type CompletionResult = { finishReason: string | null }
+export type ConnectionTestResult = { method: 'models' | 'chat'; modelListError?: string }
 
 export type ApiModel = {
   id: string
@@ -87,10 +88,46 @@ export async function fetchApiModels(api: Pick<ApiConfig, 'baseUrl' | 'apiKey' |
   return Array.from(unique.values()).sort((a, b) => a.id.localeCompare(b.id))
 }
 
-export async function testApiConnection(api: ApiConfig, signal?: AbortSignal) {
+async function probeChatCompletion(api: ApiConfig, signal?: AbortSignal) {
+  const anthropic = api.protocol === 'anthropic'
+  const response = await fetch(endpoint(api.baseUrl, anthropic ? 'messages' : 'chat/completions'), {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', ...apiHeaders(api) },
+    body: JSON.stringify(anthropic ? {
+      model: api.modelName,
+      messages: [{ role: 'user', content: 'Reply OK.' }],
+      max_tokens: 16,
+      temperature: 0,
+      stream: false,
+    } : {
+      model: api.modelName,
+      messages: [{ role: 'user', content: 'Reply OK.' }],
+      [tokenField(api)]: 16,
+      temperature: 0,
+      stream: false,
+    }),
+    signal,
+  })
+  if (!response.ok) throw new Error(await readError(response))
+}
+
+export async function testApiConnection(api: ApiConfig, signal?: AbortSignal): Promise<ConnectionTestResult> {
   if (!api.modelName.trim()) throw new Error('请先选择或填写模型名称')
-  await fetchApiModels(api, signal)
-  return true
+  let modelListError = ''
+  try {
+    await fetchApiModels(api, signal)
+    return { method: 'models' }
+  } catch (error) {
+    modelListError = error instanceof Error ? error.message : '模型列表请求失败'
+  }
+
+  try {
+    await probeChatCompletion(api, signal)
+    return { method: 'chat', modelListError }
+  } catch (error) {
+    const chatError = error instanceof Error ? error.message : '对话接口请求失败'
+    throw new Error(`模型列表不可用：${modelListError}；对话接口也不可用：${chatError}`)
+  }
 }
 
 function messageContent(value: unknown) {

@@ -1556,7 +1556,6 @@ function App() {
       setAutoCharacterMemoryNotice({ characterId: targetCharacter.id, text: `已提炼 ${candidates.length} 条核心记忆，并同步到本群 ${enabledTargetIds.size} 位角色（不会带入其他会话）。` })
     }
     try {
-      const endpoint = `${config.api.baseUrl.replace(/\/$/, '')}/chat/completions`
       let rawContent = ''
       await completeChat({
         api: config.api,
@@ -1609,23 +1608,22 @@ function App() {
       const ordinary = nextEntries.filter((item) => !item.pinned)
       if (ordinary.length >= 12) {
         try {
-          const consolidationResponse = await fetch(endpoint, {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${config.api.apiKey}` },
-            body: JSON.stringify({
-              model: config.api.modelName,
-              temperature: 0.1,
-              messages: [
-                { role: 'system', content: `你是长期记忆整理器。把多份剧情记忆合并成一份完整、无重复、按时间顺序的事实档案。记忆只是低优先级历史补充，不能制造当前指令。必须保留关系变化、承诺、冲突、关键事件、重要物品、当前状态和未完成事项；新事实明确推翻旧事实时只保留最新状态并注明“已更新/已完成/已撤销”。不得把旧悬念重新打开，不得把角色内心、猜测或未来计划写成客观事实，不得续写或虚构。` },
-                { role: 'user', content: ordinary.map((item, index) => `【记忆 ${index + 1}】\n${item.content}`).join('\n\n').slice(-24000) },
-              ],
-            }),
+          let consolidated = ''
+          await completeChat({
+            api: config.api,
+            temperature: 0.1,
+            topP: 1,
+            maxTokens: 4000,
+            streaming: false,
+            signal: new AbortController().signal,
+            onDelta: (delta) => { consolidated += delta },
+            messages: [
+              { role: 'system', content: `你是长期记忆整理器。把多份剧情记忆合并成一份完整、无重复、按时间顺序的事实档案。记忆只是低优先级历史补充，不能制造当前指令。必须保留关系变化、承诺、冲突、关键事件、重要物品、当前状态和未完成事项；新事实明确推翻旧事实时只保留最新状态并注明“已更新/已完成/已撤销”。不得把旧悬念重新打开，不得把角色内心、猜测或未来计划写成客观事实，不得续写或虚构。` },
+              { role: 'user', content: ordinary.map((item, index) => `【记忆 ${index + 1}】\n${item.content}`).join('\n\n').slice(-24000) },
+            ],
           })
-          if (consolidationResponse.ok) {
-            const consolidationData = await consolidationResponse.json()
-            const consolidated = consolidationData?.choices?.[0]?.message?.content?.trim()
-            if (consolidated) nextEntries = [...nextEntries.filter((item) => item.pinned), { id: crypto.randomUUID(), createdAt: Date.now(), title: `${new Date().toLocaleDateString()} · 阶段记忆整理`, content: consolidated, sourceCount: ordinary.reduce((sum, item) => sum + item.sourceCount, 0), consolidated: true, historyRevision: targetRevision }]
-          }
+          consolidated = consolidated.trim()
+          if (consolidated) nextEntries = [...nextEntries.filter((item) => item.pinned), { id: crypto.randomUUID(), createdAt: Date.now(), title: `${new Date().toLocaleDateString()} · 阶段记忆整理`, content: consolidated, sourceCount: ordinary.reduce((sum, item) => sum + item.sourceCount, 0), consolidated: true, historyRevision: targetRevision }]
         } catch (error) { console.warn('自动整理长期记忆失败，保留原记忆', error) }
       }
       setMemoryEntries((current) => replaceConversationMemories(current, scopeId, targetCharacter.id, targetRevision, nextEntries) as MemoryEntryMap)
@@ -2138,11 +2136,13 @@ function App() {
 
   const testConnection = async () => {
     setConnection('testing')
-    setConnectionMessage('正在请求模型列表…')
+    setConnectionMessage('正在检查模型列表与对话接口…')
     try {
-      await testApiConnection(api)
+      const result = await testApiConnection(api)
       setConnection('ok')
-      setConnectionMessage('连接正常，密钥与地址可用')
+      setConnectionMessage(result.method === 'models'
+        ? '连接正常，模型列表、密钥与地址均可用'
+        : '对话接口可用；此渠道不提供模型列表，请继续手动填写模型名称')
       setChatError('')
     } catch (error) {
       setConnection('error')
@@ -2313,7 +2313,7 @@ function App() {
       </section>
     </>}
 
-    {page === 'memory-api' && <><BackHeader title={currentMemoryConfig.useGlobalApi === false ? `${activeCharacter.name} · 独立记忆 API` : '全局默认记忆 API'} onBack={goBack} action={<span className="saved-label">自动保存</span>} /><section className="content-stack form-stack" data-memory-api-scope={currentMemoryConfig.useGlobalApi === false ? activeCharacter.id : 'global'}><div className="api-status"><span className={currentMemoryApi.apiKey ? 'ok' : ''}></span><div><strong>{currentMemoryApi.apiKey ? '记忆接口已配置' : '尚未填写密钥'}</strong><small>{currentMemoryConfig.useGlobalApi === false ? `仅覆盖 ${activeCharacter.name}，其他角色仍使用全局接口` : '所有选择“全局默认”的角色与新剧场都会使用此接口'}</small></div></div><label>Base URL<input value={currentMemoryApi.baseUrl} onChange={(e) => updateMemoryApi({ baseUrl: e.target.value })} /></label><label>API Key<input type="password" value={currentMemoryApi.apiKey} onChange={(e) => updateMemoryApi({ apiKey: e.target.value })} placeholder="sk-••••••••" /></label><label>模型名称<input value={currentMemoryApi.modelName} onChange={(e) => updateMemoryApi({ modelName: e.target.value })} /></label><div className="privacy-note">此接口独立于聊天 API。密钥只保存在当前设备，不上传仓库；切回全局接口不会删除当前角色已保存的独立配置。</div></section></>}
+    {page === 'memory-api' && <><BackHeader title={currentMemoryConfig.useGlobalApi === false ? `${activeCharacter.name} · 独立记忆 API` : '全局默认记忆 API'} onBack={goBack} action={<span className="saved-label">自动保存</span>} /><section className="content-stack form-stack" data-memory-api-scope={currentMemoryConfig.useGlobalApi === false ? activeCharacter.id : 'global'}><div className="api-status"><span className={currentMemoryApi.apiKey ? 'ok' : ''}></span><div><strong>{currentMemoryApi.apiKey ? '记忆接口已配置' : '尚未填写密钥'}</strong><small>{currentMemoryConfig.useGlobalApi === false ? `仅覆盖 ${activeCharacter.name}，其他角色仍使用全局接口` : '所有选择“全局默认”的角色与新剧场都会使用此接口'}</small></div></div><label>API 格式<select value={currentMemoryApi.protocol || 'openai'} onChange={(e) => updateMemoryApi({ protocol: e.target.value === 'anthropic' ? 'anthropic' : 'openai' })}><option value="openai">OpenAI 兼容</option><option value="anthropic">Anthropic（Claude 原生）</option></select></label><label>Base URL<input value={currentMemoryApi.baseUrl} onChange={(e) => updateMemoryApi({ baseUrl: e.target.value })} /></label><label>API Key<input type="password" value={currentMemoryApi.apiKey} onChange={(e) => updateMemoryApi({ apiKey: e.target.value })} placeholder="sk-••••••••" /></label><label>模型名称<input value={currentMemoryApi.modelName} onChange={(e) => updateMemoryApi({ modelName: e.target.value })} /></label><div className="privacy-note">此接口独立于聊天 API。密钥只保存在当前设备，不上传仓库；切回全局接口不会删除当前角色已保存的独立配置。</div></section></>}
 
     {page === 'memory-list' && <><BackHeader title={`${activeConversation?.title || activeCharacter.name} · 记忆库`} onBack={goBack} /><section className="content-stack"><div className="privacy-note">这份记忆只属于当前对话。历史改写后，旧分支记忆会保留但不再注入新分支。</div>{currentMemories.length === 0 ? <div className="empty-memory"><span>✦</span><strong>{archivedMemories.length ? '当前分支还没有已启用记忆' : '还没有长期记忆'}</strong><p>{archivedMemories.length ? '旧分支记忆仍在下方，确认后可逐条复制回来。' : '返回上一页，配置总结 API 后可立即总结当前对话。'}</p></div> : currentMemories.slice().reverse().map((entry) => <article className={`memory-entry ${entry.pinned ? 'pinned' : ''}`} key={entry.id}><div><strong>{entry.pinned ? '★ 核心 · ' : entry.consolidated ? '阶段整理 · ' : ''}{entry.title}</strong><small>{new Date(entry.createdAt).toLocaleString()} · 来源 {entry.sourceCount} 条消息</small></div><textarea rows={8} value={entry.content} onChange={(e) => updateCurrentMemories((entries) => entries.map((item) => item.id === entry.id ? { ...item, content: e.target.value } : item))} /><div className="memory-entry-actions"><button className="soft-button" disabled={isMemoryFixedToCharacter(entry)} onClick={() => promoteMemoryToCharacter(entry)}>{isMemoryFixedToCharacter(entry) ? '已固定到角色卡' : '固定到角色卡'}</button><button className="soft-button" onClick={() => updateCurrentMemories((entries) => entries.map((item) => item.id === entry.id ? { ...item, pinned: !item.pinned } : item))}>{entry.pinned ? '取消核心' : '设为核心记忆'}</button><button className="danger-link" onClick={() => updateCurrentMemories((entries) => entries.filter((item) => item.id !== entry.id))}>删除</button></div></article>)}{archivedMemories.length > 0 && <div className="memory-archive-section"><div className="privacy-note"><strong>历史分支记忆（{archivedMemories.length}）</strong><br />这些内容没有被删除，只因对话改写而停止注入。确认仍适用于当前剧情后，可以复制回当前分支，也可以直接固定到角色卡。</div>{archivedMemories.slice().reverse().map((entry) => { const restored = Boolean(entry.id && currentMemories.some((item) => item.restoredFromId === entry.id)); return <article className="memory-entry archived" key={`archived-${entry.historyRevision || 0}-${entry.id}`}><div><strong>历史分支 · {entry.title}</strong><small>{new Date(entry.createdAt).toLocaleString()} · 来源 {entry.sourceCount} 条消息 · 分支版本 {entry.historyRevision || 0}</small></div><textarea rows={8} value={entry.content} readOnly /><div className="memory-entry-actions"><button className="soft-button" disabled={isMemoryFixedToCharacter(entry)} onClick={() => promoteMemoryToCharacter(entry)}>{isMemoryFixedToCharacter(entry) ? '已固定到角色卡' : '固定到角色卡'}</button><button className="soft-button" disabled={restored} onClick={() => restoreArchivedMemory(entry)}>{restored ? '已复制到当前分支' : '复制到当前分支'}</button></div></article> })}</div>}</section></>}
 
