@@ -44,7 +44,7 @@ const statusAliases: Record<string, CharacterMemoryStatus> = {
  * only allowed to emit facts that are safe to pin permanently to one card.
  */
 export const characterMemoryExtractionPrompt = `【角色卡核心记忆自动提炼器｜只输出 JSON，不要续写剧情】
-你要从“本次新增对话”里找出值得永久写入当前角色卡的核心记忆。角色卡记忆会长期注入模型，只有高置信度、已经落地的事实才可以进入。
+你要从“本次新增对话”里找出值得固定在当前会话中的角色核心记忆。它只会在这一段对话或群聊里长期注入模型，只有高置信度、已经落地的事实才可以进入。
 
 只允许记录：
 - 已经明确发生的重大事件；
@@ -275,8 +275,8 @@ export function characterMemoryPrompt(character: Character, maxChars = 12000) {
   }
   if (!lines.length) return ''
 
-  return `【角色私有长期记忆｜固定连续性档案】
-以下事实只属于“${character.name}”这张角色卡，优先级高于会滚动的近期摘要，也高于角色卡开场白或旧状态栏里已经过时的阶段描述；但低于当前用户消息、最近对话原文和明确的新事实。
+  return `【本会话角色核心记忆｜固定连续性档案】
+以下事实只属于“${character.name}”在当前对话/剧组中的经历，不得带入其他会话。它们优先级高于会滚动的近期摘要，也高于角色卡开场白或旧状态栏里已经过时的阶段描述；但低于当前用户消息、最近对话原文和明确的新事实。
 ${lines.join('\n')}
 
 使用规则：
@@ -290,7 +290,7 @@ ${lines.join('\n')}
 
 export function characterMemoryContinuityGuard(character: Character) {
   if (!activeCharacterMemory(character).length) return ''
-  return `【角色私有记忆最终校准】本轮续写前重新核对这张角色卡的私有长期记忆：其中标为“已确认/已完成”的事实已经是当前连续性的一部分。不要因为旧开场白、旧状态栏、历史分支或滚动摘要仍保留“待查”措辞，就把已经查明的真相、已经完成的任务或已经发生的重大事件退回未完成状态；除非最近对话明确给出更新或撤销。`
+  return `【本会话角色核心记忆最终校准】本轮续写前重新核对该角色在当前会话中的核心记忆：其中标为“已确认/已完成”的事实已经是本剧组连续性的一部分，但不得带入其他会话。不要因为旧开场白、旧状态栏、历史分支或滚动摘要仍保留“待查”措辞，就把已经查明的真相、已经完成的任务或已经发生的重大事件退回未完成状态；除非最近对话明确给出更新或撤销。`
 }
 
 export function characterMemoryEntryFromConversation(entry: { id?: string; title?: string; content: string; createdAt?: number }): CharacterMemoryEntry {

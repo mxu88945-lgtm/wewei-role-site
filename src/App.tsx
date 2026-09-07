@@ -6,7 +6,7 @@ import CharacterCardManager from './CharacterCardManager'
 import { GreetingPicker, GroupGreetingPicker, ImportPreview, type GroupGreetingChoice } from './ImportFlow'
 import MessageContent from './MessageContent'
 import { createBlankCharacter, importCharacterCard, normalizeStoredCharacter, type Character } from './characterCard'
-import { activeCharacterMemory, characterMemoryEntryFromConversation, characterMemoryExtractionPrompt, characterMemorySummaryProtocol, mergeCharacterMemoryEntries, parseCharacterMemoryCandidates, splitCharacterMemorySummary } from './characterMemory'
+import { activeCharacterMemory, characterMemoryEntryFromConversation, characterMemoryExtractionPrompt, characterMemorySummaryProtocol, parseCharacterMemoryCandidates, splitCharacterMemorySummary } from './characterMemory'
 import { completeChat, fetchApiModels, testApiConnection, type ApiConfig, type ApiModel } from './chatApi'
 import { buildChatPrompt } from './promptBuilder'
 import { resolveChatScrollTarget, type ChatScrollSnapshot } from './chatScroll'
@@ -30,6 +30,7 @@ import { planContextCompression, uncompressedMessages } from './contextCompressi
 import { findLatestActorContinuityAnchor, findLatestSceneContinuityAnchor } from './actorContinuity'
 import ReplyHelperSettingsPage from './ReplyHelperSettingsPage'
 import { addConversationParticipant, createFreshConversationFrom, removeConversationParticipant, restartConversationInPlace, type Conversation, type Message } from './conversationLifecycle'
+import { memoriesForConversationCharacter, mergeConversationCharacterMemories, migrateCardMemoriesToConversations, setConversationCharacterMemories } from './conversationCharacterMemory'
 import { parseConversationTxt } from './conversationTxt'
 import { isFailedTransportAssistantMessage, modelVisibleMessageText, stripUiOnlyStatusBlocks } from './modelContext'
 import { countConversationStats } from './conversationStats'
@@ -426,6 +427,7 @@ function App() {
   const chatScrollSnapshotsRef = useRef(new Map<string, ChatScrollSnapshot>())
   const pendingChatScrollRestoreRef = useRef<string | null>(null)
   const pendingChatLatestScrollRef = useRef<string | null>(null)
+  const conversationMemoryMigrationRunningRef = useRef(false)
   const generationControllers = useRef(new Map<string, AbortController>())
   const continuityRunningProjectIds = useRef(new Set<string>())
 
@@ -527,15 +529,16 @@ function App() {
   })
   const isMemoryFixedToCharacter = (entry: MemoryEntry) => {
     const content = characterMemoryEntryFromConversation(entry).content.trim()
-    return activeCharacterMemory(activeCharacter).some((item) => item.sourceMemoryId === entry.id || (content && item.content.trim() === content))
+    return memoriesForConversationCharacter(activeConversation, activeCharacter).some((item) => item.sourceMemoryId === entry.id || (content && item.content.trim() === content))
   }
   const promoteMemoryToCharacter = (entry: MemoryEntry) => {
     const fixed = characterMemoryEntryFromConversation(entry)
-    setCharacters((current) => current.map((character) => {
-      if (character.id !== activeCharacter.id) return character
-      const existing = activeCharacterMemory(character).some((item) => item.sourceMemoryId === entry.id || item.content.trim() === fixed.content.trim())
-      if (existing) return character
-      return { ...character, characterMemory: [...(character.characterMemory || []), fixed] }
+    if (!activeConversation) return
+    setConversations((current) => current.map((conversation) => {
+      if (conversation.id !== activeConversation.id) return conversation
+      const existing = memoriesForConversationCharacter(conversation, activeCharacter)
+      if (existing.some((item) => item.sourceMemoryId === entry.id || item.content.trim() === fixed.content.trim())) return conversation
+      return setConversationCharacterMemories(conversation, activeCharacter.id, [...existing, fixed])
     }))
   }
   const restoreArchivedMemory = (entry: MemoryEntry) => setMemoryEntries((current) => {
@@ -687,6 +690,15 @@ function App() {
   useEffect(() => { if (persistenceReady) writeDurable('weijing.memoryConfigs', memoryConfigs) }, [memoryConfigs, persistenceReady])
   useEffect(() => { if (persistenceReady) writeDurable('weijing.globalMemoryApi', globalMemoryApi) }, [globalMemoryApi, persistenceReady])
   useEffect(() => { if (persistenceReady) writeDurable('weijing.memoryEntries', memoryEntries) }, [memoryEntries, persistenceReady])
+  useEffect(() => {
+    if (!persistenceReady || conversationMemoryMigrationRunningRef.current) return
+    const migration = migrateCardMemoriesToConversations(characters, conversations)
+    if (!migration.changed) return
+    conversationMemoryMigrationRunningRef.current = true
+    setCharacters(migration.characters)
+    setConversations(migration.conversations)
+    window.queueMicrotask(() => { conversationMemoryMigrationRunningRef.current = false })
+  }, [characters, conversations, persistenceReady])
   useEffect(() => { write('weijing.temperature', temperature); write('weijing.topP', topP); write('weijing.memoryLength', memoryLength); write('weijing.maxTokens', maxTokens); write('weijing.streaming', streaming) }, [temperature, topP, memoryLength, maxTokens, streaming])
   useEffect(() => write('weijing.chatLayout', chatLayout), [chatLayout])
   useEffect(() => { write('weijing.uiFontScale', uiFontScale); write('weijing.uiFontWeight', uiFontWeight) }, [uiFontScale, uiFontWeight])
@@ -1210,7 +1222,6 @@ function App() {
     }
   }
 
-  const updateActiveCharacter = (next: Character) => setCharacters((current) => current.map((item) => item.id === next.id ? next : item))
   const duplicateCharacter = (character: Character) => {
     const copy = structuredClone(character)
     copy.id = crypto.randomUUID()
@@ -1484,7 +1495,7 @@ function App() {
     }
   }
 
-  const recordCharacterCoreMemories = (config: MemoryConfig, targetCharacter: Character, rawPayload: string, sourceMemoryId: string) => {
+  const recordCharacterCoreMemories = (config: MemoryConfig, targetConversation: Conversation, targetCharacter: Character, rawPayload: string, sourceMemoryId: string) => {
     if (config.autoCharacterMemory === false) {
       setAutoCharacterMemoryNotice({ characterId: targetCharacter.id, text: '自动提炼已关闭；长记忆仍会照常总结。' })
       return
@@ -1496,10 +1507,10 @@ function App() {
       return
     }
 
-    setCharacters((current) => current.map((character) => character.id === targetCharacter.id
-      ? { ...character, characterMemory: mergeCharacterMemoryEntries(character.characterMemory || [], candidates) }
-      : character))
-    setAutoCharacterMemoryNotice({ characterId: targetCharacter.id, text: '已在本次总结中自动检查 ' + candidates.length + ' 条核心记忆，并写入角色卡（重复内容已合并）。' })
+    setConversations((current) => current.map((conversation) => conversation.id === targetConversation.id
+      ? mergeConversationCharacterMemories(conversation, [targetCharacter.id], candidates)
+      : conversation))
+    setAutoCharacterMemoryNotice({ characterId: targetCharacter.id, text: '已在本次总结中自动检查 ' + candidates.length + ' 条核心记忆，并写入当前会话（重复内容已合并）。' })
   }
 
   const summarizeMemory = async (sourceMessages = messages, targetConversation = activeConversation, targetCharacter = activeCharacter) => {
@@ -1520,11 +1531,11 @@ function App() {
       ? [...new Set(targetConversation.participantIds || [])].map((id) => characters.find((character) => character.id === id)).filter(Boolean) as Character[]
       : [targetCharacter]
     const shouldExtractCharacterMemory = memoryTargetCharacters.some((character) => memoryConfigFor(character.id).autoCharacterMemory !== false)
-    const characterPrivateMemories = memoryTargetCharacters.flatMap((character) => activeCharacterMemory(character)
+    const characterPrivateMemories = memoryTargetCharacters.flatMap((character) => memoriesForConversationCharacter(targetConversation, character)
       .map((item) => `- 【${character.name}｜${item.title}】${item.content}`)).join('\n').slice(-12000)
     const recordCoreMemoriesForConversation = (rawPayload: string, sourceMemoryId: string) => {
       if (targetConversation.kind !== 'group') {
-        recordCharacterCoreMemories(config, targetCharacter, rawPayload, sourceMemoryId)
+        recordCharacterCoreMemories(config, targetConversation, targetCharacter, rawPayload, sourceMemoryId)
         return
       }
       const enabledTargetIds = new Set(memoryTargetCharacters
@@ -1536,13 +1547,13 @@ function App() {
       }
       const candidates = parseCharacterMemoryCandidates(rawPayload, { sourceMemoryId })
       if (!candidates.length) {
-        setAutoCharacterMemoryNotice({ characterId: targetCharacter.id, text: '本轮没有提炼出可同步到角色卡的已确认核心事实。' })
+        setAutoCharacterMemoryNotice({ characterId: targetCharacter.id, text: '本轮没有提炼出可同步到本群的已确认核心事实。' })
         return
       }
-      setCharacters((current) => current.map((character) => enabledTargetIds.has(character.id)
-        ? { ...character, characterMemory: mergeCharacterMemoryEntries(character.characterMemory || [], candidates) }
-        : character))
-      setAutoCharacterMemoryNotice({ characterId: targetCharacter.id, text: `已提炼 ${candidates.length} 条核心记忆，并同步到群内 ${enabledTargetIds.size} 位角色（重复内容已合并）。` })
+      setConversations((current) => current.map((conversation) => conversation.id === targetConversation.id
+        ? mergeConversationCharacterMemories(conversation, enabledTargetIds, candidates)
+        : conversation))
+      setAutoCharacterMemoryNotice({ characterId: targetCharacter.id, text: `已提炼 ${candidates.length} 条核心记忆，并同步到本群 ${enabledTargetIds.size} 位角色（不会带入其他会话）。` })
     }
     try {
       const endpoint = `${config.api.baseUrl.replace(/\/$/, '')}/chat/completions`
@@ -1710,7 +1721,10 @@ function App() {
     if (generationControllers.current.has(conversationId)) return nextMessages
     requestChatLatestScroll(conversationId)
 
-    const capturedCharacter = speaker
+    const capturedCharacter = {
+      ...speaker,
+      characterMemory: memoriesForConversationCharacter(conversation, speaker),
+    }
     const capturedMemoryConfig = memoryConfigFor(capturedCharacter.id)
     const capturedMemories = memoriesForConversation(memoryEntries, conversation.id, capturedCharacter.id, conversation.historyRevision || 0) as MemoryEntry[]
     const assistantMessage: Message = { id: nextMessageId(nextMessages), role: 'assistant', characterId: speaker.id, text: '正在回应…' }
@@ -2154,9 +2168,21 @@ function App() {
   const menuMessage = messages.find((item) => item.id === messageMenuId)
   const menuCharacter = characters.find((item) => item.id === characterMenuId)
   const groupParticipants = activeConversation?.kind === 'group' ? (activeConversation.participantIds || []).map((id) => characters.find((item) => item.id === id)).filter(Boolean) as Character[] : []
-  const cardManagerCharacter = activeConversation?.kind === 'group'
+  const cardManagerBaseCharacter = activeConversation?.kind === 'group'
     ? groupParticipants.find((character) => character.id === cardManagerCharacterId) || groupParticipants[0] || activeCharacter
     : activeCharacter
+  const cardManagerCharacter = activeConversation
+    ? { ...cardManagerBaseCharacter, characterMemory: memoriesForConversationCharacter(activeConversation, cardManagerBaseCharacter) }
+    : cardManagerBaseCharacter
+  const updateCardManagerCharacter = (next: Character) => {
+    const scoped = next.characterMemory || []
+    setCharacters((current) => current.map((character) => character.id === next.id
+      ? { ...next, characterMemory: activeConversation ? character.characterMemory || [] : scoped }
+      : character))
+    if (activeConversation) setConversations((current) => current.map((conversation) => conversation.id === activeConversation.id
+      ? setConversationCharacterMemories(conversation, next.id, scoped)
+      : conversation))
+  }
   const cardManagerGroupProps = activeConversation?.kind === 'group'
     ? { groupCharacters: groupParticipants, onSelectCharacter: setCardManagerCharacterId }
     : {}
@@ -2248,11 +2274,11 @@ function App() {
       addImportedCharacter(character)
     }} />}
 
-    {page === 'character-detail' && <><BackHeader title={activeCharacter.name} onBack={goBack} /><section className="detail-stack"><div className="character-hero"><CharacterPortrait item={activeCharacter} large /><div><p className="eyebrow">{activeCharacter.cardSpecVersion ? `CHARACTER CARD ${activeCharacter.cardSpecVersion}` : 'CHARACTER'}</p><h2>{activeCharacter.name}</h2><p>{activeCharacter.tagline}</p></div></div><div className={`detail-card character-intro-card ${characterIntroExpanded ? 'expanded' : ''}`}><div className="detail-card-heading"><h3>角色简介</h3><button onClick={() => setCharacterIntroExpanded(!characterIntroExpanded)}>{characterIntroExpanded ? '收起⌃' : '展开⌄'}</button></div><p>{activeCharacter.description || '还没有填写角色简介。'}</p><div className="chips left">{activeCharacter.tags.map((tag) => <span key={tag}>{tag}</span>)}</div></div><button className="data-summary-card" onClick={() => navigate('card-data')}><div><strong>角色卡主体与开场白</strong><small>{activeCharacter.alternateGreetings.length + 1} 个开场 · Card {activeCharacter.cardSpecVersion || '本地'}</small></div><span>›</span></button><button className="data-summary-card compact" onClick={() => navigate('card-worldbook')}><div><strong>角色世界书</strong><small>{activeCharacter.characterBook?.entries.length || 0} 条 · 可编辑、启停和调整插入位置</small></div><span>›</span></button><button className="data-summary-card compact" onClick={() => navigate('card-regex')}><div><strong>角色正则与美化</strong><small>{activeCharacter.regexScripts.length} 条 · {activeCharacter.regexScripts.filter((script) => !script.disabled).length} 条启用</small></div><span>›</span></button><div className="detail-card character-private-memory-card"><h3>角色私有记忆</h3><p>固定注入这张角色卡的长期事实，目前启用 {activeCharacterMemory(activeCharacter).length} 条。</p><button className="inline-link" onClick={() => navigate('card-memory')}>管理角色私有记忆 ›</button></div><div className="detail-card"><h3>当前对话长期记忆</h3><p>这个角色拥有独立记忆库，目前保存 {currentMemories.length} 条记忆。</p><button className="inline-link" onClick={() => navigate('memory')}>管理记忆与总结模型 ›</button></div><div className="detail-card"><h3>开场白</h3><blockquote>{activeCharacter.greeting}</blockquote></div><div className="detail-actions">{conversations.some((item) => item.characterId === activeCharacter.id) ? <><button className="primary-button full" onClick={() => continueConversation()}>继续共演</button><button className="secondary-button" onClick={newSession}>选择开场并新建对话</button></> : <button className="primary-button full" onClick={newSession}>选择开场并开始共演</button>}</div></section></>}
+    {page === 'character-detail' && <><BackHeader title={activeCharacter.name} onBack={goBack} /><section className="detail-stack"><div className="character-hero"><CharacterPortrait item={activeCharacter} large /><div><p className="eyebrow">{activeCharacter.cardSpecVersion ? `CHARACTER CARD ${activeCharacter.cardSpecVersion}` : 'CHARACTER'}</p><h2>{activeCharacter.name}</h2><p>{activeCharacter.tagline}</p></div></div><div className={`detail-card character-intro-card ${characterIntroExpanded ? 'expanded' : ''}`}><div className="detail-card-heading"><h3>角色简介</h3><button onClick={() => setCharacterIntroExpanded(!characterIntroExpanded)}>{characterIntroExpanded ? '收起⌃' : '展开⌄'}</button></div><p>{activeCharacter.description || '还没有填写角色简介。'}</p><div className="chips left">{activeCharacter.tags.map((tag) => <span key={tag}>{tag}</span>)}</div></div><button className="data-summary-card" onClick={() => navigate('card-data')}><div><strong>角色卡主体与开场白</strong><small>{activeCharacter.alternateGreetings.length + 1} 个开场 · Card {activeCharacter.cardSpecVersion || '本地'}</small></div><span>›</span></button><button className="data-summary-card compact" onClick={() => navigate('card-worldbook')}><div><strong>角色世界书</strong><small>{activeCharacter.characterBook?.entries.length || 0} 条 · 可编辑、启停和调整插入位置</small></div><span>›</span></button><button className="data-summary-card compact" onClick={() => navigate('card-regex')}><div><strong>角色正则与美化</strong><small>{activeCharacter.regexScripts.length} 条 · {activeCharacter.regexScripts.filter((script) => !script.disabled).length} 条启用</small></div><span>›</span></button><div className="detail-card character-private-memory-card"><h3>本会话角色核心记忆</h3><p>只注入当前对话或群聊，目前启用 {activeConversation ? activeCharacterMemory({ ...activeCharacter, characterMemory: memoriesForConversationCharacter(activeConversation, activeCharacter) }).length : activeCharacterMemory(activeCharacter).length} 条；新开剧组不会继承。</p><button className="inline-link" onClick={() => navigate('card-memory')}>管理本会话核心记忆 ›</button></div><div className="detail-card"><h3>当前对话长期记忆</h3><p>这个角色拥有独立记忆库，目前保存 {currentMemories.length} 条记忆。</p><button className="inline-link" onClick={() => navigate('memory')}>管理记忆与总结模型 ›</button></div><div className="detail-card"><h3>开场白</h3><blockquote>{activeCharacter.greeting}</blockquote></div><div className="detail-actions">{conversations.some((item) => item.characterId === activeCharacter.id) ? <><button className="primary-button full" onClick={() => continueConversation()}>继续共演</button><button className="secondary-button" onClick={newSession}>选择开场并新建对话</button></> : <button className="primary-button full" onClick={newSession}>选择开场并开始共演</button>}</div></section></>}
 
-    {page === 'card-data' && <CharacterCardManager key={`card-data-${cardManagerCharacter.id}`} character={cardManagerCharacter} onChange={updateActiveCharacter} onBack={goBack} {...cardManagerGroupProps} />}
-    {page === 'card-worldbook' && <CharacterCardManager key={`card-worldbook-${cardManagerCharacter.id}`} character={cardManagerCharacter} onChange={updateActiveCharacter} onBack={goBack} initialSection="worldbook" {...cardManagerGroupProps} />}
-    {page === 'card-regex' && <CharacterCardManager key={`card-regex-${cardManagerCharacter.id}`} character={cardManagerCharacter} onChange={updateActiveCharacter} onBack={goBack} initialSection="regex" {...cardManagerGroupProps} />}{page === 'card-memory' && <CharacterCardManager key={`card-memory-${cardManagerCharacter.id}`} character={cardManagerCharacter} onChange={updateActiveCharacter} onBack={goBack} initialSection="memory" {...cardManagerGroupProps} />}
+    {page === 'card-data' && <CharacterCardManager key={`card-data-${cardManagerCharacter.id}`} character={cardManagerCharacter} onChange={updateCardManagerCharacter} onBack={goBack} {...cardManagerGroupProps} />}
+    {page === 'card-worldbook' && <CharacterCardManager key={`card-worldbook-${cardManagerCharacter.id}`} character={cardManagerCharacter} onChange={updateCardManagerCharacter} onBack={goBack} initialSection="worldbook" {...cardManagerGroupProps} />}
+    {page === 'card-regex' && <CharacterCardManager key={`card-regex-${cardManagerCharacter.id}`} character={cardManagerCharacter} onChange={updateCardManagerCharacter} onBack={goBack} initialSection="regex" {...cardManagerGroupProps} />}{page === 'card-memory' && <CharacterCardManager key={`card-memory-${cardManagerCharacter.id}`} character={cardManagerCharacter} onChange={updateCardManagerCharacter} onBack={goBack} initialSection="memory" {...cardManagerGroupProps} />}
 
     {page === 'greeting-picker' && <GreetingPicker character={activeCharacter} userName={identity.name} onCancel={() => { const creatingFromConversation = Boolean(newConversationSourceId); setNewConversationSourceId(null); if (creatingFromConversation) replacePage('chat'); else goBack() }} onConfirm={beginWithGreeting} />}
 

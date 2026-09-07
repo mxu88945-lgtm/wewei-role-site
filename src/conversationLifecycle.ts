@@ -1,5 +1,5 @@
 import type { DirectorTemplateConfig } from './directorTemplate'
-import type { Character } from './characterCard'
+import type { Character, CharacterMemoryEntry } from './characterCard'
 
 export type Message = { id: number; role: 'user' | 'assistant'; text: string; characterId?: string; finishReason?: string | null }
 
@@ -26,6 +26,12 @@ export type Conversation = {
   directorCharacterId?: string
   directorConfig?: DirectorTemplateConfig
   relationshipStages?: Record<string, number>
+  /**
+   * Core facts learned inside this conversation. Keeping them on the
+   * conversation prevents one cast/story from leaking into another chat that
+   * happens to reuse the same character card.
+   */
+  characterMemories?: Record<string, CharacterMemoryEntry[]>
   /**
    * A deleted group member's display card is retained here so historical
    * messages keep their original author name, avatar and regex rendering.
