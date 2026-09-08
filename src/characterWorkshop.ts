@@ -353,7 +353,7 @@ export function buildCharacterWorkshopPrompt(brief: CharacterWorkshopBrief) {
 5. 世界书只保留真正需要独立触发的背景、NPC、关系阶段或剧情规则，避免重复角色主体。
 6. 开场白要有具体时间、地点、局面和可回应入口，但不得替用户发言或行动。
 7. 每张新卡都必须生成 beautificationProtocol：它是开场白和后续角色回复共用的原始文本协议，默认采用“<scene> 场景栏 → 剧情正文 → <gts_status> 状态栏”的顺序。协议必须明确标签、字段、连续性、用户主权和“只输出文本标记、不输出 HTML/CSS”。开场白正文必须实际遵守这套协议，而不是只在说明里提到。
-8. 每张新卡都必须生成两条可直接运行的 regexScripts：一条匹配 <scene>...</scene>，渲染开场与每轮回复顶部的时间／地点场景栏；一条匹配 <gts_status>...</gts_status>，渲染回复末尾状态栏。两条都必须包含完整 findRegex、带 $1 的 replaceString，placement 固定为 [2]，disabled=false，绝不使用位置 3，也不得返回空数组。用户未指定风格时，默认生成透明、轻磨砂、跟随正文颜色的样式。
+8. 每张新卡都必须生成两条可直接运行的 regexScripts：一条匹配 <scene>...</scene>，渲染开场与每轮回复顶部的时间／地点场景栏；一条匹配 <gts_status>...</gts_status>，渲染回复末尾状态栏。两条都必须包含完整 findRegex、带 $1 的 replaceString，placement [2]（固定），disabled=false，绝不使用 3，也不得返回空数组。用户未指定风格时，默认生成透明、轻磨砂、跟随正文颜色的样式。
 9. 正则替换模板必须让无背景的剧情正文使用 color: var(--chat-text-color, #000000) 或继承颜色，不能使用 #d1d5db、#e2e8f0、#cbd5e1、#f8fafc、白色等浅色作为通用正文色；只有明确写在深色背景面板上的标题或状态字才允许使用浅色。禁止 script、iframe、事件属性、position:fixed/sticky、100vh/100dvh 固定高度和 touch-action:none。
 
 只输出一个 JSON 对象，不要 Markdown 代码围栏，不要解释。必须完全符合：
