@@ -75,6 +75,55 @@ const freshRegex = (): RegexScript => ({
   disabled: false, markdownOnly: false, promptOnly: false, runOnEdit: true, substituteRegex: 0, minDepth: null, maxDepth: null,
 })
 
+const DEFAULT_SCENE_REGEX_ID = 'weijing-workshop-scene-glass'
+const DEFAULT_STATUS_REGEX_ID = 'weijing-workshop-status-glass'
+
+const defaultWorkshopSceneRegex = (): RegexScript => normalizeRegexScript({
+  ...freshRegex(),
+  id: DEFAULT_SCENE_REGEX_ID,
+  scriptName: '透明场景时间栏',
+  findRegex: '/<scene>\\s*([\\s\\S]*?)\\s*<\\/scene>/gi',
+  replaceString: '<div class="weijing-workshop-scene" style="margin:0 0 14px;padding:11px 15px;border-left:3px solid rgba(71,85,105,.46);border-radius:4px 15px 15px 4px;background:linear-gradient(135deg,rgba(255,255,255,.10),rgba(100,116,139,.035));border-top:1px solid rgba(100,116,139,.15);border-right:1px solid rgba(100,116,139,.11);border-bottom:1px solid rgba(100,116,139,.11);-webkit-backdrop-filter:blur(10px);backdrop-filter:blur(10px);box-shadow:0 7px 20px rgba(15,23,42,.045);color:inherit;font-size:.90em;line-height:1.68;white-space:pre-wrap;overflow-wrap:anywhere">$1</div>',
+})
+
+const defaultWorkshopStatusRegex = (): RegexScript => normalizeRegexScript({
+  ...freshRegex(),
+  id: DEFAULT_STATUS_REGEX_ID,
+  scriptName: '透明角色状态栏',
+  findRegex: '/<gts_status>\\s*([\\s\\S]*?)\\s*<\\/gts_status>/gi',
+  replaceString: '<div class="weijing-workshop-status" style="margin:16px 0 8px;padding:13px 16px;border-radius:16px;background:linear-gradient(145deg,rgba(255,255,255,.08),rgba(100,116,139,.025));border:1px dashed rgba(100,116,139,.29);-webkit-backdrop-filter:blur(11px);backdrop-filter:blur(11px);box-shadow:inset 0 1px 0 rgba(255,255,255,.14),0 8px 22px rgba(15,23,42,.04);color:inherit"><div style="font-size:.76em;font-weight:750;letter-spacing:.10em;opacity:.66;margin-bottom:7px">◇ STATUS · 角色切片</div><div style="font-size:.88em;line-height:1.76;white-space:pre-wrap;overflow-wrap:anywhere;opacity:.92">$1</div></div>',
+})
+
+function targetsDisplayTag(script: RegexScript, tag: 'scene' | 'gts_status') {
+  const source = script.findRegex.toLowerCase()
+  return source.includes(`<${tag}`) || source.includes(`${tag}>`)
+}
+
+/**
+ * The workshop's model occasionally follows the JSON example literally and
+ * returns an empty regex array even though it generated scene/status tags.
+ * Keep custom designs, but guarantee both display skins for every new card.
+ */
+export function ensureWorkshopDisplayRegexScripts(scripts: RegexScript[]) {
+  const normalized = scripts.map(normalizeWorkshopRegexScript).map((script) => (
+    targetsDisplayTag(script, 'scene') || targetsDisplayTag(script, 'gts_status')
+      ? { ...script, placement: [2] }
+      : script
+  ))
+  const usable = (tag: 'scene' | 'gts_status') => normalized.some((script) => (
+    !script.disabled && Boolean(script.findRegex) && Boolean(script.replaceString) && targetsDisplayTag(script, tag)
+  ))
+  const addFallback = (tag: 'scene' | 'gts_status', fallback: RegexScript) => {
+    if (usable(tag)) return
+    const duplicate = normalized.findIndex((script) => script.id === fallback.id)
+    if (duplicate >= 0) normalized[duplicate] = fallback
+    else normalized.push(fallback)
+  }
+  addFallback('scene', defaultWorkshopSceneRegex())
+  addFallback('gts_status', defaultWorkshopStatusRegex())
+  return normalized
+}
+
 export function normalizeWorkshopRegexScript(script: RegexScript): RegexScript {
   return normalizeRegexScript(script)
 }
@@ -304,7 +353,7 @@ export function buildCharacterWorkshopPrompt(brief: CharacterWorkshopBrief) {
 5. 世界书只保留真正需要独立触发的背景、NPC、关系阶段或剧情规则，避免重复角色主体。
 6. 开场白要有具体时间、地点、局面和可回应入口，但不得替用户发言或行动。
 7. 每张新卡都必须生成 beautificationProtocol：它是开场白和后续角色回复共用的原始文本协议，默认采用“<scene> 场景栏 → 剧情正文 → <gts_status> 状态栏”的顺序。协议必须明确标签、字段、连续性、用户主权和“只输出文本标记、不输出 HTML/CSS”。开场白正文必须实际遵守这套协议，而不是只在说明里提到。
-8. 如果美化偏好适合视觉气泡，可生成 regexScripts；视觉代码只写进正则，所有开场白与角色回复美化使用 placement [2]，绝不使用 3。没有必要的视觉脚本时返回空数组，但 beautificationProtocol 仍然必须存在；原始标签在没有正则时也必须可读。
+8. 每张新卡都必须生成两条可直接运行的 regexScripts：一条匹配 <scene>...</scene>，渲染开场与每轮回复顶部的时间／地点场景栏；一条匹配 <gts_status>...</gts_status>，渲染回复末尾状态栏。两条都必须包含完整 findRegex、带 $1 的 replaceString，placement 固定为 [2]，disabled=false，绝不使用位置 3，也不得返回空数组。用户未指定风格时，默认生成透明、轻磨砂、跟随正文颜色的样式。
 9. 正则替换模板必须让无背景的剧情正文使用 color: var(--chat-text-color, #000000) 或继承颜色，不能使用 #d1d5db、#e2e8f0、#cbd5e1、#f8fafc、白色等浅色作为通用正文色；只有明确写在深色背景面板上的标题或状态字才允许使用浅色。禁止 script、iframe、事件属性、position:fixed/sticky、100vh/100dvh 固定高度和 touch-action:none。
 
 只输出一个 JSON 对象，不要 Markdown 代码围栏，不要解释。必须完全符合：
@@ -323,7 +372,10 @@ export function buildCharacterWorkshopPrompt(brief: CharacterWorkshopBrief) {
   "beautificationProtocol":"每轮角色回复的原始文本美化协议，必须包含 <scene>、剧情正文和 <gts_status> 的稳定顺序",
   "tags":["标签"],
   "worldbook":[{"title":"条目名","keywords":["关键词"],"content":"精简正文","constant":false}],
-  "regexScripts":[]
+  "regexScripts":[
+    {"scriptName":"透明场景时间栏","findRegex":"/<scene>([^]*?)<[/]scene>/gi","replaceString":"<div style='color:inherit;background:rgba(255,255,255,.08)'>$1</div>","placement":[2],"disabled":false,"markdownOnly":false,"promptOnly":false,"runOnEdit":true},
+    {"scriptName":"透明角色状态栏","findRegex":"/<gts_status>([^]*?)<[/]gts_status>/gi","replaceString":"<div style='color:inherit;background:rgba(255,255,255,.06)'>$1</div>","placement":[2],"disabled":false,"markdownOnly":false,"promptOnly":false,"runOnEdit":true}
+  ]
 }`
 }
 
@@ -352,7 +404,7 @@ export function parseCharacterWorkshopDraft(raw: string): CharacterWorkshopDraft
     creatorNotes: text(source.creatorNotes), systemPrompt: text(source.systemPrompt),
     postHistoryInstructions: text(source.postHistoryInstructions), tags: texts(source.tags), worldbook,
     beautificationProtocol: text(source.beautificationProtocol) || DEFAULT_BEAUTIFICATION_PROTOCOL,
-    regexScripts: parseGeneratedRegexScripts(source.regexScripts),
+    regexScripts: ensureWorkshopDisplayRegexScripts(parseGeneratedRegexScripts(source.regexScripts)),
   }
   if (!draft.name || !draft.description || !draft.greeting) throw new Error('生成结果缺少姓名、角色描述或开场白，请重试。')
   return draft

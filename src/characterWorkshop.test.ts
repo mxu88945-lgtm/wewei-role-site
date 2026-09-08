@@ -20,6 +20,10 @@ describe('character workshop', () => {
     expect(character.cardSpec).toBe('chara_card_v3')
     expect(character.creator).toContain('AI 角色卡工坊')
     expect(character.beautificationProtocol).toContain('<scene>')
+    expect(character.regexScripts).toHaveLength(2)
+    expect(character.regexScripts.some((script) => script.findRegex.includes('<scene>'))).toBe(true)
+    expect(character.regexScripts.some((script) => script.findRegex.includes('<gts_status>'))).toBe(true)
+    expect(character.regexScripts.every((script) => script.placement.includes(2))).toBe(true)
   })
 
   it('includes user constraints in the prompt', () => {
@@ -30,6 +34,8 @@ describe('character workshop', () => {
     expect(prompt).toContain('绝不使用 3')
     expect(prompt).toContain('beautificationProtocol')
     expect(prompt).toContain('开场白美化偏好')
+    expect(prompt).toContain('两条可直接运行的 regexScripts')
+    expect(prompt).toContain('也不得返回空数组')
   })
 
   it('keeps generated opening UI and repairs the legacy placement 3', () => {
@@ -45,9 +51,31 @@ describe('character workshop', () => {
         markdownOnly: true,
       }],
     }))
-    expect(draft.regexScripts).toHaveLength(1)
+    expect(draft.regexScripts).toHaveLength(3)
     expect(draft.regexScripts[0].placement).toEqual([2])
     expect(draft.regexScripts[0].runOnEdit).toBe(true)
+    expect(draft.regexScripts.some((script) => script.findRegex.includes('<scene>'))).toBe(true)
+    expect(draft.regexScripts.some((script) => script.findRegex.includes('<gts_status>'))).toBe(true)
+  })
+
+  it('keeps a custom scene design and only fills the missing status design', () => {
+    const draft = parseCharacterWorkshopDraft(JSON.stringify({
+      name: '沈砚',
+      description: '调查员',
+      greeting: '<scene>时间：深夜｜地点：旧宅</scene>\n\n门开了。\n\n<gts_status>状态：警觉</gts_status>',
+      regexScripts: [{
+        id: 'custom-scene',
+        scriptName: '自定义场景栏',
+        findRegex: '/<scene>([\\s\\S]*?)<\\/scene>/gi',
+        replaceString: '<section class="custom-scene">$1</section>',
+        placement: [2],
+      }],
+    }))
+
+    expect(draft.regexScripts).toHaveLength(2)
+    expect(draft.regexScripts.filter((script) => script.findRegex.includes('<scene>'))).toHaveLength(1)
+    expect(draft.regexScripts.some((script) => script.id === 'custom-scene')).toBe(true)
+    expect(draft.regexScripts.some((script) => script.findRegex.includes('<gts_status>'))).toBe(true)
   })
 
   it('writes a complete V3 card into PNG metadata and reads it back', async () => {
@@ -62,6 +90,7 @@ describe('character workshop', () => {
     expect(raw.data?.name).toBe('沈砚')
     expect(raw.data?.system_prompt).toBe('不代演用户')
     expect(raw.data?.extensions?.beautification_protocol).toContain('<scene>')
+    expect(raw.data?.extensions?.regex_scripts).toHaveLength(2)
     expect(raw.data?.character_book?.entries[0].content).toBe('三年前未结案。')
     const bytes = new TextDecoder('latin1').decode(embedded)
     expect(bytes).toContain('chara\0')
