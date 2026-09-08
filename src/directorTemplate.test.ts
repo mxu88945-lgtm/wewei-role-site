@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { buildSharedTheaterBackground, createDirectorCharacter, createDirectorTemplateConfig } from './directorTemplate'
+import { buildSharedTheaterBackground, createDirectorCharacter, createDirectorTemplateConfig, directorRuntimeBoundary } from './directorTemplate'
 
 describe('built-in director template', () => {
   it('keeps private truths out of the shared theater background', () => {
@@ -7,6 +7,14 @@ describe('built-in director template', () => {
     const shared = buildSharedTheaterBackground(config)
     expect(shared).toContain('公开世界')
     expect(shared).not.toContain('只有导演知道的真相')
+  })
+
+  it('creates a final runtime boundary with exact independent roles', () => {
+    const boundary = directorRuntimeBoundary(['傅瑾琛', '陆霄'])
+
+    expect(boundary).toContain('独立角色为：傅瑾琛、陆霄')
+    expect(boundary).toContain('不得成为任何新台词、心理、决定、调查或有意图动作的执行者')
+    expect(boundary).toContain('立即停在送达或等待节点')
   })
 
   it('creates a private worldbook with hard role boundaries', () => {

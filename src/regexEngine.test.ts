@@ -61,6 +61,14 @@ describe('character-card regex boundaries', () => {
     expect(applyRegexScripts(source, [], character, '惟惟', 2, 'prompt')).toBe(source)
   })
 
+  it('renders an unmatched scene block for an older card with no regex scripts', () => {
+    const rendered = applyRegexScripts('<scene>时间：午后\n地点：病房</scene>\n门外传来脚步声。', [], character, '惟惟', 2, 'display')
+
+    expect(rendered).toContain('class="weijing-scene-strip"')
+    expect(rendered).toContain('时间：午后')
+    expect(rendered).not.toContain('<scene>')
+  })
+
   it('renders custom status tags with the character-specific fallback card', () => {
     const source = '正文。\n<czw_status>心理：正在核对\n文件，确认没有被改写\n动作：把文件夹推向惟惟\n对顾霆深：保留判断\n对惟惟：提供信息\n政治立场：支持独立审查\n情绪波动：冷静\n当前目标：等待回应</czw_status>'
     const rendered = applyRegexScripts(source, [], character, '惟惟', 2, 'display')

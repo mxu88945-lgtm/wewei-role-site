@@ -3,6 +3,7 @@ import type { Character, RegexScript } from './characterCard'
 export type RegexMode = 'display' | 'prompt'
 
 const PRESENTATIONAL_HTML = /<(?:div|section|article|details|summary|style|table|thead|tbody|tr|td|th|span|p|h[1-6])\b/i
+const SCENE_BLOCK = /<(scene|plot)\b[^>]*>\s*([\s\S]*?)\s*<\/\1\s*>/gi
 const STATUS_BLOCK = /<(status|[a-z][\w-]*_status)\b[^>]*>\s*([\s\S]*?)\s*<\/\1\s*>/gi
 const CZW_STATUS_FIELD = /(?:^|\n)\s*(心理|动作|对顾霆深|对[^：\n]{1,24}|政治立场|情绪波动|当前目标)：/g
 
@@ -84,6 +85,15 @@ function renderUnmatchedStatusBlocks(value: string) {
   })
 }
 
+/** Give older cards a native scene panel when they emit semantic markers but
+ * do not contain their own display regex. */
+function renderUnmatchedSceneBlocks(value: string) {
+  return value.replace(SCENE_BLOCK, (_match, _tag: string, content: string) => {
+    const scene = content.replace(/\n{3,}/g, '\n\n').trim() || '当前场景'
+    return `<section class="weijing-scene-strip">${escapeHtml(scene)}</section>`
+  })
+}
+
 export function stripPresentationalHtmlForPrompt(value: string) {
   if (!containsPresentationalHtml(value)) return value
 
@@ -134,6 +144,6 @@ export function applyRegexScripts(text: string, scripts: RegexScript[], characte
   }
   // Do this only for display. Model history must retain the original compact
   // tags, while the UI should never expose a failed status block as plain text.
-  if (mode === 'display') output = renderUnmatchedStatusBlocks(output)
+  if (mode === 'display') output = renderUnmatchedStatusBlocks(renderUnmatchedSceneBlocks(output))
   return output.trim()
 }

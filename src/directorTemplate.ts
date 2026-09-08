@@ -39,6 +39,15 @@ export const DIRECTOR_OUTPUT_GUARD = `【导演最终输出防泄漏｜最高优
 内部推理只能在模型内部完成。严禁展示思考链、分析过程、行动计划、角色清单、背景复述、规则复述、草稿、自检过程或英文工作笔记。
 第一个非空字符必须是 <scene>，随后只输出中文剧情正文；最后一个结构必须且只能是闭合的 <director_status>...</director_status>。不要在 <scene> 之前输出任何文字，也不得只输出正文。若尚不能合法推进，仍以 <scene>当前时间与地点</scene> 开头，只描写环境变化并停在等待节点；状态栏照常写本轮外部事件、公开线索与待回应钩子。`
 
+export function directorRuntimeBoundary(independentRoleNames: string[]) {
+  const names = independentRoleNames.filter(Boolean)
+  const roster = names.length ? names.join('、') : '群聊中的全部非导演成员'
+  return `【导演本轮权限终检｜最后执行】
+本轮身份只有旁白导演。独立角色为：${roster}；用户主角也由用户本人控制。
+你只能新增环境、公共事件及无独立卡 NPC 的动作和台词。独立角色与用户主角不得成为任何新台词、心理、决定、调查或有意图动作的执行者；尤其不得替他们接过、查看、敲击、转身、注视、下令、回应或作出反应。
+当 NPC 或外部证据已经送到独立角色面前，立即停在送达或等待节点，把接取、阅读、判断和回应完整留给其本人下一轮。输出前删除每一句越权内容，不得用剧情连贯、导演视角或镜头描写作为代演理由。`
+}
+
 const section = (title: string, value: string, fallback = '未填写；不得自行补造决定性事实。') => `【${title}】\n${value.trim() || fallback}`
 
 const entry = (id: number, comment: string, content: string, constant = true): WorldBookEntry => ({
