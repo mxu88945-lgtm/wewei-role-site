@@ -57,4 +57,15 @@ describe('status protocol', () => {
       { role: 'assistant', characterId: 'yan', text: '<status>关系进展：新</status>' },
     ], 'status', 'yan')).toBe('关系进展：新')
   })
+
+  it('discovers bracket-labelled fields from a rich character panel', () => {
+    const richCharacter = {
+      ...character,
+      greeting: '<gts_status>【当前心境】阶段一：冷漠偏见\n【好感／占有】好感 -15｜占有 20\n【现场局势】病房对峙\n【角色已知线索】坠楼疑点\n状态：等待回应\n关系：未婚夫妻\n待回应：等待白安禾回应</gts_status>',
+    }
+    expect(getStatusProtocol(richCharacter)).toEqual({
+      tag: 'gts_status',
+      fields: ['当前心境', '好感／占有', '现场局势', '角色已知线索', '状态', '关系', '待回应'],
+    })
+  })
 })

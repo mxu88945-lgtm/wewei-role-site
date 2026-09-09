@@ -11,7 +11,10 @@ const OPEN_HIDDEN_BLOCK = /<(?:think(?:ing)?|analysis|reasoning)\b[^>]*>[\s\S]*$
 const STATUS_TAG_PATTERN = '(?:status|[a-z][\\w-]*_status)'
 const STATUS_TAG_NAME = new RegExp(`^${STATUS_TAG_PATTERN}$`, 'i')
 const STATUS_OPENING = new RegExp(`<(${STATUS_TAG_PATTERN})\\b[^>]*>`, 'i')
-const STATUS_FIELD_MARKER = /(?:^|[\n｜|；;])\s*([^：:\n｜|；;<>{}]{1,40}?)\s*[：:]\s*/g
+// Cards use both `label: value` and the common SillyTavern-style
+// `【label】value` syntax. Treat both as first-class status fields so the
+// deterministic completion pass can repair partially emitted panels.
+const STATUS_FIELD_MARKER = /(?:^|[\n｜|；;])\s*(?:【([^】\n]{1,40})】\s*|([^：:\n｜|；;<>{}]{1,40}?)\s*[：:]\s*)/g
 const STATUS_WRAPPER = new RegExp(`<\\/?${STATUS_TAG_PATTERN}\\b[^>]*>`, 'gi')
 const COMPLETE_STATUS_BLOCK = new RegExp(`<(${STATUS_TAG_PATTERN})\\b[^>]*>[\\s\\S]*?<\\/\\1\\s*>`, 'gi')
 const OPEN_OR_PARTIAL_STATUS_BLOCK = new RegExp(`<(${STATUS_TAG_PATTERN})\\b[^>]*>[\\s\\S]*?(?:<\\/\\1\\s*>|$)`, 'gi')
@@ -129,7 +132,7 @@ export function extractStatusFields(value: string): StatusFieldValue[] {
   for (let index = 0; index < markers.length; index += 1) {
     const marker = markers[index]
     const next = markers[index + 1]
-    const label = marker[1]?.trim()
+    const label = (marker[1] || marker[2])?.trim()
     const start = (marker.index || 0) + marker[0].length
     const end = next?.index ?? plainValue.length
     const fieldValue = plainValue.slice(start, end).trim().replace(/[｜|；;]+$/, '').trim()
@@ -174,7 +177,26 @@ export function completeStatusBlock(value: string, tag: string, fallbackContent:
 
   const separator = content ? (content.includes('\n') ? '\n' : '｜') : ''
   const additions = missing.map((field) => `${field.label}：${field.value}`).join(separator || '｜')
-  const mergedContent = !additions ? content : content ? `${content}${separator}${additions}` : additions
+  const requiredOrder = new Map(fallbackFields.map((field, index) => [field.label, index]))
+  const existingRequiredIndexes = extractStatusFields(content)
+    .map((field) => requiredOrder.get(field.label))
+    .filter((index): index is number => index !== undefined)
+  const missingIndexes = missing
+    .map((field) => requiredOrder.get(field.label))
+    .filter((index): index is number => index !== undefined)
+  // The frequent failure mode is a model returning only the generic tail of
+  // a richer panel. Put the repaired card-specific head back in front instead
+  // of tacking it onto the end, preserving the card's intended reading order.
+  const prepend = existingRequiredIndexes.length > 0
+    && missingIndexes.length > 0
+    && Math.max(...missingIndexes) < Math.min(...existingRequiredIndexes)
+  const mergedContent = !additions
+    ? content
+    : !content
+      ? additions
+      : prepend
+        ? `${additions}${separator}${content}`
+        : `${content}${separator}${additions}`
   const mergedBlock = `${block.slice(0, contentStart)}${mergedContent}${block.slice(closingStart)}`
   return `${ensured.slice(0, last.index)}${mergedBlock}${ensured.slice(last.index + block.length)}`
 }

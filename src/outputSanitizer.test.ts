@@ -132,6 +132,32 @@ describe('status block fallback', () => {
     ])
   })
 
+  it('parses bracket-labelled character fields used by psychology panels', () => {
+    expect(extractStatusFields('【当前心境】阶段三：失控占有\n【好感／占有】好感 5｜占有 85')).toEqual([
+      { label: '当前心境', value: '阶段三：失控占有' },
+      { label: '好感／占有', value: '好感 5｜占有 85' },
+    ])
+  })
+
+  it('restores an omitted card-specific head before an existing generic tail', () => {
+    const result = completeStatusBlock(
+      '正文。\n<gts_status>状态：已完成本轮回应\n关系：未婚夫妻\n待回应：等待白安禾回应</gts_status>',
+      'gts_status',
+      '当前心境：阶段三：失控占有\n好感／占有：好感 5｜占有 85\n现场局势：病房对峙\n角色已知线索：坠楼疑点\n状态：已完成本轮回应\n关系：未婚夫妻\n待回应：等待白安禾回应',
+      [
+        { label: '当前心境', value: '阶段三：失控占有' },
+        { label: '好感／占有', value: '好感 5｜占有 85' },
+        { label: '现场局势', value: '病房对峙' },
+        { label: '角色已知线索', value: '坠楼疑点' },
+        { label: '状态', value: '已完成本轮回应' },
+        { label: '关系', value: '未婚夫妻' },
+        { label: '待回应', value: '等待白安禾回应' },
+      ],
+    )
+    expect(result.indexOf('当前心境：')).toBeLessThan(result.indexOf('状态：'))
+    expect(result).toContain('角色已知线索：坠楼疑点')
+  })
+
   it('moves a prematurely emitted status block behind the story and keeps only the newest one', () => {
     const status = '<gts_status>心理：冷静</gts_status>'
     expect(moveStatusBlockToEnd(`${status}\n<scene>深夜｜书房</scene>\n他没有立刻回答。`, 'gts_status'))
