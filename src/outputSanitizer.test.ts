@@ -158,6 +158,18 @@ describe('status block fallback', () => {
     expect(result).toContain('角色已知线索：坠楼疑点')
   })
 
+  it('removes a stale duplicate whose label only differs by spacing and suffixes', () => {
+    const result = completeStatusBlock(
+      '正文。\n<gts_status>【好感/占有】好感 15｜占有 89\n好感 / 占有：好感 -15｜占有 20（婚约名义）</gts_status>',
+      'gts_status',
+      '好感／占有：好感 15｜占有 89',
+      [{ label: '好感度／占有欲', value: '好感 15｜占有 89' }],
+    )
+    expect(result).toContain('【好感/占有】好感 15｜占有 89')
+    expect(result).not.toContain('好感 -15')
+    expect(result.match(/占有/g)).toHaveLength(2)
+  })
+
   it('moves a prematurely emitted status block behind the story and keeps only the newest one', () => {
     const status = '<gts_status>心理：冷静</gts_status>'
     expect(moveStatusBlockToEnd(`${status}\n<scene>深夜｜书房</scene>\n他没有立刻回答。`, 'gts_status'))

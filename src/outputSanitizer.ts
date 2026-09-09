@@ -21,6 +21,16 @@ const OPEN_OR_PARTIAL_STATUS_BLOCK = new RegExp(`<(${STATUS_TAG_PATTERN})\\b[^>]
 
 export type StatusFieldValue = { label: string; value: string }
 
+/** Compare visually different spellings of the same status field as one key. */
+export function statusFieldKey(label: string) {
+  return label
+    .normalize('NFKC')
+    .replace(/\s+/g, '')
+    .replace(/好感度/g, '好感')
+    .replace(/占有欲/g, '占有')
+    .toLowerCase()
+}
+
 /** Values that look complete but communicate no state are treated as omissions. */
 export function isStatusPlaceholder(value: string) {
   return /^(?:本轮未更新|以(?:本轮)?正文明确内容为准|延续当前剧情|当前剧情(?:继续|延续)?|暂无(?:更新|变化)?|未更新|待定)$/u.test(value.trim())
@@ -165,24 +175,41 @@ export function completeStatusBlock(value: string, tag: string, fallbackContent:
   const originalContent = content
   const existingFields = extractStatusFields(content)
   for (const fallback of fallbackFields) {
-    const existing = existingFields.find((field) => field.label === fallback.label)
+    const existing = existingFields.find((field) => statusFieldKey(field.label) === statusFieldKey(fallback.label))
     if (!existing || !isStatusPlaceholder(existing.value)) continue
     const label = fallback.label.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
     const field = new RegExp(`(${label}\\s*[：:]\\s*)[^\\n｜|；;<>{}]+`, 'u')
     content = content.replace(field, `$1${fallback.value}`)
   }
-  const existingLabels = new Set(extractStatusFields(content).map((field) => field.label))
-  const missing = fallbackFields.filter((field) => field.label && !existingLabels.has(field.label))
+  // Preserve the first (current/model-authored) occurrence and discard stale
+  // aliases such as `好感/占有` + `好感 / 占有` that older templates appended.
+  STATUS_FIELD_MARKER.lastIndex = 0
+  const contentMarkers = Array.from(content.matchAll(STATUS_FIELD_MARKER))
+  STATUS_FIELD_MARKER.lastIndex = 0
+  const seenKeys = new Set<string>()
+  const duplicateRanges: Array<[number, number]> = []
+  for (let index = 0; index < contentMarkers.length; index += 1) {
+    const marker = contentMarkers[index]
+    const label = (marker[1] || marker[2] || '').trim()
+    const key = statusFieldKey(label)
+    if (key && seenKeys.has(key)) duplicateRanges.push([marker.index || 0, contentMarkers[index + 1]?.index ?? content.length])
+    else if (key) seenKeys.add(key)
+  }
+  for (const [start, end] of duplicateRanges.reverse()) content = `${content.slice(0, start)}${content.slice(end)}`
+  content = content.trim()
+
+  const existingLabels = new Set(extractStatusFields(content).map((field) => statusFieldKey(field.label)))
+  const missing = fallbackFields.filter((field) => field.label && !existingLabels.has(statusFieldKey(field.label)))
   if (!missing.length && content === originalContent) return ensured
 
   const separator = content ? (content.includes('\n') ? '\n' : '｜') : ''
   const additions = missing.map((field) => `${field.label}：${field.value}`).join(separator || '｜')
-  const requiredOrder = new Map(fallbackFields.map((field, index) => [field.label, index]))
+  const requiredOrder = new Map(fallbackFields.map((field, index) => [statusFieldKey(field.label), index]))
   const existingRequiredIndexes = extractStatusFields(content)
-    .map((field) => requiredOrder.get(field.label))
+    .map((field) => requiredOrder.get(statusFieldKey(field.label)))
     .filter((index): index is number => index !== undefined)
   const missingIndexes = missing
-    .map((field) => requiredOrder.get(field.label))
+    .map((field) => requiredOrder.get(statusFieldKey(field.label)))
     .filter((index): index is number => index !== undefined)
   // The frequent failure mode is a model returning only the generic tail of
   // a richer panel. Put the repaired card-specific head back in front instead

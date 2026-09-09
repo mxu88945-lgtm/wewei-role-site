@@ -1,5 +1,5 @@
 import type { Character } from './characterCard'
-import { detectStatusTag, extractStatusFields, isStatusPlaceholder, type StatusFieldValue } from './outputSanitizer'
+import { detectStatusTag, extractStatusFields, isStatusPlaceholder, statusFieldKey, type StatusFieldValue } from './outputSanitizer'
 
 const DEFAULT_STATUS_FIELDS = ['状态', '关系', '待回应']
 
@@ -41,7 +41,13 @@ function statusSamples(sources: string[], tag: string) {
 }
 
 function unique(values: string[]) {
-  return Array.from(new Set(values.map((value) => value.trim()).filter(Boolean)))
+  const seen = new Set<string>()
+  return values.map((value) => value.trim()).filter((value) => {
+    const key = statusFieldKey(value)
+    if (!key || seen.has(key)) return false
+    seen.add(key)
+    return true
+  })
 }
 
 /** Discover the exact status tag and field order defined by a character card. */
@@ -90,8 +96,9 @@ function storyValue(label: string, output: string, characterName: string, userNa
 }
 
 function valueForField(label: string, characterName: string, userName: string, previous: Map<string, string>, template: Map<string, string>, scene: ReturnType<typeof sceneValues>, output: string) {
-  const oldValue = previous.get(label)
-  const templateValue = template.get(label)
+  const key = statusFieldKey(label)
+  const oldValue = previous.get(key)
+  const templateValue = template.get(key)
   const carriedValue = oldValue && !isStatusPlaceholder(oldValue) ? oldValue : templateValue && !isStatusPlaceholder(templateValue) ? templateValue : ''
   if (/^待回应$/.test(label)) return `等待${userName}回应`
   if (/^状态$/.test(label)) return `${characterName}已完成本轮回应`
@@ -121,9 +128,9 @@ export function buildStatusFallback(character: Character, userName: string, opti
   const protocol = getStatusProtocol(character)
   const fields = protocol.fields.length ? protocol.fields : DEFAULT_STATUS_FIELDS
   const previous = new Map<string, string>()
-  for (const field of extractStatusFields(options.previousStatusContent || '')) previous.set(field.label, field.value)
+  for (const field of extractStatusFields(options.previousStatusContent || '')) previous.set(statusFieldKey(field.label), field.value)
   const template = new Map<string, string>()
-  for (const field of statusTemplateValues(character, protocol.tag)) template.set(field.label, field.value)
+  for (const field of statusTemplateValues(character, protocol.tag)) template.set(statusFieldKey(field.label), field.value)
   const scene = sceneValues(options.output || '')
   const fallbackFields = fields.map((label) => ({ label, value: valueForField(label, character.name, userName, previous, template, scene, options.output || '') }))
   return {
