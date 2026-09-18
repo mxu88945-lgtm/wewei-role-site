@@ -2,6 +2,19 @@ export type GroupReplyMode = 'natural' | 'contextual' | 'all' | 'specified'
 
 type GroupParticipant = { id: string; name: string }
 
+/**
+ * A pause is an out-of-character transport control, not story material.  In
+ * natural mode it used to fall through to the random speaker picker, which
+ * made a character answer the user's request to stop and could immediately
+ * create another unwanted roleplay turn.
+ */
+export function isRoleplayPauseCommand(text: string) {
+  const normalized = text
+    .replace(/[！!。．，,、：:；;？?\s]/g, '')
+    .toLocaleLowerCase()
+  return /^(?:暂停|暂停一下|先暂停|暂停角色扮演|停止角色扮演|先别演|先不演|stop|pause)$/.test(normalized)
+}
+
 type SelectGroupSpeakersOptions = {
   participantIds: string[]
   mentionedIds: string[]

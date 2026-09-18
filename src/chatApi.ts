@@ -23,7 +23,30 @@ type CompletionOptions = {
 }
 
 function endpoint(baseUrl: string, path: string) {
-  return `${baseUrl.replace(/\/$/, '')}/${path.replace(/^\//, '')}`
+  const normalizedBase = baseUrl.trim().replace(/\/$/, '')
+  const normalizedPath = path.replace(/^\//, '')
+  // Accept the two URL shapes users commonly paste: an API root ending in
+  // /v1, or the complete chat/messages endpoint copied from a provider doc.
+  // The latter previously became .../chat/completions/chat/completions.
+  if (normalizedBase.endsWith(`/${normalizedPath}`)) return normalizedBase
+  return `${normalizedBase}/${normalizedPath}`
+}
+
+function transportError(error: unknown) {
+  if (error instanceof DOMException && error.name === 'AbortError') return error
+  const message = error instanceof Error ? error.message : String(error || '')
+  if (/failed to fetch|networkerror|load failed|network request failed/i.test(message)) {
+    return new Error('浏览器无法连到该 API（常见原因：Base URL 不可访问、接口未开放 CORS、网络/VPN 或证书异常）。请先在 API 页面测试此渠道；若测试仍失败，需要换支持浏览器直连的中转地址。')
+  }
+  return error instanceof Error ? error : new Error('API 请求失败')
+}
+
+async function requestApi(input: RequestInfo | URL, init?: RequestInit) {
+  try {
+    return await fetch(input, init)
+  } catch (error) {
+    throw transportError(error)
+  }
 }
 
 async function readError(response: Response) {
@@ -57,7 +80,7 @@ function apiHeaders(api: Pick<ApiConfig, 'apiKey' | 'protocol'>): Record<string,
 
 export async function fetchApiModels(api: Pick<ApiConfig, 'baseUrl' | 'apiKey' | 'protocol'>, signal?: AbortSignal): Promise<ApiModel[]> {
   if (!api.baseUrl.trim() || !api.apiKey.trim()) throw new Error('请先填写 Base URL 和 API Key')
-  const response = await fetch(endpoint(api.baseUrl, 'models'), {
+  const response = await requestApi(endpoint(api.baseUrl, 'models'), {
     headers: apiHeaders(api),
     signal,
   })
@@ -90,7 +113,7 @@ export async function fetchApiModels(api: Pick<ApiConfig, 'baseUrl' | 'apiKey' |
 
 async function probeChatCompletion(api: ApiConfig, signal?: AbortSignal) {
   const anthropic = api.protocol === 'anthropic'
-  const response = await fetch(endpoint(api.baseUrl, anthropic ? 'messages' : 'chat/completions'), {
+  const response = await requestApi(endpoint(api.baseUrl, anthropic ? 'messages' : 'chat/completions'), {
     method: 'POST',
     headers: { 'Content-Type': 'application/json', ...apiHeaders(api) },
     body: JSON.stringify(anthropic ? {
@@ -246,7 +269,7 @@ export async function completeChat(options: CompletionOptions) {
   const { api, messages, temperature, topP, maxTokens, streaming, signal, onDelta } = options
   const limitField = tokenField(api)
   const anthropic = api.protocol === 'anthropic'
-  const request = (effectiveMaxTokens: number) => fetch(endpoint(api.baseUrl, anthropic ? 'messages' : 'chat/completions'), {
+  const request = (effectiveMaxTokens: number) => requestApi(endpoint(api.baseUrl, anthropic ? 'messages' : 'chat/completions'), {
     method: 'POST',
     headers: { 'Content-Type': 'application/json', ...apiHeaders(api) },
     body: JSON.stringify(anthropic ? anthropicPayload(options, effectiveMaxTokens) : {

@@ -171,7 +171,7 @@ export default function CharacterWorkshop({ channels, defaultChannelId, onBack, 
     setState('generating'); setError('')
     let raw = ''
     try {
-      await completeChat({
+      const completion = await completeChat({
         api: channel,
         messages: [
           { role: 'system', content: '你只输出严格有效的 JSON，不使用 Markdown，不添加解释。' },
@@ -179,12 +179,19 @@ export default function CharacterWorkshop({ channels, defaultChannelId, onBack, 
         ],
         temperature: .82,
         topP: .9,
-        maxTokens: 12000,
+        // A full V3 card is verbose, but 12k makes credit-capped relays and
+        // models with lower per-request ceilings reject before generation.
+        // The prompt now asks for a compact usable card, so 8k is ample and
+        // materially more compatible across the user's mixed channels.
+        maxTokens: 8000,
         streaming: false,
         signal: controller.signal,
         onDelta: (delta) => { raw += delta },
       })
       if (revision !== generationRevisionRef.current) return
+      if (completion.finishReason === 'length' || completion.finishReason === 'max_tokens') {
+        throw new Error('角色卡输出达到当前模型的长度上限，未写入半张卡。请换输出上限更高的模型，或把设定再精简一点后重试。')
+      }
       setResult(parseCharacterWorkshopDraft(raw))
       setCopilotMessages([]); setCopilotMemory(''); setPendingCopilotPatch(null); setCopilotUndoSnapshot(null); setCopilotInput(''); setCopilotImages([]); setCopilotError(''); setCopilotState('idle')
       setState('idle')

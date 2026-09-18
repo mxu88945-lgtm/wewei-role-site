@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { findMentionedParticipantIds, selectGroupSpeakerIds, stripParticipantMentions } from './groupReplyRouting'
+import { findMentionedParticipantIds, isRoleplayPauseCommand, selectGroupSpeakerIds, stripParticipantMentions } from './groupReplyRouting'
 
 describe('group reply routing', () => {
   const participantIds = ['male-lead', 'director']
@@ -58,5 +58,13 @@ describe('group reply routing', () => {
     expect(stripParticipantMentions('@沈时墨 继续刚才的话', participants)).toBe('继续刚才的话')
     expect(stripParticipantMentions('@SSM 导演卡，推进一下', participants)).toBe('推进一下')
     expect(stripParticipantMentions('@沈时墨 @SSM 导演卡', participants)).toBe('')
+  })
+
+  it.each(['暂停角色扮演！！！！', '先暂停。', ' STOP '])('recognizes %s as an out-of-character pause', (text) => {
+    expect(isRoleplayPauseCommand(text)).toBe(true)
+  })
+
+  it('does not mistake an in-story phrase for a pause command', () => {
+    expect(isRoleplayPauseCommand('他叫我暂停一下会议')).toBe(false)
   })
 })

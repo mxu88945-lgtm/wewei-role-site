@@ -267,6 +267,18 @@ function escapeRegex(value: string) {
   return value.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
 }
 
+/** Reject an out-of-character group reply that has adopted another card. */
+export function hasGroupIdentityLeak(value: string, speakerName: string, otherNames: string[]) {
+  const opening = value.slice(0, 1800)
+  if (/(?:系统(?:设置|内置|提示|规则)|固定输出|格式(?:化|错误|混进)|逻辑\s*(?:bug|错误)|(?:暂停|停止)角色扮演|(?:替|代)演(?:了|用户|你))/i.test(opening)) return true
+  return otherNames.some((name) => {
+    const trimmed = name.trim()
+    if (!trimmed || trimmed === speakerName) return false
+    const escaped = escapeRegex(trimmed)
+    return new RegExp(`(?:我(?:是|现在(?:在)?演|扮演(?:的)?是)|(?:当前|本轮)(?:角色|身份)(?:是|为))\\s*[【[（(]?\\s*${escaped}`, 'i').test(opening)
+  })
+}
+
 /** Remove repeated model-authored speaker headings when the UI already shows an author. */
 export function stripLeadingSpeakerLabels(value: string, speakerNames: string[]) {
   const names = Array.from(new Set(speakerNames.map((name) => name.trim()).filter(Boolean)))

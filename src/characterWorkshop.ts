@@ -334,7 +334,7 @@ export function describeWorkshopCopilotPatch(patch: WorkshopCopilotPatch) {
 }
 
 export function buildCharacterWorkshopPrompt(brief: CharacterWorkshopBrief) {
-  return `你是专业 Character Card V3 角色设计师。根据需求生成可长期扮演、逻辑自洽、不过早恋爱脑的中文角色卡。
+  return `你是专业 Character Card V3 角色设计师。根据需求生成可长期扮演、逻辑自洽、不过早恋爱脑的中文角色卡。内容要完整但紧凑：除开场白、系统提示词和美化协议外，每个文本字段优先控制在 250—700 字；世界书保留 3—6 条真正必要的条目。
 
 用户需求：
 - 核心构想：${brief.concept.trim()}

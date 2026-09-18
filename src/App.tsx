@@ -13,9 +13,9 @@ import { resolveChatScrollTarget, type ChatScrollSnapshot } from './chatScroll'
 import { createApiChannel, isApiChannelComplete, normalizeApiChannels, resolveApiChannel, withApiModel, type ApiChannel } from './apiChannels'
 import { enabledPresetText, normalizePresetSections } from './presetConfig'
 import { durableGet, durableSet } from './persistentStore'
-import { completeStatusBlock, containsHiddenReasoning, hasCompleteRoleplayBody, moveStatusBlockToEnd, normalizeDirectorStatusOutput, sanitizeAssistantOutput, stripLeadingSpeakerLabels, stripStatusBlocksForStreaming } from './outputSanitizer'
+import { completeStatusBlock, containsHiddenReasoning, hasCompleteRoleplayBody, hasGroupIdentityLeak, moveStatusBlockToEnd, normalizeDirectorStatusOutput, sanitizeAssistantOutput, stripLeadingSpeakerLabels, stripStatusBlocksForStreaming } from './outputSanitizer'
 import { archivedMemoriesForConversation, memoriesForConversation, replaceConversationMemories, restoreMemoryToRevision } from './memoryEngine'
-import { findMentionedParticipantIds, selectGroupSpeakerIds, stripParticipantMentions, type GroupReplyMode } from './groupReplyRouting'
+import { findMentionedParticipantIds, isRoleplayPauseCommand, selectGroupSpeakerIds, stripParticipantMentions, type GroupReplyMode } from './groupReplyRouting'
 import Pet from './Pet'
 import PetCritter, { PET_CHOICES, type PetVariant } from './PetCritter'
 import DirectorTemplateEditor from './DirectorTemplateEditor'
@@ -349,7 +349,10 @@ function App() {
   const [groupDraft, setGroupDraft] = useState<{ title: string; participantIds: string[]; apiIds: Record<string, string>; modelNames: Record<string, string> }>({ title: '', participantIds: [], apiIds: {}, modelNames: {} })
   const [groupDirectorDraft, setGroupDirectorDraft] = useState<DirectorTemplateConfig>(() => createDirectorTemplateConfig())
   const [directorEditorTarget, setDirectorEditorTarget] = useState<'draft' | 'conversation-new' | 'conversation'>('draft')
-  const [groupReplyMode, setGroupReplyMode] = useState<GroupReplyMode>(() => read('weijing.groupReplyMode', 'natural'))
+  // Group scenes are deliberately opt-in: only an explicit @ may call a
+  // member.  Ignore older saved modes so adding a member can never quietly
+  // restore random/natural replies.
+  const [groupReplyMode, setGroupReplyMode] = useState<GroupReplyMode>('specified')
   const [mentionPickerOpen, setMentionPickerOpen] = useState(false)
   const [composerToolsOpen, setComposerToolsOpen] = useState(false)
   const [replyHelperState, setReplyHelperState] = useState<'idle' | 'generating'>('idle')
@@ -1049,7 +1052,7 @@ function App() {
     }
     setConversations((current) => [...current, conversation])
     setActiveId(participants[0].id); setActiveConversationId(conversation.id)
-    setGroupDraft({ title: '', participantIds: [], apiIds: {}, modelNames: {} }); setGroupDirectorDraft(createDirectorTemplateConfig()); setGroupReplyMode('natural')
+    setGroupDraft({ title: '', participantIds: [], apiIds: {}, modelNames: {} }); setGroupDirectorDraft(createDirectorTemplateConfig()); setGroupReplyMode('specified')
     replacePage('chat')
   }
 
@@ -1127,7 +1130,7 @@ function App() {
       theaterWorldBackground: buildSharedTheaterBackground(directorConfig),
       updatedAt: Date.now(),
     } : item))
-    setGroupReplyMode('natural')
+    setGroupReplyMode('specified')
     setDirectorEditorTarget('conversation')
     replacePage('chat')
   }
@@ -1151,7 +1154,7 @@ function App() {
     const participantIds = [...conversationMemberIds(), characterId]
     const title = participantIds.map((id) => characters.find((character) => character.id === id)?.name).filter(Boolean).join('、')
     setConversations((current) => current.map((item) => item.id === activeConversation.id ? addConversationParticipant(item, characterId, { apiId: api.id, modelName: api.modelName, title }) : item))
-    setGroupReplyMode('natural')
+    setGroupReplyMode('specified')
   }
   const removeConversationMember = (characterId: string) => {
     if (!activeConversation) return
@@ -1816,18 +1819,23 @@ function App() {
       cancelQueuedStreamRender()
       if (!output.trim()) throw new Error('模型没有返回内容')
       let cleanOutput = sanitizeAssistantOutput(output, { director: isDirector })
-      if (!hasCompleteRoleplayBody(cleanOutput || output, isDirector)) {
+      const identityLeak = isGroup && !isDirector && hasGroupIdentityLeak(cleanOutput || output, speaker.name, groupNames)
+      if (!hasCompleteRoleplayBody(cleanOutput || output, isDirector) || identityLeak) {
         output = ''
         stagedVisibleOutput = ''
         setConversations((current) => current.map((item) => item.id === conversationId ? { ...item, messages: item.messages.map((message) => message.id === assistantMessage.id ? { ...message, text: '正在补全正文…' } : message) } : item))
-        promptMessages.push({ role: 'system', content: isDirector
+        promptMessages.push({ role: 'system', content: identityLeak
+          ? `刚才输出发生了群聊身份串位或后台解释，已作废。你本轮唯一身份是「${speaker.name}」；不得自称、扮演、解释或代替任何其他群成员，不得代演用户，也不得提及系统、提示词、格式、暂停或角色扮演。现在只从最新场景继续输出 ${speaker.name} 的实际剧情回应。`
+          : isDirector
           ? '刚才输出不完整：只写了状态栏或缺少场景正文。现在从“最新场景锚点”续写，必须输出 <scene>...</scene>、至少一段实际剧情正文，最后再输出唯一的 <director_status>...</director_status>；不得解释、分析或只输出状态栏。'
           : '刚才输出不完整：只写了状态栏，缺少实际剧情正文。现在从当前场景继续，必须先写至少一段角色正文，再在结尾输出状态栏；不得解释或只输出状态栏。' })
         completion = await runCompletion()
         cancelQueuedStreamRender()
         if (!output.trim()) throw new Error('模型补全正文失败，请重试或更换模型。')
         cleanOutput = sanitizeAssistantOutput(output, { director: isDirector })
-        if (!hasCompleteRoleplayBody(cleanOutput || output, isDirector)) throw new Error('模型连续两次只返回状态栏或缺少剧情正文，未写入本轮剧情。请重试或更换模型。')
+        if (!hasCompleteRoleplayBody(cleanOutput || output, isDirector) || (isGroup && !isDirector && hasGroupIdentityLeak(cleanOutput || output, speaker.name, groupNames))) throw new Error(identityLeak
+          ? `模型连续两次发生身份串位，未写入本轮剧情。请重试；若仍出现，请改用 @${speaker.name} 点名回复或更换模型。`
+          : '模型连续两次只返回状态栏或缺少剧情正文，未写入本轮剧情。请重试或更换模型。')
       }
       if (completion.finishReason) {
         setConversations((current) => current.map((item) => item.id === conversationId ? { ...item, messages: item.messages.map((message) => message.id === assistantMessage.id ? { ...message, finishReason: completion.finishReason } : message) } : item))
@@ -1910,6 +1918,13 @@ function App() {
       const userMessage = visibleText ? { id: nextMessageId(sourceMessages), role: 'user' as const, text: visibleText } : null
       const baseMessages: Message[] = userMessage ? [...sourceMessages, userMessage] : sourceMessages
       setConversations((current) => current.map((item) => item.id === conversation.id ? { ...item, messages: baseMessages, updatedAt: Date.now() } : item))
+      // “暂停角色扮演” is intentionally stored as a visible boundary in the
+      // transcript, but it must never be routed to a character or director.
+      // The next actual message resumes from this exact point.
+      if (isRoleplayPauseCommand(visibleText)) {
+        setChatError('')
+        return
+      }
       const lastSpeakerId = [...baseMessages].reverse().find((item) => item.role === 'assistant')?.characterId
       const speakerIds = selectGroupSpeakerIds({ participantIds, mentionedIds, mode: groupReplyMode, directorCharacterId: conversation.directorCharacterId, lastSpeakerId, text })
       if (!speakerIds.length) {
@@ -2322,7 +2337,7 @@ function App() {
     {page === 'appearance' && <><BackHeader title="主题与背景" onBack={goBack} action={<button className="soft-button" onClick={() => { applyThemePreset(builtInThemes[0]); setChatBackground('') }}>恢复默认</button>} /><section className="settings-stack appearance-page compact-settings"><div className="theme-choice-card"><div><strong>主题库</strong><small>点“使用”绑定当前聊天；复制后可重命名或删除，不会影响其他窗口。</small></div><div className="theme-choice-grid">{builtInThemes.map((preset) => <button key={preset.id} className={`${activeConversation?.themePresetId === preset.id ? 'active ' : ''}${preset.mode}`} onClick={() => applyThemePreset(preset)}><i style={{ background: preset.baseColor }} /><span><strong>{preset.name}</strong><small>{activeConversation?.themePresetId === preset.id ? '✓ 当前使用' : '点按使用'}</small></span></button>)}</div>{customThemes.length > 0 && <div className="custom-theme-list">{customThemes.map((preset) => <article key={preset.id} className={activeConversation?.themePresetId === preset.id ? 'active' : ''}><button className="custom-theme-use" onClick={() => applyThemePreset(preset)}><i style={{ background: `linear-gradient(135deg, ${preset.baseColor}, ${preset.textColor})` }} /><span><strong>{preset.name}</strong><small>{activeConversation?.themePresetId === preset.id ? '✓ 当前聊天正在使用' : '使用这个主题'}</small></span></button><div className="custom-theme-actions"><button onClick={() => renameCustomTheme(preset)}>改名</button><button className="danger" onClick={() => deleteCustomTheme(preset)}>删除</button></div></article>)}</div>}<button className="duplicate-theme-button" onClick={duplicateCurrentTheme}>＋ 复制当前配色为我的主题</button></div><div className="appearance-preview theme-preview" style={{ color: chatTextColor, backgroundColor: chatBaseColor, backgroundImage: chatBackground ? `linear-gradient(rgba(255,255,255,${chatBackgroundFrost}),rgba(255,255,255,${chatBackgroundFrost})),url(${JSON.stringify(chatBackground)})` : undefined }}><small>当前聊天预览</small><p>每段聊天可以使用不同主题，不会覆盖其他窗口。</p></div><div className="appearance-card"><label className="appearance-color-row"><div><strong>背景底色</strong><small>{chatBaseColor}</small></div><input type="color" value={chatBaseColor} onChange={(event) => setChatBaseColor(event.target.value)} /></label></div><div className="appearance-card background-card"><div><strong>聊天背景图</strong><small>图片会压缩并保存在本机 IndexedDB，不上传仓库。</small></div>{chatBackground && <div className="background-preview" style={{ backgroundImage: `url(${JSON.stringify(chatBackground)})` }} />}<div className="appearance-actions"><label className="primary-button">选择背景图<input type="file" accept="image/*" onChange={async (event) => { const file = event.target.files?.[0]; if (file) setChatBackground(await backgroundImageData(file)); event.currentTarget.value = '' }} /></label>{chatBackground && <button className="secondary-button" onClick={() => setChatBackground('')}>移除背景</button>}</div>{chatBackground && <RangeRow label="背景白纱" hint="数值越高，文字越清楚" value={chatBackgroundFrost} min={0} max={.92} step={.04} onChange={updateChatBackgroundFrost} />}</div><PetSettings enabled={petEnabled} variant={petVariant} onEnabledChange={setPetEnabled} onVariantChange={setPetVariant} onReset={() => setPetPosition({ x: .86, y: .7 })} /></section></>}
     {page === 'font' && <><BackHeader title="字体与文字颜色" onBack={goBack} action={<button className="soft-button" onClick={() => { setUiFontScale(90); setUiFontWeight(500); setChatFontSize(16); setChatTextColor('#4e4852'); setChatNarrationColor('#7f7089'); setChatQuoteColor('#7b4d67') }}>恢复默认</button>} /><section className="settings-stack appearance-page compact-settings"><div className="appearance-card range-group"><RangeRow label="界面字号" hint="统一调整标题、按钮、说明与编辑区文字" value={uiFontScale} min={80} max={115} step={5} onChange={setUiFontScale} /><RangeRow label="界面字重" hint="数值越小越轻，聊天正文不受影响" value={uiFontWeight} min={400} max={700} step={100} onChange={setUiFontWeight} /></div><div className="appearance-preview chat-font-preview" style={{ color: chatTextColor, fontSize: chatFontSize }}><small>聊天正文预览</small><p><span style={{ color: chatNarrationColor }}>（他终于等到你回来。）</span><br /><span style={{ color: chatQuoteColor }}>“我一直在这里。”</span></p></div><div className="appearance-card"><RangeRow label="聊天正文字号" hint="只调整聊天内容，不影响系统界面" value={chatFontSize} min={13} max={22} step={1} onChange={setChatFontSize} /><label className="appearance-color-row"><div><strong>正文颜色</strong><small>{chatTextColor}</small></div><input type="color" value={chatTextColor} onChange={(event) => setChatTextColor(event.target.value)} /></label><label className="appearance-color-row"><div><strong>旁白颜色</strong><small>识别 *旁白*、（旁白）</small></div><input type="color" value={chatNarrationColor} onChange={(event) => setChatNarrationColor(event.target.value)} /></label><label className="appearance-color-row"><div><strong>引用颜色</strong><small>识别 “对话” 与「对话」</small></div><input type="color" value={chatQuoteColor} onChange={(event) => setChatQuoteColor(event.target.value)} /></label></div></section></>}
 
-    {page === 'display-reply' && <><BackHeader title="显示与回复" onBack={goBack} action={<span className="saved-label">自动保存</span>} /><section className="settings-stack compact-settings display-reply-page"><div className="drawer-compact-group display-reply-card"><div className="drawer-section-title"><strong>消息显示</strong></div><div className="drawer-inline-setting"><span>布局方式</span><div className="mini-segment"><button className={chatLayout === 'bubble' ? 'active' : ''} onClick={() => setChatLayout('bubble')}>气泡</button><button className={chatLayout === 'flat' ? 'active' : ''} onClick={() => setChatLayout('flat')}>平铺</button></div></div><div className="drawer-color-setting"><label><span>正文</span><input type="color" value={chatTextColor} onChange={(event) => setChatTextColor(event.target.value)} /></label><label><span>旁白</span><input type="color" value={chatNarrationColor} onChange={(event) => setChatNarrationColor(event.target.value)} /></label><label><span>引用</span><input type="color" value={chatQuoteColor} onChange={(event) => setChatQuoteColor(event.target.value)} /></label></div></div><div className="drawer-compact-group display-reply-card"><div className="drawer-section-title"><strong>群聊回复</strong></div>{activeConversation?.kind === 'group' ? <div className="drawer-inline-setting reply-mode-row"><span>回复模式</span><select value={groupReplyMode} onChange={(event) => setGroupReplyMode(event.target.value as GroupReplyMode)}><option value="natural">自然聊天</option><option value="contextual">情境发言</option><option value="all">全员回复</option><option value="specified">指定 @</option></select></div> : <div className="display-reply-note">当前是单角色对话，消息会由当前角色直接回复。</div>}</div></section></>}
+    {page === 'display-reply' && <><BackHeader title="显示与回复" onBack={goBack} action={<span className="saved-label">自动保存</span>} /><section className="settings-stack compact-settings display-reply-page"><div className="drawer-compact-group display-reply-card"><div className="drawer-section-title"><strong>消息显示</strong></div><div className="drawer-inline-setting"><span>布局方式</span><div className="mini-segment"><button className={chatLayout === 'bubble' ? 'active' : ''} onClick={() => setChatLayout('bubble')}>气泡</button><button className={chatLayout === 'flat' ? 'active' : ''} onClick={() => setChatLayout('flat')}>平铺</button></div></div><div className="drawer-color-setting"><label><span>正文</span><input type="color" value={chatTextColor} onChange={(event) => setChatTextColor(event.target.value)} /></label><label><span>旁白</span><input type="color" value={chatNarrationColor} onChange={(event) => setChatNarrationColor(event.target.value)} /></label><label><span>引用</span><input type="color" value={chatQuoteColor} onChange={(event) => setChatQuoteColor(event.target.value)} /></label></div></div><div className="drawer-compact-group display-reply-card"><div className="drawer-section-title"><strong>群聊回复</strong></div>{activeConversation?.kind === 'group' ? <div className="drawer-inline-setting reply-mode-row"><span>回复模式</span><strong>指定 @</strong></div> : <div className="display-reply-note">当前是单角色对话，消息会由当前角色直接回复。</div>}<div className="display-reply-note">群聊只会由你 @ 点名的角色发言；新增或删除成员不会改变这个规则。</div></div></section></>}
 
     {composerToolsOpen && <div className="composer-tools-layer" role="dialog" aria-modal="true" aria-label="输入工具"><button className="drawer-backdrop" aria-label="关闭输入工具" onClick={() => replyHelperState === 'idle' && setComposerToolsOpen(false)} /><section className="composer-tools-sheet"><header><div><small>输入工具</small><strong>接下来想怎么写</strong></div><button onClick={() => setComposerToolsOpen(false)} disabled={replyHelperState === 'generating'}>×</button></header><button className="reply-helper-action" onClick={() => void generateReplyHelperDraft()} disabled={replyHelperState === 'generating' || isGenerating}><span>✦</span><div><strong>{replyHelperState === 'generating' ? 'AI 正在帮你起草…' : 'AI 帮答'}</strong><small>{draft.trim() ? '沿用输入框里的想法，润色补成一条回复' : '读取当前上下文，生成一版可修改的回复草稿'}</small></div><i>›</i></button><p>只会填入输入框，不会自动发送，也不会替其他角色继续演。</p></section></div>}
 

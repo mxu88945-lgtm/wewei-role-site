@@ -1,7 +1,13 @@
 import { describe, expect, it } from 'vitest'
-import { completeStatusBlock, containsHiddenReasoning, detectStatusTag, ensureStatusBlock, extractStatusFields, hasCompleteRoleplayBody, hasVisibleStoryBody, moveStatusBlockToEnd, normalizeDirectorStatusOutput, sanitizeAssistantOutput, stripLeadingSpeakerLabels, stripStatusBlocksForStreaming } from './outputSanitizer'
+import { completeStatusBlock, containsHiddenReasoning, detectStatusTag, ensureStatusBlock, extractStatusFields, hasCompleteRoleplayBody, hasGroupIdentityLeak, hasVisibleStoryBody, moveStatusBlockToEnd, normalizeDirectorStatusOutput, sanitizeAssistantOutput, stripLeadingSpeakerLabels, stripStatusBlocksForStreaming } from './outputSanitizer'
 
 describe('assistant prompt-leak sanitizer', () => {
+  it('rejects a group member explaining a system or assuming another member identity', () => {
+    expect(hasGroupIdentityLeak('对不起，我刚才把系统内置的固定输出混进来了。', '白娇娇', ['裴晏清'])).toBe(true)
+    expect(hasGroupIdentityLeak('我现在在演裴晏清，门在身后合上。', '白娇娇', ['裴晏清'])).toBe(true)
+    expect(hasGroupIdentityLeak('白娇娇抬眼看向走廊尽头，没有替任何人作答。', '白娇娇', ['裴晏清'])).toBe(false)
+  })
+
   it('removes leaked status instructions and keeps the real formatted reply', () => {
     const leaked = '#注意：非常重要！你必须在每次输出后回复的末尾，严格按照参考状态栏输出。\n\n<plot>\n```\n⏰时间:2034年01月25日 21:00\n🗺️地点:H市\n```\n</plot>\n真正剧情'
     const result = sanitizeAssistantOutput(leaked)

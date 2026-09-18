@@ -225,4 +225,20 @@ describe('chatApi', () => {
     expect(requestBodies[1].max_tokens).toBe(1670)
     expect(output).toBe('我在。')
   })
+
+  it('accepts a full chat-completions URL pasted as Base URL', async () => {
+    const urls: string[] = []
+    vi.stubGlobal('fetch', vi.fn(async (url: string) => {
+      urls.push(url)
+      return new Response(JSON.stringify({ choices: [{ message: { content: '收到。' } }] }), { headers: { 'content-type': 'application/json' } })
+    }))
+    let output = ''
+    await completeChat({
+      api: { baseUrl: 'https://relay.example/v1/chat/completions', apiKey: 'test', modelName: 'model' },
+      messages: [{ role: 'user', content: '继续' }], temperature: 1, topP: 1, maxTokens: 100, streaming: false,
+      signal: new AbortController().signal, onDelta: (delta) => { output += delta },
+    })
+    expect(urls).toEqual(['https://relay.example/v1/chat/completions'])
+    expect(output).toBe('收到。')
+  })
 })
