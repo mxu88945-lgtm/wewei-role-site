@@ -270,7 +270,12 @@ function escapeRegex(value: string) {
 /** Reject an out-of-character group reply that has adopted another card. */
 export function hasGroupIdentityLeak(value: string, speakerName: string, otherNames: string[]) {
   const opening = value.slice(0, 1800)
-  if (/(?:系统(?:设置|内置|提示|规则)|固定输出|格式(?:化|错误|混进)|逻辑\s*(?:bug|错误)|(?:暂停|停止)角色扮演|(?:替|代)演(?:了|用户|你))/i.test(opening)) return true
+  // Do not reject ordinary fiction merely because a sci-fi card talks about
+  // systems, data, formats or logic.  Only treat those words as a leak when
+  // the model explicitly describes backstage instructions being mixed into
+  // the reply, or admits that it is roleplaying/controlling the wrong person.
+  if (/(?:系统(?:设置|内置|提示|规则)|固定输出|后台(?:规则|提示))[^\n]{0,120}(?:混进|串入|错乱|串位|代演|越界|不该输出)/i.test(opening)) return true
+  if (/(?:暂停|停止)角色扮演|(?:替|代)演(?:了)?(?:用户|你|{{user}})|替你(?:说话|行动|决定)/i.test(opening)) return true
   return otherNames.some((name) => {
     const trimmed = name.trim()
     if (!trimmed || trimmed === speakerName) return false

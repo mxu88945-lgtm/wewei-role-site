@@ -8,6 +8,11 @@ describe('assistant prompt-leak sanitizer', () => {
     expect(hasGroupIdentityLeak('白娇娇抬眼看向走廊尽头，没有替任何人作答。', '白娇娇', ['裴晏清'])).toBe(false)
   })
 
+  it('does not mistake in-world system and data language for an identity leak', () => {
+    expect(hasGroupIdentityLeak('他切断区域网络系统，把生理数据并网分析后重新打开权限。', '顾墨', ['虞山行'])).toBe(false)
+    expect(hasGroupIdentityLeak('现有格式与逻辑都由顾墨亲手制定。', '顾墨', ['虞山行'])).toBe(false)
+  })
+
   it('removes leaked status instructions and keeps the real formatted reply', () => {
     const leaked = '#注意：非常重要！你必须在每次输出后回复的末尾，严格按照参考状态栏输出。\n\n<plot>\n```\n⏰时间:2034年01月25日 21:00\n🗺️地点:H市\n```\n</plot>\n真正剧情'
     const result = sanitizeAssistantOutput(leaked)

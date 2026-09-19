@@ -49,6 +49,18 @@ async function requestApi(input: RequestInfo | URL, init?: RequestInit) {
   }
 }
 
+const TRANSIENT_COMPLETION_STATUSES = new Set([429, 500, 502, 503, 504])
+
+function waitForRetry(signal: AbortSignal, delay: number) {
+  return new Promise<void>((resolve, reject) => {
+    const timer = setTimeout(resolve, delay)
+    signal.addEventListener('abort', () => {
+      clearTimeout(timer)
+      reject(new DOMException('Aborted', 'AbortError'))
+    }, { once: true })
+  })
+}
+
 async function readError(response: Response) {
   try {
     const data = await response.json()
@@ -269,19 +281,35 @@ export async function completeChat(options: CompletionOptions) {
   const { api, messages, temperature, topP, maxTokens, streaming, signal, onDelta } = options
   const limitField = tokenField(api)
   const anthropic = api.protocol === 'anthropic'
-  const request = (effectiveMaxTokens: number) => requestApi(endpoint(api.baseUrl, anthropic ? 'messages' : 'chat/completions'), {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json', ...apiHeaders(api) },
-    body: JSON.stringify(anthropic ? anthropicPayload(options, effectiveMaxTokens) : {
-      model: api.modelName,
-      messages,
-      temperature,
-      top_p: topP,
-      [limitField]: effectiveMaxTokens,
-      stream: streaming,
-    }),
-    signal,
-  })
+  const request = async (effectiveMaxTokens: number) => {
+    let lastError: unknown
+    for (let attempt = 1; attempt <= 3; attempt += 1) {
+      try {
+        const response = await requestApi(endpoint(api.baseUrl, anthropic ? 'messages' : 'chat/completions'), {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json', ...apiHeaders(api) },
+          body: JSON.stringify(anthropic ? anthropicPayload(options, effectiveMaxTokens) : {
+            model: api.modelName,
+            messages,
+            temperature,
+            top_p: topP,
+            [limitField]: effectiveMaxTokens,
+            stream: streaming,
+          }),
+          signal,
+        })
+        if (!TRANSIENT_COMPLETION_STATUSES.has(response.status) || attempt === 3) return response
+      } catch (error) {
+        if (signal.aborted || (error instanceof DOMException && error.name === 'AbortError')) throw error
+        lastError = error
+        if (attempt === 3) throw error
+      }
+      // Match the stable behaviour of the older port: short backoff absorbs a
+      // relay's one-off overload without making the user resend the turn.
+      await waitForRetry(signal, attempt * 700)
+    }
+    throw lastError instanceof Error ? lastError : new Error('API 请求失败')
+  }
 
   let effectiveMaxTokens = maxTokens
   let response = await request(effectiveMaxTokens)

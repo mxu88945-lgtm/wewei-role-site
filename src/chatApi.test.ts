@@ -241,4 +241,21 @@ describe('chatApi', () => {
     expect(urls).toEqual(['https://relay.example/v1/chat/completions'])
     expect(output).toBe('收到。')
   })
+
+  it('retries transient relay failures before surfacing an error', async () => {
+    let calls = 0
+    vi.stubGlobal('fetch', vi.fn(async () => {
+      calls += 1
+      if (calls < 3) return new Response(JSON.stringify({ error: { message: 'upstream overloaded' } }), { status: 503 })
+      return new Response(JSON.stringify({ choices: [{ message: { content: '恢复了。' } }] }), { headers: { 'content-type': 'application/json' } })
+    }))
+    let output = ''
+    await completeChat({
+      api: { baseUrl: 'https://relay.example/v1', apiKey: 'test', modelName: 'model' },
+      messages: [{ role: 'user', content: '继续' }], temperature: 1, topP: 1, maxTokens: 100, streaming: false,
+      signal: new AbortController().signal, onDelta: (delta) => { output += delta },
+    })
+    expect(calls).toBe(3)
+    expect(output).toBe('恢复了。')
+  })
 })
