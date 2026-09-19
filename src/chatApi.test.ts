@@ -258,4 +258,107 @@ describe('chatApi', () => {
     expect(calls).toBe(3)
     expect(output).toBe('恢复了。')
   })
+
+  it('识别推理流活动但不把思考内容混入正文', async () => {
+    vi.stubGlobal('fetch', vi.fn(async () => new Response([
+      'data: {"choices":[{"delta":{"reasoning_content":"内部推理不能展示"}}]}',
+      '',
+      'data: {"choices":[{"delta":{"content":"正文来了。"}}]}',
+      '',
+      'data: [DONE]',
+      '',
+    ].join('\n'), { headers: { 'content-type': 'text/event-stream' } })))
+
+    const activities: string[] = []
+    let output = ''
+    await completeChat({
+      api: { baseUrl: 'https://relay.example/v1', apiKey: 'test', modelName: 'reasoning-model' },
+      messages: [{ role: 'user', content: '继续' }], temperature: 1, topP: 1, maxTokens: 100, streaming: true,
+      signal: new AbortController().signal,
+      onActivity: (activity) => activities.push(activity),
+      onDelta: (delta) => { output += delta },
+    })
+    expect(output).toBe('正文来了。')
+    expect(activities).toEqual(['thinking', 'content'])
+  })
+
+  it('模型拒绝 temperature 时自动移除参数重试', async () => {
+    const bodies: Record<string, unknown>[] = []
+    vi.stubGlobal('fetch', vi.fn(async (_url: string, init?: RequestInit) => {
+      bodies.push(JSON.parse(String(init?.body)))
+      if (bodies.length === 1) {
+        return new Response(JSON.stringify({ error: { message: "Unsupported parameter: 'temperature'" } }), { status: 400 })
+      }
+      return new Response(JSON.stringify({ choices: [{ message: { content: '兼容成功。' } }] }), { headers: { 'content-type': 'application/json' } })
+    }))
+
+    let output = ''
+    await completeChat({
+      api: { baseUrl: 'https://relay.example/v1', apiKey: 'test', modelName: 'reasoning-model' },
+      messages: [{ role: 'user', content: '继续' }], temperature: .9, topP: .9, maxTokens: 100, streaming: false,
+      signal: new AbortController().signal, onDelta: (delta) => { output += delta },
+    })
+    expect(bodies).toHaveLength(2)
+    expect(bodies[0].temperature).toBe(.9)
+    expect(bodies[1].temperature).toBeUndefined()
+    expect(output).toBe('兼容成功。')
+  })
+
+  it('模型要求另一种 token 字段时自动切换重试', async () => {
+    const bodies: Record<string, unknown>[] = []
+    vi.stubGlobal('fetch', vi.fn(async (_url: string, init?: RequestInit) => {
+      bodies.push(JSON.parse(String(init?.body)))
+      if (bodies.length === 1) {
+        return new Response(JSON.stringify({ error: { message: 'max_tokens is not supported; use max_completion_tokens' } }), { status: 400 })
+      }
+      return new Response(JSON.stringify({ choices: [{ message: { content: '字段兼容成功。' } }] }), { headers: { 'content-type': 'application/json' } })
+    }))
+
+    await completeChat({
+      api: { baseUrl: 'https://relay.example/v1', apiKey: 'test', modelName: 'custom-reasoner' },
+      messages: [{ role: 'user', content: '继续' }], temperature: 1, topP: 1, maxTokens: 100, streaming: false,
+      signal: new AbortController().signal, onDelta: () => undefined,
+    })
+    expect(bodies[0].max_tokens).toBe(100)
+    expect(bodies[1].max_completion_tokens).toBe(100)
+  })
+
+  it('数据流在正文前断开时自动重新请求一次', async () => {
+    let calls = 0
+    vi.stubGlobal('fetch', vi.fn(async () => {
+      calls += 1
+      if (calls === 1) {
+        const broken = new ReadableStream<Uint8Array>({ start(controller) { controller.error(new TypeError('Load failed')) } })
+        return new Response(broken, { headers: { 'content-type': 'text/event-stream' } })
+      }
+      return new Response('data: {"choices":[{"delta":{"content":"重连成功。"}}]}\n\ndata: [DONE]\n\n', { headers: { 'content-type': 'text/event-stream' } })
+    }))
+
+    let output = ''
+    await completeChat({
+      api: { baseUrl: 'https://relay.example/v1', apiKey: 'test', modelName: 'model' },
+      messages: [{ role: 'user', content: '继续' }], temperature: 1, topP: 1, maxTokens: 100, streaming: true,
+      signal: new AbortController().signal, onDelta: (delta) => { output += delta },
+    })
+    expect(calls).toBe(2)
+    expect(output).toBe('重连成功。')
+  })
+
+  it('中转返回 200 HTML 错误页时重新请求而不是直接解析失败', async () => {
+    let calls = 0
+    vi.stubGlobal('fetch', vi.fn(async () => {
+      calls += 1
+      if (calls === 1) return new Response('<html>gateway error</html>', { headers: { 'content-type': 'application/json' } })
+      return new Response(JSON.stringify({ choices: [{ message: { content: '已恢复。' } }] }), { headers: { 'content-type': 'application/json' } })
+    }))
+
+    let output = ''
+    await completeChat({
+      api: { baseUrl: 'https://relay.example/v1', apiKey: 'test', modelName: 'model' },
+      messages: [{ role: 'user', content: '继续' }], temperature: 1, topP: 1, maxTokens: 100, streaming: false,
+      signal: new AbortController().signal, onDelta: (delta) => { output += delta },
+    })
+    expect(calls).toBe(2)
+    expect(output).toBe('已恢复。')
+  })
 })

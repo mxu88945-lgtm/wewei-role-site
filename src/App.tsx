@@ -7,7 +7,7 @@ import { GreetingPicker, GroupGreetingPicker, ImportPreview, type GroupGreetingC
 import MessageContent from './MessageContent'
 import { createBlankCharacter, importCharacterCard, normalizeStoredCharacter, type Character } from './characterCard'
 import { activeCharacterMemory, characterMemoryEntryFromConversation, characterMemoryExtractionPrompt, characterMemorySummaryProtocol, parseCharacterMemoryCandidates, splitCharacterMemorySummary } from './characterMemory'
-import { completeChat, fetchApiModels, testApiConnection, type ApiConfig, type ApiModel } from './chatApi'
+import { ChatApiError, completeChat, fetchApiModels, testApiConnection, type ApiConfig, type ApiModel } from './chatApi'
 import { buildChatPrompt } from './promptBuilder'
 import { resolveChatScrollTarget, type ChatScrollSnapshot } from './chatScroll'
 import { createApiChannel, isApiChannelComplete, normalizeApiChannels, resolveApiChannel, withApiModel, type ApiChannel } from './apiChannels'
@@ -65,6 +65,14 @@ const demoCharacter: Character = {
   description: 'A 国旧世家出身，寡言、冷静，习惯把所有风浪挡在身后。不会替你决定，但会一直站在你能看见的地方。',
   personality: '', scenario: '', greeting: '夜里风大。过来，站我这边。', alternateGreetings: [], mesExample: '', creatorNotes: '', systemPrompt: '', postHistoryInstructions: '',
   tags: ['慢热', '沉稳', '守护', '剧情向'], creator: '', characterVersion: '', regexScripts: [],
+}
+
+function apiRequestContext(channel: ApiChannel) {
+  let host = channel.baseUrl.trim()
+  try { host = new URL(channel.baseUrl).host } catch {
+    // Keep the user-entered host when the URL itself is malformed.
+  }
+  return `${channel.name || '未命名渠道'} · ${host || '未知地址'} · ${channel.modelName || '未填写模型'}`
 }
 
 const legacyMemoryPrompt = `【暂停剧情扮演】请根据前文内容，对上次总结之后的剧情进行总结。生成一个详细的总结集合，涵盖所有主要事件、观点、关系变化与关键信息。总结需逻辑清晰，按时间顺序组织，每件事以独立条目呈现，并尽量标注具体时间点。若时间信息不明确，请根据上下文合理推测并注明。重点保留人物关系、承诺、冲突、情绪转折、世界设定与未完成事项，避免遗漏。`
@@ -1743,6 +1751,7 @@ function App() {
     let output = ''
     let stagedVisibleOutput = ''
     let streamRenderTimer: number | null = null
+    let thinkingIndicatorShown = false
     const commitStreamOutput = () => {
       streamRenderTimer = null
       const text = stagedVisibleOutput || '正在整理回复…'
@@ -1807,6 +1816,14 @@ function App() {
         maxTokens,
         streaming,
         signal: controller.signal,
+        onActivity: (activity) => {
+          if (activity !== 'thinking' || output || thinkingIndicatorShown) return
+          thinkingIndicatorShown = true
+          setConversations((current) => current.map((item) => item.id === conversationId ? {
+            ...item,
+            messages: item.messages.map((message) => message.id === assistantMessage.id ? { ...message, text: '正在思考…' } : message),
+          } : item))
+        },
         onDelta: (delta) => {
           output += delta
           stagedVisibleOutput = stripStatusBlocksForStreaming(sanitizeAssistantOutput(output, { director: isDirector }))
@@ -1823,6 +1840,7 @@ function App() {
       if (!hasCompleteRoleplayBody(cleanOutput || output, isDirector) || identityLeak) {
         output = ''
         stagedVisibleOutput = ''
+        thinkingIndicatorShown = false
         setConversations((current) => current.map((item) => item.id === conversationId ? { ...item, messages: item.messages.map((message) => message.id === assistantMessage.id ? { ...message, text: '正在补全正文…' } : message) } : item))
         promptMessages.push({ role: 'system', content: identityLeak
           ? `刚才输出发生了群聊身份串位或后台解释，已作废。你本轮唯一身份是「${speaker.name}」；不得自称、扮演、解释或代替任何其他群成员，不得代演用户，也不得提及系统、提示词、格式、暂停或角色扮演。现在只从最新场景继续输出 ${speaker.name} 的实际剧情回应。`
@@ -1883,7 +1901,17 @@ function App() {
         return partialOutput ? [...nextMessages, { ...assistantMessage, text: partialOutput }] : nextMessages
       } else {
         const message = error instanceof Error ? error.message : '聊天请求失败'
-        setChatError(message)
+        const requestContext = error instanceof ChatApiError ? `（请求：${apiRequestContext(resolvedSpeakerApi)}）` : ''
+        const partialOutput = sanitizeAssistantOutput(output, { director: Boolean(conversation.directorCharacterId && speaker.id === conversation.directorCharacterId) })
+        setChatError(`${message}${requestContext}`)
+        if (partialOutput) {
+          setConversations((current) => current.map((item) => item.id === conversationId ? {
+            ...item,
+            messages: item.messages.map((entry) => entry.id === assistantMessage.id ? { ...entry, text: partialOutput, finishReason: 'connection_interrupted' } : entry),
+            updatedAt: Date.now(),
+          } : item))
+          return [...nextMessages, { ...assistantMessage, text: partialOutput, finishReason: 'connection_interrupted' }]
+        }
         setConversations((current) => current.map((item) => item.id === conversationId ? { ...item, messages: item.messages.filter((entry) => entry.id !== assistantMessage.id) } : item))
         return nextMessages
       }
@@ -2458,7 +2486,7 @@ function UpdateCard() {
     }
   }
 
-  return <section className="update-card"><strong>应用更新</strong><p>主动检查并拉取最新网页版本，不会删除角色、聊天记录或本地设置。</p><small>当前版本：2026.09.02 · 角色批量管理</small><button onClick={refresh} disabled={state === 'checking'}>{state === 'checking' ? '正在检查更新…' : state === 'error' ? '更新失败，点我重试' : '强制刷新到最新版'}</button></section>
+  return <section className="update-card"><strong>应用更新</strong><p>主动检查并拉取最新网页版本，不会删除角色、聊天记录或本地设置。</p><small>当前版本：2026.09.19 · API 稳定性加固</small><button onClick={refresh} disabled={state === 'checking'}>{state === 'checking' ? '正在检查更新…' : state === 'error' ? '更新失败，点我重试' : '强制刷新到最新版'}</button></section>
 }
 
 function PersonaPage({ identities, selectedId, isBound, onSelect, onAdd, onDelete, onUpdate, onBack }: { identities: UserIdentity[]; selectedId: string; isBound: boolean; onSelect: (id: string) => void; onAdd: () => void; onDelete: (id: string) => void; onUpdate: (patch: Partial<UserIdentity>) => void; onBack: () => void }) {

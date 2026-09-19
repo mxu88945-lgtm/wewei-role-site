@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from 'react'
-import { completeChat, type ChatApiContentPart } from './chatApi'
+import { ChatApiError, completeChat, type ChatApiContentPart } from './chatApi'
 import type { ApiChannel } from './apiChannels'
 import { createCharacterCardPng, importCharacterCard, type Character, type RegexScript } from './characterCard'
 import {
@@ -33,6 +33,16 @@ const blankRegex = (): RegexScript => ({
   placement: [2], disabled: false, markdownOnly: false, promptOnly: false, runOnEdit: true,
   substituteRegex: 0, minDepth: null, maxDepth: null,
 })
+
+function workshopRequestError(cause: unknown, channel: ApiChannel, fallback: string) {
+  const detail = cause instanceof Error ? cause.message : fallback
+  if (!(cause instanceof ChatApiError)) return detail
+  let host = channel.baseUrl
+  try { host = new URL(channel.baseUrl).host } catch {
+    // Use the configured address when it is not a valid absolute URL.
+  }
+  return `${detail}（请求：${channel.name} · ${host} · ${channel.modelName}）`
+}
 
 type PendingCopilotImage = { id: string; name: string; dataUrl: string; thumbnailUrl: string }
 
@@ -197,7 +207,7 @@ export default function CharacterWorkshop({ channels, defaultChannelId, onBack, 
       setState('idle')
     } catch (cause) {
       if (controller.signal.aborted) { setState('idle'); return }
-      setError(cause instanceof Error ? cause.message : '生成失败，请重试。')
+      setError(workshopRequestError(cause, channel, '生成失败，请重试。'))
       setState('error')
     }
   }
@@ -236,7 +246,10 @@ export default function CharacterWorkshop({ channels, defaultChannelId, onBack, 
           { role: 'system', content: '你是可持续对话的角色卡工坊助手。严格按用户提示输出单个 JSON 对象，不要 Markdown。' },
           { role: 'user', content },
         ],
-        temperature: .66, topP: .9, maxTokens: 16000, streaming: false, signal: controller.signal,
+        // Copilot replies are a compact JSON patch, not a full card. Keeping
+        // the ceiling aligned with card generation avoids credit-gated relays
+        // rejecting the request before they generate anything.
+        temperature: .66, topP: .9, maxTokens: 8000, streaming: false, signal: controller.signal,
         onDelta: (delta) => { raw += delta },
       })
       if (revision !== generationRevisionRef.current || controller.signal.aborted) return
@@ -249,7 +262,7 @@ export default function CharacterWorkshop({ channels, defaultChannelId, onBack, 
       setCopilotInput(typedRequest)
       setCopilotImages(images)
       if (controller.signal.aborted) { setCopilotState('idle'); return }
-      setCopilotError(cause instanceof Error ? cause.message : '工坊助手暂时没接住，请重试。')
+      setCopilotError(workshopRequestError(cause, channel, '工坊助手暂时没接住，请重试。'))
       setCopilotState('idle')
     }
   }
@@ -280,7 +293,7 @@ export default function CharacterWorkshop({ channels, defaultChannelId, onBack, 
       setCopilotState('idle')
     } catch (cause) {
       if (controller.signal.aborted) { setCopilotState('idle'); return }
-      setCopilotError(cause instanceof Error ? cause.message : '压缩失败，请重试。')
+      setCopilotError(workshopRequestError(cause, channel, '压缩失败，请重试。'))
       setCopilotState('idle')
     }
   }
