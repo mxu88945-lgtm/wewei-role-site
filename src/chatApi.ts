@@ -379,9 +379,10 @@ async function consumeEventStream(
     const detail = converted instanceof Error ? converted.message : '数据流意外中断。'
     throw new ChatApiError(contentReceived ? `${detail} 已保留当前收到的部分回复。` : detail, 'stream', !contentReceived)
   } finally {
-    try { await reader.cancel() } catch {
-      // The provider may already have closed the body; cancellation is best-effort.
-    }
+    // A few relay/browser combinations leave cancel() pending even after [DONE].
+    // The response is already complete (or failed); never keep the UI waiting
+    // for transport cleanup.
+    void reader.cancel().catch(() => {})
   }
 }
 
@@ -459,9 +460,7 @@ export async function completeChat(options: CompletionOptions) {
         }, streaming ? CONNECT_TIMEOUT_MS : NON_STREAM_RESPONSE_TIMEOUT_MS)
         if (!TRANSIENT_COMPLETION_STATUSES.has(response.status) || attempt === 3) return response
         const delay = retryDelay(response, attempt)
-        try { await response.body?.cancel() } catch {
-          // Releasing a failed response is best-effort on older mobile browsers.
-        }
+        void response.body?.cancel().catch(() => {})
         await waitForRetry(signal, delay)
         continue
       } catch (error) {

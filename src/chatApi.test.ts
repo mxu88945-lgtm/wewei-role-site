@@ -47,6 +47,20 @@ describe('chatApi', () => {
     expect(result.finishReason).toBeNull()
   })
 
+  it('流已完成但底层取消一直不返回时仍结束回复', async () => {
+    vi.stubGlobal('fetch', vi.fn(async () => new Response(new ReadableStream({
+      start(controller) { controller.enqueue(new TextEncoder().encode('data: {"choices":[{"delta":{"content":"好了"}}]}\n\ndata: [DONE]\n\n')) },
+      cancel() { return new Promise<void>(() => {}) },
+    }), { headers: { 'content-type': 'text/event-stream' } })))
+    let output = ''
+    await completeChat({
+      api: { baseUrl: 'https://example.com/v1', apiKey: 'test', modelName: 'model' },
+      messages: [{ role: 'user', content: '继续' }], temperature: 1, topP: 1, maxTokens: 100, streaming: true,
+      signal: new AbortController().signal, onDelta: (delta) => { output += delta },
+    })
+    expect(output).toBe('好了')
+  })
+
   it('兼容忽略 stream:false 但仍返回 SSE 的渠道', async () => {
     vi.stubGlobal('fetch', vi.fn(async () => new Response([
       'data: {"choices":[{"delta":{"content":"{\\"name\\":\\"测试角色\\""}}]}',

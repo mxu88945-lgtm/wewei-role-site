@@ -440,6 +440,7 @@ function App() {
   const pendingChatLatestScrollRef = useRef<string | null>(null)
   const conversationMemoryMigrationRunningRef = useRef(false)
   const generationControllers = useRef(new Map<string, AbortController>())
+  const conversationStopRevisions = useRef(new Map<string, number>())
   const continuityRunningProjectIds = useRef(new Set<string>())
 
   const explicitConversation = conversations.find((item) => item.id === activeConversationId)
@@ -936,6 +937,7 @@ function App() {
   }
 
   const abortConversation = (conversationId: string) => {
+    conversationStopRevisions.current.set(conversationId, (conversationStopRevisions.current.get(conversationId) || 0) + 1)
     generationControllers.current.get(conversationId)?.abort()
     generationControllers.current.delete(conversationId)
     setGeneratingIds((current) => current.filter((id) => id !== conversationId))
@@ -1936,6 +1938,7 @@ function App() {
     const sourceMessages = historyOverride ?? messages
     setDraft('')
     if (conversation.kind === 'group') {
+      const stopRevision = conversationStopRevisions.current.get(conversation.id) || 0
       const participantIds = conversation.participantIds || []
       const participants = participantIds.map((id) => {
         const character = characters.find((item) => item.id === id)
@@ -1963,11 +1966,14 @@ function App() {
       setChatError('')
       let groupMessages = baseMessages
       for (const speakerId of speakerIds) {
+        if ((conversationStopRevisions.current.get(conversation.id) || 0) !== stopRevision) break
         const speaker = characters.find((item) => item.id === speakerId)
         if (!speaker) continue
         const channel = conversationApiFor(conversation, speakerId, api)
         const nextGroupMessages = await generateAssistant(conversation, groupMessages, speaker, channel)
+        if ((conversationStopRevisions.current.get(conversation.id) || 0) !== stopRevision) break
         if (nextGroupMessages.length === groupMessages.length) break
+        if (nextGroupMessages[nextGroupMessages.length - 1]?.finishReason === 'connection_interrupted') break
         groupMessages = nextGroupMessages
       }
       const memoryCharacter = characters.find((item) => item.id === participantIds[0]) || activeCharacter
