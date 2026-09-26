@@ -13,7 +13,7 @@ import './runtime-enhancements.css'
 import './memoryApiEnhancements'
 
 const APP_SCOPE = '/wewei-role-site/'
-const SERVICE_WORKER_RELEASE = '2026-09-21-group-stream-recovery-v1'
+const SERVICE_WORKER_RELEASE = '2026-09-26-api-key-controls-v1'
 
 if ('serviceWorker' in navigator) {
   let reloadingForUpdate = false

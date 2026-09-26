@@ -117,11 +117,21 @@
 
 .api-channel-body label { gap: 7px; font-size: 11px; }
 .api-channel-body input, .api-channel-body select { background: rgba(239, 237, 240, .86); }
+.secret-input-field { display: grid; grid-template-columns: minmax(0, 1fr) auto auto; gap: 8px; align-items: stretch; }
+.secret-input-field input { min-width: 0; }
+.secret-input-field button { min-width: 58px; border: 0; border-radius: 14px; padding: 0 12px; color: var(--theme-accent-text); background: var(--theme-accent-soft); font-size: 11px; font-weight: 800; }
+.secret-input-field button.danger { color: #a75061; background: #f2e3e7; }
+.secret-input-field button:disabled { opacity: .38; cursor: default; }
 .api-platform-select { border-color: rgba(130, 82, 190, .2) !important; color: #62417b !important; font-weight: 800; background: linear-gradient(135deg, rgba(236,228,249,.96), rgba(247,235,246,.94)) !important; }
 .api-platform-hint { margin-top: -1px; color: #978b9d; font-size: 10px; font-weight: 600; line-height: 1.45; }
 .api-channel-add { min-height: 40px; border: 1px dashed rgba(123, 91, 143, .28); border-radius: 15px; color: #79538f; background: rgba(235, 228, 240, .66); font-size: 11px; font-weight: 800; }
 .api-channel-add.persistent { width: 100%; flex: 0 0 auto; }
 .api-page select { width: 100%; border: 1px solid rgba(71,55,80,.08); outline: none; border-radius: 18px; padding: 15px 16px; color: #2e2931; background: #efedf0; }
+
+@media (max-width: 390px) {
+  .secret-input-field { grid-template-columns: minmax(0, 1fr) 54px 54px; gap: 6px; }
+  .secret-input-field button { min-width: 0; padding: 0 8px; }
+}
 
 .api-page-footer {
   position: relative;

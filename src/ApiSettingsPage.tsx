@@ -44,6 +44,7 @@ export default function ApiSettingsPage({
   const [modelMessages, setModelMessages] = useState<Record<string, string>>({})
   const [pickerChannelId, setPickerChannelId] = useState<string | null>(null)
   const [query, setQuery] = useState('')
+  const [visibleKeyIds, setVisibleKeyIds] = useState<string[]>([])
 
   useEffect(() => {
     setExpandedIds((current) => current.includes(api.id) ? current : [...current, api.id])
@@ -170,7 +171,11 @@ export default function ApiSettingsPage({
                   }} autoCapitalize="none" autoCorrect="off" placeholder="https://example.com/v1" />
                 </label>
                 <label>API Key
-                  <input type="password" value={channel.apiKey} onChange={(event) => updateChannel(channel, { apiKey: event.target.value })} autoCapitalize="none" autoCorrect="off" placeholder="sk-…" />
+                  <div className="secret-input-field">
+                    <input type={visibleKeyIds.includes(channel.id) ? 'text' : 'password'} value={channel.apiKey} onChange={(event) => updateChannel(channel, { apiKey: event.target.value })} autoCapitalize="none" autoCorrect="off" autoComplete="off" spellCheck={false} placeholder="sk-…" />
+                    <button type="button" onClick={() => setVisibleKeyIds((current) => current.includes(channel.id) ? current.filter((id) => id !== channel.id) : [...current, channel.id])}>{visibleKeyIds.includes(channel.id) ? '隐藏' : '显示'}</button>
+                    <button type="button" className="danger" disabled={!channel.apiKey} onClick={() => updateChannel(channel, { apiKey: '' })}>清除</button>
+                  </div>
                 </label>
                 <label>模型名称
                   <div className="api-model-field">
