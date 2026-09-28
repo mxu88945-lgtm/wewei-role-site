@@ -22,6 +22,58 @@ describe('chatApi', () => {
     expect(requestBody.messages).toEqual([{ role: 'user', content: [{ type: 'text', text: '哪里不对？' }, { type: 'image_url', image_url: { url: imageUrl, detail: 'high' } }] }])
   })
 
+  it('纯 @ 路由导致请求以模型回合结束时补入仅供 API 使用的用户调度回合', async () => {
+    let requestBody: { messages?: unknown[] } = {}
+    vi.stubGlobal('fetch', vi.fn(async (_url: string, init?: RequestInit) => {
+      requestBody = JSON.parse(String(init?.body))
+      return new Response(JSON.stringify({ choices: [{ message: { content: '路千山接话。' } }] }), { headers: { 'content-type': 'application/json' } })
+    }))
+    const messages = [
+      { role: 'system' as const, content: '本轮只扮演路千山。' },
+      { role: 'user' as const, content: '虞山行刚才说了什么？' },
+      { role: 'assistant' as const, content: '虞山行的回复。' },
+      { role: 'system' as const, content: '不得代替其他角色说话。' },
+    ]
+
+    await completeChat({
+      api: { baseUrl: 'https://relay.example/v1', apiKey: 'test', modelName: 'gemini-compatible' },
+      messages,
+      temperature: 1, topP: 1, maxTokens: 100, streaming: false,
+      signal: new AbortController().signal, onDelta: () => undefined,
+    })
+
+    expect(requestBody.messages).toEqual([
+      ...messages,
+      { role: 'user', content: '请根据以上对话继续回应。' },
+    ])
+    expect(messages).toHaveLength(4)
+  })
+
+  it('已有真实用户回合时不重复补入调度消息', async () => {
+    let requestBody: { messages?: unknown[] } = {}
+    vi.stubGlobal('fetch', vi.fn(async (_url: string, init?: RequestInit) => {
+      requestBody = JSON.parse(String(init?.body))
+      return new Response(JSON.stringify({ choices: [{ message: { content: '正常回复。' } }] }), { headers: { 'content-type': 'application/json' } })
+    }))
+
+    await completeChat({
+      api: { baseUrl: 'https://relay.example/v1', apiKey: 'test', modelName: 'gemini-compatible' },
+      messages: [
+        { role: 'assistant', content: '上一轮回复。' },
+        { role: 'user', content: '这次有实际正文。' },
+        { role: 'system', content: '保持角色边界。' },
+      ],
+      temperature: 1, topP: 1, maxTokens: 100, streaming: false,
+      signal: new AbortController().signal, onDelta: () => undefined,
+    })
+
+    expect(requestBody.messages).toEqual([
+      { role: 'assistant', content: '上一轮回复。' },
+      { role: 'user', content: '这次有实际正文。' },
+      { role: 'system', content: '保持角色边界。' },
+    ])
+  })
+
   it('解析 OpenAI 兼容的 SSE 流', async () => {
     vi.stubGlobal('fetch', vi.fn(async () => new Response([
       'data: {"choices":[{"delta":{"content":"你"}}]}',
