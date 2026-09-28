@@ -432,6 +432,22 @@ function anthropicPayload(options: CompletionOptions, maxTokens: number, compati
   }
 }
 
+/**
+ * Some OpenAI-compatible relays translate chat messages to Gemini contents.
+ * Gemini rejects a generation request when the last non-system turn belongs
+ * to the model. That happens legitimately in group chat when a user sends only
+ * an @mention: the mention is routing metadata, so it is not persisted as a
+ * visible user message, while the selected character still needs to reply.
+ *
+ * Keep the routing bridge request-only. It must never become a chat bubble or
+ * part of the persisted conversation history.
+ */
+function openAiCompatibleMessages(messages: ChatApiMessage[]) {
+  const lastConversationTurn = [...messages].reverse().find((message) => message.role !== 'system')
+  if (lastConversationTurn?.role !== 'assistant') return messages
+  return [...messages, { role: 'user' as const, content: '请根据以上对话继续回应。' }]
+}
+
 export async function completeChat(options: CompletionOptions) {
   const { api, messages, temperature, topP, maxTokens, streaming, signal, onDelta, onActivity } = options
   const anthropic = api.protocol === 'anthropic'
@@ -450,7 +466,7 @@ export async function completeChat(options: CompletionOptions) {
           headers: { 'Content-Type': 'application/json', ...apiHeaders(api) },
           body: JSON.stringify(anthropic ? anthropicPayload(options, effectiveMaxTokens, compatibility) : {
             model: api.modelName,
-            messages,
+            messages: openAiCompatibleMessages(messages),
             ...(!compatibility.omitTemperature ? { temperature } : {}),
             ...(!compatibility.omitTopP ? { top_p: topP } : {}),
             [compatibility.tokenField]: effectiveMaxTokens,
