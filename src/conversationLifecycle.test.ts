@@ -91,6 +91,27 @@ describe('new conversation lifecycle', () => {
     expect(source.participantIds).toEqual(['yu', 'pei', 'director'])
   })
 
+  it('keeps the remaining member API and model when a group temporarily becomes a single chat', () => {
+    const source: Conversation = {
+      id: 'group-api-binding', kind: 'group', characterId: 'yu', title: '虞山行、路千山',
+      participantIds: ['yu', 'lu'],
+      participantApiIds: { yu: 'api-yu', lu: 'api-lu' },
+      participantModelNames: { yu: 'gemini-yu', lu: 'claude-lu' },
+      messages: [{ id: 1, role: 'assistant', text: '旧剧情', characterId: 'yu' }],
+      createdAt: 1, updatedAt: 2,
+    }
+
+    const single = removeConversationParticipant(source, 'lu', '虞山行')
+
+    expect(single?.kind).toBe('single')
+    expect(single?.participantApiIds).toEqual({ yu: 'api-yu' })
+    expect(single?.participantModelNames).toEqual({ yu: 'gemini-yu' })
+
+    const regrouped = addConversationParticipant(single!, 'new-member', { apiId: 'api-default', modelName: 'model-default' })
+    expect(regrouped.participantApiIds).toEqual({ yu: 'api-yu', 'new-member': 'api-default' })
+    expect(regrouped.participantModelNames).toEqual({ yu: 'gemini-yu', 'new-member': 'model-default' })
+  })
+
   it('restarts the current chat at its opening without changing its identity or settings', () => {
     const source: Conversation = {
       id: 'restart-me', characterId: 'pei', title: '与裴季野的对话',

@@ -85,8 +85,12 @@ export function removeConversationParticipant(source: Conversation, participantI
       kind: 'single',
       characterId: participantIds[0],
       participantIds: undefined,
-      participantApiIds: undefined,
-      participantModelNames: undefined,
+      // Keep the remaining role's binding even while the conversation is
+      // temporarily a single chat. If another member is added later,
+      // addConversationParticipant can restore the group without silently
+      // falling back to the global/default API and model.
+      participantApiIds,
+      participantModelNames,
       title: `与${singleMemberName}的对话`,
       updatedAt: Date.now(),
     }
