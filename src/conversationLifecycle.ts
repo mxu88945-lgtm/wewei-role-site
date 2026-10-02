@@ -22,6 +22,7 @@ export type Conversation = {
   personaId?: string
   themePresetId?: string
   themeFrost?: number
+  temporaryPlot?: { id: string; text: string }
   theaterWorldBackground?: string
   directorCharacterId?: string
   directorConfig?: DirectorTemplateConfig
@@ -163,5 +164,6 @@ export function restartConversationInPlace(source: Conversation, fallbackGreetin
     historyRevision: (source.historyRevision || 0) + 1,
     memorySummarizedCount: 0,
     relationshipStages: undefined,
+    temporaryPlot: undefined,
   }
 }

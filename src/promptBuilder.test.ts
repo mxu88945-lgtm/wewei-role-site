@@ -253,3 +253,15 @@ describe('buildChatPrompt', () => {
     expect(String(result[result.length - 1]?.content)).toContain('【用户主角控制权｜最高优先级】')
   })
 })
+
+ it('临时剧情仅注入本轮系统消息，不改写正文历史或后续请求', () => {
+   const messages = [{ role: 'user' as const, text: '继续。' }]
+   const input = { character, user: { name: '惟惟', description: '' }, messages, preset: '', globalWorldbook: '', memory: { entries: [], injectPosition: '', injectPrompt: '' }, memoryLength: 20 }
+   const directed = buildChatPrompt({ ...input, temporaryPlot: '让他接到紧急电话' })
+   const direction = directed.find((message) => typeof message.content === 'string' && message.content.includes('让他接到紧急电话'))
+   expect(direction?.role).toBe('system')
+   expect(direction?.content).toContain('尚未发生的安排不能当作已发生的历史')
+   expect(directed.filter((message) => message.role === 'user')).toEqual([{ role: 'user', content: '继续。' }])
+   expect(messages).toEqual([{ role: 'user', text: '继续。' }])
+   expect(buildChatPrompt(input).some((message) => typeof message.content === 'string' && message.content.includes('让他接到紧急电话'))).toBe(false)
+ })

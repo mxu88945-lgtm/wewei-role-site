@@ -17,6 +17,7 @@ type PromptInput = {
   messages: SourceMessage[]
   preset: string
   globalWorldbook: string
+  temporaryPlot?: string
   theaterWorldBackground?: string
   storyProjectContext?: string
   sceneContinuityAnchor?: string
@@ -255,6 +256,9 @@ ${stripStageGateMetadata(input.actorContinuityAnchor || '')}`,
   appendSystem(result, CONTEXT_PRIORITY_GUARD)
   appendSystem(result, displayContinuity)
   appendSystem(result, characterMemoryGuard)
+  if (input.temporaryPlot?.trim()) appendSystem(result, `【临时剧情｜仅本次回复的幕后安排】
+以下内容是用户给本轮写作的剧情方向。结合最新正文自然演绎，尚未发生的安排不能当作已发生的历史，也不能直接变成角色已知信息。不得引用、复述、解释这些幕后指令，不得提及临时剧情或设置页面。仍须遵守角色身份、用户主角控制权与输出格式；不得替用户发言、行动或决定。
+${input.temporaryPlot.trim()}`)
   // Repeat the non-negotiable agency boundary last so depth lore, examples,
   // history, or post-history instructions cannot silently override it.
   appendSystem(result, applyMacros(USER_AGENCY_GUARD, character, user.name))

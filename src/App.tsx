@@ -9,6 +9,7 @@ import { createBlankCharacter, importCharacterCard, normalizeStoredCharacter, ty
 import { activeCharacterMemory, characterMemoryEntryFromConversation, characterMemoryExtractionPrompt, characterMemorySummaryProtocol, parseCharacterMemoryCandidates, splitCharacterMemorySummary } from './characterMemory'
 import { ChatApiError, completeChat, fetchApiModels, testApiConnection, type ApiConfig, type ApiModel } from './chatApi'
 import { buildChatPrompt } from './promptBuilder'
+import { captureTemporaryPlot, consumeTemporaryPlot } from './temporaryPlot'
 import { resolveChatScrollTarget, type ChatScrollSnapshot } from './chatScroll'
 import { createApiChannel, isApiChannelComplete, normalizeApiChannels, resolveApiChannel, withApiModel, type ApiChannel } from './apiChannels'
 import { enabledPresetText, normalizePresetSections } from './presetConfig'
@@ -37,7 +38,7 @@ import { countConversationStats } from './conversationStats'
 import { enforceRelationshipStageFloor, extractRelationshipStage, highestRelationshipStage, relationshipStageLockInstruction, repairRelationshipStageHistory, type RelationshipStage } from './relationshipStage'
 import { buildStatusFallback, getStatusProtocol, latestStatusContent } from './statusProtocol'
 
-type Page = 'home' | 'story-projects' | 'characters' | 'create' | 'character-workshop' | 'group-create' | 'director-template' | 'group-greeting-picker' | 'import-preview' | 'character-detail' | 'card-data' | 'card-worldbook' | 'card-regex' | 'card-memory' | 'greeting-picker' | 'chat' | 'more' | 'api' | 'reply-helper-api' | 'model' | 'settings' | 'appearance' | 'font' | 'display-reply' | 'identity' | 'worldbook' | 'theater-world' | 'preset' | 'memory' | 'memory-api' | 'memory-list'
+type Page = 'home' | 'story-projects' | 'characters' | 'create' | 'character-workshop' | 'group-create' | 'director-template' | 'group-greeting-picker' | 'import-preview' | 'character-detail' | 'card-data' | 'card-worldbook' | 'card-regex' | 'card-memory' | 'greeting-picker' | 'chat' | 'more' | 'api' | 'reply-helper-api' | 'model' | 'settings' | 'appearance' | 'font' | 'display-reply' | 'identity' | 'worldbook' | 'theater-world' | 'temporary-plot' | 'preset' | 'memory' | 'memory-api' | 'memory-list'
 type MessageEditor = { mode: 'assistant' | 'resend'; messageId: number; text: string }
 type Drawer = 'left' | 'right'
 type HistoryEntry = { page: Page; reopenDrawer?: Drawer }
@@ -1728,7 +1729,7 @@ function App() {
     nextMessages: Message[],
     speaker = activeCharacter,
     speakerApi = api,
-    requestOptions: { continueWithoutUser?: boolean } = {},
+    requestOptions: { continueWithoutUser?: boolean; explicitlyMentioned?: boolean } = {},
   ): Promise<Message[]> => {
     const resolvedSpeakerApi = conversationApiFor(conversation, speaker.id, speakerApi)
     if (!isApiChannelComplete(resolvedSpeakerApi)) {
@@ -1739,6 +1740,7 @@ function App() {
     if (generationControllers.current.has(conversationId)) return nextMessages
     requestChatLatestScroll(conversationId)
 
+    const capturedTemporaryPlot = captureTemporaryPlot(conversation, Boolean(requestOptions.explicitlyMentioned))
     const capturedCharacter = {
       ...speaker,
       characterMemory: memoriesForConversationCharacter(conversation, speaker),
@@ -1799,6 +1801,7 @@ function App() {
         globalWorldbook: worldbook,
         theaterWorldBackground: conversation.theaterWorldBackground || '',
         storyProjectContext,
+        temporaryPlot: capturedTemporaryPlot?.text,
         sceneContinuityAnchor,
         actorContinuityAnchor,
         memory: { entries: capturedMemories, injectPosition: capturedMemoryConfig.injectPosition, injectPrompt: capturedMemoryConfig.injectPrompt },
@@ -1894,10 +1897,11 @@ function App() {
         )
         : visibleOutput
       const finalOutput = storedRelationshipStage ? enforceRelationshipStageFloor(statusOutput, storedRelationshipStage) : statusOutput
+      if (controller.signal.aborted) throw new Error('回复已停止')
       const reportedRelationshipStage = capturedCharacter.name === '顾霆深' ? extractRelationshipStage(finalOutput) : undefined
       const nextRelationshipStage = Math.max(storedRelationshipStage || 0, reportedRelationshipStage || 0)
       setConversations((current) => current.map((item) => item.id === conversationId ? {
-        ...item,
+        ...consumeTemporaryPlot(item, capturedTemporaryPlot, conversation.historyRevision || 0),
         messages: item.messages.map((message) => message.id === assistantMessage.id ? { ...message, text: finalOutput } : message),
         relationshipStages: nextRelationshipStage ? { ...(item.relationshipStages || {}), [capturedCharacter.id]: nextRelationshipStage } : item.relationshipStages,
         updatedAt: Date.now(),
@@ -1993,7 +1997,7 @@ function App() {
         const speaker = characters.find((item) => item.id === speakerId)
         if (!speaker) continue
         const channel = conversationApiFor(conversation, speakerId, api)
-        const nextGroupMessages = await generateAssistant(conversation, groupMessages, speaker, channel)
+        const nextGroupMessages = await generateAssistant(conversation, groupMessages, speaker, channel, { explicitlyMentioned: mentionedIds.includes(speakerId) })
         if ((conversationStopRevisions.current.get(conversation.id) || 0) !== stopRevision) break
         if (nextGroupMessages.length === groupMessages.length) break
         if (nextGroupMessages[nextGroupMessages.length - 1]?.finishReason === 'connection_interrupted') break
@@ -2368,6 +2372,7 @@ function App() {
 
     {page === 'identity' && <PersonaPage identities={identities} selectedId={identity.id} isBound={Boolean(activeConversation?.personaId)} onSelect={selectIdentity} onAdd={addIdentity} onDelete={deleteIdentity} onUpdate={updateIdentity} onBack={goBack} />}
     {page === 'worldbook' && <EditablePage title="世界书" value={worldbook} onChange={setWorldbook} onBack={goBack} />}
+    {page === 'temporary-plot' && activeConversation && <EditablePage title="临时剧情" value={activeConversation.temporaryPlot?.text || ''} onChange={(value) => setConversations((current) => current.map((item) => item.id === activeConversation.id ? { ...item, temporaryPlot: value.trim() ? { id: crypto.randomUUID(), text: value } : undefined, updatedAt: Date.now() } : item))} onBack={goBack} fieldLabel="下一次回复的幕后剧情安排" description="写好后返回聊天，下一次 @ 谁，就只把这份安排交给被点名的模型；单人聊天直接发送或续演即可。临时剧情不会作为消息出现在正文里。" note="自动保存，仅本对话生效。成功回复后自动清空；请求失败或停止时保留。一次 @ 多人时，被点名的角色都会读取这次安排。清空输入框可取消。生成期间修改的内容留给下一次回复。" placeholder="例如：让他接到一通紧急电话，发现之前忽略的线索；先表现得镇定，再逐渐露出不安。不要替我做决定……" />}
     {page === 'theater-world' && activeConversation && <EditablePage title="本剧场世界观背景" value={activeConversation.theaterWorldBackground || ''} onChange={(value) => setConversations((current) => current.map((item) => item.id === activeConversation.id ? { ...item, theaterWorldBackground: value, updatedAt: Date.now() } : item))} onBack={goBack} fieldLabel="本剧场共用背景与人物关系" description={`这份设定只属于“${activeConversation.title}”。本剧场里的所有角色和 NPC 都会读取；切换到其他对话或群聊时不会带过去。`} note="自动保存并随本剧场独立存放。角色各自的人设、世界书与长期记忆仍会叠加生效。" placeholder="填写本剧场的时代与地点、公共背景、人物关系、共同经历、势力结构和所有成员必须知道的事实……" />}
     {page === 'preset' && <PresetEditor sections={presetSections} onChange={setPresetSections} onBack={goBack} />}
 
@@ -2425,7 +2430,7 @@ function App() {
         <div className="right-drawer-scroll">
           <section className="conversation-stats-card" aria-label="本次共演统计"><div className="conversation-stats-heading"><strong>本次共演</strong><small>你每发送一次计一轮</small></div><div className="conversation-stats-grid"><div><strong>{conversationStats.rounds}</strong><span>对话轮数</span></div><div><strong>{conversationStats.replies}</strong><span>角色回复</span></div><div><strong>{conversationStats.total}</strong><span>消息总数</span></div></div></section>
           <section className="drawer-members-section"><div className="drawer-section-title"><strong>成员（{conversationMemberIds().length}）</strong><button onClick={() => { setDrawer(null); setMemberPickerOpen(true) }}>＋ 添加 / 配置 API</button></div><div className="drawer-member-row">{conversationMemberIds().map((id) => { const member = characters.find((item) => item.id === id); if (!member) return null; return <div className="drawer-member-chip" key={id}>{member.avatar ? <img src={member.avatar} alt="" /> : <span>{member.name.slice(-1)}</span>}<small>{member.name}</small>{conversationMemberIds().length > 1 && <button aria-label={`移除${member.name}`} onClick={() => removeConversationMember(id)}>×</button>}</div> })}</div></section>
-          <section className="drawer-compact-group"><div className="drawer-section-title"><strong>聊天设置</strong></div>{activeConversation?.directorCharacterId ? <button onClick={() => { setDirectorEditorTarget('conversation'); navigate('director-template', 'right') }}><span>共演导演资料 · 已启用</span><i>›</i></button> : <button onClick={openConversationDirectorCreator}><span>添加共演导演 · 保留当前剧情</span><i>＋</i></button>}{[['情景与角色资料', 'card-data'], [`本剧场世界观背景 · ${activeConversation?.theaterWorldBackground?.trim() ? '已填写' : '未填写'}`, 'theater-world'], ['用户身份', 'identity'], ['主题与背景', 'appearance'], ['字体与文字颜色', 'font'], ['显示与回复', 'display-reply']].map(([label, target]) => <button key={label} onClick={() => navigate(target as Page, 'right')}><span>{label}</span><i>›</i></button>)}</section>
+          <section className="drawer-compact-group"><div className="drawer-section-title"><strong>聊天设置</strong></div>{activeConversation?.directorCharacterId ? <button onClick={() => { setDirectorEditorTarget('conversation'); navigate('director-template', 'right') }}><span>共演导演资料 · 已启用</span><i>›</i></button> : <button onClick={openConversationDirectorCreator}><span>添加共演导演 · 保留当前剧情</span><i>＋</i></button>}{[[`临时剧情 · ${activeConversation?.temporaryPlot?.text.trim() ? '待使用' : '未填写'}`, 'temporary-plot'], ['情景与角色资料', 'card-data'], [`本剧场世界观背景 · ${activeConversation?.theaterWorldBackground?.trim() ? '已填写' : '未填写'}`, 'theater-world'], ['用户身份', 'identity'], ['主题与背景', 'appearance'], ['字体与文字颜色', 'font'], ['显示与回复', 'display-reply']].map(([label, target]) => <button key={label} onClick={() => navigate(target as Page, 'right')}><span>{label}</span><i>›</i></button>)}</section>
           <section className="drawer-compact-group"><div className="drawer-section-title"><strong>角色与高级设置</strong></div>{[['世界书', 'card-worldbook'], ['正则与美化', 'card-regex'], ['长期记忆', 'memory'], [`AI 帮答 · ${(apiChannels.find((item) => item.id === replyHelperApiId) || api).name || '未配置'}`, 'reply-helper-api'], [`API · ${api.name || '当前渠道'}`, 'api'], ['模型设置', 'model'], ['预设', 'preset'], ['应用设置', 'settings']].map(([label, target]) => <button key={label} onClick={() => navigate(target as Page, 'right')}><span>{label}</span><i>›</i></button>)}</section>
           <section className="drawer-compact-group drawer-actions-group"><button onClick={() => navigate('character-detail', 'right')}><span>查看角色详情</span><i>›</i></button><button onClick={compressOldContext} disabled={compressingContext || messages.length < 16}><span>{compressingContext ? '正在压缩旧上下文…' : activeConversation?.contextSummary && (activeConversation.contextSummaryRevision || 0) === (activeConversation.historyRevision || 0) ? `更新上下文摘要 · 已压缩 ${activeConversation.compressedUntil || 0} 条` : '压缩旧上下文'}</span><i>⌁</i></button><button onClick={exportConversationTxt}><span>导出当前对话 TXT</span><i>↓</i></button><button onClick={() => conversationTxtInputRef.current?.click()}><span>导入对话 TXT · 新建副本</span><i>↑</i></button></section>
         </div>
