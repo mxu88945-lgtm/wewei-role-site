@@ -48,3 +48,11 @@ describe('long-running memory selection', () => {
     })
   })
 })
+
+it('recalls Chinese names embedded in an unspaced sentence ahead of unrelated recent events', () => {
+  const entries = [
+    { id: 'old', createdAt: 1, content: '苏念念与傅承砚已经就撤销合作达成约定。' },
+    ...Array.from({ length: 9 }, (_, i) => ({ id: `new-${i}`, createdAt: i + 2, content: '在公司整理普通文件。' })),
+  ]
+  expect(selectRelevantMemories(entries, '苏念念与傅承砚那件合作撤销的事怎么样了', 6000, 1)[0].id).toBe('old')
+})

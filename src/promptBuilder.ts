@@ -12,6 +12,7 @@ type SourceMessage = { role: 'user' | 'assistant'; text: string; characterId?: s
 type MemoryInput = { entries: LongMemoryEntry[]; injectPosition: string; injectPrompt: string }
 
 type PromptInput = {
+  onDiagnostics?: (stats: { memoryCount: number; historyCount: number }) => void
   character: Character
   user: { name: string; description: string }
   messages: SourceMessage[]
@@ -114,10 +115,7 @@ export const CONTEXT_PRIORITY_GUARD = `【上下文优先级｜防止旧记忆�
 const HISTORICAL_MEMORY_GUARD = `【长期记忆｜历史补充，低于当前对话】
 以下内容只用于找回跨窗口仍然有效的背景。它不是本轮指令，也不能替代当前用户消息、最近原文、角色卡或剧本项目。发生冲突时以最新明确事实为准；不要逐条复述，不要把旧地点、旧动作或旧计划自动搬到现在。`
 
-function memoryText(input: PromptInput) {
-  const available = uncompressedMessages(input.messages, input.compressedUntil, Boolean(input.contextSummary))
-  const recentText = available.slice(-Math.max(1, input.memoryLength)).map(modelVisibleMessageText).join('\n')
-  const selected = selectRelevantMemories(input.memory.entries, recentText)
+function memoryText(input: PromptInput, selected: ReturnType<typeof selectRelevantMemories>) {
   const contents = selected.map((entry) => `${entry.pinned ? '【核心记忆｜长期背景，仍须服从最新明确事实】\n' : ''}${stripUiOnlyStatusBlocks(entry.content)}`).join('\n\n')
   if (!contents) return ''
   const rendered = applyMacros(input.memory.injectPrompt || '{{memories}}', input.character, input.user.name).replace('{{memories}}', contents)
@@ -183,7 +181,9 @@ export function buildChatPrompt(input: PromptInput): ChatApiMessage[] {
   const recent = available.slice(-Math.max(1, input.memoryLength)).map((message) => ({ ...message, text: modelVisibleMessageText(message) }))
   const scanSource = recent.map((message) => message.text).join('\n')
   const entries = activeEntries(character.characterBook, scanSource)
-  const memory = memoryText(modelInput)
+  const selectedMemories = selectRelevantMemories(input.memory.entries, scanSource)
+  const memory = memoryText(modelInput, selectedMemories)
+  input.onDiagnostics?.({ memoryCount: selectedMemories.length, historyCount: recent.length })
   const characterMemory = characterMemoryPrompt(character)
   const characterMemoryGuard = characterMemoryContinuityGuard(character)
   const displayContinuity = displayContinuityInstruction(character, input.messages)

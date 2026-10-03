@@ -1,6 +1,10 @@
 import { useEffect, useId, useLayoutEffect, useMemo, useRef, useState } from 'react'
 import ApiSettingsPage from './ApiSettingsPage'
 import BackupCard from './BackupCard'
+import ChatSearchPage from './ChatSearchPage'
+import TemporaryPlotPage, { type PlotTemplate } from './TemporaryPlotPage'
+import RequestPreviewPage, { type RequestPreview } from './RequestPreviewPage'
+import './story-tools.css'
 import PresetEditor from './PresetEditor'
 import CharacterCardManager from './CharacterCardManager'
 import { GreetingPicker, GroupGreetingPicker, ImportPreview, type GroupGreetingChoice } from './ImportFlow'
@@ -15,6 +19,7 @@ import { createApiChannel, isApiChannelComplete, normalizeApiChannels, resolveAp
 import { enabledPresetText, normalizePresetSections } from './presetConfig'
 import { durableGet, durableSet } from './persistentStore'
 import { completeStatusBlock, containsHiddenReasoning, hasCompleteRoleplayBody, hasGroupIdentityLeak, moveStatusBlockToEnd, normalizeDirectorStatusOutput, sanitizeAssistantOutput, stripLeadingSpeakerLabels, stripStatusBlocksForStreaming } from './outputSanitizer'
+import { hasCompleteCoreMemoryPayload, isMemoryScanCurrent, planMemoryScan } from './memoryScan'
 import { archivedMemoriesForConversation, memoriesForConversation, replaceConversationMemories, restoreMemoryToRevision } from './memoryEngine'
 import { findMentionedParticipantIds, isRoleplayPauseCommand, selectGroupSpeakerIds, stripParticipantMentions, type GroupReplyMode } from './groupReplyRouting'
 import Pet from './Pet'
@@ -38,7 +43,7 @@ import { countConversationStats } from './conversationStats'
 import { enforceRelationshipStageFloor, extractRelationshipStage, highestRelationshipStage, relationshipStageLockInstruction, repairRelationshipStageHistory, type RelationshipStage } from './relationshipStage'
 import { buildStatusFallback, getStatusProtocol, latestStatusContent } from './statusProtocol'
 
-type Page = 'home' | 'story-projects' | 'characters' | 'create' | 'character-workshop' | 'group-create' | 'director-template' | 'group-greeting-picker' | 'import-preview' | 'character-detail' | 'card-data' | 'card-worldbook' | 'card-regex' | 'card-memory' | 'greeting-picker' | 'chat' | 'more' | 'api' | 'reply-helper-api' | 'model' | 'settings' | 'appearance' | 'font' | 'display-reply' | 'identity' | 'worldbook' | 'theater-world' | 'temporary-plot' | 'preset' | 'memory' | 'memory-api' | 'memory-list'
+type Page = 'home' | 'story-projects' | 'characters' | 'create' | 'character-workshop' | 'group-create' | 'director-template' | 'group-greeting-picker' | 'import-preview' | 'character-detail' | 'card-data' | 'card-worldbook' | 'card-regex' | 'card-memory' | 'greeting-picker' | 'chat' | 'more' | 'api' | 'reply-helper-api' | 'model' | 'settings' | 'appearance' | 'font' | 'display-reply' | 'identity' | 'worldbook' | 'theater-world' | 'temporary-plot' | 'chat-search' | 'request-preview' | 'preset' | 'memory' | 'memory-api' | 'memory-list'
 type MessageEditor = { mode: 'assistant' | 'resend'; messageId: number; text: string }
 type Drawer = 'left' | 'right'
 type HistoryEntry = { page: Page; reopenDrawer?: Drawer }
@@ -372,6 +377,10 @@ function App() {
   const [characters, setCharacters] = useState<Character[]>(() => read<Partial<Character>[]>('weijing.characters', [demoCharacter]).map(normalizeStoredCharacter))
   const [activeId, setActiveId] = useState(() => read('weijing.activeCharacter', demoCharacter.id))
   const [conversations, setConversations] = useState<Conversation[]>(() => loadConversations(read<Partial<Character>[]>('weijing.characters', [demoCharacter]).map(normalizeStoredCharacter)))
+  const [plotTemplates, setPlotTemplates] = useState<PlotTemplate[]>(() => read('weijing.plotTemplates', []))
+  const [requestPreviews, setRequestPreviews] = useState<RequestPreview[]>([])
+  const lastRequestsRef = useRef(new Map<string, Map<string, RequestPreview>>())
+  const pendingMessageJumpRef = useRef<{ conversationId: string; messageId: number } | null>(null)
   const [storyProjects, setStoryProjects] = useState<StoryProject[]>(() => normalizeStoryProjects(read('weijing.storyProjects', [])))
   const [activeConversationId, setActiveConversationId] = useState(() => read('weijing.activeConversation', ''))
   const [draft, setDraft] = useState('')
@@ -442,6 +451,9 @@ function App() {
   const pendingChatLatestScrollRef = useRef<string | null>(null)
   const conversationMemoryMigrationRunningRef = useRef(false)
   const generationControllers = useRef(new Map<string, AbortController>())
+  const conversationsRef = useRef(conversations)
+  conversationsRef.current = conversations
+  const memoryRunsRef = useRef(new Map<string, AbortController>())
   const conversationStopRevisions = useRef(new Map<string, number>())
   const continuityRunningProjectIds = useRef(new Set<string>())
 
@@ -641,11 +653,11 @@ function App() {
     let cancelled = false
     Promise.all([
       durableGet<Partial<Character>[]>('weijing.characters'), durableGet<Conversation[]>('weijing.conversations'),
-      durableGet<UserIdentity[]>('weijing.identities'), durableGet<UserIdentity>('weijing.identity'), durableGet<MemoryConfigMap>('weijing.memoryConfigs'), durableGet<MemoryEntryMap>('weijing.memoryEntries'), durableGet<string>('weijing.chatBackground'), durableGet<ApiConfig>('weijing.globalMemoryApi'), durableGet<StoryProject[]>('weijing.storyProjects'),
-    ]).then(([storedCharacters, storedConversations, storedIdentities, storedIdentity, storedConfigs, storedEntries, storedBackground, storedGlobalMemoryApi, storedStoryProjects]) => {
+      durableGet<UserIdentity[]>('weijing.identities'), durableGet<UserIdentity>('weijing.identity'), durableGet<MemoryConfigMap>('weijing.memoryConfigs'), durableGet<MemoryEntryMap>('weijing.memoryEntries'), durableGet<string>('weijing.chatBackground'), durableGet<ApiConfig>('weijing.globalMemoryApi'), durableGet<StoryProject[]>('weijing.storyProjects'), durableGet<PlotTemplate[]>('weijing.plotTemplates'),
+    ]).then(([storedCharacters, storedConversations, storedIdentities, storedIdentity, storedConfigs, storedEntries, storedBackground, storedGlobalMemoryApi, storedStoryProjects, storedPlotTemplates]) => {
       if (cancelled) return
-      if (storedCharacters?.length) setCharacters(storedCharacters.map(normalizeStoredCharacter))
-      if (storedConversations?.length) {
+      if (storedCharacters) setCharacters(storedCharacters.map(normalizeStoredCharacter))
+      if (storedConversations) {
         const persistedCharacters = (storedCharacters?.length ? storedCharacters : read<Partial<Character>[]>('weijing.characters', [demoCharacter])).map(normalizeStoredCharacter)
         setConversations(repairGuTingshenConversationStages(removeFailedTransportMessages(storedConversations), persistedCharacters))
       }
@@ -656,6 +668,7 @@ function App() {
       if (storedBackground) setChatBackground(storedBackground)
       if (storedGlobalMemoryApi) setGlobalMemoryApi(storedGlobalMemoryApi)
       if (storedStoryProjects) setStoryProjects(normalizeStoryProjects(storedStoryProjects))
+      if (storedPlotTemplates) setPlotTemplates(storedPlotTemplates)
       setPersistenceReady(true)
     }).catch(() => setPersistenceReady(true))
     navigator.storage?.estimate().then(({ usage = 0, quota = 0 }) => setStorageUsage(`${(usage / 1048576).toFixed(1)} MB / ${(quota / 1048576).toFixed(0)} MB`))
@@ -674,6 +687,7 @@ function App() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [activeConversation?.id, activeConversation?.themePresetId, persistenceReady])
   useEffect(() => { if (persistenceReady) writeDurable('weijing.characters', characters) }, [characters, persistenceReady])
+  useEffect(() => { if (persistenceReady) writeDurable('weijing.plotTemplates', plotTemplates) }, [plotTemplates, persistenceReady])
   useEffect(() => { if (persistenceReady) writeDurable('weijing.storyProjects', storyProjects) }, [storyProjects, persistenceReady])
   useEffect(() => {
     if (!persistenceReady || generatingIds.length) return
@@ -732,15 +746,16 @@ function App() {
   }, [chatFontSize, chatTextColor, chatNarrationColor, chatQuoteColor, chatBaseColor, chatBackgroundFrost])
   useEffect(() => { if (persistenceReady) writeDurable('weijing.chatBackground', chatBackground) }, [chatBackground, persistenceReady])
   useEffect(() => {
-    const bytes = new Blob([JSON.stringify({ characters, conversations, identities, storyProjects, globalMemoryApi, memoryConfigs, memoryEntries, chatBackground })]).size
+    const bytes = new Blob([JSON.stringify({ characters, conversations, identities, storyProjects, globalMemoryApi, memoryConfigs, memoryEntries, chatBackground, plotTemplates })]).size
     setAppDataUsage(bytes < 1048576 ? `${(bytes / 1024).toFixed(0)} KB` : `${(bytes / 1048576).toFixed(2)} MB`)
-  }, [characters, conversations, identities, storyProjects, globalMemoryApi, memoryConfigs, memoryEntries, chatBackground])
+  }, [characters, conversations, identities, storyProjects, globalMemoryApi, memoryConfigs, memoryEntries, chatBackground, plotTemplates])
   useEffect(() => {
     document.documentElement.classList.toggle('chat-layout-flat', chatLayout === 'flat')
     return () => document.documentElement.classList.remove('chat-layout-flat')
   }, [chatLayout])
   useEffect(() => () => {
     generationControllers.current.forEach((controller) => controller.abort())
+    memoryRunsRef.current.forEach((controller) => controller.abort())
     if (scrollUiFrameRef.current !== null) window.cancelAnimationFrame(scrollUiFrameRef.current)
     if (chatJumpHideTimerRef.current !== null) window.clearTimeout(chatJumpHideTimerRef.current)
   }, [])
@@ -753,6 +768,22 @@ function App() {
     textarea.style.height = `${Math.min(Math.max(contentHeight, 34), 180)}px`
     setComposerCanExpand(contentHeight > 72)
   }, [draft])
+  useEffect(() => {
+    if (page !== 'chat' || pendingMessageJumpRef.current?.conversationId !== activeConversation?.id) return
+    let highlight: Element | null = null
+    const timer = window.setTimeout(() => {
+      const target = pendingMessageJumpRef.current
+      if (!target || target.conversationId !== activeConversation?.id) return
+      const element = messageListRef.current?.querySelector(`[data-message-id="${target.messageId}"]`)
+      if (!element) return
+      element.scrollIntoView({ block: 'center' })
+      element.classList.add('story-message-highlight')
+      highlight = element
+      pendingMessageJumpRef.current = null
+    }, 400)
+    const clear = window.setTimeout(() => highlight?.classList.remove('story-message-highlight'), 2400)
+    return () => { window.clearTimeout(timer); window.clearTimeout(clear); highlight?.classList.remove('story-message-highlight') }
+  }, [page, activeConversation?.id])
   useEffect(() => {
     if (!composerExpanded) return
     const frame = window.requestAnimationFrame(() => expandedComposerRef.current?.focus())
@@ -1522,7 +1553,7 @@ function App() {
       return
     }
 
-    setConversations((current) => current.map((conversation) => conversation.id === targetConversation.id
+    setConversations((current) => current.map((conversation) => conversation.id === targetConversation.id && (conversation.historyRevision || 0) === (targetConversation.historyRevision || 0)
       ? mergeConversationCharacterMemories(conversation, [targetCharacter.id], candidates)
       : conversation))
     setAutoCharacterMemoryNotice({ characterId: targetCharacter.id, text: '已在本次总结中自动检查 ' + candidates.length + ' 条核心记忆，并写入当前会话（重复内容已合并）。' })
@@ -1532,10 +1563,15 @@ function App() {
     const config = memoryConfigFor(targetCharacter.id)
     const targetRevision = targetConversation?.historyRevision || 0
     const summarizedCount = Math.min(targetConversation?.memorySummarizedCount || 0, sourceMessages.length)
-    const pendingMessages = sourceMessages.slice(summarizedCount)
+    const scan = planMemoryScan(sourceMessages, summarizedCount)
+    const pendingMessages = scan.pendingMessages
     if (!targetConversation) { setMemoryError('当前没有可总结的对话。'); setMemoryState('error'); return }
     if (!isApiChannelComplete(config.api)) { setMemoryError('记忆接口和当前聊天渠道都未配置完整。请先在 API 连接页填写当前渠道。'); setMemoryState('error'); return }
     if (pendingMessages.length < 2) { setMemoryError('新增消息不足 2 条，暂时没有内容可总结。'); setMemoryState('error'); return }
+    if (memoryRunsRef.current.has(targetConversation.id)) return
+    const memoryController = new AbortController()
+    memoryRunsRef.current.set(targetConversation.id, memoryController)
+    const scanIsCurrent = () => isMemoryScanCurrent(conversationsRef.current.find((item) => item.id === targetConversation.id), targetConversation, scan.scannedMessages)
     setMemoryState('summarizing')
     setMemoryError('')
     const scopeId = targetConversation.id
@@ -1565,90 +1601,81 @@ function App() {
         setAutoCharacterMemoryNotice({ characterId: targetCharacter.id, text: '本轮没有提炼出可同步到本群的已确认核心事实。' })
         return
       }
-      setConversations((current) => current.map((conversation) => conversation.id === targetConversation.id
+      setConversations((current) => current.map((conversation) => conversation.id === targetConversation.id && isMemoryScanCurrent(conversation, targetConversation, scan.scannedMessages)
         ? mergeConversationCharacterMemories(conversation, enabledTargetIds, candidates)
         : conversation))
       setAutoCharacterMemoryNotice({ characterId: targetCharacter.id, text: `已提炼 ${candidates.length} 条核心记忆，并同步到本群 ${enabledTargetIds.size} 位角色（不会带入其他会话）。` })
     }
     try {
       let rawContent = ''
-      await completeChat({
+      const summaryCompletion = await completeChat({
         api: config.api,
         temperature: 0.2,
         topP: 1,
         maxTokens: 4000,
         streaming: false,
-        signal: new AbortController().signal,
+        signal: memoryController.signal,
         onDelta: (delta) => { rawContent += delta },
         messages: [
           { role: 'system', content: config.summaryPrompt + (shouldExtractCharacterMemory ? '\n\n' + characterMemorySummaryProtocol : '') },
           { role: 'user', content: (targetConversation.kind === 'group' ? '群聊成员：' + memoryTargetCharacters.map((character) => character.name).join('、') : '角色：' + targetCharacter.name) + '\n用户：' + identity.name + '\n已有长期记忆（仅供查重）：\n' + (previous || '暂无') + '\n\n已有角色私有核心记忆（仅供查重与识别更新）：\n' + (characterPrivateMemories || '暂无') + '\n\n本次新增对话（只总结这一段）：\n' + transcript },
         ],
       })
+      if (summaryCompletion.finishReason === 'length' || summaryCompletion.finishReason === 'max_tokens') throw new Error('记忆总结达到输出上限，未保存不完整总结；请缩小总结范围或更换模型。')
+      if (!scanIsCurrent()) throw new Error('总结期间剧情已改写，本次结果未写入；请重新总结当前正文。')
       rawContent = rawContent.trim()
       if (!rawContent) throw new Error('empty memory')
       const { summary: content, coreMemoryPayload: inlineCoreMemoryPayload } = splitCharacterMemorySummary(rawContent)
       const summaryContent = content || '无新增长期记忆'
-      const sourceMemoryId = 'memory-scan-' + targetConversation.id + '-' + targetRevision + '-' + sourceMessages.length
+      const sourceMemoryId = 'memory-scan-' + targetConversation.id + '-' + targetRevision + '-' + scan.end
       let coreMemoryPayload = inlineCoreMemoryPayload
-      if (shouldExtractCharacterMemory && !parseCharacterMemoryCandidates(coreMemoryPayload, { sourceMemoryId }).length) {
+      if (shouldExtractCharacterMemory && !hasCompleteCoreMemoryPayload(coreMemoryPayload)) {
         try {
           let extractionPayload = ''
-          await completeChat({
+          const extractionCompletion = await completeChat({
             api: config.api,
             temperature: 0.1,
             topP: 1,
             maxTokens: 3000,
             streaming: false,
-            signal: new AbortController().signal,
+            signal: memoryController.signal,
             onDelta: (delta) => { extractionPayload += delta },
             messages: [
               { role: 'system', content: characterMemoryExtractionPrompt },
-              { role: 'user', content: (targetConversation.kind === 'group' ? '这些事实属于同一群聊的共用剧情连续性，群聊成员为：' + memoryTargetCharacters.map((character) => character.name).join('、') + '。请提炼所有成员后续都必须记住的已确认事实。' : '当前角色：' + targetCharacter.name) + '\n\n已有角色私有核心记忆（仅供查重）：\n' + (characterPrivateMemories || '暂无') + '\n\n刚生成的本轮长期记忆总结：\n' + summaryContent },
+              { role: 'user', content: (targetConversation.kind === 'group' ? '这些事实属于同一群聊的共用剧情连续性，群聊成员为：' + memoryTargetCharacters.map((character) => character.name).join('、') + '。请保留各事实的知情者、未知者与证据来源。后台连续性不代表所有角色都知情，角色的私下经历或心理不得变成全员已知。' : '当前角色：' + targetCharacter.name) + '\n\n已有角色私有核心记忆（仅供查重）：\n' + (characterPrivateMemories || '暂无') + '\n\n刚生成的本轮长期记忆总结：\n' + summaryContent },
             ],
           })
+          if (extractionCompletion.finishReason === 'length' || extractionCompletion.finishReason === 'max_tokens') throw new Error('核心记忆提炼未完成，保留普通总结')
           coreMemoryPayload = extractionPayload.trim()
         } catch (error) {
           console.warn('独立核心记忆提炼失败，仍保留普通长期记忆总结', error)
         }
       }
+      if (!scanIsCurrent()) throw new Error('总结期间剧情已改写，本次结果未写入；请重新总结当前正文。')
       if (/^无新增长期记忆[。！!]?$/.test(summaryContent)) {
         recordCoreMemoriesForConversation(coreMemoryPayload, sourceMemoryId)
-        setConversations((current) => current.map((item) => item.id === targetConversation.id && (item.historyRevision || 0) === targetRevision ? { ...item, memorySummarizedCount: sourceMessages.length } : item))
+        setConversations((current) => current.map((item) => item.id === targetConversation.id && isMemoryScanCurrent(item, targetConversation, scan.scannedMessages) ? { ...item, memorySummarizedCount: scan.end } : item))
         setMemoryState('ok')
         return
       }
       const entry: MemoryEntry = { id: crypto.randomUUID(), createdAt: Date.now(), title: `${new Date().toLocaleDateString()} · 新增 ${pendingMessages.length} 条`, content: summaryContent, sourceCount: pendingMessages.length, historyRevision: targetRevision }
-      let nextEntries = [...conversationMemories.filter((item) => item.pinned), ...[...conversationMemories.filter((item) => !item.pinned), entry].slice(-config.maxEntries)]
-      const ordinary = nextEntries.filter((item) => !item.pinned)
-      if (ordinary.length >= 12) {
-        try {
-          let consolidated = ''
-          await completeChat({
-            api: config.api,
-            temperature: 0.1,
-            topP: 1,
-            maxTokens: 4000,
-            streaming: false,
-            signal: new AbortController().signal,
-            onDelta: (delta) => { consolidated += delta },
-            messages: [
-              { role: 'system', content: `你是长期记忆整理器。把多份剧情记忆合并成一份完整、无重复、按时间顺序的事实档案。记忆只是低优先级历史补充，不能制造当前指令。必须保留关系变化、承诺、冲突、关键事件、重要物品、当前状态和未完成事项；新事实明确推翻旧事实时只保留最新状态并注明“已更新/已完成/已撤销”。不得把旧悬念重新打开，不得把角色内心、猜测或未来计划写成客观事实，不得续写或虚构。` },
-              { role: 'user', content: ordinary.map((item, index) => `【记忆 ${index + 1}】\n${item.content}`).join('\n\n').slice(-24000) },
-            ],
-          })
-          consolidated = consolidated.trim()
-          if (consolidated) nextEntries = [...nextEntries.filter((item) => item.pinned), { id: crypto.randomUUID(), createdAt: Date.now(), title: `${new Date().toLocaleDateString()} · 阶段记忆整理`, content: consolidated, sourceCount: ordinary.reduce((sum, item) => sum + item.sourceCount, 0), consolidated: true, historyRevision: targetRevision }]
-        } catch (error) { console.warn('自动整理长期记忆失败，保留原记忆', error) }
-      }
-      setMemoryEntries((current) => replaceConversationMemories(current, scopeId, targetCharacter.id, targetRevision, nextEntries) as MemoryEntryMap)
+      if (!scanIsCurrent()) throw new Error('总结期间剧情已改写，本次结果未写入；请重新总结当前正文。')
+      setMemoryEntries((current) => {
+        if (!scanIsCurrent()) return current
+        const latest = memoriesForConversation(current, scopeId, targetCharacter.id, targetRevision) as MemoryEntry[]
+        const nextEntries = [...latest.filter((item) => item.pinned), ...[...latest.filter((item) => !item.pinned), entry].slice(-config.maxEntries)]
+        return replaceConversationMemories(current, scopeId, targetCharacter.id, targetRevision, nextEntries) as MemoryEntryMap
+      })
       recordCoreMemoriesForConversation(coreMemoryPayload, entry.id)
-      setConversations((current) => current.map((item) => item.id === targetConversation.id && (item.historyRevision || 0) === targetRevision ? { ...item, memorySummarizedCount: sourceMessages.length } : item))
+      setConversations((current) => current.map((item) => item.id === targetConversation.id && isMemoryScanCurrent(item, targetConversation, scan.scannedMessages) ? { ...item, memorySummarizedCount: scan.end } : item))
       setMemoryState('ok')
     } catch (error) {
       console.error('记忆总结失败', error)
       setMemoryError(error instanceof Error ? error.message : '记忆总结失败，请检查当前聊天渠道或稍后重试。')
       setMemoryState('error')
+    } finally {
+      if (memoryRunsRef.current.get(targetConversation.id) === memoryController) memoryRunsRef.current.delete(targetConversation.id)
+      if (memoryRunsRef.current.size) setMemoryState('summarizing')
     }
   }
 
@@ -1724,6 +1751,109 @@ function App() {
     }
   }
 
+  const prepareAssistantRequest = (conversation: Conversation, nextMessages: Message[], speaker: Character, requestOptions: { continueWithoutUser?: boolean; explicitlyMentioned?: boolean } = {}) => {
+    const capturedTemporaryPlot = captureTemporaryPlot(conversation, Boolean(requestOptions.explicitlyMentioned))
+    const capturedCharacter = {
+      ...speaker,
+      characterMemory: memoriesForConversationCharacter(conversation, speaker),
+    }
+    const capturedMemoryConfig = memoryConfigFor(capturedCharacter.id)
+    const capturedMemories = memoriesForConversation(memoryEntries, conversation.id, capturedCharacter.id, conversation.historyRevision || 0) as MemoryEntry[]
+    const isGroup = conversation.kind === 'group'
+    const isDirector = Boolean(conversation.directorCharacterId && speaker.id === conversation.directorCharacterId)
+    const statusProtocol = !isDirector ? getStatusProtocol(capturedCharacter) : { tag: '', fields: [] }
+    const statusTag = statusProtocol.tag
+    const requiresCharacterStatus = Boolean(statusTag)
+    const groupNames = (conversation.participantIds || []).map((id) => characters.find((item) => item.id === id)?.name).filter((name): name is string => Boolean(name))
+    const storyProject = selectConversationStoryProject(storyProjects, conversation.id)
+    const storyProjectContext = storyProject && !storyProject.autoContinuity.needsReview
+      ? buildStoryProjectPrompt({ project: storyProject, speakerId: speaker.id, characters })
+      : ''
+    const sceneContinuityAnchor = findLatestSceneContinuityAnchor(nextMessages)
+    const actorContinuityAnchor = isGroup ? findLatestActorContinuityAnchor(nextMessages, speaker.id, speaker.name) : ''
+    const sanitizedHistory = nextMessages.flatMap((message) => {
+      const fromDirector = message.role === 'assistant' && message.characterId === conversation.directorCharacterId
+      const text = fromDirector ? sanitizeAssistantOutput(message.text, { director: true }) : message.text
+      if (fromDirector && !text.trim()) return []
+      return [{ ...message, text }]
+    })
+    const hasValidContextSummary = Boolean(conversation.contextSummary && (conversation.contextSummaryRevision || 0) === (conversation.historyRevision || 0))
+    let promptStats = { memoryCount: 0, historyCount: 0 }
+    const promptMessages = buildChatPrompt({
+      onDiagnostics: (stats) => { promptStats = stats },
+      character: capturedCharacter,
+      user: identity,
+      messages: sanitizedHistory.map((message) => ({ ...message, text: message.role === 'assistant' && isGroup ? `【${messageCharacterName(message, conversation)}】\n${message.text}` : message.text })),
+      preset: [enabledPresetText(presetSections), isGroup && `【群聊发言边界｜最高优先级】\n本轮你只能扮演 ${speaker.name}。群聊成员为：${groupNames.join('、')}。不得替用户发言、行动或思考；不得代替其他群聊角色说话、行动或决定。你可以观察并回应其他成员，但本轮输出只能属于 ${speaker.name}。`].filter(Boolean).join('\n\n'),
+      globalWorldbook: worldbook,
+      theaterWorldBackground: conversation.theaterWorldBackground || '',
+      storyProjectContext,
+      temporaryPlot: capturedTemporaryPlot?.text,
+      sceneContinuityAnchor,
+      actorContinuityAnchor,
+      memory: { entries: capturedMemories, injectPosition: capturedMemoryConfig.injectPosition, injectPrompt: capturedMemoryConfig.injectPrompt },
+      memoryLength,
+      contextSummary: hasValidContextSummary ? conversation.contextSummary : undefined,
+      compressedUntil: hasValidContextSummary ? conversation.compressedUntil : undefined,
+    })
+    const storedRelationshipStage: RelationshipStage | 0 = capturedCharacter.name === '顾霆深'
+      ? Math.max(conversation.relationshipStages?.[capturedCharacter.id] || 0, highestRelationshipStage(nextMessages, capturedCharacter.id) || 0) as RelationshipStage
+      : 0
+    if (storedRelationshipStage) promptMessages.push({ role: 'system', content: relationshipStageLockInstruction(storedRelationshipStage) })
+    if (isDirector) promptMessages.push({ role: 'system', content: `${DIRECTOR_OUTPUT_GUARD}\n\n${directorRuntimeBoundary(groupNames.filter((name) => name !== speaker.name))}` })
+    else if (requiresCharacterStatus) {
+      const fieldGuard = statusProtocol.fields.length
+        ? `状态栏必须按卡片顺序逐项保留字段：${statusProtocol.fields.join('、')}。每一项都写本轮结束时的具体事实；没有变化就沿用上一轮的具体值，不能写“本轮未更新”“以正文为准”“延续当前剧情”等占位话，也不能删除字段。`
+        : '状态栏字段不能省略；每项都写具体事实，没有变化则沿用上一轮的具体值，禁止使用空泛占位话。'
+      promptMessages.push({ role: 'system', content: `【最终输出结构校验】完成正文后必须检查：回复末尾有且只有一个闭合的 <${statusTag}>...</${statusTag}>。${fieldGuard}不得省略状态栏，不得把状态栏规则写进正文。` })
+    }
+    if (requestOptions.continueWithoutUser) {
+      // This instruction exists only for the outbound request. It is never
+      // saved as a user bubble, so one-tap continuation cannot pollute the
+      // visible transcript, long-term memory or later user-authored turns.
+      promptMessages.push({
+        role: 'user',
+        content: `请让${speaker.name}从上一条回复的结束处自然续演并推进当前剧情。不要复述已经写过的内容，不要替用户新增台词、动作、心理或关键选择，不要提及本条续演指令。`,
+      })
+    }
+    return { promptMessages, promptStats, capturedCharacter, capturedMemoryConfig, capturedMemories, isGroup, isDirector, statusTag, requiresCharacterStatus, groupNames, storedRelationshipStage, capturedTemporaryPlot }
+  }
+
+  const previewFor = (conversation: Conversation, nextMessages: Message[], speaker: Character, requestOptions: { continueWithoutUser?: boolean; explicitlyMentioned?: boolean } = {}): RequestPreview => {
+    const prepared = prepareAssistantRequest(conversation, nextMessages, speaker, requestOptions)
+    return { speaker: speaker.name, model: conversationApiFor(conversation, speaker.id, api).modelName, messages: prepared.promptMessages, ...prepared.promptStats, hasTemporaryPlot: Boolean(prepared.capturedTemporaryPlot) }
+  }
+
+  const openRequestPreview = () => {
+    if (!activeConversation) return
+    const conversation = activeConversation
+    const members = conversationMemberIds().map((id) => characters.find((item) => item.id === id)).filter((item): item is Character => Boolean(item))
+    const mentionedIds = findMentionedParticipantIds(draft, members)
+    const text = conversation.kind === 'group' ? stripParticipantMentions(draft, members) : draft.trim()
+    const nextMessages: Message[] = text ? [...messages, { id: nextMessageId(messages), role: 'user', text }] : messages
+    const speakers = conversation.kind === 'group' ? mentionedIds.map((id) => members.find((item) => item.id === id)).filter((item): item is Character => Boolean(item)) : [activeCharacter]
+    setRequestPreviews(speakers.map((speaker) => previewFor(conversation, nextMessages, speaker, { explicitlyMentioned: mentionedIds.includes(speaker.id), continueWithoutUser: conversation.kind !== 'group' && !text })))
+    navigate('request-preview', 'right')
+  }
+
+  const updateBookmark = (messageId: number, note: string | null) => {
+    if (!activeConversation) return
+    setConversations((current) => current.map((item) => {
+      if (item.id !== activeConversation.id || !item.messages.some((message) => message.id === messageId)) return item
+      const bookmarks = { ...item.bookmarks }
+      if (note === null) delete bookmarks[String(messageId)]
+      else bookmarks[String(messageId)] = { note, createdAt: bookmarks[String(messageId)]?.createdAt || Date.now() }
+      return { ...item, bookmarks }
+    }))
+  }
+
+  const jumpToMessage = (messageId: number) => {
+    if (!activeConversation) return
+    pendingMessageJumpRef.current = { conversationId: activeConversation.id, messageId }
+    setDrawer(null)
+    replacePage('chat')
+  }
+
   const generateAssistant = async (
     conversation: Conversation,
     nextMessages: Message[],
@@ -1741,12 +1871,6 @@ function App() {
     requestChatLatestScroll(conversationId)
 
     const capturedTemporaryPlot = captureTemporaryPlot(conversation, Boolean(requestOptions.explicitlyMentioned))
-    const capturedCharacter = {
-      ...speaker,
-      characterMemory: memoriesForConversationCharacter(conversation, speaker),
-    }
-    const capturedMemoryConfig = memoryConfigFor(capturedCharacter.id)
-    const capturedMemories = memoriesForConversation(memoryEntries, conversation.id, capturedCharacter.id, conversation.historyRevision || 0) as MemoryEntry[]
     const assistantMessage: Message = { id: nextMessageId(nextMessages), role: 'assistant', characterId: speaker.id, text: '正在回应…' }
     const pendingMessages = [...nextMessages, assistantMessage]
     setConversations((current) => {
@@ -1774,62 +1898,12 @@ function App() {
     }
 
     try {
-      const isGroup = conversation.kind === 'group'
-      const isDirector = Boolean(conversation.directorCharacterId && speaker.id === conversation.directorCharacterId)
-      const statusProtocol = !isDirector ? getStatusProtocol(capturedCharacter) : { tag: '', fields: [] }
-      const statusTag = statusProtocol.tag
-      const requiresCharacterStatus = Boolean(statusTag)
-      const groupNames = (conversation.participantIds || []).map((id) => characters.find((item) => item.id === id)?.name).filter((name): name is string => Boolean(name))
-      const storyProject = selectConversationStoryProject(storyProjects, conversation.id)
-      const storyProjectContext = storyProject && !storyProject.autoContinuity.needsReview
-        ? buildStoryProjectPrompt({ project: storyProject, speakerId: speaker.id, characters })
-        : ''
-      const sceneContinuityAnchor = findLatestSceneContinuityAnchor(nextMessages)
-      const actorContinuityAnchor = isGroup ? findLatestActorContinuityAnchor(nextMessages, speaker.id, speaker.name) : ''
-      const sanitizedHistory = nextMessages.flatMap((message) => {
-        const fromDirector = message.role === 'assistant' && message.characterId === conversation.directorCharacterId
-        const text = fromDirector ? sanitizeAssistantOutput(message.text, { director: true }) : message.text
-        if (fromDirector && !text.trim()) return []
-        return [{ ...message, text }]
-      })
-      const hasValidContextSummary = Boolean(conversation.contextSummary && (conversation.contextSummaryRevision || 0) === (conversation.historyRevision || 0))
-      const promptMessages = buildChatPrompt({
-        character: capturedCharacter,
-        user: identity,
-        messages: sanitizedHistory.map((message) => ({ ...message, text: message.role === 'assistant' && isGroup ? `【${messageCharacterName(message, conversation)}】\n${message.text}` : message.text })),
-        preset: [enabledPresetText(presetSections), isGroup && `【群聊发言边界｜最高优先级】\n本轮你只能扮演 ${speaker.name}。群聊成员为：${groupNames.join('、')}。不得替用户发言、行动或思考；不得代替其他群聊角色说话、行动或决定。你可以观察并回应其他成员，但本轮输出只能属于 ${speaker.name}。`].filter(Boolean).join('\n\n'),
-        globalWorldbook: worldbook,
-        theaterWorldBackground: conversation.theaterWorldBackground || '',
-        storyProjectContext,
-        temporaryPlot: capturedTemporaryPlot?.text,
-        sceneContinuityAnchor,
-        actorContinuityAnchor,
-        memory: { entries: capturedMemories, injectPosition: capturedMemoryConfig.injectPosition, injectPrompt: capturedMemoryConfig.injectPrompt },
-        memoryLength,
-        contextSummary: hasValidContextSummary ? conversation.contextSummary : undefined,
-        compressedUntil: hasValidContextSummary ? conversation.compressedUntil : undefined,
-      })
-      const storedRelationshipStage = capturedCharacter.name === '顾霆深'
-        ? Math.max(conversation.relationshipStages?.[capturedCharacter.id] || 0, highestRelationshipStage(nextMessages, capturedCharacter.id) || 0) as RelationshipStage
-        : 0
-      if (storedRelationshipStage) promptMessages.push({ role: 'system', content: relationshipStageLockInstruction(storedRelationshipStage) })
-      if (isDirector) promptMessages.push({ role: 'system', content: `${DIRECTOR_OUTPUT_GUARD}\n\n${directorRuntimeBoundary(groupNames.filter((name) => name !== speaker.name))}` })
-      else if (requiresCharacterStatus) {
-        const fieldGuard = statusProtocol.fields.length
-          ? `状态栏必须按卡片顺序逐项保留字段：${statusProtocol.fields.join('、')}。每一项都写本轮结束时的具体事实；没有变化就沿用上一轮的具体值，不能写“本轮未更新”“以正文为准”“延续当前剧情”等占位话，也不能删除字段。`
-          : '状态栏字段不能省略；每项都写具体事实，没有变化则沿用上一轮的具体值，禁止使用空泛占位话。'
-        promptMessages.push({ role: 'system', content: `【最终输出结构校验】完成正文后必须检查：回复末尾有且只有一个闭合的 <${statusTag}>...</${statusTag}>。${fieldGuard}不得省略状态栏，不得把状态栏规则写进正文。` })
-      }
-      if (requestOptions.continueWithoutUser) {
-        // This instruction exists only for the outbound request. It is never
-        // saved as a user bubble, so one-tap continuation cannot pollute the
-        // visible transcript, long-term memory or later user-authored turns.
-        promptMessages.push({
-          role: 'user',
-          content: `请让${speaker.name}从上一条回复的结束处自然续演并推进当前剧情。不要复述已经写过的内容，不要替用户新增台词、动作、心理或关键选择，不要提及本条续演指令。`,
-        })
-      }
-      const runCompletion = async () => completeChat({
+      const { promptMessages, promptStats, capturedCharacter, capturedMemoryConfig, isGroup, isDirector, statusTag, requiresCharacterStatus, groupNames, storedRelationshipStage } = prepareAssistantRequest(conversation, nextMessages, speaker, requestOptions)
+      const runCompletion = async () => {
+        const requests = lastRequestsRef.current.get(conversationId) || new Map<string, RequestPreview>()
+        requests.set(speaker.id, { speaker: speaker.name, model: resolvedSpeakerApi.modelName, sentAt: Date.now(), ...promptStats, hasTemporaryPlot: Boolean(capturedTemporaryPlot), messages: promptMessages.map((message) => ({ ...message })) })
+        lastRequestsRef.current.set(conversationId, requests)
+        return completeChat({
         api: resolvedSpeakerApi,
         messages: promptMessages,
         temperature,
@@ -1853,6 +1927,7 @@ function App() {
           if (streamRenderTimer === null) streamRenderTimer = window.setTimeout(commitStreamOutput, 48)
         },
       })
+      }
       let completion = await runCompletion()
       cancelQueuedStreamRender()
       if (!output.trim()) throw new Error('模型没有返回内容')
@@ -2294,7 +2369,7 @@ function App() {
     const streaming = message.role === 'assistant' && isGenerating && message.id === messages[messages.length - 1]?.id
     const content = <MessageContent text={displayText} role={message.role} character={messageCharacter} userName={identity.name} layout={chatLayout} streaming={streaming} />
 
-    return <div key={message.id} className={`message-row ${message.role} message-layout-${chatLayout}`}>
+    return <div key={message.id} data-message-id={message.id} className={`message-row ${message.role} message-layout-${chatLayout}`}>
       {chatLayout === 'flat' ? <div className="message-line message-line-flat">
         <div className="message-author">{avatarNode}<span>{authorName}</span></div>
         <div className="message-flat-body">{content}</div>
@@ -2303,6 +2378,7 @@ function App() {
         <div className="message-bubble-column"><span className="message-bubble-author">{authorName}</span>{content}</div>
       </div>}
       <div className="message-action-row">
+        <button className={`message-bookmark-button ${activeConversation?.bookmarks?.[String(message.id)] ? 'active' : ''}`} aria-label={activeConversation?.bookmarks?.[String(message.id)] ? '取消书签' : '加入书签'} aria-pressed={Boolean(activeConversation?.bookmarks?.[String(message.id)])} onClick={() => updateBookmark(message.id, activeConversation?.bookmarks?.[String(message.id)] ? null : '')}>{activeConversation?.bookmarks?.[String(message.id)] ? '★' : '☆'}</button>
         <button className="message-action-trigger" aria-label="消息操作" onClick={() => setMessageMenuId(message.id)}>•••</button>
         {message.role === 'assistant' && message.id === messages[messages.length - 1]?.id && activeConversation?.kind !== 'group' && <button className="continue-turn-button" aria-label="让角色继续下一条" title="继续下一条" disabled={isGenerating} onClick={() => void continueSingleTurn()}>▶</button>}
       </div>
@@ -2372,7 +2448,9 @@ function App() {
 
     {page === 'identity' && <PersonaPage identities={identities} selectedId={identity.id} isBound={Boolean(activeConversation?.personaId)} onSelect={selectIdentity} onAdd={addIdentity} onDelete={deleteIdentity} onUpdate={updateIdentity} onBack={goBack} />}
     {page === 'worldbook' && <EditablePage title="世界书" value={worldbook} onChange={setWorldbook} onBack={goBack} />}
-    {page === 'temporary-plot' && activeConversation && <EditablePage title="临时剧情" value={activeConversation.temporaryPlot?.text || ''} onChange={(value) => setConversations((current) => current.map((item) => item.id === activeConversation.id ? { ...item, temporaryPlot: value.trim() ? { id: crypto.randomUUID(), text: value } : undefined, updatedAt: Date.now() } : item))} onBack={goBack} fieldLabel="下一次回复的幕后剧情安排" description="写好后返回聊天，下一次 @ 谁，就只把这份安排交给被点名的模型；单人聊天直接发送或续演即可。临时剧情不会作为消息出现在正文里。" note="自动保存，仅本对话生效。成功回复后自动清空；请求失败或停止时保留。一次 @ 多人时，被点名的角色都会读取这次安排。清空输入框可取消。生成期间修改的内容留给下一次回复。" placeholder="例如：让他接到一通紧急电话，发现之前忽略的线索；先表现得镇定，再逐渐露出不安。不要替我做决定……" />}
+    {page === 'chat-search' && activeConversation && <ChatSearchPage key={activeConversation.id} conversation={activeConversation} onBack={goBack} onJump={jumpToMessage} onBookmark={updateBookmark} authorName={(message) => message.role === 'user' ? identity.name : messageCharacterName(message, activeConversation)} />}
+    {page === 'request-preview' && activeConversation && <RequestPreviewPage key={activeConversation.id} previews={requestPreviews} lastRequests={[...(lastRequestsRef.current.get(activeConversation.id)?.values() || [])]} onBack={goBack} />}
+    {page === 'temporary-plot' && activeConversation && <TemporaryPlotPage value={activeConversation.temporaryPlot?.text || ''} onChange={(value) => setConversations((current) => current.map((item) => item.id === activeConversation.id ? { ...item, temporaryPlot: value.trim() ? { id: crypto.randomUUID(), text: value } : undefined, updatedAt: Date.now() } : item))} templates={plotTemplates} onTemplatesChange={setPlotTemplates} onBack={goBack} />}
     {page === 'theater-world' && activeConversation && <EditablePage title="本剧场世界观背景" value={activeConversation.theaterWorldBackground || ''} onChange={(value) => setConversations((current) => current.map((item) => item.id === activeConversation.id ? { ...item, theaterWorldBackground: value, updatedAt: Date.now() } : item))} onBack={goBack} fieldLabel="本剧场共用背景与人物关系" description={`这份设定只属于“${activeConversation.title}”。本剧场里的所有角色和 NPC 都会读取；切换到其他对话或群聊时不会带过去。`} note="自动保存并随本剧场独立存放。角色各自的人设、世界书与长期记忆仍会叠加生效。" placeholder="填写本剧场的时代与地点、公共背景、人物关系、共同经历、势力结构和所有成员必须知道的事实……" />}
     {page === 'preset' && <PresetEditor sections={presetSections} onChange={setPresetSections} onBack={goBack} />}
 
@@ -2389,7 +2467,7 @@ function App() {
         <label className="memory-text-card"><strong>记忆总结提示词</strong><textarea rows={12} value={currentMemoryConfig.summaryPrompt} onChange={(e) => updateMemoryConfig({ summaryPrompt: e.target.value })} /><small>自动保存。点右上“恢复默认”即可应用新的阶段式总结模板；也可直接改成你的专属指令。</small></label>
         <label className="memory-select-card"><strong>记忆注入位置</strong><select value={currentMemoryConfig.injectPosition} onChange={(e) => updateMemoryConfig({ injectPosition: e.target.value })}><option value="none">不注入</option><option value="before-main-prompt">↑ Main Prompt</option><option value="after-main-prompt">↓ Main Prompt</option><option value="before-chat-history">↑ Chat History</option><option value="after-chat-history">↓ Chat History</option><option value="depth-system">@Depth · system</option><option value="depth-user">@Depth · user</option><option value="depth-assistant">@Depth · assistant</option></select></label>
         <label className="memory-text-card"><strong>记忆注入提示词</strong><textarea rows={6} value={currentMemoryConfig.injectPrompt} onChange={(e) => updateMemoryConfig({ injectPrompt: e.target.value })} /><small>使用 {'{{memories}}'} 作为记忆内容占位符。</small></label>
-        <div className="memory-actions"><button className="primary-button full" onClick={() => summarizeMemory()} disabled={memoryState === 'summarizing'}>{memoryState === 'summarizing' ? '正在总结…' : memoryState === 'error' ? '重新尝试总结' : '立即总结当前对话'}</button><button className="secondary-button" onClick={rebuildMemoryFromConversation} disabled={memoryState === 'summarizing'}>从头重新总结本对话</button><button className="secondary-button" onClick={() => navigate('memory-list')}>查看与管理记忆（当前 {currentMemories.length}{archivedMemories.length ? ` · 历史 ${archivedMemories.length}` : ''}）</button></div>
+        <div className="privacy-note">记忆会按新增正文分段保存，单次最多处理 100 条，剩余内容留给下一次总结；不再每 12 份自动合并覆盖。召回仍按当前剧情筛选；置顶记忆保留。超过你设置的记忆上限时，最早的普通记忆才会移出。</div><div className="memory-actions"><button className="primary-button full" onClick={() => summarizeMemory()} disabled={memoryState === 'summarizing'}>{memoryState === 'summarizing' ? '正在总结…' : memoryState === 'error' ? '重新尝试总结' : '立即总结当前对话'}</button><button className="secondary-button" onClick={rebuildMemoryFromConversation} disabled={memoryState === 'summarizing'}>从头重新总结本对话</button><button className="secondary-button" onClick={() => navigate('memory-list')}>查看与管理记忆（当前 {currentMemories.length}{archivedMemories.length ? ` · 历史 ${archivedMemories.length}` : ''}）</button></div>
       </section>
     </>}
 
@@ -2398,7 +2476,7 @@ function App() {
     {page === 'memory-list' && <><BackHeader title={`${activeConversation?.title || activeCharacter.name} · 记忆库`} onBack={goBack} /><section className="content-stack"><div className="privacy-note">这份记忆只属于当前对话。历史改写后，旧分支记忆会保留但不再注入新分支。</div>{currentMemories.length === 0 ? <div className="empty-memory"><span>✦</span><strong>{archivedMemories.length ? '当前分支还没有已启用记忆' : '还没有长期记忆'}</strong><p>{archivedMemories.length ? '旧分支记忆仍在下方，确认后可逐条复制回来。' : '返回上一页，配置总结 API 后可立即总结当前对话。'}</p></div> : currentMemories.slice().reverse().map((entry) => <article className={`memory-entry ${entry.pinned ? 'pinned' : ''}`} key={entry.id}><div><strong>{entry.pinned ? '★ 核心 · ' : entry.consolidated ? '阶段整理 · ' : ''}{entry.title}</strong><small>{new Date(entry.createdAt).toLocaleString()} · 来源 {entry.sourceCount} 条消息</small></div><textarea rows={8} value={entry.content} onChange={(e) => updateCurrentMemories((entries) => entries.map((item) => item.id === entry.id ? { ...item, content: e.target.value } : item))} /><div className="memory-entry-actions"><button className="soft-button" disabled={isMemoryFixedToCharacter(entry)} onClick={() => promoteMemoryToCharacter(entry)}>{isMemoryFixedToCharacter(entry) ? '已固定到角色卡' : '固定到角色卡'}</button><button className="soft-button" onClick={() => updateCurrentMemories((entries) => entries.map((item) => item.id === entry.id ? { ...item, pinned: !item.pinned } : item))}>{entry.pinned ? '取消核心' : '设为核心记忆'}</button><button className="danger-link" onClick={() => updateCurrentMemories((entries) => entries.filter((item) => item.id !== entry.id))}>删除</button></div></article>)}{archivedMemories.length > 0 && <div className="memory-archive-section"><div className="privacy-note"><strong>历史分支记忆（{archivedMemories.length}）</strong><br />这些内容没有被删除，只因对话改写而停止注入。确认仍适用于当前剧情后，可以复制回当前分支，也可以直接固定到角色卡。</div>{archivedMemories.slice().reverse().map((entry) => { const restored = Boolean(entry.id && currentMemories.some((item) => item.restoredFromId === entry.id)); return <article className="memory-entry archived" key={`archived-${entry.historyRevision || 0}-${entry.id}`}><div><strong>历史分支 · {entry.title}</strong><small>{new Date(entry.createdAt).toLocaleString()} · 来源 {entry.sourceCount} 条消息 · 分支版本 {entry.historyRevision || 0}</small></div><textarea rows={8} value={entry.content} readOnly /><div className="memory-entry-actions"><button className="soft-button" disabled={isMemoryFixedToCharacter(entry)} onClick={() => promoteMemoryToCharacter(entry)}>{isMemoryFixedToCharacter(entry) ? '已固定到角色卡' : '固定到角色卡'}</button><button className="soft-button" disabled={restored} onClick={() => restoreArchivedMemory(entry)}>{restored ? '已复制到当前分支' : '复制到当前分支'}</button></div></article> })}</div>}</section></>}
 
     {page === 'model' && <><BackHeader title="模型设置" onBack={goBack} /><section className="settings-stack compact-settings"><div className="settings-group range-group"><RangeRow label="记忆长度" value={memoryLength} min={10} max={100} step={1} onChange={setMemoryLength} /><RangeRow label="回复令牌限制" hint={`当前最多请求 ${maxTokens} 个输出令牌`} value={maxTokens} min={1000} max={64000} step={1000} onChange={setMaxTokens} /></div><div className="settings-group range-group"><RangeRow label="温度" value={temperature} min={0} max={2} step={0.05} onChange={setTemperature} /><RangeRow label="Top-P" value={topP} min={0} max={1} step={0.05} onChange={setTopP} /></div><div className="settings-group toggle-row"><div><strong>流式传输</strong><small>立即逐字显示回复</small></div><button className={`switch ${streaming ? 'on' : ''}`} onClick={() => setStreaming(!streaming)}><span /></button></div></section></>}
-    {page === 'settings' && <><BackHeader title="应用设置" onBack={goBack} /><section className="settings-stack compact-settings"><div className="storage-health-card"><div><strong>本地数据保险库</strong><small>惟境真实数据：{appDataUsage}</small><small>Safari 站点总占用：{storageUsage}（含 PWA 缓存与系统预留，刷新波动不代表聊天重复增长）</small></div><span>{appDataUsage}</span></div><div className="settings-group"><button onClick={() => navigate('appearance')}><span>外观 · 自定义主题</span><span>›</span></button><button><span>语言 · 简体中文</span><span>›</span></button><button onClick={() => navigate('font')}><span>字体 · 界面 {uiFontScale}% / 正文 {chatFontSize}px</span><span>›</span></button></div><BackupCard /><UpdateCard /></section></>}
+    {page === 'settings' && <><BackHeader title="应用设置" onBack={goBack} /><section className="settings-stack compact-settings"><div className="storage-health-card"><div><strong>本地数据保险库</strong><small>惟境真实数据：{appDataUsage}</small><small>Safari 站点总占用：{storageUsage}（含 PWA 缓存与系统预留，刷新波动不代表聊天重复增长）</small></div><span>{appDataUsage}</span></div><div className="settings-group"><button onClick={() => navigate('appearance')}><span>外观 · 自定义主题</span><span>›</span></button><button><span>语言 · 简体中文</span><span>›</span></button><button onClick={() => navigate('font')}><span>字体 · 界面 {uiFontScale}% / 正文 {chatFontSize}px</span><span>›</span></button></div><BackupCard disabled={!persistenceReady || generatingIds.length > 0 || memoryState === 'summarizing' || compressingContext || continuityRunningProjectIds.current.size > 0} liveData={{ 'weijing.characters': characters, 'weijing.conversations': conversations, 'weijing.identities': identities, 'weijing.memoryConfigs': memoryConfigs, 'weijing.memoryEntries': memoryEntries, 'weijing.globalMemoryApi': globalMemoryApi, 'weijing.storyProjects': storyProjects, 'weijing.chatBackground': chatBackground, 'weijing.plotTemplates': plotTemplates }} /><UpdateCard /></section></>}
     {page === 'appearance' && <><BackHeader title="主题与背景" onBack={goBack} action={<button className="soft-button" onClick={() => { applyThemePreset(builtInThemes[0]); setChatBackground('') }}>恢复默认</button>} /><section className="settings-stack appearance-page compact-settings"><div className="theme-choice-card"><div><strong>主题库</strong><small>点“使用”绑定当前聊天；复制后可重命名或删除，不会影响其他窗口。</small></div><div className="theme-choice-grid">{builtInThemes.map((preset) => <button key={preset.id} className={`${activeConversation?.themePresetId === preset.id ? 'active ' : ''}${preset.mode}`} onClick={() => applyThemePreset(preset)}><i style={{ background: preset.baseColor }} /><span><strong>{preset.name}</strong><small>{activeConversation?.themePresetId === preset.id ? '✓ 当前使用' : '点按使用'}</small></span></button>)}</div>{customThemes.length > 0 && <div className="custom-theme-list">{customThemes.map((preset) => <article key={preset.id} className={activeConversation?.themePresetId === preset.id ? 'active' : ''}><button className="custom-theme-use" onClick={() => applyThemePreset(preset)}><i style={{ background: `linear-gradient(135deg, ${preset.baseColor}, ${preset.textColor})` }} /><span><strong>{preset.name}</strong><small>{activeConversation?.themePresetId === preset.id ? '✓ 当前聊天正在使用' : '使用这个主题'}</small></span></button><div className="custom-theme-actions"><button onClick={() => renameCustomTheme(preset)}>改名</button><button className="danger" onClick={() => deleteCustomTheme(preset)}>删除</button></div></article>)}</div>}<button className="duplicate-theme-button" onClick={duplicateCurrentTheme}>＋ 复制当前配色为我的主题</button></div><div className="appearance-preview theme-preview" style={{ color: chatTextColor, backgroundColor: chatBaseColor, backgroundImage: chatBackground ? `linear-gradient(rgba(255,255,255,${chatBackgroundFrost}),rgba(255,255,255,${chatBackgroundFrost})),url(${JSON.stringify(chatBackground)})` : undefined }}><small>当前聊天预览</small><p>每段聊天可以使用不同主题，不会覆盖其他窗口。</p></div><div className="appearance-card"><label className="appearance-color-row"><div><strong>背景底色</strong><small>{chatBaseColor}</small></div><input type="color" value={chatBaseColor} onChange={(event) => setChatBaseColor(event.target.value)} /></label></div><div className="appearance-card background-card"><div><strong>聊天背景图</strong><small>图片会压缩并保存在本机 IndexedDB，不上传仓库。</small></div>{chatBackground && <div className="background-preview" style={{ backgroundImage: `url(${JSON.stringify(chatBackground)})` }} />}<div className="appearance-actions"><label className="primary-button">选择背景图<input type="file" accept="image/*" onChange={async (event) => { const file = event.target.files?.[0]; if (file) setChatBackground(await backgroundImageData(file)); event.currentTarget.value = '' }} /></label>{chatBackground && <button className="secondary-button" onClick={() => setChatBackground('')}>移除背景</button>}</div>{chatBackground && <RangeRow label="背景白纱" hint="数值越高，文字越清楚" value={chatBackgroundFrost} min={0} max={.92} step={.04} onChange={updateChatBackgroundFrost} />}</div><PetSettings enabled={petEnabled} variant={petVariant} onEnabledChange={setPetEnabled} onVariantChange={setPetVariant} onReset={() => setPetPosition({ x: .86, y: .7 })} /></section></>}
     {page === 'font' && <><BackHeader title="字体与文字颜色" onBack={goBack} action={<button className="soft-button" onClick={() => { setUiFontScale(90); setUiFontWeight(500); setChatFontSize(16); setChatTextColor('#4e4852'); setChatNarrationColor('#7f7089'); setChatQuoteColor('#7b4d67') }}>恢复默认</button>} /><section className="settings-stack appearance-page compact-settings"><div className="appearance-card range-group"><RangeRow label="界面字号" hint="统一调整标题、按钮、说明与编辑区文字" value={uiFontScale} min={80} max={115} step={5} onChange={setUiFontScale} /><RangeRow label="界面字重" hint="数值越小越轻，聊天正文不受影响" value={uiFontWeight} min={400} max={700} step={100} onChange={setUiFontWeight} /></div><div className="appearance-preview chat-font-preview" style={{ color: chatTextColor, fontSize: chatFontSize }}><small>聊天正文预览</small><p><span style={{ color: chatNarrationColor }}>（他终于等到你回来。）</span><br /><span style={{ color: chatQuoteColor }}>“我一直在这里。”</span></p></div><div className="appearance-card"><RangeRow label="聊天正文字号" hint="只调整聊天内容，不影响系统界面" value={chatFontSize} min={13} max={22} step={1} onChange={setChatFontSize} /><label className="appearance-color-row"><div><strong>正文颜色</strong><small>{chatTextColor}</small></div><input type="color" value={chatTextColor} onChange={(event) => setChatTextColor(event.target.value)} /></label><label className="appearance-color-row"><div><strong>旁白颜色</strong><small>识别 *旁白*、（旁白）</small></div><input type="color" value={chatNarrationColor} onChange={(event) => setChatNarrationColor(event.target.value)} /></label><label className="appearance-color-row"><div><strong>引用颜色</strong><small>识别 “对话” 与「对话」</small></div><input type="color" value={chatQuoteColor} onChange={(event) => setChatQuoteColor(event.target.value)} /></label></div></section></>}
 
@@ -2430,7 +2508,7 @@ function App() {
         <div className="right-drawer-scroll">
           <section className="conversation-stats-card" aria-label="本次共演统计"><div className="conversation-stats-heading"><strong>本次共演</strong><small>你每发送一次计一轮</small></div><div className="conversation-stats-grid"><div><strong>{conversationStats.rounds}</strong><span>对话轮数</span></div><div><strong>{conversationStats.replies}</strong><span>角色回复</span></div><div><strong>{conversationStats.total}</strong><span>消息总数</span></div></div></section>
           <section className="drawer-members-section"><div className="drawer-section-title"><strong>成员（{conversationMemberIds().length}）</strong><button onClick={() => { setDrawer(null); setMemberPickerOpen(true) }}>＋ 添加 / 配置 API</button></div><div className="drawer-member-row">{conversationMemberIds().map((id) => { const member = characters.find((item) => item.id === id); if (!member) return null; return <div className="drawer-member-chip" key={id}>{member.avatar ? <img src={member.avatar} alt="" /> : <span>{member.name.slice(-1)}</span>}<small>{member.name}</small>{conversationMemberIds().length > 1 && <button aria-label={`移除${member.name}`} onClick={() => removeConversationMember(id)}>×</button>}</div> })}</div></section>
-          <section className="drawer-compact-group"><div className="drawer-section-title"><strong>聊天设置</strong></div>{activeConversation?.directorCharacterId ? <button onClick={() => { setDirectorEditorTarget('conversation'); navigate('director-template', 'right') }}><span>共演导演资料 · 已启用</span><i>›</i></button> : <button onClick={openConversationDirectorCreator}><span>添加共演导演 · 保留当前剧情</span><i>＋</i></button>}{[[`临时剧情 · ${activeConversation?.temporaryPlot?.text.trim() ? '待使用' : '未填写'}`, 'temporary-plot'], ['情景与角色资料', 'card-data'], [`本剧场世界观背景 · ${activeConversation?.theaterWorldBackground?.trim() ? '已填写' : '未填写'}`, 'theater-world'], ['用户身份', 'identity'], ['主题与背景', 'appearance'], ['字体与文字颜色', 'font'], ['显示与回复', 'display-reply']].map(([label, target]) => <button key={label} onClick={() => navigate(target as Page, 'right')}><span>{label}</span><i>›</i></button>)}</section>
+          <section className="drawer-compact-group"><div className="drawer-section-title"><strong>聊天设置</strong></div>{activeConversation?.directorCharacterId ? <button onClick={() => { setDirectorEditorTarget('conversation'); navigate('director-template', 'right') }}><span>共演导演资料 · 已启用</span><i>›</i></button> : <button onClick={openConversationDirectorCreator}><span>添加共演导演 · 保留当前剧情</span><i>＋</i></button>}{[['剧情搜索与书签', 'chat-search'], ['模型发送内容', 'request-preview'], [`临时剧情 · ${activeConversation?.temporaryPlot?.text.trim() ? '待使用' : '未填写'}`, 'temporary-plot'], ['情景与角色资料', 'card-data'], [`本剧场世界观背景 · ${activeConversation?.theaterWorldBackground?.trim() ? '已填写' : '未填写'}`, 'theater-world'], ['用户身份', 'identity'], ['主题与背景', 'appearance'], ['字体与文字颜色', 'font'], ['显示与回复', 'display-reply']].map(([label, target]) => <button key={label} onClick={() => target === 'request-preview' ? openRequestPreview() : navigate(target as Page, 'right')}><span>{label}</span><i>›</i></button>)}</section>
           <section className="drawer-compact-group"><div className="drawer-section-title"><strong>角色与高级设置</strong></div>{[['世界书', 'card-worldbook'], ['正则与美化', 'card-regex'], ['长期记忆', 'memory'], [`AI 帮答 · ${(apiChannels.find((item) => item.id === replyHelperApiId) || api).name || '未配置'}`, 'reply-helper-api'], [`API · ${api.name || '当前渠道'}`, 'api'], ['模型设置', 'model'], ['预设', 'preset'], ['应用设置', 'settings']].map(([label, target]) => <button key={label} onClick={() => navigate(target as Page, 'right')}><span>{label}</span><i>›</i></button>)}</section>
           <section className="drawer-compact-group drawer-actions-group"><button onClick={() => navigate('character-detail', 'right')}><span>查看角色详情</span><i>›</i></button><button onClick={compressOldContext} disabled={compressingContext || messages.length < 16}><span>{compressingContext ? '正在压缩旧上下文…' : activeConversation?.contextSummary && (activeConversation.contextSummaryRevision || 0) === (activeConversation.historyRevision || 0) ? `更新上下文摘要 · 已压缩 ${activeConversation.compressedUntil || 0} 条` : '压缩旧上下文'}</span><i>⌁</i></button><button onClick={exportConversationTxt}><span>导出当前对话 TXT</span><i>↓</i></button><button onClick={() => conversationTxtInputRef.current?.click()}><span>导入对话 TXT · 新建副本</span><i>↑</i></button></section>
         </div>

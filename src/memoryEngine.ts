@@ -42,7 +42,12 @@ export function replaceConversationMemories(map: LongMemoryMap, conversationId: 
 }
 
 function searchTerms(value: string) {
-  return Array.from(new Set(value.match(/[\u4e00-\u9fff]{2,6}|[A-Za-z0-9_]{3,}/g) || [])).slice(-120)
+  const terms = new Set<string>()
+  for (const run of value.toLocaleLowerCase().match(/[\u4e00-\u9fff]+|[a-z0-9_]{3,}/g) || []) {
+    if (!/[\u4e00-\u9fff]/.test(run)) { terms.add(run); continue }
+    for (let width = 2; width <= 3; width += 1) for (let i = 0; i + width <= run.length; i += 1) terms.add(run.slice(i, i + width))
+  }
+  return [...terms].slice(-240)
 }
 
 /**
@@ -55,11 +60,11 @@ export function selectRelevantMemories(entries: LongMemoryEntry[], recentText: s
   const terms = searchTerms(recentText)
   const pinned = entries.filter((entry) => entry.pinned).sort((a, b) => (a.createdAt || 0) - (b.createdAt || 0))
   const ordinary = entries.filter((entry) => !entry.pinned)
-  const newestIds = new Set(ordinary.slice(-3).map((entry) => entry.id))
-  const ranked = ordinary.map((entry) => ({
-    entry,
-    score: terms.reduce((score, term) => score + (entry.content.includes(term) ? Math.min(8, term.length) : 0), 0) + (newestIds.has(entry.id) ? 6 : 0),
-  })).sort((a, b) => b.score - a.score || (b.entry.createdAt || 0) - (a.entry.createdAt || 0))
+  const newestEntries = new Set(ordinary.slice(-3))
+  const ranked = ordinary.map((entry) => {
+    const content = entry.content.toLocaleLowerCase()
+    return { entry, score: terms.reduce((score, term) => score + (content.includes(term) ? Math.min(8, term.length) : 0), 0) + (newestEntries.has(entry) ? 6 : 0) }
+  }).sort((a, b) => b.score - a.score || (b.entry.createdAt || 0) - (a.entry.createdAt || 0))
 
   const selected: LongMemoryEntry[] = [...pinned]
   let remaining = Math.max(0, maxChars - pinned.reduce((sum, entry) => sum + entry.content.trim().length, 0))

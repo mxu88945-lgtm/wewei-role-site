@@ -26,23 +26,53 @@ async function durableSetNow(key: string, value: unknown) {
   const database = await openDatabase()
   return new Promise<void>((resolve, reject) => {
     const transaction = database.transaction(STORE_NAME, 'readwrite')
+    transaction.oncomplete = () => resolve()
+    transaction.onabort = () => reject(transaction.error || new Error('数据保存失败'))
+    transaction.onerror = () => reject(transaction.error)
     const store = transaction.objectStore(STORE_NAME)
     const readRequest = store.get(key)
-    readRequest.onerror = () => reject(readRequest.error)
     readRequest.onsuccess = () => {
       const previous = (readRequest.result as StoredValue<unknown> | undefined)?.value
-      try {
-        if (JSON.stringify(previous) === JSON.stringify(value)) {
-          resolve()
-          return
-        }
-      } catch {
-        // If comparison fails, persist normally rather than risking data loss.
-      }
-      const writeRequest = store.put({ value, savedAt: Date.now() }, key)
-      writeRequest.onsuccess = () => resolve()
-      writeRequest.onerror = () => reject(writeRequest.error)
+      try { if (JSON.stringify(previous) === JSON.stringify(value)) return } catch { /* Save normally. */ }
+      try { store.put({ value, savedAt: Date.now() }, key) } catch { transaction.abort() }
     }
+  }).finally(() => database.close())
+}
+
+export async function durableSnapshot(): Promise<Record<string, unknown>> {
+  await Promise.all([...pendingWrites.values()])
+  const database = await openDatabase()
+  return new Promise<Record<string, unknown>>((resolve, reject) => {
+    const transaction = database.transaction(STORE_NAME)
+    const data: Record<string, unknown> = {}
+    const request = transaction.objectStore(STORE_NAME).openCursor()
+    request.onsuccess = () => {
+      const cursor = request.result
+      if (!cursor) return
+      const key = String(cursor.key)
+      if (key.startsWith('weijing.')) data[key] = (cursor.value as StoredValue<unknown>).value
+      cursor.continue()
+    }
+    transaction.oncomplete = () => resolve(data)
+    transaction.onabort = () => reject(transaction.error || new Error('无法读取完整备份'))
+    transaction.onerror = () => reject(transaction.error)
+  }).finally(() => database.close())
+}
+
+/** Replace the database in one transaction; an aborted restore leaves old data intact. */
+export async function replaceDurableSnapshot(data: Record<string, unknown>) {
+  await Promise.all([...pendingWrites.values()])
+  const database = await openDatabase()
+  return new Promise<void>((resolve, reject) => {
+    const transaction = database.transaction(STORE_NAME, 'readwrite')
+    transaction.oncomplete = () => resolve()
+    transaction.onabort = () => reject(transaction.error || new Error('恢复失败，原数据已保留'))
+    transaction.onerror = () => reject(transaction.error)
+    const store = transaction.objectStore(STORE_NAME)
+    try {
+      store.clear()
+      for (const [key, value] of Object.entries(data)) store.put({ value, savedAt: Date.now() }, key)
+    } catch { transaction.abort() }
   }).finally(() => database.close())
 }
 

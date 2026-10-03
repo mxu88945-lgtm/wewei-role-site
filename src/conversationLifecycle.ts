@@ -22,6 +22,7 @@ export type Conversation = {
   personaId?: string
   themePresetId?: string
   themeFrost?: number
+  bookmarks?: Record<string, { note: string; createdAt: number }>
   temporaryPlot?: { id: string; text: string }
   theaterWorldBackground?: string
   directorCharacterId?: string
@@ -165,5 +166,6 @@ export function restartConversationInPlace(source: Conversation, fallbackGreetin
     memorySummarizedCount: 0,
     relationshipStages: undefined,
     temporaryPlot: undefined,
+    bookmarks: undefined,
   }
 }

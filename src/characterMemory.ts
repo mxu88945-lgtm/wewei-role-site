@@ -290,7 +290,7 @@ ${lines.join('\n')}
 
 export function characterMemoryContinuityGuard(character: Character) {
   if (!activeCharacterMemory(character).length) return ''
-  return `【本会话角色核心记忆最终校准】本轮续写前重新核对该角色在当前会话中的核心记忆：其中标为“已确认/已完成”的事实已经是本剧组连续性的一部分，但不得带入其他会话。不要因为旧开场白、旧状态栏、历史分支或滚动摘要仍保留“待查”措辞，就把已经查明的真相、已经完成的任务或已经发生的重大事件退回未完成状态；除非最近对话明确给出更新或撤销。`
+  return `【本会话角色核心记忆最终校准】本轮续写前重新核对该角色在当前会话中的核心记忆：其中标为“已确认/已完成”的事实已经是本剧组连续性的一部分，但不得带入其他会话。这些是后台连续性资料，不等于角色在剧情中亲自知情；严格保留各事实的知情者、未知者、来源及怀疑状态，不能把他人的私下经历、心理或秘密直接当作本角色已知。不要因为旧开场白、旧状态栏、历史分支或滚动摘要仍保留“待查”措辞，就把已经查明的真相、已经完成的任务或已经发生的重大事件退回未完成状态；除非最近对话明确给出更新或撤销。`
 }
 
 export function characterMemoryEntryFromConversation(entry: { id?: string; title?: string; content: string; createdAt?: number }): CharacterMemoryEntry {
