@@ -445,9 +445,9 @@ export default function CharacterWorkshop({ channels, defaultChannelId, onBack, 
         <div className="workshop-card result-card">
           <div className="workshop-two"><label><span>姓名</span><input value={result.name} onChange={(event) => patchResult({ name: event.target.value })} /></label><label><span>标签</span><input value={result.tags.join('，')} onChange={(event) => patchResult({ tags: event.target.value.split(/[,，]/).map((item) => item.trim()).filter(Boolean) })} /></label></div>
           <label><span>一句话简介</span><input value={result.tagline} onChange={(event) => patchResult({ tagline: event.target.value })} /></label>
-          <TextArea label="角色描述" rows={10} value={result.description} onChange={(description) => patchResult({ description })} />
-          <TextArea label="性格与行为逻辑" rows={8} value={result.personality} onChange={(personality) => patchResult({ personality })} />
-          <TextArea label="场景与初始关系" rows={7} value={result.scenario} onChange={(scenario) => patchResult({ scenario })} />
+          <TextArea label="角色描述（详细人物档案）" rows={14} value={result.description} onChange={(description) => patchResult({ description })} />
+          <TextArea label="性格成因与行为逻辑" rows={11} value={result.personality} onChange={(personality) => patchResult({ personality })} />
+          <TextArea label="故事背景与初始关系" rows={9} value={result.scenario} onChange={(scenario) => patchResult({ scenario })} />
           <TextArea label="开场白" rows={10} value={result.greeting} onChange={(greeting) => patchResult({ greeting })} />
           <TextArea label="开场白美化协议（每轮回复都要遵守）" rows={12} value={result.beautificationProtocol} onChange={(beautificationProtocol) => patchResult({ beautificationProtocol })} />
           <div className="workshop-field-hint">这是给模型的原始文本规则，不是正则模板。默认顺序是 &lt;scene&gt; 场景栏 → 剧情正文 → &lt;gts_status&gt; 状态栏；即使关闭正则，标签也应该保持可读。</div>

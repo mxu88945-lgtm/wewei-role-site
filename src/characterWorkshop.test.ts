@@ -36,6 +36,11 @@ describe('character workshop', () => {
     expect(prompt).toContain('开场白美化偏好')
     expect(prompt).toContain('两条可直接运行的 regexScripts')
     expect(prompt).toContain('也不得返回空数组')
+    expect(prompt).toContain('description 建议 800—1500 字')
+    expect(prompt).toContain('家庭出身与成长环境')
+    expect(prompt).toContain('不能写成“身份＋几个形容词”的简介')
+    expect(prompt).toContain('亲密关系和重大选择中的行为方式')
+    expect(prompt).toContain('不要写成精简概述')
   })
 
   it('keeps generated opening UI and repairs the legacy placement 3', () => {
@@ -139,6 +144,9 @@ describe('character workshop', () => {
     expect(prompt).toContain('阻止聊天列表纵向滚动')
     expect(prompt).toContain('每次角色回复都保留同一套标签与字段')
     expect(prompt).toContain('开场有、后续回复没有')
+    expect(prompt).toContain('写成可长期扮演的人物档案')
+    expect(prompt).toContain('成长环境、教育或训练、职业路径')
+    expect(prompt).toContain('写入 fields 的人物档案必须详细完整')
   })
 
   it('repairs placement 3 in copilot bubble proposals before applying them', () => {

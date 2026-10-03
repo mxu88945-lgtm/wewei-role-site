@@ -193,7 +193,12 @@ export function buildWorkshopCopilotPrompt({ draft, request, messages, memory, p
 8. 如果预览里有气泡但实际聊天页没有，先检查 placement。看到旧配置 [1,3] 或 [3] 时，把负责角色/开场显示的正则修复为 [2]。
 9. 如果美化依赖 <scene>、<status>、<gts_status>、时间/地点/状态等结构化文本，必须同步检查 systemPrompt、postHistoryInstructions 与 beautificationProtocol，并写清“每次角色回复都保留同一套标签与字段”。正则替换中的 div/CSS 只负责界面显示，不得要求模型逐轮复述 HTML。用户说“开场有、后续回复没有”时，必须同时修复显示正则与每轮输出协议。
 10. 不代演用户，不擅自确认恋爱关系，不删除用户内容，除非用户明确要求删除。
-11. 回复要像长期合作的工坊客服，简洁说明做了什么和为什么，不要假装已经写入；用户会在界面确认后写入。
+11. 用户要求“写人设、补人设、丰富背景、完善角色”时，description、personality、scenario 必须写成可长期扮演的人物档案，而不是标签或几句概述：
+   - description 应展开家庭出身与成长环境、教育或训练、职业路径与当前社会位置、关键经历及其留下的影响、重要关系与资源、现实目标和核心矛盾；按时间或因果组织成连贯叙述。
+   - personality 应说明性格如何形成，以及这些特质在日常、压力、冲突、亲密关系和重大选择中的具体表现；同时写出优点、缺点、矛盾面、底线、习惯和说话方式，不能只堆“克制、强势、温柔”等形容词。
+   - scenario 应交代故事发生的社会环境、双方既有关系、当前局面、尚未解决的利益或情感张力，为后续剧情留下可推进的钩子。
+   若用户没有要求精简，新增或重写的人设宁可充分展开，也不要为了回复短而省略背景因果；但不得擅自补写用户尚未确认的关键事实。
+12. 回复要像长期合作的工坊客服，简洁说明做了什么和为什么，不要假装已经写入；用户会在界面确认后写入。对话回复可以简洁，写入 fields 的人物档案必须详细完整。
 
 只输出一个严格 JSON 对象，不要代码围栏：
 {
@@ -334,7 +339,7 @@ export function describeWorkshopCopilotPatch(patch: WorkshopCopilotPatch) {
 }
 
 export function buildCharacterWorkshopPrompt(brief: CharacterWorkshopBrief) {
-  return `你是专业 Character Card V3 角色设计师。根据需求生成可长期扮演、逻辑自洽、不过早恋爱脑的中文角色卡。内容要完整但紧凑：除开场白、系统提示词和美化协议外，每个文本字段优先控制在 250—700 字；世界书保留 3—6 条真正必要的条目。
+  return `你是专业 Character Card V3 角色设计师。根据需求生成可长期扮演、逻辑自洽、不过早恋爱脑的中文角色卡。角色主体必须写成有背景纵深的人物档案，而不是精简摘要或标签集合。篇幅优先给 description、personality 与 scenario：description 建议 800—1500 字，personality 建议 500—900 字，scenario 建议 350—700 字；其他说明字段保持完整清楚即可。世界书保留 4—8 条真正影响扮演的条目。若模型输出额度有限，优先保住人物经历、性格成因和行为逻辑，不要先压缩成人设概述。
 
 用户需求：
 - 核心构想：${brief.concept.trim()}
@@ -348,21 +353,24 @@ export function buildCharacterWorkshopPrompt(brief: CharacterWorkshopBrief) {
 设计规则：
 1. 角色必须有独立目标、缺点、社会关系与行动逻辑，不能只围着用户转。
 2. 感情按阶段递进；普通接触、外貌或一次冲突不能直接变成占有欲或深爱。
-3. systemPrompt 必须锁定角色身份、知情边界、用户主权和稳定文风；不得代演用户。
-4. postHistoryInstructions 应要求先核对最近剧情、时间地点、已发生事实和未完成事项，禁止重复已完成剧情。
-5. 世界书只保留真正需要独立触发的背景、NPC、关系阶段或剧情规则，避免重复角色主体。
-6. 开场白要有具体时间、地点、局面和可回应入口，但不得替用户发言或行动。
-7. 每张新卡都必须生成 beautificationProtocol：它是开场白和后续角色回复共用的原始文本协议，默认采用“<scene> 场景栏 → 剧情正文 → <gts_status> 状态栏”的顺序。协议必须明确标签、字段、连续性、用户主权和“只输出文本标记、不输出 HTML/CSS”。开场白正文必须实际遵守这套协议，而不是只在说明里提到。
-8. 每张新卡都必须生成两条可直接运行的 regexScripts：一条匹配 <scene>...</scene>，渲染开场与每轮回复顶部的时间／地点场景栏；一条匹配 <gts_status>...</gts_status>，渲染回复末尾状态栏。两条都必须包含完整 findRegex、带 $1 的 replaceString，placement [2]（固定），disabled=false，绝不使用 3，也不得返回空数组。用户未指定风格时，默认生成透明、轻磨砂、跟随正文颜色的样式。
-9. 正则替换模板必须让无背景的剧情正文使用 color: var(--chat-text-color, #000000) 或继承颜色，不能使用 #d1d5db、#e2e8f0、#cbd5e1、#f8fafc、白色等浅色作为通用正文色；只有明确写在深色背景面板上的标题或状态字才允许使用浅色。禁止 script、iframe、事件属性、position:fixed/sticky、100vh/100dvh 固定高度和 touch-action:none。
+3. description 使用连贯叙述详细建立人物来路：家庭出身与成长环境、教育或训练、职业路径与当前社会位置、关键人生事件及后果、重要人物与资源、生活习惯或能力、现实目标和核心矛盾。信息应按时间或因果串联，不能写成“身份＋几个形容词”的简介，也不要用大段项目符号代替叙述。
+4. personality 不只列性格词，必须解释形成原因、内外反差、优缺点与自我防御，并写清他在日常、压力、冲突、亲密关系和重大选择中的行为方式、底线、习惯与说话风格，让模型能据此稳定做决定。
+5. scenario 要完整交代故事所处环境、双方过往与当前关系、开局利益格局、眼下冲突及可继续发展的剧情钩子；不要只写一句“二人重逢”或“联姻夫妻”。
+6. systemPrompt 必须锁定角色身份、知情边界、用户主权和稳定文风；不得代演用户。
+7. postHistoryInstructions 应要求先核对最近剧情、时间地点、已发生事实和未完成事项，禁止重复已完成剧情。
+8. 世界书只保留真正需要独立触发的背景、NPC、组织、关系阶段或剧情规则；角色的重要家人、事业网络和长期矛盾若会反复影响剧情，应拆成信息充分的独立条目，而不是压成一句话。
+9. 开场白要有具体时间、地点、局面和可回应入口，但不得替用户发言或行动。
+10. 每张新卡都必须生成 beautificationProtocol：它是开场白和后续角色回复共用的原始文本协议，默认采用“<scene> 场景栏 → 剧情正文 → <gts_status> 状态栏”的顺序。协议必须明确标签、字段、连续性、用户主权和“只输出文本标记、不输出 HTML/CSS”。开场白正文必须实际遵守这套协议，而不是只在说明里提到。
+11. 每张新卡都必须生成两条可直接运行的 regexScripts：一条匹配 <scene>...</scene>，渲染开场与每轮回复顶部的时间／地点场景栏；一条匹配 <gts_status>...</gts_status>，渲染回复末尾状态栏。两条都必须包含完整 findRegex、带 $1 的 replaceString，placement [2]（固定），disabled=false，绝不使用 3，也不得返回空数组。用户未指定风格时，默认生成透明、轻磨砂、跟随正文颜色的样式。
+12. 正则替换模板必须让无背景的剧情正文使用 color: var(--chat-text-color, #000000) 或继承颜色，不能使用 #d1d5db、#e2e8f0、#cbd5e1、#f8fafc、白色等浅色作为通用正文色；只有明确写在深色背景面板上的标题或状态字才允许使用浅色。禁止 script、iframe、事件属性、position:fixed/sticky、100vh/100dvh 固定高度和 touch-action:none。
 
 只输出一个 JSON 对象，不要 Markdown 代码围栏，不要解释。必须完全符合：
 {
   "name":"",
   "tagline":"不超过40字",
-  "description":"完整身份、外貌、经历、目标与矛盾",
-  "personality":"性格、行为逻辑、说话方式、优缺点",
-  "scenario":"故事背景与初始关系",
+  "description":"连贯、详细的人物档案：出身成长、教育训练、职业路径、社会位置、关键经历、重要关系、资源能力、生活习惯、目标与核心矛盾；不要写成精简概述",
+  "personality":"详细解释性格成因、内外反差、优缺点、防御方式、压力与冲突反应、亲密关系模式、底线习惯、说话方式及具体行为逻辑；不要只列标签",
+  "scenario":"完整故事环境、双方过往与当前关系、利益格局、开局冲突和可推进的剧情钩子",
   "greeting":"完整开场白",
   "alternateGreetings":["备选开场1","备选开场2"],
   "mesExample":"{{user}}：...\\n{{char}}：...",
@@ -371,7 +379,7 @@ export function buildCharacterWorkshopPrompt(brief: CharacterWorkshopBrief) {
   "postHistoryInstructions":"历史核对与连续性规则",
   "beautificationProtocol":"每轮角色回复的原始文本美化协议，必须包含 <scene>、剧情正文和 <gts_status> 的稳定顺序",
   "tags":["标签"],
-  "worldbook":[{"title":"条目名","keywords":["关键词"],"content":"精简正文","constant":false}],
+  "worldbook":[{"title":"条目名","keywords":["关键词"],"content":"足以支撑长期剧情的完整背景正文","constant":false}],
   "regexScripts":[
     {"scriptName":"透明场景时间栏","findRegex":"/<scene>([^]*?)<[/]scene>/gi","replaceString":"<div style='color:inherit;background:rgba(255,255,255,.08)'>$1</div>","placement":[2],"disabled":false,"markdownOnly":false,"promptOnly":false,"runOnEdit":true},
     {"scriptName":"透明角色状态栏","findRegex":"/<gts_status>([^]*?)<[/]gts_status>/gi","replaceString":"<div style='color:inherit;background:rgba(255,255,255,.06)'>$1</div>","placement":[2],"disabled":false,"markdownOnly":false,"promptOnly":false,"runOnEdit":true}
