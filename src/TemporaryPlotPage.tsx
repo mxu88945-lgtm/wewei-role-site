@@ -15,7 +15,7 @@ export default function TemporaryPlotPage({ value, onChange, templates, onTempla
   }
   return <section className="story-tools-page">
     <header className="story-tools-header"><button onClick={onBack} aria-label="返回聊天设置">‹</button><h2>临时剧情</h2><span>自动保存</span></header>
-    <p>仅本对话生效。下一次 @ 谁，就交给被点名的模型；单人聊天直接发送或续演即可。原文不作为聊天消息显示。</p>
+    <p>仅本对话生效。下一次 @ 谁，就作为本轮必须落实的幕后安排交给被点名的模型；单人聊天直接发送或续演即可。原文不作为聊天消息显示，其他成员也不会收到。</p>
     <label>下一次回复的幕后安排<textarea rows={12} value={value} onChange={(event) => onChange(event.target.value)} placeholder="例如：让他接到一通紧急电话，发现之前忽略的线索……" /></label>
     <div className="story-tools-actions"><button disabled={!value} onClick={() => onChange('')}>清空 / 取消</button></div>
     <p>成功回复后清空；失败或停止时保留。一次 @ 多人时，所有被点名的角色读取本次安排。生成期间的新修改留给下一轮。</p>

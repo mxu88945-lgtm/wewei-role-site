@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { captureTemporaryPlot, consumeTemporaryPlot } from './temporaryPlot'
+import { captureTemporaryPlot, consumeTemporaryPlot, withFinalTemporaryPlotInstruction } from './temporaryPlot'
 import { createFreshConversationFrom, restartConversationInPlace, type Conversation } from './conversationLifecycle'
 
 const conversation: Conversation = { id: 'chat', characterId: 'a', title: '对话', createdAt: 1, updatedAt: 1, messages: [{ id: 1, role: 'assistant', text: '开场' }], temporaryPlot: { id: 'draft-1', text: '他接到电话' } }
@@ -11,6 +11,28 @@ describe('one-shot backstage plot', () => {
     expect(captureTemporaryPlot(group, false)).toBeUndefined()
     expect(captureTemporaryPlot(group, true)?.text).toBe('他接到电话')
     expect(captureTemporaryPlot({ ...conversation, temporaryPlot: { id: 'empty', text: '  ' } }, true)).toBeUndefined()
+  })
+  it('places a private mandatory direction at the absolute request boundary', () => {
+    const base = [
+      { role: 'system' as const, content: '角色卡' },
+      { role: 'user' as const, content: '继续。' },
+      { role: 'system' as const, content: '导演与格式最终校验' },
+    ]
+    const directed = withFinalTemporaryPlotInstruction(base, '让他接到紧急电话', '沈衍', '惟惟')
+    const finalInstruction = directed[directed.length - 1]
+    expect(directed).not.toBe(base)
+    expect(base).toHaveLength(3)
+    expect(finalInstruction?.role).toBe('system')
+    expect(finalInstruction?.content).toContain('临时剧情执行令｜仅本轮、最高执行优先级')
+    expect(finalInstruction?.content).toContain('不是参考资料、可选建议或未来备忘')
+    expect(finalInstruction?.content).toContain('本次回复必须')
+    expect(finalInstruction?.content).toContain('只有本次被点名的「沈衍」收到')
+    expect(finalInstruction?.content).toContain('未被 @ 的群聊成员不得因此获得后台知情')
+    expect(finalInstruction?.content).toContain('惟惟只由真实用户控制')
+    expect(finalInstruction?.content).toContain('让他接到紧急电话')
+    expect(directed.filter((message) => message.role === 'user')).toEqual([{ role: 'user', content: '继续。' }])
+    expect(directed.filter((message) => message.role === 'assistant')).toEqual([])
+    expect(withFinalTemporaryPlotInstruction(base, '  ', '沈衍', '惟惟')).toBe(base)
   })
   it('keeps drafts until explicitly consumed after success and leaves visible history untouched', () => {
     const captured = captureTemporaryPlot(conversation, false)

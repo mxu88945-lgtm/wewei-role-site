@@ -13,7 +13,7 @@ import { createBlankCharacter, importCharacterCard, normalizeStoredCharacter, ty
 import { activeCharacterMemory, characterMemoryEntryFromConversation, characterMemoryExtractionPrompt, characterMemorySummaryProtocol, parseCharacterMemoryCandidates, splitCharacterMemorySummary } from './characterMemory'
 import { ChatApiError, completeChat, fetchApiModels, testApiConnection, type ApiConfig, type ApiModel } from './chatApi'
 import { buildChatPrompt } from './promptBuilder'
-import { captureTemporaryPlot, consumeTemporaryPlot } from './temporaryPlot'
+import { captureTemporaryPlot, consumeTemporaryPlot, withFinalTemporaryPlotInstruction } from './temporaryPlot'
 import { resolveChatScrollTarget, type ChatScrollSnapshot } from './chatScroll'
 import { createApiChannel, isApiChannelComplete, normalizeApiChannels, resolveApiChannel, withApiModel, type ApiChannel } from './apiChannels'
 import { enabledPresetText, normalizePresetSections } from './presetConfig'
@@ -1779,7 +1779,7 @@ function App() {
     })
     const hasValidContextSummary = Boolean(conversation.contextSummary && (conversation.contextSummaryRevision || 0) === (conversation.historyRevision || 0))
     let promptStats = { memoryCount: 0, historyCount: 0 }
-    const promptMessages = buildChatPrompt({
+    let promptMessages = buildChatPrompt({
       onDiagnostics: (stats) => { promptStats = stats },
       character: capturedCharacter,
       user: identity,
@@ -1788,7 +1788,6 @@ function App() {
       globalWorldbook: worldbook,
       theaterWorldBackground: conversation.theaterWorldBackground || '',
       storyProjectContext,
-      temporaryPlot: capturedTemporaryPlot?.text,
       sceneContinuityAnchor,
       actorContinuityAnchor,
       memory: { entries: capturedMemories, injectPosition: capturedMemoryConfig.injectPosition, injectPrompt: capturedMemoryConfig.injectPrompt },
@@ -1816,6 +1815,15 @@ function App() {
         content: `请让${speaker.name}从上一条回复的结束处自然续演并推进当前剧情。不要复述已经写过的内容，不要替用户新增台词、动作、心理或关键选择，不要提及本条续演指令。`,
       })
     }
+    // This must be the final outbound instruction.  In particular, director
+    // and status-format guards must not push a one-shot user direction into a
+    // weaker, earlier context position where some models silently ignore it.
+    promptMessages = withFinalTemporaryPlotInstruction(
+      promptMessages,
+      capturedTemporaryPlot?.text,
+      speaker.name,
+      identity.name,
+    )
     return { promptMessages, promptStats, capturedCharacter, capturedMemoryConfig, capturedMemories, isGroup, isDirector, statusTag, requiresCharacterStatus, groupNames, storedRelationshipStage, capturedTemporaryPlot }
   }
 
