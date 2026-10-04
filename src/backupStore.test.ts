@@ -73,4 +73,17 @@ describe('complete two-store backup and restore', () => {
     await restoreBackupData(file({ 'weijing.conversations': '[]', 'weijing.characters': '[]' }), storage)
     expect(await durableGet('weijing.conversations')).toEqual([])
   })
+  it('backs up and restores independent wallpapers together with their opacity and enabled state', async () => {
+    const wallpapers = {
+      'character:a': { enabled: true, source: 'image', image: 'data:image/jpeg;base64,a', imageOpacity: .6, color: '#ffffff', colorOpacity: 0 },
+      'conversation:group': { enabled: false, source: 'avatar', image: '', imageOpacity: 1, color: '#112233', colorOpacity: .5 },
+    }
+    await durableSet('weijing.chatWallpapers', wallpapers)
+    const exported = await collectBackupData({}, storage)
+    expect(JSON.parse(exported['weijing.chatWallpapers'])).toEqual(wallpapers)
+    await restoreBackupData(file(exported), storage)
+    expect(await durableGet('weijing.chatWallpapers')).toEqual(wallpapers)
+    expect(storage.getItem('weijing.chatWallpapers')).toBeNull()
+    expect(() => parseBackup(file({ 'weijing.chatWallpapers': '[]' }))).toThrow('壁纸')
+  })
 })

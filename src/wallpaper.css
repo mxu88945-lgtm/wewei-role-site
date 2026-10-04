@@ -1,0 +1,26 @@
+.wallpaper-layers { position: absolute; inset: 0; pointer-events: none; overflow: hidden; }
+.wallpaper-image, .wallpaper-color { position: absolute; inset: 0; }
+.wallpaper-image { background-position: center; background-size: cover; background-repeat: no-repeat; }
+.wallpaper-settings { padding: 20px; }
+.wallpaper-heading { display: flex; align-items: center; justify-content: space-between; gap: 14px; }
+.wallpaper-heading strong, .wallpaper-heading small { display: block; }
+.wallpaper-heading small { margin-top: 6px; color: #837d89; font-size: 12px; line-height: 1.5; }
+.wallpaper-note { font-size: 12px; color: #837d89; line-height: 1.65; }
+.wallpaper-controls { border: 0; padding: 0; margin: 0; min-width: 0; display: grid; gap: 18px; }
+.wallpaper-controls > label { display: grid; gap: 10px; font-size: 14px; font-weight: 700; }
+.wallpaper-controls select { width: 100%; border: 0; border-radius: 14px; padding: 12px; color: inherit; background: #faf9fb; }
+.wallpaper-controls .appearance-actions { display: flex; flex-wrap: wrap; gap: 10px; }
+.wallpaper-upload input { display: none; }
+.wallpaper-range { grid-template-columns: 1fr auto; }
+.wallpaper-range input { grid-column: 1 / -1; width: 100%; accent-color: var(--theme-accent-strong, #8150e7); }
+.wallpaper-range output { font-variant-numeric: tabular-nums; }
+.wallpaper-controls > .wallpaper-color-picker { grid-template-columns: 1fr auto auto; align-items: center; }
+.wallpaper-color-picker input { width: 42px; height: 34px; border: 0; padding: 0; background: transparent; }
+.wallpaper-color-picker span { font-size: 12px; font-variant-numeric: tabular-nums; }
+.wallpaper-preview { position: relative; isolation: isolate; min-height: 200px; border-radius: 20px; overflow: hidden; }
+.wallpaper-preview-content { position: relative; padding: 18px; display: grid; gap: 16px; color: var(--chat-text-color, #4e4852); }
+.wallpaper-preview-content small { background: rgba(255,255,255,.8); border-radius: 12px; padding: 8px 12px; width: fit-content; max-width: 100%; }
+.wallpaper-preview-content p { margin: 0; padding: 12px 14px; border-radius: 16px; background: rgba(255,255,255,.8); width: fit-content; }
+.wallpaper-preview-content > span { margin-left: auto; padding: 12px 14px; border-radius: 16px; background: rgba(245,238,250,.85); font-size: 14px; }
+.chat-canvas > .wallpaper-layers { z-index: -1; }
+.appearance-preview.wallpaper-preview { display: block; padding: 0; }

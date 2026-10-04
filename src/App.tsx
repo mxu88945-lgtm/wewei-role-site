@@ -37,6 +37,8 @@ import { planContextCompression, uncompressedMessages } from './contextCompressi
 import { findLatestActorContinuityAnchor, findLatestSceneContinuityAnchor } from './actorContinuity'
 import ReplyHelperSettingsPage from './ReplyHelperSettingsPage'
 import StoryScriptsPage from './StoryScriptsPage'
+import WallpaperSettings, { WallpaperLayers } from './WallpaperSettings'
+import { migrateLegacyWallpaper, normalizeWallpaper, normalizeWallpapers, readWallpaperImage, WALLPAPERS_KEY, WallpaperUploadTickets, wallpaperScopeKey, type ChatWallpaper, type ChatWallpapers } from './chatWallpaper'
 import { buildStoryVariablesPrompt, runStoryScript } from './storyScripts'
 import { addConversationParticipant, createFreshConversationFrom, removeConversationParticipant, restartConversationInPlace, type Conversation, type ConversationContextSnapshot, type Message } from './conversationLifecycle'
 import { appendReplyAlternative, captureConversationContext, contextAtMessage, forkConversationAtMessage, projectContextFromSnapshot, replyAlternatives, restoreConversationContext, selectReplyAlternative, storeContextSnapshot } from './conversationBranches'
@@ -240,21 +242,6 @@ async function imageThumbnail(file: File, size = 256) {
   return canvas.toDataURL('image/jpeg', .82)
 }
 
-async function backgroundImageData(file: File, maxEdge = 1600) {
-  const bitmap = await createImageBitmap(file)
-  const scale = Math.min(1, maxEdge / Math.max(bitmap.width, bitmap.height))
-  const canvas = document.createElement('canvas')
-  canvas.width = Math.max(1, Math.round(bitmap.width * scale))
-  canvas.height = Math.max(1, Math.round(bitmap.height * scale))
-  const context = canvas.getContext('2d')
-  if (!context) return ''
-  context.fillStyle = '#f7f3fa'
-  context.fillRect(0, 0, canvas.width, canvas.height)
-  context.drawImage(bitmap, 0, 0, canvas.width, canvas.height)
-  bitmap.close()
-  return canvas.toDataURL('image/jpeg', .84)
-}
-
 function downloadJson(filename: string, value: unknown) {
   const blob = new Blob([JSON.stringify(value, null, 2)], { type: 'application/json' })
   const url = URL.createObjectURL(blob)
@@ -418,7 +405,12 @@ function App() {
   const [chatBaseColor, setChatBaseColor] = useState(() => read('weijing.chatBaseColor', '#f5f1f8'))
   const [chatTheme, setChatTheme] = useState<ChatThemeMode>(() => read('weijing.chatTheme', 'mist'))
   const [chatBackgroundFrost, setChatBackgroundFrost] = useState(() => read('weijing.chatBackgroundFrost', .72))
-  const [chatBackground, setChatBackground] = useState('')
+  const [chatWallpapers, setChatWallpapers] = useState<ChatWallpapers>(() => normalizeWallpapers(read(WALLPAPERS_KEY, undefined)))
+  const [wallpaperUploads, setWallpaperUploads] = useState<Record<string, { busy: boolean; message: string }>>({})
+  const [wallpaperStorageError, setWallpaperStorageError] = useState('')
+  const [wallpaperHydrationReady, setWallpaperHydrationReady] = useState(false)
+  const wallpaperUploadTickets = useRef(new WallpaperUploadTickets())
+  const legacyWallpaperClearedRef = useRef(false)
   const [petEnabled, setPetEnabled] = useState(() => read('weijing.petEnabled', true))
   const [petVariant, setPetVariant] = useState<PetVariant>(() => read('weijing.petVariant', 'bird'))
   const [petPosition, setPetPosition] = useState<{ x: number; y: number }>(() => read('weijing.petPosition', { x: .86, y: .7 }))
@@ -460,6 +452,7 @@ function App() {
   const generationRollbacks = useRef(new Map<string, { controller: AbortController; conversation: Conversation }>())
   const conversationsRef = useRef(conversations)
   conversationsRef.current = conversations
+  const wallpaperStartupRef = useRef({ characters, conversations, activeConversationId, activeId, chatBackgroundFrost })
   const memoryRunsRef = useRef(new Map<string, AbortController>())
   const conversationStopRevisions = useRef(new Map<string, number>())
   const continuityRunningProjectIds = useRef(new Set<string>())
@@ -476,6 +469,8 @@ function App() {
   )
   const activeConversation = (explicitConversation?.kind === 'group' ? explicitConversation : conversations.find((item) => item.id === activeConversationId && item.characterId === activeCharacter.id))
     || conversations.filter((item) => item.characterId === activeCharacter.id).sort((a, b) => b.updatedAt - a.updatedAt)[0]
+  const wallpaperKey = wallpaperScopeKey(activeConversation, activeCharacter.id)
+  const currentWallpaper = normalizeWallpaper(chatWallpapers[wallpaperKey], chatBaseColor)
   const identity = identities.find((item) => item.id === activeConversation?.personaId) || identities.find((item) => item.id === activePersonaId) || identities[0] || { id: 'persona-default', name: '周惟惟', description: '由用户亲自决定言行、心理与关键选择。' }
   const sourceGroupConversation = conversations.find((item) => item.id === newConversationSourceId && item.kind === 'group')
   const groupGreetingCharacters = (sourceGroupConversation?.participantIds || groupDraft.participantIds).map((id) => characters.find((item) => item.id === id)).filter(Boolean) as Character[]
@@ -631,15 +626,36 @@ function App() {
       setConversations((current) => current.map((item) => item.id === activeConversation.id ? { ...item, themePresetId: preset.id, themeFrost: preset.frost } : item))
     }
   }
-  const updateChatBackgroundFrost = (value: number) => {
-    setChatBackgroundFrost(value)
-    write('weijing.chatBackgroundFrost', value)
-    if (activeConversation) {
-      // Keep the frequently adjusted slider value synchronous. Conversation records
-      // are persisted asynchronously and rapid range updates can otherwise be read
-      // back out of order after leaving the appearance page.
-      write(conversationFrostKey(activeConversation.id), value)
-      setConversations((current) => current.map((item) => item.id === activeConversation.id ? { ...item, themeFrost: value } : item))
+  const updateChatWallpaper = (patch: Partial<ChatWallpaper>) => {
+    if (!wallpaperHydrationReady) return
+    if ('source' in patch || 'image' in patch || 'enabled' in patch) {
+      wallpaperUploadTickets.current.begin(wallpaperKey)
+      setWallpaperUploads((current) => ({ ...current, [wallpaperKey]: { busy: false, message: '' } }))
+    }
+    setChatWallpapers((current) => ({ ...current, [wallpaperKey]: normalizeWallpaper({ ...normalizeWallpaper(current[wallpaperKey], chatBaseColor), ...patch }, chatBaseColor) }))
+  }
+  const resetChatWallpaper = () => {
+    if (!wallpaperHydrationReady) return
+    wallpaperUploadTickets.current.begin(wallpaperKey)
+    setWallpaperUploads((current) => ({ ...current, [wallpaperKey]: { busy: false, message: '' } }))
+    setChatWallpapers((current) => { const next = { ...current }; delete next[wallpaperKey]; return next })
+  }
+  const uploadChatWallpaper = async (file: File) => {
+    if (!wallpaperHydrationReady) return
+    // Capture before decoding: navigating to another chat must never redirect
+    // an in-flight image to the newly selected character/group.
+    const scope = wallpaperKey
+    const themeColor = chatBaseColor
+    const ticket = wallpaperUploadTickets.current.begin(scope)
+    setWallpaperUploads((current) => ({ ...current, [scope]: { busy: true, message: '正在处理图片…' } }))
+    try {
+      const image = await readWallpaperImage(file)
+      if (!wallpaperUploadTickets.current.isCurrent(scope, ticket)) return
+      setChatWallpapers((current) => ({ ...current, [scope]: normalizeWallpaper({ ...normalizeWallpaper(current[scope], themeColor), image, source: 'image', enabled: true }, themeColor) }))
+      setWallpaperUploads((current) => ({ ...current, [scope]: { busy: false, message: '图片已载入，会自动保存到这份独立壁纸。' } }))
+    } catch (error) {
+      if (!wallpaperUploadTickets.current.isCurrent(scope, ticket)) return
+      setWallpaperUploads((current) => ({ ...current, [scope]: { busy: false, message: error instanceof Error ? error.message : '图片处理失败，请重新选择。' } }))
     }
   }
   const duplicateCurrentTheme = () => {
@@ -660,8 +676,8 @@ function App() {
     let cancelled = false
     Promise.all([
       durableGet<Partial<Character>[]>('weijing.characters'), durableGet<Conversation[]>('weijing.conversations'),
-      durableGet<UserIdentity[]>('weijing.identities'), durableGet<UserIdentity>('weijing.identity'), durableGet<MemoryConfigMap>('weijing.memoryConfigs'), durableGet<MemoryEntryMap>('weijing.memoryEntries'), durableGet<string>('weijing.chatBackground'), durableGet<ApiConfig>('weijing.globalMemoryApi'), durableGet<StoryProject[]>('weijing.storyProjects'), durableGet<PlotTemplate[]>('weijing.plotTemplates'),
-    ]).then(([storedCharacters, storedConversations, storedIdentities, storedIdentity, storedConfigs, storedEntries, storedBackground, storedGlobalMemoryApi, storedStoryProjects, storedPlotTemplates]) => {
+      durableGet<UserIdentity[]>('weijing.identities'), durableGet<UserIdentity>('weijing.identity'), durableGet<MemoryConfigMap>('weijing.memoryConfigs'), durableGet<MemoryEntryMap>('weijing.memoryEntries'), durableGet<string>('weijing.chatBackground'), durableGet<ApiConfig>('weijing.globalMemoryApi'), durableGet<StoryProject[]>('weijing.storyProjects'), durableGet<PlotTemplate[]>('weijing.plotTemplates'), durableGet<ChatWallpapers>(WALLPAPERS_KEY),
+    ]).then(([storedCharacters, storedConversations, storedIdentities, storedIdentity, storedConfigs, storedEntries, storedBackground, storedGlobalMemoryApi, storedStoryProjects, storedPlotTemplates, storedWallpapers]) => {
       if (cancelled) return
       if (storedCharacters) setCharacters(storedCharacters.map(normalizeStoredCharacter))
       if (storedConversations) {
@@ -672,12 +688,20 @@ function App() {
       else if (storedIdentity) setIdentities([{ ...storedIdentity, id: storedIdentity.id || 'persona-default' }])
       if (storedConfigs) setMemoryConfigs(migrateMemoryConfigs(storedConfigs))
       if (storedEntries) setMemoryEntries(storedEntries)
-      if (storedBackground) setChatBackground(storedBackground)
+      const startup = wallpaperStartupRef.current
+      const loadedCharacters = (storedCharacters || startup.characters).map(normalizeStoredCharacter)
+      const loadedConversations = storedConversations || startup.conversations
+      const loadedExplicit = loadedConversations.find((item) => item.id === startup.activeConversationId)
+      const loadedCharacterId = loadedCharacters.some((item) => item.id === startup.activeId) ? startup.activeId : loadedCharacters[0]?.id || demoCharacter.id
+      const loadedConversation = loadedExplicit?.kind === 'group' ? loadedExplicit : loadedConversations.find((item) => item.id === startup.activeConversationId && item.characterId === loadedCharacterId) || loadedConversations.filter((item) => item.characterId === loadedCharacterId).sort((a, b) => b.updatedAt - a.updatedAt)[0]
+      const legacyFrost = loadedConversation ? read(conversationFrostKey(loadedConversation.id), loadedConversation.themeFrost ?? startup.chatBackgroundFrost) : startup.chatBackgroundFrost
+      setChatWallpapers(migrateLegacyWallpaper(storedWallpapers ?? read(WALLPAPERS_KEY, undefined), storedBackground ?? read('weijing.chatBackground', ''), wallpaperScopeKey(loadedConversation, loadedCharacterId), legacyFrost))
+      setWallpaperHydrationReady(true)
       if (storedGlobalMemoryApi) setGlobalMemoryApi(storedGlobalMemoryApi)
       if (storedStoryProjects) setStoryProjects(normalizeStoryProjects(storedStoryProjects))
       if (storedPlotTemplates) setPlotTemplates(storedPlotTemplates)
       setPersistenceReady(true)
-    }).catch(() => setPersistenceReady(true))
+    }).catch(() => { setPersistenceReady(true); setWallpaperStorageError('壁纸设置未能读取，请刷新后重试；旧壁纸数据仍保留。') })
     navigator.storage?.estimate().then(({ usage = 0, quota = 0 }) => setStorageUsage(`${(usage / 1048576).toFixed(1)} MB / ${(quota / 1048576).toFixed(0)} MB`))
     return () => { cancelled = true }
   }, [])
@@ -751,11 +775,26 @@ function App() {
     write('weijing.chatBaseColor', chatBaseColor)
     write('weijing.chatBackgroundFrost', chatBackgroundFrost)
   }, [chatFontSize, chatTextColor, chatNarrationColor, chatQuoteColor, chatBaseColor, chatBackgroundFrost])
-  useEffect(() => { if (persistenceReady) writeDurable('weijing.chatBackground', chatBackground) }, [chatBackground, persistenceReady])
   useEffect(() => {
-    const bytes = new Blob([JSON.stringify({ characters, conversations, identities, storyProjects, globalMemoryApi, memoryConfigs, memoryEntries, chatBackground, plotTemplates })]).size
+    if (!persistenceReady || !wallpaperHydrationReady) return
+    let current = true
+    void durableSet(WALLPAPERS_KEY, chatWallpapers).then(() => {
+      if (!current) return
+      setWallpaperStorageError('')
+      try { localStorage.removeItem(WALLPAPERS_KEY) } catch { /* Database copy is saved. */ }
+      if (!legacyWallpaperClearedRef.current) {
+        legacyWallpaperClearedRef.current = true
+        // Clear the old shared image only after the independent map is durable.
+        try { localStorage.removeItem('weijing.chatBackground') } catch { /* Migration remains authoritative. */ }
+        void durableSet('weijing.chatBackground', '').catch((error) => console.error('旧壁纸清理失败', error))
+      }
+    }).catch(() => { if (current) setWallpaperStorageError('壁纸尚未保存成功，请检查设备储存空间后重试；当前预览仍保留。') })
+    return () => { current = false }
+  }, [chatWallpapers, persistenceReady, wallpaperHydrationReady])
+  useEffect(() => {
+    const bytes = new Blob([JSON.stringify({ characters, conversations, identities, storyProjects, globalMemoryApi, memoryConfigs, memoryEntries, chatWallpapers, plotTemplates })]).size
     setAppDataUsage(bytes < 1048576 ? `${(bytes / 1024).toFixed(0)} KB` : `${(bytes / 1048576).toFixed(2)} MB`)
-  }, [characters, conversations, identities, storyProjects, globalMemoryApi, memoryConfigs, memoryEntries, chatBackground, plotTemplates])
+  }, [characters, conversations, identities, storyProjects, globalMemoryApi, memoryConfigs, memoryEntries, chatWallpapers, plotTemplates])
   useEffect(() => {
     document.documentElement.classList.toggle('chat-layout-flat', chatLayout === 'flat')
     return () => document.documentElement.classList.remove('chat-layout-flat')
@@ -2560,7 +2599,7 @@ function App() {
     <input ref={fileInputRef} className="hidden-file-input" type="file" accept="image/png,.png,application/json,.json" onChange={(event) => handleCharacterFile(event.target.files?.[0])} />
     <input ref={conversationTxtInputRef} className="hidden-file-input" type="file" accept="text/plain,.txt" onChange={(event) => { void importConversationTxt(event.target.files?.[0]) }} />
     {page === 'story-projects' && <StoryProjectManager projects={storyProjects} characters={characters} conversations={conversations} identities={identities} api={api} apiChannels={apiChannels} onBack={goBack} onChange={setStoryProjects} />}
-    {page === 'chat' && <div className="chat-background" style={{ backgroundImage: chatBackground ? `url(${JSON.stringify(chatBackground)})` : undefined, '--chat-background-frost': chatBackgroundFrost } as React.CSSProperties} />}
+    {page === 'chat' && <WallpaperLayers key={wallpaperKey} wallpaper={currentWallpaper} avatar={activeCharacter.avatar} themeColor={chatBaseColor} />}
     {page === 'home' && <section className="home-dashboard">
       <header className="home-heading"><p className="eyebrow">WeiWei Role</p><h1>{pageTitle}</h1><p>选择今天要进入的空间。</p></header>
       <div className="home-entrances">
@@ -2654,8 +2693,8 @@ function App() {
     {page === 'memory-list' && <><BackHeader title={`${activeConversation?.title || activeCharacter.name} · 记忆库`} onBack={goBack} /><section className="content-stack"><div className="privacy-note">这份记忆只属于当前对话。历史改写后，旧分支记忆会保留但不再注入新分支。</div>{currentMemories.length === 0 ? <div className="empty-memory"><span>✦</span><strong>{archivedMemories.length ? '当前分支还没有已启用记忆' : '还没有长期记忆'}</strong><p>{archivedMemories.length ? '旧分支记忆仍在下方，确认后可逐条复制回来。' : '返回上一页，配置总结 API 后可立即总结当前对话。'}</p></div> : currentMemories.slice().reverse().map((entry) => <article className={`memory-entry ${entry.pinned ? 'pinned' : ''}`} key={entry.id}><div><strong>{entry.pinned ? '★ 核心 · ' : entry.consolidated ? '阶段整理 · ' : ''}{entry.title}</strong><small>{new Date(entry.createdAt).toLocaleString()} · 来源 {entry.sourceCount} 条消息</small></div><textarea rows={8} value={entry.content} onChange={(e) => updateCurrentMemories((entries) => entries.map((item) => item.id === entry.id ? { ...item, content: e.target.value } : item))} /><div className="memory-entry-actions"><button className="soft-button" disabled={isMemoryFixedToCharacter(entry)} onClick={() => promoteMemoryToCharacter(entry)}>{isMemoryFixedToCharacter(entry) ? '已固定到角色卡' : '固定到角色卡'}</button><button className="soft-button" onClick={() => updateCurrentMemories((entries) => entries.map((item) => item.id === entry.id ? { ...item, pinned: !item.pinned } : item))}>{entry.pinned ? '取消核心' : '设为核心记忆'}</button><button className="danger-link" onClick={() => updateCurrentMemories((entries) => entries.filter((item) => item.id !== entry.id))}>删除</button></div></article>)}{archivedMemories.length > 0 && <div className="memory-archive-section"><div className="privacy-note"><strong>历史分支记忆（{archivedMemories.length}）</strong><br />这些内容没有被删除，只因对话改写而停止注入。确认仍适用于当前剧情后，可以复制回当前分支，也可以直接固定到角色卡。</div>{archivedMemories.slice().reverse().map((entry) => { const restored = Boolean(entry.id && currentMemories.some((item) => item.restoredFromId === entry.id)); return <article className="memory-entry archived" key={`archived-${entry.historyRevision || 0}-${entry.id}`}><div><strong>历史分支 · {entry.title}</strong><small>{new Date(entry.createdAt).toLocaleString()} · 来源 {entry.sourceCount} 条消息 · 分支版本 {entry.historyRevision || 0}</small></div><textarea rows={8} value={entry.content} readOnly /><div className="memory-entry-actions"><button className="soft-button" disabled={isMemoryFixedToCharacter(entry)} onClick={() => promoteMemoryToCharacter(entry)}>{isMemoryFixedToCharacter(entry) ? '已固定到角色卡' : '固定到角色卡'}</button><button className="soft-button" disabled={restored} onClick={() => restoreArchivedMemory(entry)}>{restored ? '已复制到当前分支' : '复制到当前分支'}</button></div></article> })}</div>}</section></>}
 
     {page === 'model' && <><BackHeader title="模型设置" onBack={goBack} /><section className="settings-stack compact-settings"><div className="settings-group range-group"><RangeRow label="记忆长度" value={memoryLength} min={10} max={100} step={1} onChange={setMemoryLength} /><RangeRow label="回复令牌限制" hint={`当前最多请求 ${maxTokens} 个输出令牌`} value={maxTokens} min={1000} max={64000} step={1000} onChange={setMaxTokens} /></div><div className="settings-group range-group"><RangeRow label="温度" value={temperature} min={0} max={2} step={0.05} onChange={setTemperature} /><RangeRow label="Top-P" value={topP} min={0} max={1} step={0.05} onChange={setTopP} /></div><div className="settings-group toggle-row"><div><strong>流式传输</strong><small>立即逐字显示回复</small></div><button className={`switch ${streaming ? 'on' : ''}`} onClick={() => setStreaming(!streaming)}><span /></button></div></section></>}
-    {page === 'settings' && <><BackHeader title="应用设置" onBack={goBack} /><section className="settings-stack compact-settings"><div className="storage-health-card"><div><strong>本地数据保险库</strong><small>惟境真实数据：{appDataUsage}</small><small>Safari 站点总占用：{storageUsage}（含 PWA 缓存与系统预留，刷新波动不代表聊天重复增长）</small></div><span>{appDataUsage}</span></div><div className="settings-group"><button onClick={() => navigate('appearance')}><span>外观 · 自定义主题</span><span>›</span></button><button><span>语言 · 简体中文</span><span>›</span></button><button onClick={() => navigate('font')}><span>字体 · 界面 {uiFontScale}% / 正文 {chatFontSize}px</span><span>›</span></button></div><BackupCard disabled={!persistenceReady || generatingIds.length > 0 || memoryState === 'summarizing' || compressingContext || continuityRunningProjectIds.current.size > 0} liveData={{ 'weijing.characters': characters, 'weijing.conversations': conversations, 'weijing.identities': identities, 'weijing.memoryConfigs': memoryConfigs, 'weijing.memoryEntries': memoryEntries, 'weijing.globalMemoryApi': globalMemoryApi, 'weijing.storyProjects': storyProjects, 'weijing.chatBackground': chatBackground, 'weijing.plotTemplates': plotTemplates }} /><UpdateCard /></section></>}
-    {page === 'appearance' && <><BackHeader title="主题与背景" onBack={goBack} action={<button className="soft-button" onClick={() => { applyThemePreset(builtInThemes[0]); setChatBackground('') }}>恢复默认</button>} /><section className="settings-stack appearance-page compact-settings"><div className="theme-choice-card"><div><strong>主题库</strong><small>点“使用”绑定当前聊天；复制后可重命名或删除，不会影响其他窗口。</small></div><div className="theme-choice-grid">{builtInThemes.map((preset) => <button key={preset.id} className={`${activeConversation?.themePresetId === preset.id ? 'active ' : ''}${preset.mode}`} onClick={() => applyThemePreset(preset)}><i style={{ background: preset.baseColor }} /><span><strong>{preset.name}</strong><small>{activeConversation?.themePresetId === preset.id ? '✓ 当前使用' : '点按使用'}</small></span></button>)}</div>{customThemes.length > 0 && <div className="custom-theme-list">{customThemes.map((preset) => <article key={preset.id} className={activeConversation?.themePresetId === preset.id ? 'active' : ''}><button className="custom-theme-use" onClick={() => applyThemePreset(preset)}><i style={{ background: `linear-gradient(135deg, ${preset.baseColor}, ${preset.textColor})` }} /><span><strong>{preset.name}</strong><small>{activeConversation?.themePresetId === preset.id ? '✓ 当前聊天正在使用' : '使用这个主题'}</small></span></button><div className="custom-theme-actions"><button onClick={() => renameCustomTheme(preset)}>改名</button><button className="danger" onClick={() => deleteCustomTheme(preset)}>删除</button></div></article>)}</div>}<button className="duplicate-theme-button" onClick={duplicateCurrentTheme}>＋ 复制当前配色为我的主题</button></div><div className="appearance-preview theme-preview" style={{ color: chatTextColor, backgroundColor: chatBaseColor, backgroundImage: chatBackground ? `linear-gradient(rgba(255,255,255,${chatBackgroundFrost}),rgba(255,255,255,${chatBackgroundFrost})),url(${JSON.stringify(chatBackground)})` : undefined }}><small>当前聊天预览</small><p>每段聊天可以使用不同主题，不会覆盖其他窗口。</p></div><div className="appearance-card"><label className="appearance-color-row"><div><strong>背景底色</strong><small>{chatBaseColor}</small></div><input type="color" value={chatBaseColor} onChange={(event) => setChatBaseColor(event.target.value)} /></label></div><div className="appearance-card background-card"><div><strong>聊天背景图</strong><small>图片会压缩并保存在本机 IndexedDB，不上传仓库。</small></div>{chatBackground && <div className="background-preview" style={{ backgroundImage: `url(${JSON.stringify(chatBackground)})` }} />}<div className="appearance-actions"><label className="primary-button">选择背景图<input type="file" accept="image/*" onChange={async (event) => { const file = event.target.files?.[0]; if (file) setChatBackground(await backgroundImageData(file)); event.currentTarget.value = '' }} /></label>{chatBackground && <button className="secondary-button" onClick={() => setChatBackground('')}>移除背景</button>}</div>{chatBackground && <RangeRow label="背景白纱" hint="数值越高，文字越清楚" value={chatBackgroundFrost} min={0} max={.92} step={.04} onChange={updateChatBackgroundFrost} />}</div><PetSettings enabled={petEnabled} variant={petVariant} onEnabledChange={setPetEnabled} onVariantChange={setPetVariant} onReset={() => setPetPosition({ x: .86, y: .7 })} /></section></>}
+    {page === 'settings' && <><BackHeader title="应用设置" onBack={goBack} /><section className="settings-stack compact-settings"><div className="storage-health-card"><div><strong>本地数据保险库</strong><small>惟境真实数据：{appDataUsage}</small><small>Safari 站点总占用：{storageUsage}（含 PWA 缓存与系统预留，刷新波动不代表聊天重复增长）</small></div><span>{appDataUsage}</span></div><div className="settings-group"><button onClick={() => navigate('appearance')}><span>外观 · 自定义主题</span><span>›</span></button><button><span>语言 · 简体中文</span><span>›</span></button><button onClick={() => navigate('font')}><span>字体 · 界面 {uiFontScale}% / 正文 {chatFontSize}px</span><span>›</span></button></div><BackupCard disabled={!persistenceReady || !wallpaperHydrationReady || generatingIds.length > 0 || memoryState === 'summarizing' || compressingContext || continuityRunningProjectIds.current.size > 0} liveData={{ 'weijing.characters': characters, 'weijing.conversations': conversations, 'weijing.identities': identities, 'weijing.memoryConfigs': memoryConfigs, 'weijing.memoryEntries': memoryEntries, 'weijing.globalMemoryApi': globalMemoryApi, 'weijing.storyProjects': storyProjects, 'weijing.chatWallpapers': chatWallpapers, 'weijing.chatBackground': '', 'weijing.plotTemplates': plotTemplates }} /><UpdateCard /></section></>}
+    {page === 'appearance' && <><BackHeader title="主题与背景" onBack={goBack} action={<button className="soft-button" onClick={() => { applyThemePreset(builtInThemes[0]); resetChatWallpaper() }}>恢复默认</button>} /><section className="settings-stack appearance-page compact-settings"><div className="theme-choice-card"><div><strong>主题库</strong><small>点“使用”绑定当前聊天；复制后可重命名或删除，不会影响其他窗口。</small></div><div className="theme-choice-grid">{builtInThemes.map((preset) => <button key={preset.id} className={`${activeConversation?.themePresetId === preset.id ? 'active ' : ''}${preset.mode}`} onClick={() => applyThemePreset(preset)}><i style={{ background: preset.baseColor }} /><span><strong>{preset.name}</strong><small>{activeConversation?.themePresetId === preset.id ? '✓ 当前使用' : '点按使用'}</small></span></button>)}</div>{customThemes.length > 0 && <div className="custom-theme-list">{customThemes.map((preset) => <article key={preset.id} className={activeConversation?.themePresetId === preset.id ? 'active' : ''}><button className="custom-theme-use" onClick={() => applyThemePreset(preset)}><i style={{ background: `linear-gradient(135deg, ${preset.baseColor}, ${preset.textColor})` }} /><span><strong>{preset.name}</strong><small>{activeConversation?.themePresetId === preset.id ? '✓ 当前聊天正在使用' : '使用这个主题'}</small></span></button><div className="custom-theme-actions"><button onClick={() => renameCustomTheme(preset)}>改名</button><button className="danger" onClick={() => deleteCustomTheme(preset)}>删除</button></div></article>)}</div>}<button className="duplicate-theme-button" onClick={duplicateCurrentTheme}>＋ 复制当前配色为我的主题</button></div><div className="appearance-preview theme-preview wallpaper-preview"><WallpaperLayers wallpaper={currentWallpaper} avatar={activeCharacter.avatar} themeColor={chatBaseColor} /><div className="wallpaper-preview-content"><small>当前聊天预览</small><p>主题与壁纸叠加后的实际效果。</p></div></div><div className="appearance-card"><label className="appearance-color-row"><div><strong>主题底色</strong><small>关闭独立壁纸后显示 · {chatBaseColor}</small></div><input type="color" value={chatBaseColor} onChange={(event) => setChatBaseColor(event.target.value)} /></label></div>{wallpaperStorageError && <div className="privacy-note" role="alert">{wallpaperStorageError}{wallpaperHydrationReady && <button className="soft-button" onClick={() => setChatWallpapers((current) => ({ ...current }))}>重试保存壁纸</button>}</div>}<WallpaperSettings key={wallpaperKey} wallpaper={currentWallpaper} avatar={activeCharacter.avatar} themeColor={chatBaseColor} scopeLabel={activeConversation?.kind === 'group' ? activeConversation.title : activeCharacter.name} group={activeConversation?.kind === 'group'} ready={persistenceReady && wallpaperHydrationReady} upload={wallpaperUploads[wallpaperKey]} onChange={updateChatWallpaper} onUpload={(file) => { void uploadChatWallpaper(file) }} onReset={resetChatWallpaper} /><PetSettings enabled={petEnabled} variant={petVariant} onEnabledChange={setPetEnabled} onVariantChange={setPetVariant} onReset={() => setPetPosition({ x: .86, y: .7 })} /></section></>}
     {page === 'font' && <><BackHeader title="字体与文字颜色" onBack={goBack} action={<button className="soft-button" onClick={() => { setUiFontScale(90); setUiFontWeight(500); setChatFontSize(16); setChatTextColor('#4e4852'); setChatNarrationColor('#7f7089'); setChatQuoteColor('#7b4d67') }}>恢复默认</button>} /><section className="settings-stack appearance-page compact-settings"><div className="appearance-card range-group"><RangeRow label="界面字号" hint="统一调整标题、按钮、说明与编辑区文字" value={uiFontScale} min={80} max={115} step={5} onChange={setUiFontScale} /><RangeRow label="界面字重" hint="数值越小越轻，聊天正文不受影响" value={uiFontWeight} min={400} max={700} step={100} onChange={setUiFontWeight} /></div><div className="appearance-preview chat-font-preview" style={{ color: chatTextColor, fontSize: chatFontSize }}><small>聊天正文预览</small><p><span style={{ color: chatNarrationColor }}>（他终于等到你回来。）</span><br /><span style={{ color: chatQuoteColor }}>“我一直在这里。”</span></p></div><div className="appearance-card"><RangeRow label="聊天正文字号" hint="只调整聊天内容，不影响系统界面" value={chatFontSize} min={13} max={22} step={1} onChange={setChatFontSize} /><label className="appearance-color-row"><div><strong>正文颜色</strong><small>{chatTextColor}</small></div><input type="color" value={chatTextColor} onChange={(event) => setChatTextColor(event.target.value)} /></label><label className="appearance-color-row"><div><strong>旁白颜色</strong><small>识别 *旁白*、（旁白）</small></div><input type="color" value={chatNarrationColor} onChange={(event) => setChatNarrationColor(event.target.value)} /></label><label className="appearance-color-row"><div><strong>引用颜色</strong><small>识别 “对话” 与「对话」</small></div><input type="color" value={chatQuoteColor} onChange={(event) => setChatQuoteColor(event.target.value)} /></label></div></section></>}
 
     {page === 'display-reply' && <><BackHeader title="显示与回复" onBack={goBack} action={<span className="saved-label">自动保存</span>} /><section className="settings-stack compact-settings display-reply-page"><div className="drawer-compact-group display-reply-card"><div className="drawer-section-title"><strong>消息显示</strong></div><div className="drawer-inline-setting"><span>布局方式</span><div className="mini-segment"><button className={chatLayout === 'bubble' ? 'active' : ''} onClick={() => setChatLayout('bubble')}>气泡</button><button className={chatLayout === 'flat' ? 'active' : ''} onClick={() => setChatLayout('flat')}>平铺</button></div></div><div className="drawer-color-setting"><label><span>正文</span><input type="color" value={chatTextColor} onChange={(event) => setChatTextColor(event.target.value)} /></label><label><span>旁白</span><input type="color" value={chatNarrationColor} onChange={(event) => setChatNarrationColor(event.target.value)} /></label><label><span>引用</span><input type="color" value={chatQuoteColor} onChange={(event) => setChatQuoteColor(event.target.value)} /></label></div></div><div className="drawer-compact-group display-reply-card"><div className="drawer-section-title"><strong>群聊回复</strong></div>{activeConversation?.kind === 'group' ? <div className="drawer-inline-setting reply-mode-row"><span>回复模式</span><strong>指定 @</strong></div> : <div className="display-reply-note">当前是单角色对话，消息会由当前角色直接回复。</div>}<div className="display-reply-note">群聊只会由你 @ 点名的角色发言；新增或删除成员不会改变这个规则。</div></div></section></>}
@@ -2780,7 +2819,7 @@ function UpdateCard() {
     }
   }
 
-  return <section className="update-card"><strong>应用更新</strong><p>主动检查并拉取最新网页版本，不会删除角色、聊天记录或本地设置。</p><small>当前版本：2026.09.19 · API 稳定性加固</small><button onClick={refresh} disabled={state === 'checking'}>{state === 'checking' ? '正在检查更新…' : state === 'error' ? '更新失败，点我重试' : '强制刷新到最新版'}</button></section>
+  return <section className="update-card"><strong>应用更新</strong><p>主动检查并拉取最新网页版本，不会删除角色、聊天记录或本地设置。</p><small>当前版本：2026.10.04 · 独立壁纸与剧情安排检查</small><button onClick={refresh} disabled={state === 'checking'}>{state === 'checking' ? '正在检查更新…' : state === 'error' ? '更新失败，点我重试' : '强制刷新到最新版'}</button></section>
 }
 
 function PersonaPage({ identities, selectedId, isBound, onSelect, onAdd, onDelete, onUpdate, onBack }: { identities: UserIdentity[]; selectedId: string; isBound: boolean; onSelect: (id: string) => void; onAdd: () => void; onDelete: (id: string) => void; onUpdate: (patch: Partial<UserIdentity>) => void; onBack: () => void }) {

@@ -1,6 +1,6 @@
 import { durableSnapshot, replaceDurableSnapshot } from './persistentStore'
 
-export const DURABLE_KEYS = new Set(['weijing.characters', 'weijing.conversations', 'weijing.identities', 'weijing.identity', 'weijing.memoryConfigs', 'weijing.memoryEntries', 'weijing.chatBackground', 'weijing.globalMemoryApi', 'weijing.storyProjects', 'weijing.plotTemplates'])
+export const DURABLE_KEYS = new Set(['weijing.characters', 'weijing.conversations', 'weijing.identities', 'weijing.identity', 'weijing.memoryConfigs', 'weijing.memoryEntries', 'weijing.chatBackground', 'weijing.chatWallpapers', 'weijing.globalMemoryApi', 'weijing.storyProjects', 'weijing.plotTemplates'])
 export type BackupFile = { format: 'weijing-backup'; version: 1; createdAt: string; data: Record<string, string> }
 
 export function collectLocalData(storage: Storage = localStorage) {
@@ -37,6 +37,7 @@ export function parseBackup(value: unknown): BackupFile {
     try { parsed = JSON.parse(text) } catch { if (DURABLE_KEYS.has(key)) throw new Error(`备份数据无法读取：${key}`); continue }
     if (['weijing.characters', 'weijing.conversations', 'weijing.identities', 'weijing.storyProjects', 'weijing.plotTemplates'].includes(key) && !Array.isArray(parsed)) throw new Error(`备份列表格式不正确：${key}`)
     if (['weijing.memoryEntries', 'weijing.memoryConfigs'].includes(key) && (!parsed || typeof parsed !== 'object' || Array.isArray(parsed))) throw new Error(`备份记忆格式不正确：${key}`)
+    if (key === 'weijing.chatWallpapers' && (!parsed || typeof parsed !== 'object' || Array.isArray(parsed))) throw new Error('备份壁纸格式不正确')
   }
   return { format: 'weijing-backup', version: 1, createdAt: file.createdAt || '', data: Object.fromEntries(entries) }
 }
