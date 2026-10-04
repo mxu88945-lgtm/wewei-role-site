@@ -1,6 +1,7 @@
 import type { DirectorTemplateConfig } from './directorTemplate'
 import type { Character, CharacterMemoryEntry } from './characterCard'
 import type { LongMemoryEntry } from './memoryEngine'
+import type { StoryScript, StoryVariable } from './storyScripts'
 
 export type ReplyAlternative = { text: string; finishReason?: string | null; contextSnapshotId?: string }
 export type Message = { id: number; role: 'user' | 'assistant'; text: string; characterId?: string; finishReason?: string | null; alternatives?: ReplyAlternative[]; selectedAlternative?: number; contextSnapshotId?: string }
@@ -13,6 +14,8 @@ export type ConversationContextSnapshot = {
   memorySummarizedCount?: number
   relationshipStages?: Record<string, number>
   projectContext?: Record<string, string>
+  storyVariables?: StoryVariable[]
+  storyScriptRuns?: Record<string, number>
 }
 
 export type Conversation = {
@@ -36,6 +39,9 @@ export type Conversation = {
   themeFrost?: number
   bookmarks?: Record<string, { note: string; createdAt: number }>
   temporaryPlot?: { id: string; text: string; mode?: 'once' | 'counted' | 'persistent'; remainingUses?: number; recipientIds?: string[] }
+  storyVariables?: StoryVariable[]
+  storyScripts?: StoryScript[]
+  storyScriptRuns?: Record<string, number>
   contextSnapshots?: Record<string, ConversationContextSnapshot>
   projectContextSnapshot?: Record<string, string>
   fork?: { parentId: string; messageId: number; createdAt: number }
@@ -185,5 +191,8 @@ export function restartConversationInPlace(source: Conversation, fallbackGreetin
     contextSnapshots: undefined,
     projectContextSnapshot: undefined,
     characterMemories: {},
+    storyVariables: [],
+    storyScripts: undefined,
+    storyScriptRuns: {},
   }
 }

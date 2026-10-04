@@ -13,6 +13,8 @@ export function captureConversationContext(source: Conversation, memories: LongM
     memorySummarizedCount: source.memorySummarizedCount || 0,
     relationshipStages: source.relationshipStages,
     projectContext,
+    storyVariables: source.storyVariables || [],
+    storyScriptRuns: source.storyScriptRuns || {},
   })
 }
 
@@ -46,6 +48,8 @@ export function restoreConversationContext(source: Conversation, messages: Messa
     memorySummarizedCount: Math.min(snapshot?.memorySummarizedCount || 0, messages.length),
     relationshipStages: clone(snapshot?.relationshipStages),
     projectContextSnapshot: clone(snapshot?.projectContext || {}),
+    storyVariables: clone(snapshot?.storyVariables || []),
+    storyScriptRuns: clone(snapshot?.storyScriptRuns || {}),
     updatedAt: Date.now(),
   } satisfies Conversation
 }
@@ -80,6 +84,7 @@ export function forkConversationAtMessage(source: Conversation, messageId: numbe
     ...restored,
     id, title, createdAt: Date.now(),
     temporaryPlot: undefined,
+    storyScripts: clone(source.storyScripts || []),
     fork: { parentId: source.id, messageId, createdAt: Date.now() },
     bookmarks: Object.fromEntries(Object.entries(source.bookmarks || {}).filter(([key]) => restored.messages.some((item) => String(item.id) === key))),
     contextSnapshots: clone(Object.fromEntries(Object.entries(source.contextSnapshots || {}).filter(([key]) => referencedSnapshots.has(key)))),
