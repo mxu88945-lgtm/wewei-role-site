@@ -445,7 +445,11 @@ function anthropicPayload(options: CompletionOptions, maxTokens: number, compati
 function openAiCompatibleMessages(messages: ChatApiMessage[]) {
   const lastConversationTurn = [...messages].reverse().find((message) => message.role !== 'system')
   if (lastConversationTurn?.role !== 'assistant') return messages
-  return [...messages, { role: 'user' as const, content: '请根据以上对话继续回应。' }]
+  // Leave late private directions/format guards at the true wire boundary.
+  // Only the last non-system turn needs to be user for Gemini compatibility.
+  let bridgeAt = messages.length
+  while (bridgeAt > 0 && messages[bridgeAt - 1].role === 'system') bridgeAt -= 1
+  return [...messages.slice(0, bridgeAt), { role: 'user' as const, content: '请根据以上对话继续回应。' }, ...messages.slice(bridgeAt)]
 }
 
 export async function completeChat(options: CompletionOptions) {

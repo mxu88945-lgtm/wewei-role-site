@@ -43,10 +43,28 @@ describe('chatApi', () => {
     })
 
     expect(requestBody.messages).toEqual([
-      ...messages,
+      ...messages.slice(0, 3),
       { role: 'user', content: '请根据以上对话继续回应。' },
+      messages[3],
     ])
     expect(messages).toHaveLength(4)
+  })
+
+  it('纯 @ 接收幕后安排时在实际 HTTP 请求里仍保留最后的剧情指令', async () => {
+    let body: { messages: { role: string; content: string }[] } = { messages: [] }
+    vi.stubGlobal('fetch', vi.fn(async (_url: string, init?: RequestInit) => {
+      body = JSON.parse(String(init?.body))
+      return new Response(JSON.stringify({ choices: [{ message: { content: '手机铃声响起。' } }] }), { headers: { 'content-type': 'application/json' } })
+    }))
+    const messages = [
+      { role: 'assistant' as const, content: '室内一片安静。' },
+      { role: 'system' as const, content: '只演环境与 NPC。' },
+      { role: 'system' as const, content: '私下安排：配角本轮打来电话。' },
+    ]
+    await completeChat({ api: { baseUrl: 'https://relay.example/v1', apiKey: 'test', modelName: 'gemini-compatible' }, messages, temperature: 1, topP: 1, maxTokens: 100, streaming: false, signal: new AbortController().signal, onDelta: () => undefined })
+    expect(body.messages[body.messages.length - 1]).toEqual(messages[2])
+    expect(body.messages.filter((message) => message.role !== 'system').map((message) => message.role)).toEqual(['assistant', 'user'])
+    expect(messages).toHaveLength(3)
   })
 
   it('已有真实用户回合时不重复补入调度消息', async () => {
