@@ -1,7 +1,19 @@
 import type { DirectorTemplateConfig } from './directorTemplate'
 import type { Character, CharacterMemoryEntry } from './characterCard'
+import type { LongMemoryEntry } from './memoryEngine'
 
-export type Message = { id: number; role: 'user' | 'assistant'; text: string; characterId?: string; finishReason?: string | null }
+export type ReplyAlternative = { text: string; finishReason?: string | null; contextSnapshotId?: string }
+export type Message = { id: number; role: 'user' | 'assistant'; text: string; characterId?: string; finishReason?: string | null; alternatives?: ReplyAlternative[]; selectedAlternative?: number; contextSnapshotId?: string }
+
+export type ConversationContextSnapshot = {
+  memories: LongMemoryEntry[]
+  characterMemories?: Record<string, CharacterMemoryEntry[]>
+  contextSummary?: string
+  compressedUntil?: number
+  memorySummarizedCount?: number
+  relationshipStages?: Record<string, number>
+  projectContext?: Record<string, string>
+}
 
 export type Conversation = {
   id: string
@@ -23,7 +35,10 @@ export type Conversation = {
   themePresetId?: string
   themeFrost?: number
   bookmarks?: Record<string, { note: string; createdAt: number }>
-  temporaryPlot?: { id: string; text: string }
+  temporaryPlot?: { id: string; text: string; mode?: 'once' | 'counted' | 'persistent'; remainingUses?: number; recipientIds?: string[] }
+  contextSnapshots?: Record<string, ConversationContextSnapshot>
+  projectContextSnapshot?: Record<string, string>
+  fork?: { parentId: string; messageId: number; createdAt: number }
   theaterWorldBackground?: string
   directorCharacterId?: string
   directorConfig?: DirectorTemplateConfig
@@ -167,5 +182,8 @@ export function restartConversationInPlace(source: Conversation, fallbackGreetin
     relationshipStages: undefined,
     temporaryPlot: undefined,
     bookmarks: undefined,
+    contextSnapshots: undefined,
+    projectContextSnapshot: undefined,
+    characterMemories: {},
   }
 }

@@ -53,4 +53,32 @@ describe('one-shot backstage plot', () => {
     expect(createFreshConversationFrom(conversation, '新开场').temporaryPlot).toBeUndefined()
     expect(restartConversationInPlace(conversation, '新开场').temporaryPlot).toBeUndefined()
   })
+  it('keeps persistent directions until the user ends them', () => {
+    const persistent: Conversation = { ...conversation, temporaryPlot: { id: 'persistent', text: '保持对峙节奏', mode: 'persistent' } }
+    expect(consumeTemporaryPlot(persistent, captureTemporaryPlot(persistent, false), 0)).toBe(persistent)
+    const prompt = withFinalTemporaryPlotInstruction([], persistent.temporaryPlot!.text, '沈衍', '惟惟', 'persistent')
+    expect(prompt[0].content).toContain('持续幕后方向')
+    expect(prompt[0].content).toContain('已完成的事件只保留结果')
+  })
+  it('counts a multi-speaker send only once and ends after the final success', () => {
+    const counted: Conversation = { ...conversation, kind: 'group', temporaryPlot: { id: 'counted', text: '保持对峙', mode: 'counted', remainingUses: 2 } }
+    const captured = captureTemporaryPlot(counted, true)
+    const first = consumeTemporaryPlot(counted, captured, 0)
+    expect(first.temporaryPlot?.remainingUses).toBe(1)
+    expect(consumeTemporaryPlot(first, captured, 0)).toBe(first)
+    expect(consumeTemporaryPlot(first, captureTemporaryPlot(first, true), 0).temporaryPlot).toBeUndefined()
+  })
+  it('routes only to explicitly mentioned permitted recipients', () => {
+    const privatePlot: Conversation = { ...conversation, kind: 'group', temporaryPlot: { id: 'private', text: '别让导演知道', mode: 'persistent', recipientIds: ['a'] } }
+    expect(captureTemporaryPlot(privatePlot, true, 'a')?.text).toBe('别让导演知道')
+    expect(captureTemporaryPlot(privatePlot, false, 'a')).toBeUndefined()
+    expect(captureTemporaryPlot(privatePlot, true, 'director')).toBeUndefined()
+    expect(captureTemporaryPlot(privatePlot, true)).toBeUndefined()
+    expect(captureTemporaryPlot({ ...privatePlot, temporaryPlot: { ...privatePlot.temporaryPlot!, recipientIds: [] } }, true, 'a')).toBeUndefined()
+  })
+  it('does not overwrite a counted duration changed during generation', () => {
+    const counted: Conversation = { ...conversation, temporaryPlot: { id: 'counted', text: '保持对峙', mode: 'counted', remainingUses: 2 } }
+    const edited = { ...counted, temporaryPlot: { ...counted.temporaryPlot!, id: 'edited', remainingUses: 8 } }
+    expect(consumeTemporaryPlot(edited, captureTemporaryPlot(counted, false), 0)).toBe(edited)
+  })
 })

@@ -35,7 +35,8 @@ import { buildReplyHelperMessages, cleanReplyHelperDraft, REPLY_HELPER_MAX_TOKEN
 import { planContextCompression, uncompressedMessages } from './contextCompression'
 import { findLatestActorContinuityAnchor, findLatestSceneContinuityAnchor } from './actorContinuity'
 import ReplyHelperSettingsPage from './ReplyHelperSettingsPage'
-import { addConversationParticipant, createFreshConversationFrom, removeConversationParticipant, restartConversationInPlace, type Conversation, type Message } from './conversationLifecycle'
+import { addConversationParticipant, createFreshConversationFrom, removeConversationParticipant, restartConversationInPlace, type Conversation, type ConversationContextSnapshot, type Message } from './conversationLifecycle'
+import { appendReplyAlternative, captureConversationContext, contextAtMessage, forkConversationAtMessage, projectContextFromSnapshot, replyAlternatives, restoreConversationContext, selectReplyAlternative, storeContextSnapshot } from './conversationBranches'
 import { memoriesForConversationCharacter, mergeConversationCharacterMemories, migrateCardMemoriesToConversations, setConversationCharacterMemories } from './conversationCharacterMemory'
 import { parseConversationTxt } from './conversationTxt'
 import { isFailedTransportAssistantMessage, modelVisibleMessageText, stripUiOnlyStatusBlocks } from './modelContext'
@@ -45,6 +46,7 @@ import { buildStatusFallback, getStatusProtocol, latestStatusContent } from './s
 
 type Page = 'home' | 'story-projects' | 'characters' | 'create' | 'character-workshop' | 'group-create' | 'director-template' | 'group-greeting-picker' | 'import-preview' | 'character-detail' | 'card-data' | 'card-worldbook' | 'card-regex' | 'card-memory' | 'greeting-picker' | 'chat' | 'more' | 'api' | 'reply-helper-api' | 'model' | 'settings' | 'appearance' | 'font' | 'display-reply' | 'identity' | 'worldbook' | 'theater-world' | 'temporary-plot' | 'chat-search' | 'request-preview' | 'preset' | 'memory' | 'memory-api' | 'memory-list'
 type MessageEditor = { mode: 'assistant' | 'resend'; messageId: number; text: string }
+type AssistantRequestOptions = { continueWithoutUser?: boolean; explicitlyMentioned?: boolean; replacement?: Message; rollbackConversation?: Conversation; contextOverride?: ConversationContextSnapshot }
 type Drawer = 'left' | 'right'
 type HistoryEntry = { page: Page; reopenDrawer?: Drawer }
 type LegacySessionMap = Record<string, Message[]>
@@ -451,6 +453,7 @@ function App() {
   const pendingChatLatestScrollRef = useRef<string | null>(null)
   const conversationMemoryMigrationRunningRef = useRef(false)
   const generationControllers = useRef(new Map<string, AbortController>())
+  const generationRollbacks = useRef(new Map<string, { controller: AbortController; conversation: Conversation }>())
   const conversationsRef = useRef(conversations)
   conversationsRef.current = conversations
   const memoryRunsRef = useRef(new Map<string, AbortController>())
@@ -972,6 +975,9 @@ function App() {
   const abortConversation = (conversationId: string) => {
     conversationStopRevisions.current.set(conversationId, (conversationStopRevisions.current.get(conversationId) || 0) + 1)
     generationControllers.current.get(conversationId)?.abort()
+    const rollback = generationRollbacks.current.get(conversationId)
+    if (rollback) setConversations((current) => current.map((item) => item.id === conversationId ? { ...rollback.conversation, temporaryPlot: item.temporaryPlot } : item))
+    generationRollbacks.current.delete(conversationId)
     generationControllers.current.delete(conversationId)
     setGeneratingIds((current) => current.filter((id) => id !== conversationId))
   }
@@ -1501,8 +1507,12 @@ function App() {
   }
 
   const cloneConversation = (conversation: Conversation) => {
-    const copy: Conversation = { ...conversation, id: `${conversation.characterId}-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`, title: `${conversation.title} · 副本`, messages: conversation.messages.map((message) => ({ ...message })), createdAt: Date.now(), updatedAt: Date.now() }
+    const lastMessage = conversation.messages[conversation.messages.length - 1]
+    if (!lastMessage || generationControllers.current.has(conversation.id)) return
+    const forked = forkConversationAtMessage(conversation, lastMessage.id, currentConversationContext(conversation), crypto.randomUUID(), `${conversation.title} · 副本`)
+    const copy = forked.conversation
     setConversations((current) => [...current, copy])
+    setMemoryEntries((current) => ({ ...current, [copy.id]: forked.memories as MemoryEntry[] }))
     setActiveId(copy.characterId)
     setActiveConversationId(copy.id)
     requestChatLatestScroll(copy.id)
@@ -1751,14 +1761,23 @@ function App() {
     }
   }
 
-  const prepareAssistantRequest = (conversation: Conversation, nextMessages: Message[], speaker: Character, requestOptions: { continueWithoutUser?: boolean; explicitlyMentioned?: boolean } = {}) => {
-    const capturedTemporaryPlot = captureTemporaryPlot(conversation, Boolean(requestOptions.explicitlyMentioned))
+  const currentConversationContext = (conversation: Conversation) => {
+    const project = selectConversationStoryProject(storyProjects, conversation.id)
+    const memberIds = conversation.kind === 'group' ? conversation.participantIds || [] : [conversation.characterId]
+    const projectContext = project && !project.autoContinuity.needsReview
+      ? Object.fromEntries(memberIds.map((id) => [id, buildStoryProjectPrompt({ project, speakerId: id, characters })]))
+      : conversation.projectContextSnapshot || {}
+    return captureConversationContext(conversation, memoriesForConversation(memoryEntries, conversation.id, conversation.characterId, conversation.historyRevision || 0), projectContext)
+  }
+
+  const prepareAssistantRequest = (conversation: Conversation, nextMessages: Message[], speaker: Character, requestOptions: AssistantRequestOptions = {}) => {
+    const capturedTemporaryPlot = captureTemporaryPlot(conversation, Boolean(requestOptions.explicitlyMentioned), speaker.id)
     const capturedCharacter = {
       ...speaker,
       characterMemory: memoriesForConversationCharacter(conversation, speaker),
     }
     const capturedMemoryConfig = memoryConfigFor(capturedCharacter.id)
-    const capturedMemories = memoriesForConversation(memoryEntries, conversation.id, capturedCharacter.id, conversation.historyRevision || 0) as MemoryEntry[]
+    const capturedMemories = (requestOptions.contextOverride?.memories ?? memoriesForConversation(memoryEntries, conversation.id, capturedCharacter.id, conversation.historyRevision || 0)) as MemoryEntry[]
     const isGroup = conversation.kind === 'group'
     const isDirector = Boolean(conversation.directorCharacterId && speaker.id === conversation.directorCharacterId)
     const statusProtocol = !isDirector ? getStatusProtocol(capturedCharacter) : { tag: '', fields: [] }
@@ -1766,9 +1785,11 @@ function App() {
     const requiresCharacterStatus = Boolean(statusTag)
     const groupNames = (conversation.participantIds || []).map((id) => characters.find((item) => item.id === id)?.name).filter((name): name is string => Boolean(name))
     const storyProject = selectConversationStoryProject(storyProjects, conversation.id)
-    const storyProjectContext = storyProject && !storyProject.autoContinuity.needsReview
+    const storyProjectContext = requestOptions.contextOverride
+      ? projectContextFromSnapshot(requestOptions.contextOverride.projectContext, speaker.id)
+      : storyProject && !storyProject.autoContinuity.needsReview
       ? buildStoryProjectPrompt({ project: storyProject, speakerId: speaker.id, characters })
-      : ''
+      : projectContextFromSnapshot(conversation.projectContextSnapshot, speaker.id)
     const sceneContinuityAnchor = findLatestSceneContinuityAnchor(nextMessages)
     const actorContinuityAnchor = isGroup ? findLatestActorContinuityAnchor(nextMessages, speaker.id, speaker.name) : ''
     const sanitizedHistory = nextMessages.flatMap((message) => {
@@ -1823,11 +1844,12 @@ function App() {
       capturedTemporaryPlot?.text,
       speaker.name,
       identity.name,
+      capturedTemporaryPlot?.mode,
     )
     return { promptMessages, promptStats, capturedCharacter, capturedMemoryConfig, capturedMemories, isGroup, isDirector, statusTag, requiresCharacterStatus, groupNames, storedRelationshipStage, capturedTemporaryPlot }
   }
 
-  const previewFor = (conversation: Conversation, nextMessages: Message[], speaker: Character, requestOptions: { continueWithoutUser?: boolean; explicitlyMentioned?: boolean } = {}): RequestPreview => {
+  const previewFor = (conversation: Conversation, nextMessages: Message[], speaker: Character, requestOptions: AssistantRequestOptions = {}): RequestPreview => {
     const prepared = prepareAssistantRequest(conversation, nextMessages, speaker, requestOptions)
     return { speaker: speaker.name, model: conversationApiFor(conversation, speaker.id, api).modelName, messages: prepared.promptMessages, ...prepared.promptStats, hasTemporaryPlot: Boolean(prepared.capturedTemporaryPlot) }
   }
@@ -1867,7 +1889,7 @@ function App() {
     nextMessages: Message[],
     speaker = activeCharacter,
     speakerApi = api,
-    requestOptions: { continueWithoutUser?: boolean; explicitlyMentioned?: boolean } = {},
+    requestOptions: AssistantRequestOptions = {},
   ): Promise<Message[]> => {
     const resolvedSpeakerApi = conversationApiFor(conversation, speaker.id, speakerApi)
     if (!isApiChannelComplete(resolvedSpeakerApi)) {
@@ -1878,18 +1900,22 @@ function App() {
     if (generationControllers.current.has(conversationId)) return nextMessages
     requestChatLatestScroll(conversationId)
 
-    const capturedTemporaryPlot = captureTemporaryPlot(conversation, Boolean(requestOptions.explicitlyMentioned))
-    const assistantMessage: Message = { id: nextMessageId(nextMessages), role: 'assistant', characterId: speaker.id, text: '正在回应…' }
+    const capturedTemporaryPlot = captureTemporaryPlot(conversation, Boolean(requestOptions.explicitlyMentioned), speaker.id)
+    const snapshot = requestOptions.contextOverride || currentConversationContext(conversation)
+    const capturedContext = storeContextSnapshot(conversation, snapshot, crypto.randomUUID())
+    const assistantMessage: Message = { id: requestOptions.replacement?.id ?? nextMessageId(nextMessages), role: 'assistant', characterId: speaker.id, text: '正在回应…', contextSnapshotId: capturedContext.snapshotId }
+    nextMessages = nextMessages.map((message, index) => index === nextMessages.length - 1 && message.role === 'user' && !message.contextSnapshotId ? { ...message, contextSnapshotId: capturedContext.snapshotId } : message)
     const pendingMessages = [...nextMessages, assistantMessage]
     setConversations((current) => {
       const exists = current.some((item) => item.id === conversationId)
-      if (!exists) return [...current, { ...conversation!, messages: pendingMessages, updatedAt: Date.now() }]
-      return current.map((item) => item.id === conversationId ? { ...item, messages: pendingMessages, updatedAt: Date.now() } : item)
+      if (!exists) return [...current, { ...capturedContext.conversation, messages: pendingMessages, updatedAt: Date.now() }]
+      return current.map((item) => item.id === conversationId ? { ...item, contextSnapshots: { ...item.contextSnapshots, ...capturedContext.conversation.contextSnapshots }, messages: pendingMessages, updatedAt: Date.now() } : item)
     })
     setChatError('')
 
     const controller = new AbortController()
     generationControllers.current.set(conversationId, controller)
+    if (requestOptions.rollbackConversation) generationRollbacks.current.set(conversationId, { controller, conversation: requestOptions.rollbackConversation })
     setGeneratingIds((current) => [...current.filter((id) => id !== conversationId), conversationId])
     let output = ''
     let stagedVisibleOutput = ''
@@ -1983,18 +2009,33 @@ function App() {
       if (controller.signal.aborted) throw new Error('回复已停止')
       const reportedRelationshipStage = capturedCharacter.name === '顾霆深' ? extractRelationshipStage(finalOutput) : undefined
       const nextRelationshipStage = Math.max(storedRelationshipStage || 0, reportedRelationshipStage || 0)
+      const generatedMessage: Message = { ...assistantMessage, text: finalOutput, finishReason: completion.finishReason }
+      const completedMessage = requestOptions.replacement ? appendReplyAlternative(requestOptions.replacement, generatedMessage) : generatedMessage
       setConversations((current) => current.map((item) => item.id === conversationId ? {
         ...consumeTemporaryPlot(item, capturedTemporaryPlot, conversation.historyRevision || 0),
-        messages: item.messages.map((message) => message.id === assistantMessage.id ? { ...message, text: finalOutput } : message),
+        messages: item.messages.map((message) => message.id === assistantMessage.id ? completedMessage : message),
         relationshipStages: nextRelationshipStage ? { ...(item.relationshipStages || {}), [capturedCharacter.id]: nextRelationshipStage } : item.relationshipStages,
         updatedAt: Date.now(),
       } : item))
-      const completed = [...nextMessages, { ...assistantMessage, text: finalOutput }]
+      const completed = [...nextMessages, completedMessage]
+      if (requestOptions.replacement) {
+        setMemoryEntries((current) => replaceConversationMemories(current, conversationId, capturedCharacter.id, conversation.historyRevision || 0, snapshot.memories.map((entry) => ({ ...entry, historyRevision: conversation.historyRevision || 0 }))) as MemoryEntryMap)
+        markStoryHistoryForReview(conversationId)
+      }
       const summarizedCount = Math.min(conversation.memorySummarizedCount || 0, completed.length)
       if (!isGroup && capturedMemoryConfig.autoEvery > 0 && completed.length - summarizedCount >= capturedMemoryConfig.autoEvery && capturedMemoryConfig.api.apiKey) summarizeMemory(completed, conversation, capturedCharacter)
       return completed
     } catch (error) {
       cancelQueuedStreamRender()
+      if (requestOptions.rollbackConversation) {
+        const rollback = requestOptions.rollbackConversation
+        // Stop restores synchronously. An old request must not overwrite a
+        // newer send that started after stop, or recreate a deleted chat.
+        if (generationControllers.current.get(conversationId) !== controller) return rollback.messages
+        setConversations((current) => current.map((item) => item.id === conversationId ? { ...rollback, temporaryPlot: item.temporaryPlot } : item))
+        if (!controller.signal.aborted) setChatError(`重生成未成功，原回复与后续剧情已保留：${error instanceof Error ? error.message : '请求失败'}`)
+        return rollback.messages
+      }
       if (controller.signal.aborted) {
         const partialOutput = sanitizeAssistantOutput(output, { director: Boolean(conversation.directorCharacterId && speaker.id === conversation.directorCharacterId) })
         setConversations((current) => current.map((item) => item.id === conversationId ? {
@@ -2022,6 +2063,7 @@ function App() {
       }
     } finally {
       cancelQueuedStreamRender()
+      if (generationRollbacks.current.get(conversationId)?.controller === controller) generationRollbacks.current.delete(conversationId)
       if (generationControllers.current.get(conversationId) === controller) {
         generationControllers.current.delete(conversationId)
         setGeneratingIds((current) => current.filter((id) => id !== conversationId))
@@ -2139,14 +2181,78 @@ function App() {
     if (!activeConversation || isGenerating) return
     const index = messages.findIndex((entry) => entry.id === message.id)
     if (index < 0) return
-    setMessageMenuId(null)
     const speaker = characters.find((item) => item.id === message.characterId) || activeCharacter
     const channel = conversationApiFor(activeConversation, speaker.id, api)
+    if (!isApiChannelComplete(channel) || generationControllers.current.has(activeConversation.id)) {
+      setChatError(`请先为 ${speaker.name} 配置完整的 API 渠道。原回复未改变。`)
+      return
+    }
+    if (index < messages.length - 1 && !window.confirm('从这里生成新版本会改变后续剧情。原来的完整剧情将先保存为独立副本，继续吗？')) return
+    if (index < messages.length - 1) saveHistoryBackup(activeConversation)
+    setMessageMenuId(null)
     const nextMessages = messages.slice(0, index)
-    const rewritten = rewriteConversationHistory(activeConversation, nextMessages)
-    markStoryHistoryForReview(activeConversation.id)
+    const snapshot = contextAtMessage(activeConversation, message)
+    const rewritten = restoreConversationContext(activeConversation, nextMessages, snapshot)
     setConversations((current) => current.map((item) => item.id === activeConversation.id ? rewritten : item))
-    await generateAssistant(rewritten, nextMessages, speaker, channel)
+    await generateAssistant(rewritten, nextMessages, speaker, channel, {
+      replacement: message,
+      rollbackConversation: activeConversation,
+      explicitlyMentioned: true,
+      contextOverride: snapshot || captureConversationContext(rewritten, []),
+    })
+  }
+
+  const saveHistoryBackup = (source: Conversation) => {
+    const last = source.messages[source.messages.length - 1]
+    if (!last) return
+    const saved = forkConversationAtMessage(source, last.id, currentConversationContext(source), crypto.randomUUID(), `${source.title} · 改写前存档`)
+    setConversations((current) => [...current, saved.conversation])
+    setMemoryEntries((current) => ({ ...current, [saved.conversation.id]: saved.memories as MemoryEntry[] }))
+  }
+
+  const switchReplyVersion = (message: Message, version: number) => {
+    if (!activeConversation || isGenerating) return
+    const chosen = selectReplyAlternative(message, version)
+    if (chosen === message || version === (message.selectedAlternative || 0)) return
+    const index = messages.findIndex((item) => item.id === message.id)
+    if (index < 0) return
+    if (index < messages.length - 1 && !window.confirm('切换这条回复后，后续剧情将先存为独立副本，再从所选版本继续。切换吗？')) return
+    if (index < messages.length - 1) saveHistoryBackup(activeConversation)
+    const snapshot = contextAtMessage(activeConversation, chosen)
+    const restored = restoreConversationContext(activeConversation, [...messages.slice(0, index), chosen], snapshot)
+    setConversations((current) => current.map((item) => item.id === activeConversation.id ? restored : item))
+    setMemoryEntries((current) => replaceConversationMemories(current, activeConversation.id, activeConversation.characterId, restored.historyRevision || 0, (snapshot?.memories || []).map((entry) => ({ ...entry, historyRevision: restored.historyRevision || 0 }))) as MemoryEntryMap)
+    markStoryHistoryForReview(activeConversation.id)
+    setChatError('')
+  }
+
+  const createStoryBranch = (message: Message) => {
+    if (!activeConversation || isGenerating) return
+    const index = messages.findIndex((item) => item.id === message.id)
+    if (index < 0) return
+    const hasSnapshot = index === messages.length - 1 || Boolean(contextAtMessage(activeConversation, message))
+    if (!hasSnapshot && !window.confirm('这条旧消息没有历史记忆快照。分线会保留此前正文、角色和设置，但不会继承现在的记忆、摘要或项目场记，避免后来的事实穿越。继续吗？')) return
+    const title = window.prompt('给这条独立剧情分线起个名字：', `${activeConversation.title} · 分线`)
+    if (title === null || !title.trim()) return
+    const branch = forkConversationAtMessage(activeConversation, message.id, currentConversationContext(activeConversation), crypto.randomUUID(), title.trim())
+    setConversations((current) => [...current, branch.conversation])
+    setMemoryEntries((current) => ({ ...current, [branch.conversation.id]: branch.memories as MemoryEntry[] }))
+    setActiveId(branch.conversation.characterId)
+    setActiveConversationId(branch.conversation.id)
+    setMessageMenuId(null)
+    setChatError('')
+    requestChatLatestScroll(branch.conversation.id)
+  }
+
+  const returnToParentConversation = () => {
+    const parent = conversations.find((item) => item.id === activeConversation?.fork?.parentId)
+    if (!parent || isGenerating) return
+    setActiveId(parent.characterId)
+    setActiveConversationId(parent.id)
+    setDrawer(null)
+    setChatError('')
+    requestChatLatestScroll(parent.id)
+    replacePage('chat')
   }
 
   const editAndResendUserMessage = (message: Message) => {
@@ -2388,6 +2494,7 @@ function App() {
       <div className="message-action-row">
         <button className={`message-bookmark-button ${activeConversation?.bookmarks?.[String(message.id)] ? 'active' : ''}`} aria-label={activeConversation?.bookmarks?.[String(message.id)] ? '取消书签' : '加入书签'} aria-pressed={Boolean(activeConversation?.bookmarks?.[String(message.id)])} onClick={() => updateBookmark(message.id, activeConversation?.bookmarks?.[String(message.id)] ? null : '')}>{activeConversation?.bookmarks?.[String(message.id)] ? '★' : '☆'}</button>
         <button className="message-action-trigger" aria-label="消息操作" onClick={() => setMessageMenuId(message.id)}>•••</button>
+        {!isUser && !streaming && replyAlternatives(message).length > 1 && <nav className="reply-version-controls" aria-label={`${authorName}的回复版本`}><button aria-label="上一版回复" disabled={isGenerating || !(message.selectedAlternative || 0)} onClick={() => switchReplyVersion(message, (message.selectedAlternative || 0) - 1)}>‹</button><span>第 {(message.selectedAlternative || 0) + 1} / {replyAlternatives(message).length} 版</span><button aria-label="下一版回复" disabled={isGenerating || (message.selectedAlternative || 0) >= replyAlternatives(message).length - 1} onClick={() => switchReplyVersion(message, (message.selectedAlternative || 0) + 1)}>›</button></nav>}
         {message.role === 'assistant' && message.id === messages[messages.length - 1]?.id && activeConversation?.kind !== 'group' && <button className="continue-turn-button" aria-label="让角色继续下一条" title="继续下一条" disabled={isGenerating} onClick={() => void continueSingleTurn()}>▶</button>}
       </div>
       {message.role === 'assistant' && (message.finishReason === 'length' || message.finishReason === 'max_tokens') && <button className="message-continue" onClick={() => setDraft('请紧接上一句，从中断处继续，不要重复已经说过的内容。')}>回复达到上限 · 点此续写</button>}
@@ -2458,7 +2565,7 @@ function App() {
     {page === 'worldbook' && <EditablePage title="世界书" value={worldbook} onChange={setWorldbook} onBack={goBack} />}
     {page === 'chat-search' && activeConversation && <ChatSearchPage key={activeConversation.id} conversation={activeConversation} onBack={goBack} onJump={jumpToMessage} onBookmark={updateBookmark} authorName={(message) => message.role === 'user' ? identity.name : messageCharacterName(message, activeConversation)} />}
     {page === 'request-preview' && activeConversation && <RequestPreviewPage key={activeConversation.id} previews={requestPreviews} lastRequests={[...(lastRequestsRef.current.get(activeConversation.id)?.values() || [])]} onBack={goBack} />}
-    {page === 'temporary-plot' && activeConversation && <TemporaryPlotPage value={activeConversation.temporaryPlot?.text || ''} onChange={(value) => setConversations((current) => current.map((item) => item.id === activeConversation.id ? { ...item, temporaryPlot: value.trim() ? { id: crypto.randomUUID(), text: value } : undefined, updatedAt: Date.now() } : item))} templates={plotTemplates} onTemplatesChange={setPlotTemplates} onBack={goBack} />}
+    {page === 'temporary-plot' && activeConversation && <TemporaryPlotPage key={activeConversation.id} plot={activeConversation.temporaryPlot} recipients={conversationMemberIds().map((id) => ({ id, name: characters.find((character) => character.id === id)?.name || id }))} onChange={(plot) => setConversations((current) => current.map((item) => item.id === activeConversation.id ? { ...item, temporaryPlot: plot, updatedAt: Date.now() } : item))} templates={plotTemplates} onTemplatesChange={setPlotTemplates} onBack={goBack} />}
     {page === 'theater-world' && activeConversation && <EditablePage title="本剧场世界观背景" value={activeConversation.theaterWorldBackground || ''} onChange={(value) => setConversations((current) => current.map((item) => item.id === activeConversation.id ? { ...item, theaterWorldBackground: value, updatedAt: Date.now() } : item))} onBack={goBack} fieldLabel="本剧场共用背景与人物关系" description={`这份设定只属于“${activeConversation.title}”。本剧场里的所有角色和 NPC 都会读取；切换到其他对话或群聊时不会带过去。`} note="自动保存并随本剧场独立存放。角色各自的人设、世界书与长期记忆仍会叠加生效。" placeholder="填写本剧场的时代与地点、公共背景、人物关系、共同经历、势力结构和所有成员必须知道的事实……" />}
     {page === 'preset' && <PresetEditor sections={presetSections} onChange={setPresetSections} onBack={goBack} />}
 
@@ -2514,6 +2621,7 @@ function App() {
       {drawer === 'right' && <aside className="app-drawer right-drawer" aria-label="聊天设置">
         <header className="drawer-character compact"><div><small>{activeConversation?.kind === 'group' ? '群聊设置' : '聊天设置'}</small><h2>{activeConversation?.title || activeCharacter.name}</h2></div><button onClick={() => setDrawer(null)}>×</button></header>
         <div className="right-drawer-scroll">
+          {activeConversation?.fork && <section className="drawer-compact-group"><div className="drawer-section-title"><strong>独立剧情分线</strong></div><p className="branch-context-note">只沿这条分线的正文与记忆继续，不同步原线后来的事实。项目场记沿用分叉时快照；另行绑定剧本项目后使用新项目。</p><button disabled={isGenerating || !conversations.some((item) => item.id === activeConversation.fork?.parentId)} onClick={returnToParentConversation}><span>{conversations.some((item) => item.id === activeConversation.fork?.parentId) ? '返回原剧情（原线已保留）' : '原剧情已删除，分线仍独立保留'}</span><i>↩</i></button></section>}
           <section className="conversation-stats-card" aria-label="本次共演统计"><div className="conversation-stats-heading"><strong>本次共演</strong><small>你每发送一次计一轮</small></div><div className="conversation-stats-grid"><div><strong>{conversationStats.rounds}</strong><span>对话轮数</span></div><div><strong>{conversationStats.replies}</strong><span>角色回复</span></div><div><strong>{conversationStats.total}</strong><span>消息总数</span></div></div></section>
           <section className="drawer-members-section"><div className="drawer-section-title"><strong>成员（{conversationMemberIds().length}）</strong><button onClick={() => { setDrawer(null); setMemberPickerOpen(true) }}>＋ 添加 / 配置 API</button></div><div className="drawer-member-row">{conversationMemberIds().map((id) => { const member = characters.find((item) => item.id === id); if (!member) return null; return <div className="drawer-member-chip" key={id}>{member.avatar ? <img src={member.avatar} alt="" /> : <span>{member.name.slice(-1)}</span>}<small>{member.name}</small>{conversationMemberIds().length > 1 && <button aria-label={`移除${member.name}`} onClick={() => removeConversationMember(id)}>×</button>}</div> })}</div></section>
           <section className="drawer-compact-group"><div className="drawer-section-title"><strong>聊天设置</strong></div>{activeConversation?.directorCharacterId ? <button onClick={() => { setDirectorEditorTarget('conversation'); navigate('director-template', 'right') }}><span>共演导演资料 · 已启用</span><i>›</i></button> : <button onClick={openConversationDirectorCreator}><span>添加共演导演 · 保留当前剧情</span><i>＋</i></button>}{[['剧情搜索与书签', 'chat-search'], ['模型发送内容', 'request-preview'], [`临时剧情 · ${activeConversation?.temporaryPlot?.text.trim() ? '待使用' : '未填写'}`, 'temporary-plot'], ['情景与角色资料', 'card-data'], [`本剧场世界观背景 · ${activeConversation?.theaterWorldBackground?.trim() ? '已填写' : '未填写'}`, 'theater-world'], ['用户身份', 'identity'], ['主题与背景', 'appearance'], ['字体与文字颜色', 'font'], ['显示与回复', 'display-reply']].map(([label, target]) => <button key={label} onClick={() => target === 'request-preview' ? openRequestPreview() : navigate(target as Page, 'right')}><span>{label}</span><i>›</i></button>)}</section>
@@ -2540,7 +2648,7 @@ function App() {
       return <article className={joined ? 'joined' : ''} key={character.id} onClick={() => { if (!joined) addConversationMember(character.id) }}><div className="member-picker-main"><CharacterPortrait item={character} /><div><strong>{character.name}</strong><small>{joined ? '已在当前会话' : character.tagline}</small></div><button onClick={(event) => { event.stopPropagation(); if (joined) { if (canRemove) removeConversationMember(character.id) } else addConversationMember(character.id) }} disabled={joined && !canRemove}>{joined ? canRemove ? '移除' : '保留' : '＋ 加入'}</button></div>{joined && <div onClick={(event) => event.stopPropagation()}><MemberApiBinding channels={apiChannels} channelId={channel.id} modelName={activeConversation.participantModelNames?.[character.id] || channel.modelName} onChannelChange={(nextChannelId) => updateConversationMemberApi(character.id, nextChannelId)} onModelChange={(modelName) => updateConversationMemberModel(character.id, modelName)} /></div>}</article>
     })}</div><div className="privacy-note">同一渠道可以给不同成员指定不同模型；不单独修改时使用该渠道的默认模型。已有消息与署名不会丢失。</div></section></div>}
 
-    {menuMessage && <div className="message-menu-layer"><button className="drawer-backdrop" aria-label="关闭消息菜单" onClick={() => setMessageMenuId(null)} /><section className="message-action-sheet"><header><div><small>{menuMessage.role === 'assistant' ? '模型消息' : '用户消息'}</small><strong>消息操作</strong></div><button onClick={() => setMessageMenuId(null)}>×</button></header>{menuMessage.role === 'assistant' ? <><button onClick={() => regenerateMessage(menuMessage)} disabled={isGenerating}>重新生成</button><button onClick={() => editAssistantMessage(menuMessage)}>编辑改写</button><button onClick={() => copyMessage(menuMessage)}>复制文本</button><button className="danger" onClick={() => withdrawMessage(menuMessage)}>撤回到这里</button><button className="danger" onClick={() => deleteMessage(menuMessage)}>仅删除此句</button></> : <><button onClick={() => editAndResendUserMessage(menuMessage)} disabled={isGenerating}>编辑并重新发送</button><button onClick={() => copyMessage(menuMessage)}>复制文本</button><button className="danger" onClick={() => deleteMessage(menuMessage)}>仅删除此句</button></>}</section></div>}
+    {menuMessage && <div className="message-menu-layer"><button className="drawer-backdrop" aria-label="关闭消息菜单" onClick={() => setMessageMenuId(null)} /><section className="message-action-sheet"><header><div><small>{menuMessage.role === 'assistant' ? '模型消息' : '用户消息'}</small><strong>消息操作</strong></div><button onClick={() => setMessageMenuId(null)}>×</button></header><button onClick={() => createStoryBranch(menuMessage)} disabled={isGenerating}>从这里另开剧情分线</button>{menuMessage.role === 'assistant' ? <><button onClick={() => regenerateMessage(menuMessage)} disabled={isGenerating}>重新生成（保留旧版）</button><button onClick={() => editAssistantMessage(menuMessage)} disabled={isGenerating}>编辑改写</button><button onClick={() => copyMessage(menuMessage)}>复制文本</button><button className="danger" onClick={() => withdrawMessage(menuMessage)} disabled={isGenerating}>撤回到这里</button><button className="danger" onClick={() => deleteMessage(menuMessage)} disabled={isGenerating}>仅删除此句</button></> : <><button onClick={() => editAndResendUserMessage(menuMessage)} disabled={isGenerating}>编辑并重新发送</button><button onClick={() => copyMessage(menuMessage)}>复制文本</button><button className="danger" onClick={() => deleteMessage(menuMessage)} disabled={isGenerating}>仅删除此句</button></>}</section></div>}
     {messageEditor && <div className="message-editor-layer" role="dialog" aria-modal="true" aria-label={messageEditor.mode === 'assistant' ? '编辑模型消息' : '编辑后重新发送'}><button className="drawer-backdrop" aria-label="取消编辑" onClick={() => setMessageEditor(null)} /><form className="message-editor-sheet" onSubmit={(event) => { event.preventDefault(); void saveMessageEditor() }}><header><div><small>{messageEditor.mode === 'assistant' ? '模型消息' : '用户消息'}</small><strong>{messageEditor.mode === 'assistant' ? '编辑改写' : '编辑后重新发送'}</strong></div><button type="button" aria-label="关闭编辑框" onClick={() => setMessageEditor(null)}>×</button></header><textarea autoFocus value={messageEditor.text} onChange={(event) => setMessageEditor({ ...messageEditor, text: event.target.value })} /><footer><button type="button" onClick={() => setMessageEditor(null)}>取消</button><button type="submit" className="primary" disabled={!messageEditor.text.trim() || (messageEditor.mode === 'resend' && isGenerating)}>{messageEditor.mode === 'assistant' ? '保存修改' : '重新发送'}</button></footer></form></div>}
     <Pet enabled={petEnabled} variant={petVariant} position={petPosition} onPositionChange={setPetPosition} containerRef={phoneCanvasRef} messageCount={messages.length} />
   </main></div>
