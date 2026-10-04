@@ -13,7 +13,8 @@ import { createBlankCharacter, importCharacterCard, normalizeStoredCharacter, ty
 import { activeCharacterMemory, characterMemoryEntryFromConversation, characterMemoryExtractionPrompt, characterMemorySummaryProtocol, parseCharacterMemoryCandidates, splitCharacterMemorySummary } from './characterMemory'
 import { ChatApiError, completeChat, fetchApiModels, testApiConnection, type ApiConfig, type ApiModel } from './chatApi'
 import { buildChatPrompt } from './promptBuilder'
-import { captureTemporaryPlot, consumeTemporaryPlot, withFinalTemporaryPlotInstruction } from './temporaryPlot'
+import { captureTemporaryPlot, consumeTemporaryPlot, withAssistantRetryInstruction, withFinalTemporaryPlotInstruction } from './temporaryPlot'
+import { checkAndRepairTemporaryPlot, reviewTemporaryPlotReply } from './temporaryPlotReview'
 import { resolveChatScrollTarget, type ChatScrollSnapshot } from './chatScroll'
 import { createApiChannel, isApiChannelComplete, normalizeApiChannels, resolveApiChannel, withApiModel, type ApiChannel } from './apiChannels'
 import { enabledPresetText, normalizePresetSections } from './presetConfig'
@@ -400,6 +401,7 @@ function App() {
   const [connection, setConnection] = useState<'idle' | 'testing' | 'ok' | 'error'>('idle')
   const [connectionMessage, setConnectionMessage] = useState('尚未测试连接')
   const [chatError, setChatError] = useState('')
+  const chatErrorIsPlot = chatError.includes('幕后安排')
   const [generatingIds, setGeneratingIds] = useState<string[]>([])
   const [temperature, setTemperature] = useState(() => read('weijing.temperature', 0.95))
   const [topP, setTopP] = useState(() => read('weijing.topP', 0.9))
@@ -1849,6 +1851,7 @@ function App() {
       speaker.name,
       identity.name,
       capturedTemporaryPlot?.mode,
+      isDirector,
     )
     return { promptMessages, promptStats, capturedCharacter, capturedMemoryConfig, capturedMemories, isGroup, isDirector, statusTag, requiresCharacterStatus, groupNames, storedRelationshipStage, capturedTemporaryPlot }
   }
@@ -1936,7 +1939,9 @@ function App() {
     }
 
     try {
-      const { promptMessages, promptStats, capturedCharacter, capturedMemoryConfig, isGroup, isDirector, statusTag, requiresCharacterStatus, groupNames, storedRelationshipStage } = prepareAssistantRequest(conversation, nextMessages, speaker, requestOptions)
+      const prepared = prepareAssistantRequest(conversation, nextMessages, speaker, requestOptions)
+      const { promptStats, capturedCharacter, capturedMemoryConfig, isGroup, isDirector, statusTag, requiresCharacterStatus, groupNames, storedRelationshipStage } = prepared
+      let promptMessages = prepared.promptMessages
       const runCompletion = async () => {
         const requests = lastRequestsRef.current.get(conversationId) || new Map<string, RequestPreview>()
         requests.set(speaker.id, { speaker: speaker.name, model: resolvedSpeakerApi.modelName, sentAt: Date.now(), ...promptStats, hasTemporaryPlot: Boolean(capturedTemporaryPlot), messages: promptMessages.map((message) => ({ ...message })) })
@@ -1959,6 +1964,9 @@ function App() {
         },
         onDelta: (delta) => {
           output += delta
+          // Finite arrangements are shown only after their private check, so
+          // an ignored first draft cannot briefly look like the final reply.
+          if (capturedTemporaryPlot && capturedTemporaryPlot.mode !== 'persistent') return
           stagedVisibleOutput = stripStatusBlocksForStreaming(sanitizeAssistantOutput(output, { director: isDirector }))
           // About 20 visual updates per second still looks fluid, while avoiding a full
           // React + regex + HTML sanitization pass for every tiny network chunk.
@@ -1976,11 +1984,11 @@ function App() {
         stagedVisibleOutput = ''
         thinkingIndicatorShown = false
         setConversations((current) => current.map((item) => item.id === conversationId ? { ...item, messages: item.messages.map((message) => message.id === assistantMessage.id ? { ...message, text: '正在补全正文…' } : message) } : item))
-        promptMessages.push({ role: 'system', content: identityLeak
+        promptMessages = withAssistantRetryInstruction(promptMessages, identityLeak
           ? `刚才输出发生了群聊身份串位或后台解释，已作废。你本轮唯一身份是「${speaker.name}」；不得自称、扮演、解释或代替任何其他群成员，不得代演用户，也不得提及系统、提示词、格式、暂停或角色扮演。现在只从最新场景继续输出 ${speaker.name} 的实际剧情回应。`
           : isDirector
           ? '刚才输出不完整：只写了状态栏或缺少场景正文。现在从“最新场景锚点”续写，必须输出 <scene>...</scene>、至少一段实际剧情正文，最后再输出唯一的 <director_status>...</director_status>；不得解释、分析或只输出状态栏。'
-          : '刚才输出不完整：只写了状态栏，缺少实际剧情正文。现在从当前场景继续，必须先写至少一段角色正文，再在结尾输出状态栏；不得解释或只输出状态栏。' })
+          : '刚才输出不完整：只写了状态栏，缺少实际剧情正文。现在从当前场景继续，必须先写至少一段角色正文，再在结尾输出状态栏；不得解释或只输出状态栏。', Boolean(capturedTemporaryPlot))
         completion = await runCompletion()
         cancelQueuedStreamRender()
         if (!output.trim()) throw new Error('模型补全正文失败，请重试或更换模型。')
@@ -1988,6 +1996,48 @@ function App() {
         if (!hasCompleteRoleplayBody(cleanOutput || output, isDirector) || (isGroup && !isDirector && hasGroupIdentityLeak(cleanOutput || output, speaker.name, groupNames))) throw new Error(identityLeak
           ? `模型连续两次发生身份串位，未写入本轮剧情。请重试；若仍出现，请改用 @${speaker.name} 点名回复或更换模型。`
           : '模型连续两次只返回状态栏或缺少剧情正文，未写入本轮剧情。请重试或更换模型。')
+      }
+      let plotApplied = true
+      if (capturedTemporaryPlot && capturedTemporaryPlot.mode !== 'persistent') {
+        setConversations((current) => current.map((item) => item.id === conversationId ? { ...item, messages: item.messages.map((message) => message.id === assistantMessage.id ? { ...message, text: '正在检查幕后安排…' } : message) } : item))
+        const checked = await checkAndRepairTemporaryPlot(cleanOutput || output, (reply) => reviewTemporaryPlotReply({
+          api: resolvedSpeakerApi,
+          signal: controller.signal,
+          direction: capturedTemporaryPlot.text,
+          reply,
+          speakerName: speaker.name,
+          director: isDirector,
+          userName: identity.name,
+          independentRoleNames: groupNames.filter((name) => name !== speaker.name),
+          // The checker receives visible recent history only, never another
+          // member's card, project files, memories or private variables.
+          recentHistory: nextMessages.slice(-4).map((message) => `${message.role}: ${modelVisibleMessageText({ ...message, text: sanitizeAssistantOutput(message.text, { director: message.characterId === conversation.directorCharacterId }) })}`).join('\n').slice(-6000),
+        }), async () => {
+          output = ''
+          stagedVisibleOutput = ''
+          thinkingIndicatorShown = false
+          setConversations((current) => current.map((item) => item.id === conversationId ? { ...item, messages: item.messages.map((message) => message.id === assistantMessage.id ? { ...message, text: '正在落实幕后安排…' } : message) } : item))
+          promptMessages = withAssistantRetryInstruction(promptMessages, '上次回复没有落实本轮幕后安排，不能把只延续旧场景或沿用旧的阻断状态当作完成。请重新生成本轮完整回复，实际启动安排的第一步，并停在用户或独立角色可以回应的位置；不替他们行动或决定，不复述后台指令，保持原输出结构。', true)
+          completion = await runCompletion()
+          cancelQueuedStreamRender()
+          const repaired = sanitizeAssistantOutput(output, { director: isDirector })
+          if (!hasCompleteRoleplayBody(repaired, isDirector) || (isGroup && !isDirector && hasGroupIdentityLeak(repaired, speaker.name, groupNames))) {
+            output = ''
+            throw new Error('补写幕后安排时模型未返回有效正文；安排已保留，请重试。')
+          }
+          return repaired
+        })
+        cleanOutput = checked.reply
+        plotApplied = checked.applied
+        if (checked.verdict.status === 'ignored') {
+          // Do not persist the unrelated retry as an interrupted reply or feed
+          // it into later group members' history through the catch branch.
+          output = ''
+          throw new Error('模型补写后仍未落实幕后安排，本轮未写入剧情；安排已保留，可重试。')
+        }
+        if (!plotApplied) setChatError(checked.verdict.status === 'blocked'
+          ? '检查认为幕后安排可能与当前事实或角色控制权冲突，已保留；可调整安排后重试。'
+          : '本轮回复已保留，但暂未确认幕后安排落实；安排未消耗。请核对正文：已落实可手动结束，未落实可重试。')
       }
       if (completion.finishReason) {
         setConversations((current) => current.map((item) => item.id === conversationId ? { ...item, messages: item.messages.map((message) => message.id === assistantMessage.id ? { ...message, finishReason: completion.finishReason } : message) } : item))
@@ -2016,7 +2066,7 @@ function App() {
       const generatedMessage: Message = { ...assistantMessage, text: finalOutput, finishReason: completion.finishReason }
       const completedMessage = requestOptions.replacement ? appendReplyAlternative(requestOptions.replacement, generatedMessage) : generatedMessage
       setConversations((current) => current.map((item) => item.id === conversationId ? {
-        ...consumeTemporaryPlot(item, capturedTemporaryPlot, conversation.historyRevision || 0),
+        ...(plotApplied ? consumeTemporaryPlot(item, capturedTemporaryPlot, conversation.historyRevision || 0) : item),
         messages: item.messages.map((message) => message.id === assistantMessage.id ? completedMessage : message),
         relationshipStages: nextRelationshipStage ? { ...(item.relationshipStages || {}), [capturedCharacter.id]: nextRelationshipStage } : item.relationshipStages,
         updatedAt: Date.now(),
@@ -2558,7 +2608,7 @@ function App() {
 
     {page === 'group-greeting-picker' && <GroupGreetingPicker characters={groupGreetingCharacters} userName={groupGreetingUserName} onCancel={() => { const creatingFromConversation = Boolean(newConversationSourceId); setNewConversationSourceId(null); if (creatingFromConversation) replacePage('chat'); else goBack() }} onConfirm={beginGroupWithGreeting} />}
 
-    {page === 'chat' && <section className="chat-page"><header className="chat-header"><button className="icon-button drawer-trigger" aria-label="打开对话列表" onClick={() => setDrawer('left')}>☰</button><button className="chat-identity" onClick={() => navigate('character-detail')}>{activeCharacter.avatar ? <img src={activeCharacter.avatar} alt="" /> : <span>{activeCharacter.name.slice(-1)}</span>}<div><strong>{activeConversation?.kind === 'group' ? activeConversation.title : activeCharacter.name}</strong><small>{isGenerating ? '正在回应…' : activeConversation?.title || `${identity.name} · 沉浸共演中`}</small></div></button><button className="more-button" aria-label="打开聊天设置" onClick={() => setDrawer('right')}>•••</button></header>{chatError && <button className="chat-error" onClick={() => navigate('api')}><span>连接提示</span>{chatError}<i>前往 API 设置 ›</i></button>}<div ref={messageListRef} className="message-list" onScroll={updateChatJump}>{messages.map(renderChatMessage)}<div ref={messageListLayoutMarkerRef} className="message-list-layout-marker" aria-hidden="true" /></div>{(chatJump.up || chatJump.down) && <nav className={`chat-jump-controls ${chatJump.visible ? 'visible' : ''}`} aria-label="快速浏览对话" aria-hidden={!chatJump.visible}>{chatJump.up && <button tabIndex={chatJump.visible ? 0 : -1} onClick={() => jumpChat('top')} aria-label="回到对话顶部">↑</button>}{chatJump.down && <button tabIndex={chatJump.visible ? 0 : -1} onClick={() => jumpChat('bottom')} aria-label="跳到最新消息">↓</button>}</nav>}<div ref={composerDockRef} className={`${composerExpanded ? 'composer has-expanded' : 'composer'}${composerCanExpand ? ' can-expand' : ''}`}><button className="composer-plus" aria-label="打开输入工具" onClick={() => setComposerToolsOpen(true)}>{replyHelperState === 'generating' ? '…' : '＋'}</button><textarea ref={composerRef} rows={1} value={draft} onChange={(event) => { const value = event.target.value; setDraft(value); if (activeConversation?.kind === 'group' && /[@＠][^@＠\s]*$/.test(value)) { event.currentTarget.blur(); setMentionPickerOpen(true) } }} placeholder={replyHelperState === 'generating' ? 'AI 帮答正在起草…' : isGenerating ? '可以先写下一条，停止后再发送' : groupReplyMode === 'specified' && activeConversation?.kind === 'group' ? '输入 @ 选择回答的角色……' : '写下你的回应……'} />{composerCanExpand && <button className="composer-expand" aria-label="展开长消息编辑器" title="展开编辑" onClick={() => setComposerExpanded(true)}>⛶</button>}<button className={`send-button ${isGenerating ? 'stop' : ''}`} aria-label={isGenerating ? '停止生成' : '发送'} onClick={() => isGenerating && activeConversation ? abortConversation(activeConversation.id) : sendMessage()}>{isGenerating ? '■' : '↑'}</button></div>{composerExpanded && <div className="composer-expanded-layer" role="dialog" aria-modal="true" aria-label="长消息编辑器"><header><button className="expanded-collapse" aria-label="收起编辑器" onClick={() => { setComposerExpanded(false); window.requestAnimationFrame(() => composerRef.current?.focus()) }}>‹</button><div><strong>长消息编辑</strong><small>{draft.length} 字 · 草稿实时保留</small></div><button className="expanded-tools" aria-label="打开输入工具" onClick={() => setComposerToolsOpen(true)}>＋</button></header><textarea ref={expandedComposerRef} value={draft} onChange={(event) => { const value = event.target.value; setDraft(value); if (activeConversation?.kind === 'group' && /[@＠][^@＠\s]*$/.test(value)) { event.currentTarget.blur(); setMentionPickerOpen(true) } }} placeholder={replyHelperState === 'generating' ? 'AI 帮答正在起草…' : '在这里慢慢写完整段落……'} /><footer><button className="expanded-done" onClick={() => { setComposerExpanded(false); window.requestAnimationFrame(() => composerRef.current?.focus()) }}>收起</button><button className={isGenerating ? 'expanded-send stop' : 'expanded-send'} disabled={!draft.trim() && !isGenerating} onClick={() => { if (isGenerating && activeConversation) { abortConversation(activeConversation.id); return } setComposerExpanded(false); void sendMessage() }}>{isGenerating ? '停止生成' : '发送'}</button></footer></div>}</section>}
+    {page === 'chat' && <section className="chat-page"><header className="chat-header"><button className="icon-button drawer-trigger" aria-label="打开对话列表" onClick={() => setDrawer('left')}>☰</button><button className="chat-identity" onClick={() => navigate('character-detail')}>{activeCharacter.avatar ? <img src={activeCharacter.avatar} alt="" /> : <span>{activeCharacter.name.slice(-1)}</span>}<div><strong>{activeConversation?.kind === 'group' ? activeConversation.title : activeCharacter.name}</strong><small>{isGenerating ? '正在回应…' : activeConversation?.title || `${identity.name} · 沉浸共演中`}</small></div></button><button className="more-button" aria-label="打开聊天设置" onClick={() => setDrawer('right')}>•••</button></header>{chatError && <button className="chat-error" onClick={() => navigate(chatErrorIsPlot ? 'temporary-plot' : 'api')}><span>{chatErrorIsPlot ? '剧情安排提示' : '连接提示'}</span>{chatError}<i>{chatErrorIsPlot ? '查看幕后安排 ›' : '前往 API 设置 ›'}</i></button>}<div ref={messageListRef} className="message-list" onScroll={updateChatJump}>{messages.map(renderChatMessage)}<div ref={messageListLayoutMarkerRef} className="message-list-layout-marker" aria-hidden="true" /></div>{(chatJump.up || chatJump.down) && <nav className={`chat-jump-controls ${chatJump.visible ? 'visible' : ''}`} aria-label="快速浏览对话" aria-hidden={!chatJump.visible}>{chatJump.up && <button tabIndex={chatJump.visible ? 0 : -1} onClick={() => jumpChat('top')} aria-label="回到对话顶部">↑</button>}{chatJump.down && <button tabIndex={chatJump.visible ? 0 : -1} onClick={() => jumpChat('bottom')} aria-label="跳到最新消息">↓</button>}</nav>}<div ref={composerDockRef} className={`${composerExpanded ? 'composer has-expanded' : 'composer'}${composerCanExpand ? ' can-expand' : ''}`}><button className="composer-plus" aria-label="打开输入工具" onClick={() => setComposerToolsOpen(true)}>{replyHelperState === 'generating' ? '…' : '＋'}</button><textarea ref={composerRef} rows={1} value={draft} onChange={(event) => { const value = event.target.value; setDraft(value); if (activeConversation?.kind === 'group' && /[@＠][^@＠\s]*$/.test(value)) { event.currentTarget.blur(); setMentionPickerOpen(true) } }} placeholder={replyHelperState === 'generating' ? 'AI 帮答正在起草…' : isGenerating ? '可以先写下一条，停止后再发送' : groupReplyMode === 'specified' && activeConversation?.kind === 'group' ? '输入 @ 选择回答的角色……' : '写下你的回应……'} />{composerCanExpand && <button className="composer-expand" aria-label="展开长消息编辑器" title="展开编辑" onClick={() => setComposerExpanded(true)}>⛶</button>}<button className={`send-button ${isGenerating ? 'stop' : ''}`} aria-label={isGenerating ? '停止生成' : '发送'} onClick={() => isGenerating && activeConversation ? abortConversation(activeConversation.id) : sendMessage()}>{isGenerating ? '■' : '↑'}</button></div>{composerExpanded && <div className="composer-expanded-layer" role="dialog" aria-modal="true" aria-label="长消息编辑器"><header><button className="expanded-collapse" aria-label="收起编辑器" onClick={() => { setComposerExpanded(false); window.requestAnimationFrame(() => composerRef.current?.focus()) }}>‹</button><div><strong>长消息编辑</strong><small>{draft.length} 字 · 草稿实时保留</small></div><button className="expanded-tools" aria-label="打开输入工具" onClick={() => setComposerToolsOpen(true)}>＋</button></header><textarea ref={expandedComposerRef} value={draft} onChange={(event) => { const value = event.target.value; setDraft(value); if (activeConversation?.kind === 'group' && /[@＠][^@＠\s]*$/.test(value)) { event.currentTarget.blur(); setMentionPickerOpen(true) } }} placeholder={replyHelperState === 'generating' ? 'AI 帮答正在起草…' : '在这里慢慢写完整段落……'} /><footer><button className="expanded-done" onClick={() => { setComposerExpanded(false); window.requestAnimationFrame(() => composerRef.current?.focus()) }}>收起</button><button className={isGenerating ? 'expanded-send stop' : 'expanded-send'} disabled={!draft.trim() && !isGenerating} onClick={() => { if (isGenerating && activeConversation) { abortConversation(activeConversation.id); return } setComposerExpanded(false); void sendMessage() }}>{isGenerating ? '停止生成' : '发送'}</button></footer></div>}</section>}
 
     {page === 'more' && <><BackHeader title="设置" onBack={goBack} /><section className="settings-stack compact-settings">{[[['API 连接', 'api'], ['用户身份', 'identity']], [['模型设置', 'model'], ['全局预设', 'preset'], ['全局世界书', 'worldbook'], ['长记忆', 'memory']], [['应用设置', 'settings']]].map((group, index) => <div className="settings-group" key={index}>{group.map(([label, target]) => <button key={label} onClick={() => navigate(target as Page)}><span>{label}</span><span>›</span></button>)}</div>)}</section></>}
 

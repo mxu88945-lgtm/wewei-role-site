@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { captureTemporaryPlot, consumeTemporaryPlot, withFinalTemporaryPlotInstruction } from './temporaryPlot'
+import { captureTemporaryPlot, consumeTemporaryPlot, withAssistantRetryInstruction, withFinalTemporaryPlotInstruction } from './temporaryPlot'
 import { createFreshConversationFrom, restartConversationInPlace, type Conversation } from './conversationLifecycle'
 
 const conversation: Conversation = { id: 'chat', characterId: 'a', title: '对话', createdAt: 1, updatedAt: 1, messages: [{ id: 1, role: 'assistant', text: '开场' }], temporaryPlot: { id: 'draft-1', text: '他接到电话' } }
@@ -41,6 +41,23 @@ describe('one-shot backstage plot', () => {
     expect(completed.temporaryPlot).toBeUndefined()
     expect(completed.messages).toBe(conversation.messages)
     expect(consumeTemporaryPlot(conversation, undefined, 0)).toBe(conversation)
+  })
+  it('keeps the direction last even when body, identity or plot repair is requested', () => {
+    const base = withFinalTemporaryPlotInstruction([{ role: 'user', content: '继续' }], '配角打来电话', '旁白导演', '惟惟')
+    const repaired = withAssistantRetryInstruction(base, '请补全正文', true)
+    expect(repaired[repaired.length - 1]).toEqual(base[base.length - 1])
+    expect(repaired[1].content).toBe('请补全正文')
+    expect(base).toHaveLength(2)
+    const ordinary = withAssistantRetryInstruction(base.slice(0, 1), '请补全正文', false)
+    expect(ordinary[ordinary.length - 1].content).toBe('请补全正文')
+  })
+  it('lets the director initiate external events without answering for independent roles', () => {
+    const directed = withFinalTemporaryPlotInstruction([], '苏念念来电', '旁白导演', '惟惟', 'once', true)
+    expect(directed[0].content).toContain('停在铃声、来电显示或送达节点')
+    expect(directed[0].content).toContain('不替独立角色接听')
+    expect(directed[0].content).toContain('不等于禁止本轮一切新来电')
+    const actor = withFinalTemporaryPlotInstruction([], '苏念念来电', '沈衍', '惟惟')
+    expect(actor[0].content).not.toContain('你本轮是旁白导演')
   })
   it('preserves edits made during generation and drafts on a new history revision', () => {
     const captured = captureTemporaryPlot(conversation, false)

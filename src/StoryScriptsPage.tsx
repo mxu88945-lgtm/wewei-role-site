@@ -80,6 +80,7 @@ export default function StoryScriptsPage({ conversation, members, disabled, onCh
     <div className="story-tools-actions"><button onClick={onPlot}>查看 / 结束幕后安排</button><button onClick={onPreview}>查看模型发送内容</button></div>
     {disabled && <p role="status">角色正在回复，完成后可修改或运行脚本。</p>}
     {notice && <p role="status">{notice}</p>}
+    {conversation.temporaryPlot?.text.trim() && <p role="status">有幕后安排等待接收：{(conversation.temporaryPlot.recipientIds || members.map((member) => member.id)).map((id) => members.find((member) => member.id === id)?.name || '已移除角色').join('、') || '尚未选择接收者'}。{conversation.kind === 'group' ? '返回聊天后 @ 接收角色；只保存或只运行按钮不会生成剧情。' : '返回聊天后发送或续演。'}</p>}
     <fieldset className="script-workspace" disabled={disabled}>
       <h3>剧情变量（{variables.length} / {STORY_VARIABLE_LIMIT}）</h3>
       <p>保存已知事实，可指定谁能读取。新正文的明确进展优先于旧值；以后剧情变了，可在这里更新。变量不会变成聊天消息。当前共 {storyVariableTextLength(variables)} / {STORY_VARIABLE_TEXT_LIMIT} 字，每次只带入接收角色可读的部分。</p>
