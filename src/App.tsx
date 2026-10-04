@@ -2578,6 +2578,7 @@ function App() {
     : {}
   const resolveMessageCharacter = (message: Message) => characterForMessage(message)
   const filteredCharacters = characters.filter((item) => {
+    if (item.creator === '惟境内置导演模板') return false
     const query = characterQuery.trim().toLocaleLowerCase()
     return !query || [item.name, item.tagline, item.creator, ...item.tags].some((value) => value.toLocaleLowerCase().includes(query))
   })
@@ -2774,7 +2775,7 @@ function App() {
       </section>}
     </div>}
 
-    {memberPickerOpen && activeConversation && <div className="member-picker-layer"><button className="drawer-backdrop" aria-label="关闭成员管理" onClick={() => setMemberPickerOpen(false)} /><section className="member-picker"><header><div><small>当前会话</small><strong>成员与独立 API</strong></div><button onClick={() => setMemberPickerOpen(false)}>×</button></header><div className="member-picker-list">{characters.map((character) => {
+    {memberPickerOpen && activeConversation && <div className="member-picker-layer"><button className="drawer-backdrop" aria-label="关闭成员管理" onClick={() => setMemberPickerOpen(false)} /><section className="member-picker"><header><div><small>当前会话</small><strong>成员与独立 API</strong></div><button onClick={() => setMemberPickerOpen(false)}>×</button></header><div className="member-picker-list">{characters.filter((character) => character.creator !== '惟境内置导演模板' || conversationMemberIds().includes(character.id)).map((character) => {
       const joined = conversationMemberIds().includes(character.id)
       const canRemove = conversationMemberIds().length > 1
       const channelId = activeConversation.participantApiIds?.[character.id] || api.id
