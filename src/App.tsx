@@ -26,6 +26,7 @@ import { findMentionedParticipantIds, isRoleplayPauseCommand, selectGroupSpeaker
 import Pet from './Pet'
 import PetCritter, { PET_CHOICES, type PetVariant } from './PetCritter'
 import DirectorTemplateEditor from './DirectorTemplateEditor'
+import { recoverConversationDirector } from './directorRecovery'
 import { buildSharedTheaterBackground, createDirectorCharacter, createDirectorTemplateConfig, saveDirectorLibraryCard, instantiateLibraryDirector, DIRECTOR_OUTPUT_GUARD, directorRuntimeBoundary, type DirectorTemplateConfig } from './directorTemplate'
 import CharacterWorkshop from './CharacterWorkshop'
 import StoryProjectManager from './StoryProjectManager'
@@ -683,7 +684,7 @@ function App() {
       if (storedCharacters) setCharacters(storedCharacters.map(normalizeStoredCharacter))
       if (storedConversations) {
         const persistedCharacters = (storedCharacters?.length ? storedCharacters : read<Partial<Character>[]>('weijing.characters', [demoCharacter])).map(normalizeStoredCharacter)
-        setConversations(repairGuTingshenConversationStages(removeFailedTransportMessages(storedConversations), persistedCharacters))
+        setConversations(repairGuTingshenConversationStages(removeFailedTransportMessages(storedConversations), persistedCharacters).map((conversation) => recoverConversationDirector(conversation, persistedCharacters)))
       }
       if (storedIdentities?.length) setIdentities(storedIdentities)
       else if (storedIdentity) setIdentities([{ ...storedIdentity, id: storedIdentity.id || 'persona-default' }])
@@ -718,6 +719,13 @@ function App() {
     // overwrite an in-progress edit. Conversation/preset changes are the intended trigger.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [activeConversation?.id, activeConversation?.themePresetId, persistenceReady])
+  useEffect(() => {
+    if (!persistenceReady) return
+    setConversations((current) => {
+      const repaired = current.map((conversation) => recoverConversationDirector(conversation, characters))
+      return repaired.some((conversation, index) => conversation !== current[index]) ? repaired : current
+    })
+  }, [characters, persistenceReady])
   useEffect(() => { if (persistenceReady) writeDurable('weijing.characters', characters) }, [characters, persistenceReady])
   useEffect(() => { if (persistenceReady) writeDurable('weijing.plotTemplates', plotTemplates) }, [plotTemplates, persistenceReady])
   useEffect(() => { if (persistenceReady) writeDurable('weijing.storyProjects', storyProjects) }, [storyProjects, persistenceReady])

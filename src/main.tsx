@@ -13,7 +13,7 @@ import './runtime-enhancements.css'
 import './memoryApiEnhancements'
 
 const APP_SCOPE = '/wewei-role-site/'
-const SERVICE_WORKER_RELEASE = '2026-10-04-save-director-card-v2'
+const SERVICE_WORKER_RELEASE = '2026-10-04-legacy-director-binding-v1'
 
 if ('serviceWorker' in navigator) {
   let reloadingForUpdate = false
