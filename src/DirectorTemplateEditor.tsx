@@ -8,6 +8,7 @@ type Props = {
   value: DirectorTemplateConfig
   onCancel: () => void
   onSave: (value: DirectorTemplateConfig) => void
+  onSaveToLibrary?: (value: DirectorTemplateConfig) => void
   existing?: boolean
   contextLabel?: string
   submitLabel?: string
@@ -30,7 +31,7 @@ const fields: Array<{ key: keyof DirectorTemplateConfig; label: string; hint: st
   { key: 'pacingNotes', label: '节奏补充', hint: '模板已经限制每轮只推进一小步，这里写本剧特色。', rows: 5, placeholder: '例如：商战线写实，感情变化必须由明确事件累积……' },
 ]
 
-export default function DirectorTemplateEditor({ value, onCancel, onSave, existing, contextLabel, submitLabel, sourceCharacters = [], userName = '用户', api }: Props) {
+export default function DirectorTemplateEditor({ value, onCancel, onSave, onSaveToLibrary, existing, contextLabel, submitLabel, sourceCharacters = [], userName = '用户', api }: Props) {
   const [draft, setDraft] = useState(value)
   const [assistantState, setAssistantState] = useState<'idle' | 'working' | 'done' | 'error'>('idle')
   const [assistantMessage, setAssistantMessage] = useState('')
@@ -85,6 +86,7 @@ export default function DirectorTemplateEditor({ value, onCancel, onSave, existi
       <div className={`director-assistant-card ${assistantState}`}><span>✦</span><div><strong>导演卡自动整理</strong><small>{assistantMessage || `已选 ${sourceCharacters.length} 张独立角色卡；助手会读取角色卡主体、开场白和世界书，生成下方各项内容。`}</small></div><button disabled={assistantState === 'working'} onClick={() => void autoFill()}>{assistantState === 'working' ? '正在读取…' : assistantState === 'done' ? '重新生成' : '读取角色卡自动填写'}</button></div>
       {sourceCharacters.length ? <div className="director-source-cards"><small>本次导演卡的资料来源</small><div>{sourceCharacters.map((character) => <span key={character.id}>{character.avatar ? <img src={character.avatar} alt="" /> : character.name.slice(-1)}{character.name}</span>)}</div></div> : <div className="director-source-empty">还没有绑定独立角色卡。返回上一步选择角色后，就能让助手自动整理。</div>}
       <div className="director-rule-card"><strong>模板权限已经锁死</strong><p>导演只演 NPC、环境和剧情推进；不演用户主角，不演任何独立角色卡。幕后资料只进入导演私有世界书。</p></div>
+      {onSaveToLibrary && <div className="director-rule-card"><strong>保留这张导演卡</strong><p>将当前填写的资料保存为独立角色卡，包含世界书与正则美化。移出本群导演后仍可使用；再次保存会更新同一张副本。</p><button className="primary-button full" disabled={assistantState === 'working'} onClick={() => onSaveToLibrary(draft)}>保存导演卡到角色库</button></div>}
       {fields.map((field) => <label className="director-field" key={field.key}><span><strong>{field.label}</strong><small>{field.hint}</small></span>{field.rows ? <textarea rows={field.rows} value={String(draft[field.key] || '')} placeholder={field.placeholder} onChange={(event) => setDraft({ ...draft, [field.key]: event.target.value })} /> : <input value={String(draft[field.key] || '')} placeholder={field.placeholder} onChange={(event) => setDraft({ ...draft, [field.key]: event.target.value })} />}</label>)}
       <button className="primary-button full" onClick={() => onSave(draft)}>{submitLabel || (existing ? '保存并更新本群导演' : '保存导演资料')}</button>
     </section>

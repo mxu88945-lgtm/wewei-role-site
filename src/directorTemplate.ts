@@ -176,3 +176,38 @@ ${DIRECTOR_OUTPUT_GUARD}`
     ],
   }
 }
+
+/** Store a separate card so removing or editing the theater instance cannot change it. */
+export function saveDirectorLibraryCard(source: Character, config: DirectorTemplateConfig, existing?: Character): Character {
+  const copy = structuredClone(source)
+  return {
+    ...copy,
+    id: existing?.id || crypto.randomUUID(),
+    creator: '惟境共演导演卡',
+    tagline: '已保存的共演导演 · 可加入其他剧场',
+    sourceFileName: undefined,
+    directorTemplateConfig: structuredClone(config),
+    directorLibrarySourceId: source.id,
+  }
+}
+
+/** Each theater gets its own editable instance; the reusable library card stays intact. */
+export function instantiateLibraryDirector(card: Character): Character {
+  return {
+    ...structuredClone(card),
+    id: crypto.randomUUID(),
+    creator: '惟境内置导演模板',
+    directorLibrarySourceId: undefined,
+  }
+}
+
+export function normalizeDirectorTemplateConfig(value: unknown): DirectorTemplateConfig | undefined {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) return undefined
+  const source = value as Record<string, unknown>
+  if (typeof source.directorName !== 'string') return undefined
+  const defaults = createDirectorTemplateConfig()
+  return Object.fromEntries(Object.entries(defaults).map(([key, fallback]) => [key,
+    typeof fallback === 'boolean' ? (typeof source[key] === 'boolean' ? source[key] : fallback)
+      : typeof source[key] === 'string' ? source[key] : fallback,
+  ])) as DirectorTemplateConfig
+}

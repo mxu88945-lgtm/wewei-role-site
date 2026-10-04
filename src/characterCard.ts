@@ -1,4 +1,5 @@
 import { normalizeRegexScript } from './regexPolicy'
+import { normalizeDirectorTemplateConfig, type DirectorTemplateConfig } from './directorTemplate'
 
 export type CardSpec = 'chara_card_v2' | 'chara_card_v3' | string
 
@@ -154,6 +155,8 @@ export type Character = {
   characterBook?: CharacterBook
   characterMemory?: CharacterMemoryEntry[]
   regexScripts: RegexScript[]
+  directorTemplateConfig?: DirectorTemplateConfig
+  directorLibrarySourceId?: string
   rawCard?: Record<string, unknown>
 }
 
@@ -536,6 +539,7 @@ export async function importCharacterCard(file: File): Promise<Character> {
     characterBook,
     characterMemory: normalizeCharacterMemory(rawCharacterMemory),
     regexScripts,
+    directorTemplateConfig: extensions.weijing_director_template as DirectorTemplateConfig | undefined,
     rawCard,
   })
 }
@@ -915,6 +919,8 @@ export function normalizeStoredCharacter(character: Partial<Character>): Charact
     regexScripts: Array.isArray(character.regexScripts)
       ? character.regexScripts.map((script) => normalizeRegexScript(script))
       : [],
+    directorTemplateConfig: normalizeDirectorTemplateConfig(character.directorTemplateConfig),
+    directorLibrarySourceId: character.directorLibrarySourceId,
     rawCard: character.rawCard,
   }
 }
