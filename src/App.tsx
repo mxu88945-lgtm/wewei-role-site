@@ -417,6 +417,10 @@ function App() {
   const [petVariant, setPetVariant] = useState<PetVariant>(() => read('weijing.petVariant', 'bird'))
   const [petPosition, setPetPosition] = useState<{ x: number; y: number }>(() => read('weijing.petPosition', { x: .86, y: .7 }))
   const [customThemes, setCustomThemes] = useState<ChatThemePreset[]>(() => read('weijing.customThemes', []))
+  // The global theme keys hold the user's default (unbound) theme. A chat bound to a
+  // preset only overrides it while that chat is open; leaving it restores the default.
+  const unboundThemeRef = useRef<Omit<ChatThemePreset, 'id' | 'name' | 'custom'> | null>(null)
+  const themeBoundRef = useRef(false)
   const [globalMemoryApi, setGlobalMemoryApi] = useState<ApiConfig>(() => read('weijing.globalMemoryApi', { baseUrl: 'https://api.openai.com/v1', apiKey: '', modelName: 'gpt-4.1-mini' }))
   const [memoryConfigs, setMemoryConfigs] = useState<MemoryConfigMap>(() => migrateMemoryConfigs(read('weijing.memoryConfigs', { [demoCharacter.id]: defaultMemoryConfig() })))
   const [memoryEntries, setMemoryEntries] = useState<MemoryEntryMap>(() => read('weijing.memoryEntries', { [demoCharacter.id]: [] }))
@@ -619,7 +623,10 @@ function App() {
     }
   }
   const allThemes = [...builtInThemes, ...customThemes]
+  const currentThemeSnapshot = () => ({ mode: chatTheme, baseColor: chatBaseColor, textColor: chatTextColor, narrationColor: chatNarrationColor, quoteColor: chatQuoteColor, frost: chatBackgroundFrost })
   const applyThemePreset = (preset: ChatThemePreset, bind = true) => {
+    if (!themeBoundRef.current) unboundThemeRef.current = currentThemeSnapshot()
+    themeBoundRef.current = true
     setChatTheme(preset.mode); setChatBaseColor(preset.baseColor); setChatTextColor(preset.textColor)
     setChatNarrationColor(preset.narrationColor); setChatQuoteColor(preset.quoteColor)
     setChatBackgroundFrost(preset.frost)
@@ -714,6 +721,15 @@ function App() {
       const savedFrost = activeConversation ? read<number | undefined>(conversationFrostKey(activeConversation.id), undefined) : undefined
       if (typeof savedFrost === 'number') setChatBackgroundFrost(savedFrost)
       else if (typeof activeConversation?.themeFrost === 'number') setChatBackgroundFrost(activeConversation.themeFrost)
+    } else if (themeBoundRef.current) {
+      // This chat has no bound theme: go back to the default instead of keeping
+      // whatever the previously opened chat applied.
+      themeBoundRef.current = false
+      const fallback = unboundThemeRef.current
+      if (fallback) {
+        setChatTheme(fallback.mode); setChatBaseColor(fallback.baseColor); setChatTextColor(fallback.textColor)
+        setChatNarrationColor(fallback.narrationColor); setChatQuoteColor(fallback.quoteColor); setChatBackgroundFrost(fallback.frost)
+      }
     }
     // Theme helpers are recreated with theme state; rerunning for those identities would
     // overwrite an in-progress edit. Conversation/preset changes are the intended trigger.
@@ -770,7 +786,7 @@ function App() {
   useEffect(() => { write('weijing.temperature', temperature); write('weijing.topP', topP); write('weijing.memoryLength', memoryLength); write('weijing.maxTokens', maxTokens); write('weijing.streaming', streaming) }, [temperature, topP, memoryLength, maxTokens, streaming])
   useEffect(() => write('weijing.chatLayout', chatLayout), [chatLayout])
   useEffect(() => { write('weijing.uiFontScale', uiFontScale); write('weijing.uiFontWeight', uiFontWeight) }, [uiFontScale, uiFontWeight])
-  useEffect(() => write('weijing.chatTheme', chatTheme), [chatTheme])
+  useEffect(() => { if (!themeBoundRef.current) write('weijing.chatTheme', chatTheme) }, [chatTheme])
   useEffect(() => syncPwaThemeColor(chatBaseColor), [chatBaseColor])
   useEffect(() => write('weijing.customThemes', customThemes), [customThemes])
   useEffect(() => { write('weijing.petEnabled', petEnabled); write('weijing.petVariant', petVariant); write('weijing.petPosition', petPosition) }, [petEnabled, petVariant, petPosition])
@@ -778,6 +794,7 @@ function App() {
   useEffect(() => { write('weijing.replyHelperApiId', replyHelperApiId); write('weijing.replyHelperModelName', replyHelperModelName) }, [replyHelperApiId, replyHelperModelName])
   useEffect(() => {
     write('weijing.chatFontSize', chatFontSize)
+    if (themeBoundRef.current) return
     write('weijing.chatTextColor', chatTextColor)
     write('weijing.chatNarrationColor', chatNarrationColor)
     write('weijing.chatQuoteColor', chatQuoteColor)
