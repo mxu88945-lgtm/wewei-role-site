@@ -32,14 +32,46 @@ blocked：安排确实与已知事实或角色控制权冲突，且本轮无法�
   }]
 }
 
+/**
+ * Models often re-quote Chinese prose with different quote marks, spacing or
+ * punctuation, or shorten it with an ellipsis. Compare on the words only, so a
+ * faithful quote passes while an invented sentence still fails.
+ */
+function comparable(text: string) {
+  return text.normalize('NFKC').replace(/[\s"'“”‘’「」『』《》〈〉()（）[\]【】,，.。!！?？:：;；、…~～—\-_*·|｜]/g, '')
+}
+
+export function evidenceInBody(evidence: string, reply: string) {
+  const body = comparable(storyBody(reply))
+  if (!body) return false
+  const parts = evidence.split(/…+|\.{2,}|⋯+/).map(comparable).filter(Boolean)
+  if (!parts.length || parts.join('').length < 4) return false
+  let from = 0
+  for (const part of parts) {
+    const at = body.indexOf(part, from)
+    if (at < 0) return false
+    from = at + part.length
+  }
+  return true
+}
+
+/** Pull the verdict object out of fences, think tags or a sentence around it. */
+function verdictObject(value: string): unknown {
+  const text = value.replace(/<think(?:ing)?>[\s\S]*?<\/think(?:ing)?>/gi, '').replace(/```(?:json)?/gi, '').trim()
+  try { return JSON.parse(text) } catch { /* fall through */ }
+  const candidates = text.match(/\{[^{}]*"status"[^{}]*\}/g) || []
+  for (const candidate of candidates.reverse()) {
+    try { return JSON.parse(candidate) } catch { /* try the next one */ }
+  }
+  return undefined
+}
+
 export function parseTemporaryPlotReview(value: string, reply: string): PlotReview {
-  try {
-    const parsed: unknown = JSON.parse(value.trim().replace(/^```(?:json)?\s*/i, '').replace(/\s*```$/, ''))
-    if (!parsed || typeof parsed !== 'object') return { status: 'unknown' }
-    const { status, evidence } = parsed as { status?: unknown; evidence?: unknown }
-    if (status === 'ignored' || status === 'blocked') return { status }
-    if (status === 'applied' && typeof evidence === 'string' && evidence.trim() && evidence.length <= 100 && storyBody(reply).includes(evidence.trim())) return { status }
-  } catch { /* Malformed verdicts never consume the private direction. */ }
+  const parsed = verdictObject(value)
+  if (!parsed || typeof parsed !== 'object') return { status: 'unknown' }
+  const { status, evidence } = parsed as { status?: unknown; evidence?: unknown }
+  if (status === 'ignored' || status === 'blocked') return { status }
+  if (status === 'applied' && typeof evidence === 'string' && evidence.trim() && evidence.length <= 160 && evidenceInBody(evidence, reply)) return { status }
   return { status: 'unknown' }
 }
 
@@ -47,18 +79,24 @@ export function parseTemporaryPlotReview(value: string, reply: string): PlotRevi
 export async function reviewTemporaryPlotReply(input: PlotReviewInput & { api: ApiConfig; signal: AbortSignal }): Promise<PlotReview> {
   let verdict = ''
   try {
-    const completion = await completeChat({ api: input.api, messages: buildTemporaryPlotReviewMessages(input), temperature: 0, topP: 1, maxTokens: 256, streaming: false, signal: input.signal, onDelta: (delta) => { verdict += delta } })
+    await completeChat({ api: input.api, messages: buildTemporaryPlotReviewMessages(input), temperature: 0, topP: 1, maxTokens: 800, streaming: false, signal: input.signal, onDelta: (delta) => { verdict += delta } })
     if (input.signal.aborted) throw new DOMException('Aborted', 'AbortError')
-    return completion.finishReason === 'length' || completion.finishReason === 'max_tokens' ? { status: 'unknown' } : parseTemporaryPlotReview(verdict, input.reply)
+    // A cut-off verdict only counts when its JSON is complete and its quote is
+    // verified in the reply; anything partial stays unknown.
+    return parseTemporaryPlotReview(verdict, input.reply)
   } catch (error) {
     if (input.signal.aborted) throw error
     return { status: 'unknown' }
   }
 }
 
-/** Retry an ignored arrangement once. A blocked/unknown result stays pending. */
+/**
+ * Re-ask an unclear check once (relay hiccup, chatty model), then retry an
+ * ignored arrangement once. A blocked/unknown result stays pending.
+ */
 export async function checkAndRepairTemporaryPlot(reply: string, review: (reply: string) => Promise<PlotReview>, repair: () => Promise<string>) {
   let verdict = await review(reply)
+  if (verdict.status === 'unknown') verdict = await review(reply)
   if (verdict.status === 'ignored') {
     reply = await repair()
     verdict = await review(reply)
