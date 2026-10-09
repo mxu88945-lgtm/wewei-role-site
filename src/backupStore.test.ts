@@ -87,3 +87,32 @@ describe('complete two-store backup and restore', () => {
     expect(() => parseBackup(file({ 'weijing.chatWallpapers': '[]' }))).toThrow('壁纸')
   })
 })
+
+describe('backup API key handling', () => {
+  it('redacts every apiKey field and keeps other values', async () => {
+    const { redactBackupData } = await import('./backupStore')
+    const redacted = redactBackupData({
+      'weijing.apiChannels': JSON.stringify([{ id: 'a', baseUrl: 'u', apiKey: 'sk-secret', modelName: 'm' }]),
+      'weijing.globalMemoryApi': JSON.stringify({ baseUrl: 'u', apiKey: 'sk-other', modelName: 'm' }),
+      'weijing.theme': JSON.stringify('dark'),
+    })
+    expect(redacted['weijing.apiChannels']).not.toContain('sk-secret')
+    expect(JSON.parse(redacted['weijing.apiChannels'])[0]).toEqual({ id: 'a', baseUrl: 'u', apiKey: '', modelName: 'm' })
+    expect(JSON.parse(redacted['weijing.globalMemoryApi']).apiKey).toBe('')
+    expect(redacted['weijing.theme']).toBe(JSON.stringify('dark'))
+  })
+
+  it('keeps keys already on the device when restoring a keyless backup, matching channels by id', async () => {
+    const { mergeExistingSecrets } = await import('./backupStore')
+    const merged = mergeExistingSecrets(
+      { 'weijing.apiChannels': JSON.stringify([{ id: 'b', apiKey: '' }, { id: 'a', apiKey: '' }, { id: 'c', apiKey: 'sk-from-backup' }]) },
+      { 'weijing.apiChannels': [{ id: 'a', apiKey: 'sk-a' }, { id: 'b', apiKey: 'sk-b' }, { id: 'c', apiKey: 'sk-local' }] },
+    )
+    expect(JSON.parse(merged['weijing.apiChannels'])).toEqual([{ id: 'b', apiKey: 'sk-b' }, { id: 'a', apiKey: 'sk-a' }, { id: 'c', apiKey: 'sk-from-backup' }])
+  })
+
+  it('explains a non-JSON file in plain words', async () => {
+    const { parseBackupText } = await import('./backupStore')
+    expect(() => parseBackupText('not json')).toThrow('不是惟境备份')
+  })
+})

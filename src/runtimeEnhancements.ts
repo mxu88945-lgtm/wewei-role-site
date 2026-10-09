@@ -1,6 +1,5 @@
+import { getMemoryChannelName as getStoredMemoryChannelName, saveMemoryChannelName as saveStoredMemoryChannelName } from './memoryChannelNames'
 type ApiModel = { id: string; ownedBy?: string }
-
-type MemoryChannelNameMap = Record<string, string>
 
 function apiEndpoint(baseUrl: string, path: string) {
   return `${baseUrl.replace(/\/$/, '')}/${path.replace(/^\//, '')}`
@@ -59,24 +58,12 @@ function activeCharacterId() {
   }
 }
 
-function readMemoryChannelNames(): MemoryChannelNameMap {
-  try {
-    const value = localStorage.getItem('weijing.memoryChannelNames')
-    const parsed = value ? JSON.parse(value) : {}
-    return parsed && typeof parsed === 'object' && !Array.isArray(parsed) ? parsed as MemoryChannelNameMap : {}
-  } catch {
-    return {}
-  }
-}
-
 function getMemoryChannelName() {
-  return readMemoryChannelNames()[activeCharacterId()] || ''
+  return getStoredMemoryChannelName(activeCharacterId())
 }
 
 function saveMemoryChannelName(value: string) {
-  const names = readMemoryChannelNames()
-  names[activeCharacterId()] = value
-  localStorage.setItem('weijing.memoryChannelNames', JSON.stringify(names))
+  saveStoredMemoryChannelName(activeCharacterId(), value)
 }
 
 function updateMemoryApiStatus(section: HTMLElement, channelName: string) {

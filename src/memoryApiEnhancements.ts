@@ -1,29 +1,8 @@
+import { getMemoryChannelName, saveMemoryChannelName } from './memoryChannelNames'
 import { fetchApiModels, type ApiModel } from './chatApi'
-
-type MemoryChannelNameMap = Record<string, string>
 
 function memoryApiScope(section: HTMLElement) {
   return section.dataset.memoryApiScope || 'global'
-}
-
-function readMemoryChannelNames(): MemoryChannelNameMap {
-  try {
-    const value = localStorage.getItem('weijing.memoryChannelNames')
-    const parsed = value ? JSON.parse(value) : {}
-    return parsed && typeof parsed === 'object' && !Array.isArray(parsed) ? parsed as MemoryChannelNameMap : {}
-  } catch {
-    return {}
-  }
-}
-
-function getMemoryChannelName(scope: string) {
-  return readMemoryChannelNames()[scope] || ''
-}
-
-function saveMemoryChannelName(scope: string, value: string) {
-  const names = readMemoryChannelNames()
-  names[scope] = value
-  localStorage.setItem('weijing.memoryChannelNames', JSON.stringify(names))
 }
 
 function setReactInputValue(input: HTMLInputElement, value: string) {
