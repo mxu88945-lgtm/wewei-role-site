@@ -157,3 +157,9 @@ html[data-standalone] .chat-canvas .chat-jump-controls {
     height: calc(var(--app-h, 100dvh) - 56px);
   }
 }
+
+/* Keyboard open (index.html sets data-kb and shrinks --app-h to the visible area):
+   the home-indicator inset is under the keyboard, so drop it from the composer. */
+html[data-standalone][data-kb] .chat-canvas .composer { bottom: 8px; }
+html[data-standalone][data-kb] .chat-canvas .composer::before { bottom: -8px; }
+html[data-standalone][data-kb] .chat-canvas .message-list { padding-bottom: var(--composer-clearance, 122px); }

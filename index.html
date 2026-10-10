@@ -29,12 +29,27 @@
               const width = portrait ? short : long
               /* iPad split view / Slide Over: the window is narrower than the screen,
                  so the screen height would be wrong; fall back to the normal 100%. */
-              if (Math.abs(window.innerWidth - width) > 2) { root.style.removeProperty('--app-h'); return }
-              root.style.setProperty('--app-h', `${portrait ? long : short}px`)
+              if (Math.abs(window.innerWidth - width) > 2) { root.style.removeProperty('--app-h'); root.removeAttribute('data-kb'); return }
+              const full = portrait ? long : short
+              /* Keyboard open: shrink the app to the visible area so the composer sits on
+                 top of the keyboard and iOS doesn't pan the whole page up under the clock. */
+              const vv = window.visualViewport
+              if (vv && vv.height < full - 120) {
+                root.setAttribute('data-kb', '')
+                root.style.setProperty('--app-h', `${Math.round(vv.height)}px`)
+                if (window.scrollY || vv.offsetTop) window.scrollTo(0, 0)
+              } else {
+                root.removeAttribute('data-kb')
+                root.style.setProperty('--app-h', `${full}px`)
+              }
             }
             setAppHeight()
             window.addEventListener('orientationchange', () => setTimeout(setAppHeight, 150))
             window.addEventListener('resize', setAppHeight)
+            if (window.visualViewport) {
+              window.visualViewport.addEventListener('resize', setAppHeight)
+              window.visualViewport.addEventListener('scroll', setAppHeight)
+            }
           }
           const wallTop = localStorage.getItem('weijing.wallTopColor')
           if (wallTop && /^#[0-9a-f]{6}$/i.test(wallTop)) document.documentElement.style.setProperty('--wall-top', wallTop)
