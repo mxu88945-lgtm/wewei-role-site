@@ -10,15 +10,16 @@ const api = { baseUrl: 'https://relay.example/v1', apiKey: 'test', modelName: 'm
 afterEach(() => vi.unstubAllGlobals())
 
 describe('backstage arrangement review', () => {
-  it('accepts only body evidence, not a scene header, status-only mention or fabricated quote', () => {
+  it('parses verdicts from fenced, chatty or differently-cased checker output', () => {
     expect(parseTemporaryPlotReview('{"status":"applied","evidence":"来电显示：苏念念"}', input.reply).status).toBe('applied')
-    for (const evidence of ['', '16:00｜主卧', '当前外部事件：苏念念来电', '沈衍接起了电话']) expect(parseTemporaryPlotReview(JSON.stringify({ status: 'applied', evidence }), input.reply).status).toBe('unknown')
+    // An explicit "applied" verdict is trusted even when its quote is paraphrased or missing.
+    for (const evidence of ['', '16:00｜主卧', '当前外部事件：苏念念来电', '沈衍接起了电话']) expect(parseTemporaryPlotReview(JSON.stringify({ status: 'applied', evidence }), input.reply).status).toBe('applied')
+    expect(parseTemporaryPlotReview('{"status":"Applied","evidence":"找到了 Born To Die 的黑胶"}', '姐姐，我找到了一张 Lana Del Rey《Born to Die》的黑胶。').status).toBe('applied')
     expect(parseTemporaryPlotReview('```json\n{"status":"ignored","evidence":""}\n```', ignored).status).toBe('ignored')
     // Re-quoted with other quote marks, spacing or an ellipsis still matches the body.
     expect(parseTemporaryPlotReview('{"status":"applied","evidence":"来电显示: 苏念念"}', input.reply).status).toBe('applied')
     expect(parseTemporaryPlotReview('{"status":"applied","evidence":"手机屏幕亮起……铃声打破室内的安静"}', input.reply).status).toBe('applied')
     expect(parseTemporaryPlotReview('<think>看一下</think>判定如下：{"status":"applied","evidence":"“手机屏幕亮起”"}', input.reply).status).toBe('applied')
-    expect(parseTemporaryPlotReview('{"status":"applied","evidence":"手机屏幕亮起……沈衍接起了电话"}', input.reply).status).toBe('unknown')
     for (const verdict of ['invalid', 'null', 'true', '{"status":"successful"}']) expect(parseTemporaryPlotReview(verdict, input.reply).status).toBe('unknown')
   })
   it('isolates the review from roleplay and excludes status metadata from its evidence', () => {
@@ -60,8 +61,24 @@ describe('backstage arrangement review', () => {
     expect((result.applied ? consumeTemporaryPlot(queued, captured, 0) : queued).temporaryPlot).toBeUndefined()
     expect(source.messages).toEqual([])
   })
-  it('does not treat an ignored, blocked or unknown verdict as completion or loop indefinitely', async () => {
-    for (const status of ['ignored', 'blocked', 'unknown'] as const) {
+  it('consumes a fulfilled once-plot when the checker errors or cannot decide (stuck "待使用" bug)', async () => {
+    const group: Conversation = { id: 'group', kind: 'group', characterId: 'gu', participantIds: ['gu', 'director'], title: '群聊', messages: [], createdAt: 1, updatedAt: 1, historyRevision: 3, temporaryPlot: { id: 'vinyl', text: '顾星辞告诉姐姐他找到了一张 Lana Del Rey 的 Born to Die 黑胶', mode: 'once' } }
+    const reply = '顾星辞把唱片举到你面前：“姐姐，我找到了 Lana Del Rey 的《Born to Die》黑胶。”'
+    // Relay hiccup / reasoning-only answer / unparsable JSON → unknown twice.
+    vi.stubGlobal('fetch', vi.fn(async () => new Response('{"error":{"message":"busy"}}', { status: 400, headers: { 'content-type': 'application/json' } })))
+    const review = (text: string) => reviewTemporaryPlotReply({ ...input, direction: group.temporaryPlot!.text, reply: text, api, signal: new AbortController().signal })
+    const repair = vi.fn(async () => reply)
+    const result = await checkAndRepairTemporaryPlot(reply, review, repair)
+    expect(result.verdict.status).toBe('unknown')
+    expect(result.applied).toBe(true)
+    expect(repair).not.toHaveBeenCalled()
+    const captured = captureTemporaryPlot(group, true, 'gu')
+    expect(consumeTemporaryPlot(group, captured, 3).temporaryPlot).toBeUndefined()
+    const counted: Conversation = { ...group, temporaryPlot: { ...group.temporaryPlot!, mode: 'counted', remainingUses: 2 } }
+    expect(consumeTemporaryPlot(counted, captureTemporaryPlot(counted, true, 'gu'), 3).temporaryPlot?.remainingUses).toBe(1)
+  })
+  it('keeps the direction pending only for a definite ignored/blocked verdict and never loops', async () => {
+    for (const status of ['ignored', 'blocked'] as const) {
       const review = vi.fn(async () => ({ status }))
       const repair = vi.fn(async () => ignored)
       const result = await checkAndRepairTemporaryPlot(ignored, review, repair)
@@ -75,7 +92,7 @@ describe('backstage arrangement review', () => {
     const fetchMock = vi.fn(async (_url: unknown, init?: RequestInit) => {
       const body = JSON.parse(String(init?.body))
       expect(body.stream).toBe(false)
-      expect(body.max_tokens).toBe(800)
+      expect(body.max_tokens).toBe(2000)
       expect(body.temperature).toBe(0)
       expect(body.messages).toHaveLength(2)
       return new Response(JSON.stringify({ choices: [{ message: { content: '{"status":"applied","evidence":"来电显示：苏念念"}' } }] }), { headers: { 'content-type': 'application/json' } })

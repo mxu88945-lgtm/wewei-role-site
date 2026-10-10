@@ -22,28 +22,41 @@
           if (standalone) {
             const root = document.documentElement
             root.setAttribute('data-standalone', '')
-            const setAppHeight = () => {
+            /* Write only when the value changes: every --app-h / data-kb write
+               relayouts the whole chat, and iOS fires visualViewport resize/scroll
+               on every frame of the keyboard animation (e.g. when the @ picker
+               opens and the keyboard closes). */
+            let lastH = null
+            let lastKb = null
+            const apply = (h, kb) => {
+              if (kb !== lastKb) { if (kb) root.setAttribute('data-kb', ''); else root.removeAttribute('data-kb'); lastKb = kb }
+              if (h !== lastH) { if (h === null) root.style.removeProperty('--app-h'); else root.style.setProperty('--app-h', h); lastH = h }
+            }
+            const measure = () => {
               const portrait = window.matchMedia('(orientation: portrait)').matches
               const long = Math.max(screen.width, screen.height)
               const short = Math.min(screen.width, screen.height)
               const width = portrait ? short : long
               /* iPad split view / Slide Over: the window is narrower than the screen,
                  so the screen height would be wrong; fall back to the normal 100%. */
-              if (Math.abs(window.innerWidth - width) > 2) { root.style.removeProperty('--app-h'); root.removeAttribute('data-kb'); return }
+              if (Math.abs(window.innerWidth - width) > 2) { apply(null, false); return }
               const full = portrait ? long : short
               /* Keyboard open: shrink the app to the visible area so the composer sits on
                  top of the keyboard and iOS doesn't pan the whole page up under the clock. */
               const vv = window.visualViewport
               if (vv && vv.height < full - 120) {
-                root.setAttribute('data-kb', '')
-                root.style.setProperty('--app-h', `${Math.round(vv.height)}px`)
+                apply(`${Math.round(vv.height)}px`, true)
                 if (window.scrollY || vv.offsetTop) window.scrollTo(0, 0)
               } else {
-                root.removeAttribute('data-kb')
-                root.style.setProperty('--app-h', `${full}px`)
+                apply(`${full}px`, false)
               }
             }
-            setAppHeight()
+            let frame = 0
+            const setAppHeight = () => {
+              if (frame) return
+              frame = requestAnimationFrame(() => { frame = 0; measure() })
+            }
+            measure()
             window.addEventListener('orientationchange', () => setTimeout(setAppHeight, 150))
             window.addEventListener('resize', setAppHeight)
             if (window.visualViewport) {

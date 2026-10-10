@@ -35,7 +35,7 @@ export default function TemporaryPlotPage({ plot, onChange, recipients, template
     <label>幕后安排<textarea rows={12} value={value} onChange={(event) => changePlot({ text: event.target.value })} placeholder="例如：让他接到一通紧急电话；或这场保持缓慢对峙，不急着和解……" /></label>
     <div className="story-tools-actions"><button disabled={!value} onClick={() => onChange(undefined)}>清空 / 结束</button></div>
     <p>{mode === 'persistent' ? '成功回复后仍保留，直到你手动结束。' : mode === 'counted' ? '确认安排落实后扣一次；一次 @ 多位接收者也只扣一次。用完自动结束。' : '确认安排落实后清空。'}失败或停止时不消耗；生成期间的新修改留给下一次。持续方向不会要求重复已经发生的事件。</p>
-    {mode !== 'persistent' && <p>回复完成后会用当前渠道额外做一次简短检查；若未落实，会自动补写一次并再次检查。无法确认时保留安排并提示，不会把检查内容放进聊天正文。</p>}
+    {mode !== 'persistent' && <p>回复完成后会用当前渠道额外做一次简短检查；若明确未落实，会自动补写一次并再次检查；检查本身出错或给不出结论时按已使用处理。只有检查明确判定冲突时才保留安排并提示，提示里可一键结束。检查内容不会放进聊天正文。</p>}
     <article className="story-tools-card"><h3>收藏当前安排</h3><label>收藏名称<input value={title} onChange={(event) => setTitle(event.target.value)} placeholder="突发来电、配角入场……" /></label><button className="secondary-button" disabled={!title.trim() || !value.trim()} onClick={saveTemplate}>保存到剧情收藏</button></article>
     <h3>剧情收藏（{templates.length}）</h3>
     {templates.map((template) => <article className="story-tools-card" key={template.id}><strong>{template.title}</strong><p className="story-tools-excerpt">{template.text.slice(0, 160)}{template.text.length > 160 ? '…' : ''}</p><div className="story-tools-actions"><button onClick={() => loadTemplate(template)}>载入并修改</button><button onClick={() => { if (window.confirm(`删除收藏「${template.title}」？当前临时剧情不受影响。`)) onTemplatesChange(templates.filter((item) => item.id !== template.id)) }}>删除收藏</button></div></article>)}

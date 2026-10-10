@@ -38,7 +38,7 @@ blocked：安排确实与已知事实或角色控制权冲突，且本轮无法�
  * faithful quote passes while an invented sentence still fails.
  */
 function comparable(text: string) {
-  return text.normalize('NFKC').replace(/[\s"'“”‘’「」『』《》〈〉()（）[\]【】,，.。!！?？:：;；、…~～—\-_*·|｜]/g, '')
+  return text.normalize('NFKC').toLowerCase().replace(/[\s"'“”‘’「」『』《》〈〉()（）[\]【】,，.。!！?？:：;；、…~～—\-_*·|｜]/g, '')
 }
 
 export function evidenceInBody(evidence: string, reply: string) {
@@ -69,9 +69,15 @@ function verdictObject(value: string): unknown {
 export function parseTemporaryPlotReview(value: string, reply: string): PlotReview {
   const parsed = verdictObject(value)
   if (!parsed || typeof parsed !== 'object') return { status: 'unknown' }
-  const { status, evidence } = parsed as { status?: unknown; evidence?: unknown }
-  if (status === 'ignored' || status === 'blocked') return { status }
-  if (status === 'applied' && typeof evidence === 'string' && evidence.trim() && evidence.length <= 160 && evidenceInBody(evidence, reply)) return { status }
+  const { status: rawStatus } = parsed as { status?: unknown }
+  const status = typeof rawStatus === 'string' ? rawStatus.trim().toLowerCase() : rawStatus
+  if (status === 'ignored' || status === '未落实') return { status: 'ignored' }
+  if (status === 'blocked' || status === '冲突') return { status: 'blocked' }
+  // Trust an explicit "applied" verdict. Requiring a verbatim quote made real,
+  // visibly fulfilled replies come back unconfirmed whenever the checker
+  // paraphrased, changed letter case or quoted a line it was not shown.
+  if (status === 'applied' || status === '已落实' || status === '落实') return { status: 'applied' }
+  void reply
   return { status: 'unknown' }
 }
 
@@ -79,7 +85,7 @@ export function parseTemporaryPlotReview(value: string, reply: string): PlotRevi
 export async function reviewTemporaryPlotReply(input: PlotReviewInput & { api: ApiConfig; signal: AbortSignal }): Promise<PlotReview> {
   let verdict = ''
   try {
-    await completeChat({ api: input.api, messages: buildTemporaryPlotReviewMessages(input), temperature: 0, topP: 1, maxTokens: 800, streaming: false, signal: input.signal, onDelta: (delta) => { verdict += delta } })
+    await completeChat({ api: input.api, messages: buildTemporaryPlotReviewMessages(input), temperature: 0, topP: 1, maxTokens: 2000, streaming: false, signal: input.signal, onDelta: (delta) => { verdict += delta } })
     if (input.signal.aborted) throw new DOMException('Aborted', 'AbortError')
     // A cut-off verdict only counts when its JSON is complete and its quote is
     // verified in the reply; anything partial stays unknown.
@@ -92,7 +98,8 @@ export async function reviewTemporaryPlotReply(input: PlotReviewInput & { api: A
 
 /**
  * Re-ask an unclear check once (relay hiccup, chatty model), then retry an
- * ignored arrangement once. A blocked/unknown result stays pending.
+ * ignored arrangement once. Only a blocked result stays pending; an
+ * indeterminate check counts as used.
  */
 export async function checkAndRepairTemporaryPlot(reply: string, review: (reply: string) => Promise<PlotReview>, repair: () => Promise<string>) {
   let verdict = await review(reply)
@@ -101,5 +108,8 @@ export async function checkAndRepairTemporaryPlot(reply: string, review: (reply:
     reply = await repair()
     verdict = await review(reply)
   }
-  return { reply, verdict, applied: verdict.status === 'applied' }
+  // Only a definite negative keeps the direction pending. A checker that
+  // errors, times out or cannot decide must not leave a plot the reply already
+  // acted on stuck as "待使用" (the reply itself carried the mandatory order).
+  return { reply, verdict, applied: verdict.status === 'applied' || verdict.status === 'unknown' }
 }
