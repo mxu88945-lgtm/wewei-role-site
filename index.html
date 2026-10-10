@@ -22,6 +22,7 @@
           }
           if (typeof themeColor === 'string' && /^#[0-9a-f]{6}$/i.test(themeColor)) {
             document.documentElement.style.backgroundColor = themeColor
+            document.documentElement.style.setProperty('--launch-theme-color', themeColor)
             document.querySelector('meta[name="theme-color"]')?.setAttribute('content', themeColor)
           }
         } catch {}

@@ -6,7 +6,7 @@ body,
   min-height: 100%;
   overflow: hidden;
   overscroll-behavior: none;
-  background: #f8f6fa;
+  background: var(--launch-theme-color, #f8f6fa);
 }
 
 body {

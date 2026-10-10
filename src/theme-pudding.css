@@ -47,3 +47,10 @@
 
 /* Settings and other pages */
 .theme-pudding .page-header { background: rgba(255,246,220,.94); }
+.theme-pudding .page-header::before { background: #fff6dc; }
+.theme-pudding.chat-canvas { background: #fff6dc; }
+.theme-pudding .settings-group, .theme-pudding .appearance-card, .theme-pudding .theme-choice-card { border: 2px solid #fbe6bd; background: rgba(255,251,238,.92); box-shadow: 0 4px 0 #f8e0ad; }
+.theme-pudding .privacy-note { color: #9c7a55; background: #fdf0d2; }
+.theme-pudding .theme-choice-grid button { color: #5b4330; background: rgba(255,255,255,.72); }
+.theme-pudding .theme-choice-grid button.active { border-color: #e3a556; box-shadow: 0 4px 0 #f4d59a; }
+.theme-pudding .duplicate-theme-button { color: #b0702c; border-color: #ecc58a; }

@@ -205,7 +205,12 @@ const syncPwaThemeColor = (color: string) => {
   try { localStorage.setItem('weijing.pwaThemeColor', color) } catch {
     // Theme application still works when private browsing blocks localStorage.
   }
+  // iOS can sample the page behind the status bar, so every root layer under
+  // it carries the theme color instead of the stylesheet's fixed light grey.
   document.documentElement.style.backgroundColor = color
+  document.body.style.backgroundColor = color
+  const root = document.getElementById('root')
+  if (root) root.style.backgroundColor = color
   document.querySelectorAll('meta[name="theme-color"]').forEach((element) => element.remove())
   const themeMeta = document.createElement('meta')
   themeMeta.setAttribute('name', 'theme-color')
