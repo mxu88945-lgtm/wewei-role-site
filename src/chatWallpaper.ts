@@ -112,7 +112,7 @@ export function wallpaperTopColor(wallpaper: ChatWallpaper, themeColor: string, 
 }
 
 /** Average colour of the top strip of an image drawn with background-size: cover at `aspect` (width / height). */
-export function sampleImageTopColor(src: string, aspect: number, strip = .06): Promise<string | null> {
+export function sampleImageTopColor(src: string, aspect: number, strip = .06, fromBottom = false): Promise<string | null> {
   return new Promise((resolve) => {
     const image = new Image()
     if (!/^(?:data|blob):/i.test(src)) image.crossOrigin = 'anonymous'
@@ -127,7 +127,8 @@ export function sampleImageTopColor(src: string, aspect: number, strip = .06): P
         canvas.height = 8
         const context = canvas.getContext('2d', { willReadFrequently: true })
         if (!context) return resolve(null)
-        context.drawImage(image, sx, sy, sw, Math.max(1, sh * strip), 0, 0, canvas.width, canvas.height)
+        const stripH = Math.max(1, sh * strip)
+        context.drawImage(image, sx, fromBottom ? sy + sh - stripH : sy, sw, stripH, 0, 0, canvas.width, canvas.height)
         const data = context.getImageData(0, 0, canvas.width, canvas.height).data
         const sum = [0, 0, 0]
         for (let index = 0; index < data.length; index += 4) { sum[0] += data[index]; sum[1] += data[index + 1]; sum[2] += data[index + 2] }

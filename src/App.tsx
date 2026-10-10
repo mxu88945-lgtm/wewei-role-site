@@ -810,10 +810,13 @@ function App() {
       root.style.backgroundColor = hex
       try { localStorage.setItem('weijing.wallTopColor', hex) } catch { /* private mode: next launch falls back to the theme colour */ }
     }
-    if (!currentWallpaperImage) apply(wallpaperTopColor(wallpaper, chatBaseColor))
+    const applyBottom = (hex: string) => { if (!cancelled) root.style.setProperty('--wall-bottom', hex) }
+    if (!currentWallpaperImage) { const hex = wallpaperTopColor(wallpaper, chatBaseColor); apply(hex); applyBottom(hex) }
     else {
       const height = Number.parseFloat(root.style.getPropertyValue('--app-h')) || window.innerHeight || 844
-      void sampleImageTopColor(currentWallpaperImage, (window.innerWidth || 390) / height).then((top) => apply(wallpaperTopColor(wallpaper, chatBaseColor, top)))
+      const aspect = (window.innerWidth || 390) / height
+      void sampleImageTopColor(currentWallpaperImage, aspect).then((top) => apply(wallpaperTopColor(wallpaper, chatBaseColor, top)))
+      void sampleImageTopColor(currentWallpaperImage, aspect, .12, true).then((bottom) => applyBottom(wallpaperTopColor(wallpaper, chatBaseColor, bottom)))
     }
     return () => { cancelled = true }
   }, [page, chatBaseColor, currentWallpaperImage, currentWallpaper.enabled, currentWallpaper.source, currentWallpaper.color, currentWallpaper.imageOpacity, currentWallpaper.colorOpacity])
