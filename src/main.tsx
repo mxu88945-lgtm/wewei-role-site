@@ -12,6 +12,7 @@ import './preset-page.css'
 import './runtime-enhancements.css'
 import './theme-pudding.css'
 import './theme-cute.css'
+import './theme-cute-icons.css'
 import './memoryApiEnhancements'
 
 const APP_SCOPE = '/wewei-role-site/'
