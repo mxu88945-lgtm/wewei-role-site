@@ -71,7 +71,7 @@ type MemoryConfig = {
 type MemoryConfigMap = Record<string, MemoryConfig>
 type MemoryEntryMap = Record<string, MemoryEntry[]>
 type UserIdentity = { id: string; name: string; description: string; avatar?: string }
-type ChatThemeMode = 'mist' | 'pearl' | 'sage' | 'pudding'
+type ChatThemeMode = 'mist' | 'pearl' | 'sage' | 'pudding' | 'strawberry' | 'blueberry'
 type ChatThemePreset = { id: string; name: string; mode: ChatThemeMode; baseColor: string; textColor: string; narrationColor: string; quoteColor: string; frost: number; custom?: boolean }
 
 const demoCharacter: Character = {
@@ -186,6 +186,8 @@ const builtInThemes: ChatThemePreset[] = [
   { id: 'pearl', name: '月光珍珠', mode: 'pearl', baseColor: '#f8f7f5', textColor: '#403d42', narrationColor: '#716d74', quoteColor: '#6a5360', frost: .68 },
   { id: 'sage', name: '青瓷薄荷', mode: 'sage', baseColor: '#e8f2ee', textColor: '#354b45', narrationColor: '#718a82', quoteColor: '#47776d', frost: .66 },
   { id: 'pudding', name: '布丁奶黄', mode: 'pudding', baseColor: '#fff6dc', textColor: '#5b4330', narrationColor: '#a07a52', quoteColor: '#c0702c', frost: .70 },
+  { id: 'strawberry', name: '草莓奶油兔', mode: 'strawberry', baseColor: '#fff0f3', textColor: '#5c3a44', narrationColor: '#a8707f', quoteColor: '#c04866', frost: .70 },
+  { id: 'blueberry', name: '蓝莓蝴蝶结', mode: 'blueberry', baseColor: '#eef5fd', textColor: '#34465e', narrationColor: '#6f86a6', quoteColor: '#3f6fae', frost: .70 },
 ]
 
 const migrateMemoryConfigs = (configs: MemoryConfigMap) => Object.fromEntries(Object.entries(configs).map(([id, config]) => [id, {

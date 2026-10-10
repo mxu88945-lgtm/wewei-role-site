@@ -1,0 +1,102 @@
+/* 草莓奶油兔 and 蓝莓蝴蝶结: same PWA-safe recipe as 布丁奶黄 (flat status bar, decorations below it). */
+.phone-canvas.theme-strawberry {
+  --theme-accent: #e0607e; --theme-accent-strong: #e45a7c; --theme-accent-end: #f59ab0;
+  --theme-accent-soft: #fde3ea; --theme-accent-soft-strong: #fbd3de; --theme-accent-text: #c04866;
+  --theme-accent-shadow: rgba(190,70,100,.16); --composer-dock-rgb: 255,240,243;
+  color: #5c3a44;
+  background-color: #fff0f3;
+  background-image: radial-gradient(rgba(240,130,160,.20) 2.2px, transparent 2.6px), radial-gradient(rgba(255,255,255,.9) 2.2px, transparent 2.6px);
+  background-size: 26px 26px, 26px 26px;
+  background-position: 0 0, 13px 13px;
+}
+
+/* Home */
+.theme-strawberry .home-heading .eyebrow { color: #d77a93; }
+.theme-strawberry .home-heading h1 { color: #5c3a44; }
+.theme-strawberry .home-heading h1::after { content: ' 🐰'; font-size: .8em; }
+.theme-strawberry .home-heading p { color: #b0808e; }
+.theme-strawberry .home-entrances > button { border: 2px solid #fbd0dc; border-radius: 30px; color: #5c3a44; background: linear-gradient(160deg,#fffafb,#ffe8ee); box-shadow: 0 6px 0 #f6bfcd, 0 16px 30px rgba(190,70,100,.10); }
+.theme-strawberry .home-entrances > button:active { transform: translateY(3px); box-shadow: 0 3px 0 #f6bfcd, 0 10px 20px rgba(190,70,100,.10); }
+.theme-strawberry .home-icon { color: #fff; border-radius: 22px 22px 18px 18px; background: linear-gradient(180deg,#ffffff 0 26%,#f58ba5 27% 100%); box-shadow: inset 0 -5px 0 rgba(200,80,110,.35), 0 8px 18px rgba(190,70,100,.20); }
+.theme-strawberry .home-entrances small { color: #b48a96; }
+.theme-strawberry .home-entrances i { color: #ec9bb0; }
+
+/* Chat */
+.theme-strawberry.chat-canvas .chat-header { border-bottom: 2px dashed rgba(240,130,160,.45); background: linear-gradient(180deg,rgba(255,244,247,.94),rgba(255,232,239,.80)); box-shadow: 0 8px 24px rgba(190,70,100,.08); }
+.theme-strawberry .chat-background::after {
+  background-color: rgba(255,242,246,var(--chat-background-frost,.70));
+  background-image: radial-gradient(rgba(240,130,160,.18) 2px, transparent 2.4px);
+  background-size: 24px 24px;
+}
+.theme-strawberry .message-content-bubble, .theme-strawberry.phone-canvas .message-layout-bubble .message-content-rich { border: 2px solid #fbd5df; border-radius: 22px 22px 22px 8px; background: rgba(255,252,253,.96); box-shadow: 0 4px 0 #f6c7d4; }
+.theme-strawberry .message-row.user .message-content-bubble { border-color: transparent; border-radius: 22px 22px 8px 22px; color: #fff; background: linear-gradient(160deg,#ec7c98,#f7a9bd); box-shadow: 0 4px 0 #c9567a; }
+.theme-strawberry .message-bubble-author { color: #c07a8e; }
+.theme-strawberry .composer { border: 2px solid #fbd0dc; background: rgba(255,244,247,.95); box-shadow: 0 5px 0 #f3bccb, 0 12px 26px rgba(190,70,100,.12); }
+.theme-strawberry .composer-plus { color: #c04866; background: #fde0e8; }
+.theme-strawberry .send-button { background: linear-gradient(160deg,#e45a7c,#f59ab0); box-shadow: 0 4px 0 #b2496a; }
+.theme-strawberry .send-button.stop { background: linear-gradient(160deg,#c9636f,#e98f93); box-shadow: 0 4px 0 #a14b57; }
+.theme-strawberry .chat-jump-controls button { color: #c04866; background: rgba(255,243,246,.95); box-shadow: 0 6px 18px rgba(190,70,100,.16); }
+
+/* Theme picker swatch */
+.theme-choice-grid button.strawberry i { background: linear-gradient(180deg,#ffffff 0 28%,#f58ba5 29% 100%); }
+
+/* Settings and other pages */
+.theme-strawberry .page-header { background: rgba(255,240,243,.94); }
+.theme-strawberry .page-header::before { background: #fff0f3; }
+.theme-strawberry.chat-canvas { background: #fff0f3; }
+.theme-strawberry .settings-group, .theme-strawberry .appearance-card, .theme-strawberry .theme-choice-card { border: 2px solid #fbd5df; background: rgba(255,249,251,.92); box-shadow: 0 4px 0 #f6c7d4; }
+.theme-strawberry .privacy-note { color: #a8707f; background: #fde3ea; }
+.theme-strawberry .theme-choice-grid button { color: #5c3a44; background: rgba(255,255,255,.72); }
+.theme-strawberry .theme-choice-grid button.active { border-color: #e57a97; box-shadow: 0 4px 0 #f3bccb; }
+.theme-strawberry .duplicate-theme-button { color: #c04866; border-color: #f0a9bc; }
+
+.phone-canvas.theme-blueberry {
+  --theme-accent: #5b8fd6; --theme-accent-strong: #4f86d4; --theme-accent-end: #93bdf0;
+  --theme-accent-soft: #e1edfb; --theme-accent-soft-strong: #d2e3f8; --theme-accent-text: #3f6fae;
+  --theme-accent-shadow: rgba(60,110,180,.16); --composer-dock-rgb: 238,245,253;
+  color: #34465e;
+  background-color: #eef5fd;
+  background-image: radial-gradient(rgba(120,165,230,.20) 2.2px, transparent 2.6px), radial-gradient(rgba(255,255,255,.9) 2.2px, transparent 2.6px);
+  background-size: 26px 26px, 26px 26px;
+  background-position: 0 0, 13px 13px;
+}
+
+/* Home */
+.theme-blueberry .home-heading .eyebrow { color: #6e95cc; }
+.theme-blueberry .home-heading h1 { color: #34465e; }
+.theme-blueberry .home-heading h1::after { content: ' 🎀'; font-size: .8em; }
+.theme-blueberry .home-heading p { color: #7f93ad; }
+.theme-blueberry .home-entrances > button { border: 2px solid #cfe0f6; border-radius: 30px; color: #34465e; background: linear-gradient(160deg,#fbfdff,#e6f0fc); box-shadow: 0 6px 0 #bcd4f2, 0 16px 30px rgba(60,110,180,.10); }
+.theme-blueberry .home-entrances > button:active { transform: translateY(3px); box-shadow: 0 3px 0 #bcd4f2, 0 10px 20px rgba(60,110,180,.10); }
+.theme-blueberry .home-icon { color: #fff; border-radius: 22px 22px 18px 18px; background: linear-gradient(180deg,#ffffff 0 26%,#8db8ee 27% 100%); box-shadow: inset 0 -5px 0 rgba(70,120,190,.35), 0 8px 18px rgba(60,110,180,.20); }
+.theme-blueberry .home-entrances small { color: #8a9bb2; }
+.theme-blueberry .home-entrances i { color: #9dbde6; }
+
+/* Chat */
+.theme-blueberry.chat-canvas .chat-header { border-bottom: 2px dashed rgba(120,165,230,.45); background: linear-gradient(180deg,rgba(243,248,254,.94),rgba(228,239,252,.80)); box-shadow: 0 8px 24px rgba(60,110,180,.08); }
+.theme-blueberry .chat-background::after {
+  background-color: rgba(241,247,254,var(--chat-background-frost,.70));
+  background-image: radial-gradient(rgba(120,165,230,.18) 2px, transparent 2.4px);
+  background-size: 24px 24px;
+}
+.theme-blueberry .message-content-bubble, .theme-blueberry.phone-canvas .message-layout-bubble .message-content-rich { border: 2px solid #d4e4f8; border-radius: 22px 22px 22px 8px; background: rgba(252,254,255,.96); box-shadow: 0 4px 0 #c4d9f3; }
+.theme-blueberry .message-row.user .message-content-bubble { border-color: transparent; border-radius: 22px 22px 8px 22px; color: #fff; background: linear-gradient(160deg,#6a9be0,#a3c6f2); box-shadow: 0 4px 0 #4a78b8; }
+.theme-blueberry .message-bubble-author { color: #7590b5; }
+.theme-blueberry .composer { border: 2px solid #cfe0f6; background: rgba(243,248,254,.95); box-shadow: 0 5px 0 #bad2f0, 0 12px 26px rgba(60,110,180,.12); }
+.theme-blueberry .composer-plus { color: #3f6fae; background: #dfeafa; }
+.theme-blueberry .send-button { background: linear-gradient(160deg,#4f86d4,#93bdf0); box-shadow: 0 4px 0 #3d68a6; }
+.theme-blueberry .send-button.stop { background: linear-gradient(160deg,#c9636f,#e98f93); box-shadow: 0 4px 0 #a14b57; }
+.theme-blueberry .chat-jump-controls button { color: #3f6fae; background: rgba(242,248,254,.95); box-shadow: 0 6px 18px rgba(60,110,180,.16); }
+
+/* Theme picker swatch */
+.theme-choice-grid button.blueberry i { background: linear-gradient(180deg,#ffffff 0 28%,#8db8ee 29% 100%); }
+
+/* Settings and other pages */
+.theme-blueberry .page-header { background: rgba(238,245,253,.94); }
+.theme-blueberry .page-header::before { background: #eef5fd; }
+.theme-blueberry.chat-canvas { background: #eef5fd; }
+.theme-blueberry .settings-group, .theme-blueberry .appearance-card, .theme-blueberry .theme-choice-card { border: 2px solid #d4e4f8; background: rgba(250,252,255,.92); box-shadow: 0 4px 0 #c4d9f3; }
+.theme-blueberry .privacy-note { color: #6f86a6; background: #e1edfb; }
+.theme-blueberry .theme-choice-grid button { color: #34465e; background: rgba(255,255,255,.72); }
+.theme-blueberry .theme-choice-grid button.active { border-color: #6f9fe0; box-shadow: 0 4px 0 #bad2f0; }
+.theme-blueberry .duplicate-theme-button { color: #3f6fae; border-color: #a6c4ec; }
