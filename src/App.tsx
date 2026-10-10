@@ -39,7 +39,7 @@ import { findLatestActorContinuityAnchor, findLatestSceneContinuityAnchor } from
 import ReplyHelperSettingsPage from './ReplyHelperSettingsPage'
 import StoryScriptsPage from './StoryScriptsPage'
 import WallpaperSettings, { WallpaperLayers } from './WallpaperSettings'
-import { migrateLegacyWallpaper, normalizeWallpaper, normalizeWallpapers, readWallpaperImage, WALLPAPERS_KEY, WallpaperUploadTickets, wallpaperScopeKey, type ChatWallpaper, type ChatWallpapers } from './chatWallpaper'
+import { migrateLegacyWallpaper, normalizeWallpaper, normalizeWallpapers, readWallpaperImage, sampleImageTopColor, WALLPAPERS_KEY, WallpaperUploadTickets, wallpaperImage, wallpaperScopeKey, wallpaperTopColor, type ChatWallpaper, type ChatWallpapers } from './chatWallpaper'
 import { buildStoryVariablesPrompt, runStoryScript } from './storyScripts'
 import { addConversationParticipant, createFreshConversationFrom, removeConversationParticipant, restartConversationInPlace, type Conversation, type ConversationContextSnapshot, type Message } from './conversationLifecycle'
 import { appendReplyAlternative, captureConversationContext, contextAtMessage, forkConversationAtMessage, projectContextFromSnapshot, replyAlternatives, restoreConversationContext, selectReplyAlternative, storeContextSnapshot } from './conversationBranches'
@@ -796,6 +796,27 @@ function App() {
   useEffect(() => { write('weijing.uiFontScale', uiFontScale); write('weijing.uiFontWeight', uiFontWeight) }, [uiFontScale, uiFontWeight])
   useEffect(() => { if (!themeBoundRef.current) write('weijing.chatTheme', chatTheme) }, [chatTheme])
   useEffect(() => syncPwaThemeColor(chatBaseColor), [chatBaseColor])
+  const currentWallpaperImage = wallpaperImage(currentWallpaper, activeCharacter.avatar)
+  useEffect(() => {
+    // Full-screen iOS PWA: the chat wallpaper runs under the notch, so the top fade
+    // (--wall-top) and the root background take the wallpaper's own top-edge colour.
+    const root = document.documentElement
+    if (page !== 'chat') { root.style.backgroundColor = chatBaseColor; return }
+    let cancelled = false
+    const wallpaper = { enabled: currentWallpaper.enabled, source: currentWallpaper.source, image: '', imageOpacity: currentWallpaper.imageOpacity, color: currentWallpaper.color, colorOpacity: currentWallpaper.colorOpacity }
+    const apply = (hex: string) => {
+      if (cancelled) return
+      root.style.setProperty('--wall-top', hex)
+      root.style.backgroundColor = hex
+      try { localStorage.setItem('weijing.wallTopColor', hex) } catch { /* private mode: next launch falls back to the theme colour */ }
+    }
+    if (!currentWallpaperImage) apply(wallpaperTopColor(wallpaper, chatBaseColor))
+    else {
+      const height = Number.parseFloat(root.style.getPropertyValue('--app-h')) || window.innerHeight || 844
+      void sampleImageTopColor(currentWallpaperImage, (window.innerWidth || 390) / height).then((top) => apply(wallpaperTopColor(wallpaper, chatBaseColor, top)))
+    }
+    return () => { cancelled = true }
+  }, [page, chatBaseColor, currentWallpaperImage, currentWallpaper.enabled, currentWallpaper.source, currentWallpaper.color, currentWallpaper.imageOpacity, currentWallpaper.colorOpacity])
   useEffect(() => write('weijing.customThemes', customThemes), [customThemes])
   useEffect(() => { write('weijing.petEnabled', petEnabled); write('weijing.petVariant', petVariant); write('weijing.petPosition', petPosition) }, [petEnabled, petVariant, petPosition])
   useEffect(() => write('weijing.groupReplyMode', groupReplyMode), [groupReplyMode])

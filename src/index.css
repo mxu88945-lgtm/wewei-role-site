@@ -170,13 +170,14 @@ button { cursor: pointer; }
 .chat-background { position: absolute; z-index: -1; inset: 0; background-color: var(--chat-base-color, #f5f1f8); background-position: center; background-size: cover; background-repeat: no-repeat; }
 .chat-background::after { content: ''; position: absolute; inset: 0; background: rgba(255,255,255,var(--chat-background-frost, .72)); }
 .chat-page { height: 100%; min-height: 0; display: flex; flex-direction: column; background: transparent; }
-.chat-header { position: absolute; z-index: 36; top: 0; left: 0; width: 100%; min-height: calc(60px + env(safe-area-inset-top)); margin: 0; padding: max(6px, env(safe-area-inset-top)) 17px 6px; display: grid; grid-template-columns: 40px 1fr 40px; align-items: center; border: 0; border-bottom: 1px solid rgba(255,255,255,.52); border-radius: 0; background: linear-gradient(180deg,rgba(255,255,255,.54),rgba(247,242,249,.30)); box-shadow: inset 0 1px 0 rgba(255,255,255,.70), 0 10px 30px rgba(55,39,66,.07); -webkit-backdrop-filter: blur(30px) saturate(1.42); backdrop-filter: blur(30px) saturate(1.42); }
-.chat-header::after { content: ''; position: absolute; pointer-events: none; inset: 0; background: linear-gradient(105deg,rgba(255,255,255,.24),transparent 44%,rgba(255,255,255,.08)); }
-.chat-header > * { position: relative; z-index: 1; }
-.theme-pearl.chat-canvas .chat-header { border-bottom-color: rgba(255,255,255,.66); background: linear-gradient(180deg,rgba(255,255,255,.58),rgba(241,240,237,.27)); box-shadow: inset 0 1px 0 rgba(255,255,255,.82), 0 10px 30px rgba(44,42,48,.07); }
+.chat-header { position: absolute; z-index: 36; top: 0; left: 0; width: 100%; min-height: calc(60px + env(safe-area-inset-top)); margin: 0; padding: calc(4px + env(safe-area-inset-top)) 17px 6px; display: grid; grid-template-columns: 40px 1fr 40px; align-items: center; isolation: isolate; border: 0; border-radius: 0; background: transparent; box-shadow: none; pointer-events: none; }
+/* GPT-style progressive top: floating controls over a fade tinted with the wallpaper's top colour.
+   iOS composites chat glyphs above backdrop-filter, so the near-opaque tint (not the blur) is what
+   hides text scrolling under the clock; the blur only softens the fade-out band. */
+.chat-header::before { content: ''; position: absolute; z-index: -1; top: 0; left: 0; right: 0; height: calc(64px + env(safe-area-inset-top)); pointer-events: none; background: linear-gradient(to bottom, color-mix(in srgb, var(--wall-top, var(--chat-base-color, #f5f1f8)) 90%, transparent) 0%, color-mix(in srgb, var(--wall-top, var(--chat-base-color, #f5f1f8)) 78%, transparent) 42%, color-mix(in srgb, var(--wall-top, var(--chat-base-color, #f5f1f8)) 38%, transparent) 70%, transparent 100%); -webkit-backdrop-filter: blur(18px) saturate(1.15); backdrop-filter: blur(18px) saturate(1.15); -webkit-mask-image: linear-gradient(to bottom, #000 0%, #000 60%, rgba(0,0,0,.6) 82%, transparent 100%); mask-image: linear-gradient(to bottom, #000 0%, #000 60%, rgba(0,0,0,.6) 82%, transparent 100%); }
+.chat-header > * { position: relative; z-index: 1; pointer-events: auto; }
 .theme-pearl .chat-background::after { background: rgba(255,255,255,var(--chat-background-frost,.72)); }
 .theme-pearl .composer { background: rgba(247,246,243,.86); }
-.theme-sage.chat-canvas .chat-header { border-bottom-color: rgba(231,247,240,.72); background: linear-gradient(180deg,rgba(238,249,244,.80),rgba(213,234,226,.43)); box-shadow: inset 0 1px 0 rgba(255,255,255,.82), 0 10px 30px rgba(42,78,68,.08); }
 .theme-sage .chat-background::after { background: rgba(241,249,246,var(--chat-background-frost,.66)); }
 .theme-sage .composer { border-color: rgba(255,255,255,.82); background: rgba(230,242,237,.88); box-shadow: inset 0 1px 0 rgba(255,255,255,.78),0 10px 28px rgba(43,79,69,.13); }
 .theme-sage .composer-plus { color: #4f7d72; background: #d8e9e2; }
@@ -189,7 +190,7 @@ button { cursor: pointer; }
 .chat-identity strong, .chat-identity small { display: block; }
 .chat-identity small { margin-top: 3px; color: #99919d; font-size: 10px; }
 .more-button { border: 0; color: #7d7581; background: transparent; font-weight: 800; }
-.chat-error { position: relative; align-self: center; width: min(calc(100% - 36px), 440px); margin: 10px 0 0; border-radius: 17px; color: #874355; background: #f4e3e8; font-size: 11px; line-height: 1.45; overflow: hidden; }
+.chat-error { position: absolute; z-index: 37; top: calc(66px + env(safe-area-inset-top)); left: 50%; transform: translateX(-50%); width: min(calc(100% - 36px), 440px); margin: 0; box-shadow: 0 10px 28px rgba(80,40,56,.14); border-radius: 17px; color: #874355; background: #f4e3e8; font-size: 11px; line-height: 1.45; overflow: hidden; }
 .chat-error-action { width: 100%; padding: 12px 46px 12px 14px; border: 0; display: grid; gap: 3px; color: inherit; background: transparent; text-align: left; font: inherit; cursor: pointer; }
 .chat-error-action span { font-weight: 800; }
 .chat-error-action i { color: #9c6070; font-style: normal; font-weight: 700; }

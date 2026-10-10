@@ -89,3 +89,52 @@ export async function readWallpaperImage(file: File, maxEdge = 1600) {
     return canvas.toDataURL('image/jpeg', .84)
   } finally { cleanup() }
 }
+
+const hexRgb = (hex: string) => [1, 3, 5].map((index) => parseInt(hex.slice(index, index + 2), 16))
+const rgbHex = (rgb: number[]) => `#${rgb.map((value) => Math.max(0, Math.min(255, Math.round(value))).toString(16).padStart(2, '0')).join('')}`
+/** Linear mix: amount 0 keeps `from`, 1 becomes `to`. */
+export function mixHex(from: string, to: string, amount: number) {
+  const a = hexRgb(color(from)), b = hexRgb(color(to)), t = unit(amount, 0)
+  return rgbHex(a.map((value, index) => value * (1 - t) + b[index] * t))
+}
+
+/**
+ * The colour the chat background shows along its top edge, composited the same
+ * way WallpaperLayers stacks it (base colour → image at imageOpacity → colour
+ * veil at colorOpacity). Feeds the iOS full-screen top fade and the root
+ * background behind the notch. `imageTop` is the sampled top strip of the image;
+ * without it the base colour stands in.
+ */
+export function wallpaperTopColor(wallpaper: ChatWallpaper, themeColor: string, imageTop?: string | null) {
+  if (!wallpaper.enabled) return color(themeColor)
+  if (!imageTop) return wallpaper.color
+  return mixHex(mixHex(wallpaper.color, imageTop, wallpaper.imageOpacity), wallpaper.color, wallpaper.colorOpacity)
+}
+
+/** Average colour of the top strip of an image drawn with background-size: cover at `aspect` (width / height). */
+export function sampleImageTopColor(src: string, aspect: number, strip = .06): Promise<string | null> {
+  return new Promise((resolve) => {
+    const image = new Image()
+    if (!/^(?:data|blob):/i.test(src)) image.crossOrigin = 'anonymous'
+    image.onerror = () => resolve(null)
+    image.onload = () => {
+      try {
+        let sw = image.naturalWidth, sh = image.naturalHeight, sx = 0, sy = 0
+        if (!sw || !sh || !(aspect > 0)) return resolve(null)
+        if (sw / sh > aspect) { const cropped = sh * aspect; sx = (sw - cropped) / 2; sw = cropped } else { const cropped = sw / aspect; sy = (sh - cropped) / 2; sh = cropped }
+        const canvas = document.createElement('canvas')
+        canvas.width = 32
+        canvas.height = 8
+        const context = canvas.getContext('2d', { willReadFrequently: true })
+        if (!context) return resolve(null)
+        context.drawImage(image, sx, sy, sw, Math.max(1, sh * strip), 0, 0, canvas.width, canvas.height)
+        const data = context.getImageData(0, 0, canvas.width, canvas.height).data
+        const sum = [0, 0, 0]
+        for (let index = 0; index < data.length; index += 4) { sum[0] += data[index]; sum[1] += data[index + 1]; sum[2] += data[index + 2] }
+        const count = data.length / 4
+        resolve(rgbHex(sum.map((value) => value / count)))
+      } catch { resolve(null) } // tainted or undecodable image: caller keeps the base colour
+    }
+    image.src = src
+  })
+}

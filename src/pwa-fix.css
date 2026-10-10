@@ -48,8 +48,7 @@ select {
   scrollbar-gutter: stable;
 }
 
-.page-header,
-.chat-header {
+.page-header {
   position: sticky;
   top: 0;
   z-index: 30;
@@ -102,5 +101,51 @@ select {
 
   .phone-canvas {
     height: calc(100dvh - 56px);
+  }
+}
+
+/*
+ * iOS standalone (black-translucent status bar): the page runs under the notch
+ * and the home indicator. index.html sets data-standalone and --app-h (the
+ * physical screen height) only there; ordinary browsers keep 100% / 100dvh.
+ */
+html[data-standalone],
+html[data-standalone] body,
+html[data-standalone] #root {
+  height: var(--app-h, 100%);
+  min-height: var(--app-h, 100%);
+}
+
+html[data-standalone] body {
+  top: 0;
+  right: 0;
+  bottom: auto;
+  left: 0;
+}
+
+html[data-standalone] .app-shell,
+html[data-standalone] .phone-canvas,
+html[data-standalone] .chat-canvas,
+html[data-standalone] .composer-expanded-layer {
+  height: var(--app-h, 100dvh);
+  min-height: 0;
+}
+
+/* Fixed elements anchor to WebKit's layout viewport, which in standalone can stop
+   short of the physical bottom. Pin the chat controls to the full-height canvas
+   instead; the composer's own fade still runs down behind the home indicator. */
+html[data-standalone] .chat-canvas .composer,
+html[data-standalone] .chat-canvas .chat-jump-controls {
+  position: absolute;
+}
+
+html[data-standalone] .chat-canvas .chat-jump-controls {
+  right: 16px;
+}
+
+@media (min-width: 700px) {
+  html[data-standalone] .phone-canvas,
+  html[data-standalone] .chat-canvas {
+    height: calc(var(--app-h, 100dvh) - 56px);
   }
 }

@@ -5,14 +5,40 @@
     <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover" />
     <meta name="theme-color" content="#b98af4" />
     <meta name="apple-mobile-web-app-capable" content="yes" />
-    <meta name="apple-mobile-web-app-status-bar-style" content="default" />
+    <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
     <meta name="apple-mobile-web-app-title" content="惟境" />
     <script>
-      /* iOS standalone reads the status-bar color while the app is launching.
-         Restore the last theme before React and CSS paint; keep the status-bar
-         style on `default` so the page does not extend into the notch or the
-         home-indicator safe area. */
+      /* iOS standalone runs full screen (status-bar style black-translucent): the
+         chat wallpaper extends under the notch and the home indicator. Restore the
+         last theme and wallpaper top colour before React and CSS paint. */
       (() => {
+        try {
+          /* In iOS standalone neither 100% nor 100vh/100dvh matches the physical
+             screen (100% stops above the home indicator, 100vh overshoots and sinks
+             the composer). Pin the app to the screen size instead; ordinary
+             browsers never get --app-h and keep 100% / 100dvh. */
+          const ios = /iP(?:hone|ad|od)/.test(navigator.userAgent) || (navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1)
+          const standalone = navigator.standalone === true || (ios && window.matchMedia('(display-mode: standalone)').matches)
+          if (standalone) {
+            const root = document.documentElement
+            root.setAttribute('data-standalone', '')
+            const setAppHeight = () => {
+              const portrait = window.matchMedia('(orientation: portrait)').matches
+              const long = Math.max(screen.width, screen.height)
+              const short = Math.min(screen.width, screen.height)
+              const width = portrait ? short : long
+              /* iPad split view / Slide Over: the window is narrower than the screen,
+                 so the screen height would be wrong; fall back to the normal 100%. */
+              if (Math.abs(window.innerWidth - width) > 2) { root.style.removeProperty('--app-h'); return }
+              root.style.setProperty('--app-h', `${portrait ? long : short}px`)
+            }
+            setAppHeight()
+            window.addEventListener('orientationchange', () => setTimeout(setAppHeight, 150))
+            window.addEventListener('resize', setAppHeight)
+          }
+          const wallTop = localStorage.getItem('weijing.wallTopColor')
+          if (wallTop && /^#[0-9a-f]{6}$/i.test(wallTop)) document.documentElement.style.setProperty('--wall-top', wallTop)
+        } catch {}
         try {
           const storedPwaColor = localStorage.getItem('weijing.pwaThemeColor')
           const storedChatColor = localStorage.getItem('weijing.chatBaseColor')

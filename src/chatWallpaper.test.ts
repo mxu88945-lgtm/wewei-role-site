@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it, vi } from 'vitest'
-import { migrateLegacyWallpaper, normalizeWallpaper, normalizeWallpapers, readWallpaperImage, WallpaperUploadTickets, wallpaperImage, wallpaperScopeKey } from './chatWallpaper'
+import { migrateLegacyWallpaper, mixHex, normalizeWallpaper, normalizeWallpapers, readWallpaperImage, WallpaperUploadTickets, wallpaperImage, wallpaperScopeKey, wallpaperTopColor } from './chatWallpaper'
 const photo = 'data:image/jpeg;base64,photo'
 afterEach(() => vi.unstubAllGlobals())
 
@@ -66,5 +66,23 @@ describe('independent chat wallpapers', () => {
     canvas.getContext.mockReturnValueOnce(null as never)
     await expect(readWallpaperImage(new File(['image'], 'image.png', { type: 'image/png' }))).rejects.toThrow('无法处理图片')
     expect(close).toHaveBeenCalledTimes(2)
+  })
+})
+
+describe('wallpaper top colour for the full-screen iOS top fade', () => {
+  it('mixes hex colours linearly', () => {
+    expect(mixHex('#000000', '#ffffff', 0)).toBe('#000000')
+    expect(mixHex('#000000', '#ffffff', 1)).toBe('#ffffff')
+    expect(mixHex('#000000', '#ffffff', .5)).toBe('#808080')
+  })
+  it('uses the theme colour when the wallpaper is off and the base colour without an image sample', () => {
+    const wallpaper = normalizeWallpaper({ enabled: false, color: '#112233' })
+    expect(wallpaperTopColor(wallpaper, '#fff6dc', '#000000')).toBe('#fff6dc')
+    expect(wallpaperTopColor({ ...wallpaper, enabled: true }, '#fff6dc')).toBe('#112233')
+  })
+  it('composites base, image and veil the way the wallpaper layers stack', () => {
+    const wallpaper = normalizeWallpaper({ source: 'image', image: photo, color: '#ffffff', imageOpacity: 1, colorOpacity: .5 })
+    expect(wallpaperTopColor(wallpaper, '#f5f1f8', '#000000')).toBe('#808080')
+    expect(wallpaperTopColor({ ...wallpaper, colorOpacity: 0 }, '#f5f1f8', '#204060')).toBe('#204060')
   })
 })

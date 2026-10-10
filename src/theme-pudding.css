@@ -1,8 +1,7 @@
 /*
- * 布丁奶黄: a cute theme that stays iOS-PWA safe. The status bar uses
- * apple-mobile-web-app-status-bar-style=default, so it only ever shows the
- * flat theme-color (the base cream). All the cute parts (dots, caramel,
- * the little pudding) are painted inside the page, below that bar.
+ * 布丁奶黄: a cute theme. In the full-screen iOS PWA the chat wallpaper runs
+ * under the notch; the floating chat header and its top fade are shared by all
+ * themes (index.css), tinted with the wallpaper's top colour.
  */
 .phone-canvas.theme-pudding {
   --theme-accent: #d0893b; --theme-accent-strong: #d38634; --theme-accent-end: #f2b866;
@@ -27,7 +26,6 @@
 .theme-pudding .home-entrances i { color: #e0ad6a; }
 
 /* Chat */
-.theme-pudding.chat-canvas .chat-header { border-bottom: 2px dashed rgba(232,170,84,.45); background: linear-gradient(180deg,rgba(255,248,226,.94),rgba(255,241,206,.80)); box-shadow: 0 8px 24px rgba(176,112,40,.08); }
 .theme-pudding .chat-background::after {
   background-color: rgba(255,247,224,var(--chat-background-frost,.70));
   background-image: radial-gradient(rgba(232,170,84,.18) 2px, transparent 2.4px);

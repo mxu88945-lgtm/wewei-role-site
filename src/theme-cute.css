@@ -22,7 +22,6 @@
 .theme-strawberry .home-entrances i { color: #ec9bb0; }
 
 /* Chat */
-.theme-strawberry.chat-canvas .chat-header { border-bottom: 2px dashed rgba(240,130,160,.45); background: linear-gradient(180deg,rgba(255,244,247,.94),rgba(255,232,239,.80)); box-shadow: 0 8px 24px rgba(190,70,100,.08); }
 .theme-strawberry .chat-background::after {
   background-color: rgba(255,242,246,var(--chat-background-frost,.70));
   background-image: radial-gradient(rgba(240,130,160,.18) 2px, transparent 2.4px);
@@ -73,7 +72,6 @@
 .theme-blueberry .home-entrances i { color: #9dbde6; }
 
 /* Chat */
-.theme-blueberry.chat-canvas .chat-header { border-bottom: 2px dashed rgba(120,165,230,.45); background: linear-gradient(180deg,rgba(243,248,254,.94),rgba(228,239,252,.80)); box-shadow: 0 8px 24px rgba(60,110,180,.08); }
 .theme-blueberry .chat-background::after {
   background-color: rgba(241,247,254,var(--chat-background-frost,.70));
   background-image: radial-gradient(rgba(120,165,230,.18) 2px, transparent 2.4px);
