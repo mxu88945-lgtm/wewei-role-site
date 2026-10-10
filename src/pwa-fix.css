@@ -57,10 +57,18 @@ select {
   -webkit-backdrop-filter: blur(22px);
 }
 
+/* The sticky page header owns the top inset itself, and its scroll container has no
+   top padding. WebKit keeps a sticky element below its scroll container's padding,
+   so a padded canvas plus a header pulled up by negative margin got pushed down by
+   the inset again (double gap under the notch, header overlapping the first card). */
 .page-header {
-  margin: calc(-1 * max(20px, env(safe-area-inset-top))) -20px 18px;
+  margin: 0 -20px 18px;
   padding: max(20px, env(safe-area-inset-top)) 20px 0;
   height: calc(72px + max(20px, env(safe-area-inset-top)));
+}
+
+.phone-canvas:not(.chat-canvas):has(.page-header) {
+  padding-top: 0;
 }
 
 .page-header::before {

@@ -9,7 +9,7 @@
   display: grid;
   grid-template-rows: auto minmax(0, 1fr) auto;
   margin: 0;
-  padding: max(20px, env(safe-area-inset-top)) 20px 0;
+  padding: 0 20px;
   overflow: hidden;
   background: rgba(250, 249, 251, .98);
 }
