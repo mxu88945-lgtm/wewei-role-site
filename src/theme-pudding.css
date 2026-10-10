@@ -34,7 +34,7 @@
 .theme-pudding .message-content-bubble, .theme-pudding.phone-canvas .message-layout-bubble .message-content-rich { border: 2px solid #fbe6bd; border-radius: 22px 22px 22px 8px; background: rgba(255,253,246,.96); box-shadow: 0 4px 0 #f8e0ad; }
 .theme-pudding .message-row.user .message-content-bubble { border-color: transparent; border-radius: 22px 22px 8px 22px; color: #fff; background: linear-gradient(160deg,#e59a45,#f5c272); box-shadow: 0 4px 0 #c97f30; }
 .theme-pudding .message-bubble-author { color: #b48b5d; }
-.theme-pudding .composer { border: 2px solid #fbe3b3; background: rgba(255,248,228,.95); box-shadow: 0 5px 0 #f4d59a, 0 12px 26px rgba(176,112,40,.12); }
+.theme-pudding .composer { border: 2px solid #fbe3b3; background: rgba(255,248,228,.66); box-shadow: 0 5px 0 #f4d59a, 0 12px 26px rgba(176,112,40,.12); }
 .theme-pudding .composer-plus { color: #b6782f; background: #fde9bf; }
 .theme-pudding .send-button { background: linear-gradient(160deg,#d38634,#f2b866); box-shadow: 0 4px 0 #b06f28; }
 .theme-pudding .send-button.stop { background: linear-gradient(160deg,#c9636f,#e98f93); box-shadow: 0 4px 0 #a14b57; }

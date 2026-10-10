@@ -30,7 +30,7 @@
 .theme-strawberry .message-content-bubble, .theme-strawberry.phone-canvas .message-layout-bubble .message-content-rich { border: 2px solid #fbd5df; border-radius: 22px 22px 22px 8px; background: rgba(255,252,253,.96); box-shadow: 0 4px 0 #f6c7d4; }
 .theme-strawberry .message-row.user .message-content-bubble { border-color: transparent; border-radius: 22px 22px 8px 22px; color: #fff; background: linear-gradient(160deg,#ec7c98,#f7a9bd); box-shadow: 0 4px 0 #c9567a; }
 .theme-strawberry .message-bubble-author { color: #c07a8e; }
-.theme-strawberry .composer { border: 2px solid #fbd0dc; background: rgba(255,244,247,.95); box-shadow: 0 5px 0 #f3bccb, 0 12px 26px rgba(190,70,100,.12); }
+.theme-strawberry .composer { border: 2px solid #fbd0dc; background: rgba(255,244,247,.66); box-shadow: 0 5px 0 #f3bccb, 0 12px 26px rgba(190,70,100,.12); }
 .theme-strawberry .composer-plus { color: #c04866; background: #fde0e8; }
 .theme-strawberry .send-button { background: linear-gradient(160deg,#e45a7c,#f59ab0); box-shadow: 0 4px 0 #b2496a; }
 .theme-strawberry .send-button.stop { background: linear-gradient(160deg,#c9636f,#e98f93); box-shadow: 0 4px 0 #a14b57; }
@@ -80,7 +80,7 @@
 .theme-blueberry .message-content-bubble, .theme-blueberry.phone-canvas .message-layout-bubble .message-content-rich { border: 2px solid #d4e4f8; border-radius: 22px 22px 22px 8px; background: rgba(252,254,255,.96); box-shadow: 0 4px 0 #c4d9f3; }
 .theme-blueberry .message-row.user .message-content-bubble { border-color: transparent; border-radius: 22px 22px 8px 22px; color: #fff; background: linear-gradient(160deg,#6a9be0,#a3c6f2); box-shadow: 0 4px 0 #4a78b8; }
 .theme-blueberry .message-bubble-author { color: #7590b5; }
-.theme-blueberry .composer { border: 2px solid #cfe0f6; background: rgba(243,248,254,.95); box-shadow: 0 5px 0 #bad2f0, 0 12px 26px rgba(60,110,180,.12); }
+.theme-blueberry .composer { border: 2px solid #cfe0f6; background: rgba(243,248,254,.66); box-shadow: 0 5px 0 #bad2f0, 0 12px 26px rgba(60,110,180,.12); }
 .theme-blueberry .composer-plus { color: #3f6fae; background: #dfeafa; }
 .theme-blueberry .send-button { background: linear-gradient(160deg,#4f86d4,#93bdf0); box-shadow: 0 4px 0 #3d68a6; }
 .theme-blueberry .send-button.stop { background: linear-gradient(160deg,#c9636f,#e98f93); box-shadow: 0 4px 0 #a14b57; }
