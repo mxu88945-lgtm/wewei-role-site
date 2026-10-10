@@ -168,4 +168,11 @@ describe('character workshop', () => {
     const next = applyWorkshopCopilotPatch(draft, response.patch!)
     expect(next.regexScripts[0].placement).toEqual([2])
   })
+  it('carries a user-written greeting into the generation prompt verbatim', () => {
+    const prompt = buildCharacterWorkshopPrompt({ concept: '年下珠宝设计师', name: '', relationship: '海外旧识', tone: '明朗', pace: '极慢热', boundaries: '不代演用户', greetingIdea: '雨夜，他撑伞站在画廊门口。' })
+    expect(prompt).toContain('雨夜，他撑伞站在画廊门口。')
+    expect(prompt).toContain('原样保留')
+    const empty = buildCharacterWorkshopPrompt({ concept: 'x', name: '', relationship: '', tone: '', pace: '', boundaries: '' })
+    expect(empty).toContain('未指定，由你根据设定创作')
+  })
 })

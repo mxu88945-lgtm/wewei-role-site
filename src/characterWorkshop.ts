@@ -9,6 +9,7 @@ export type CharacterWorkshopBrief = {
   pace: string
   boundaries: string
   beautificationHint?: string
+  greetingIdea?: string
 }
 
 export type CharacterWorkshopDraft = {
@@ -348,6 +349,7 @@ export function buildCharacterWorkshopPrompt(brief: CharacterWorkshopBrief) {
 - 文风与气质：${brief.tone.trim() || '细腻、自然、剧情向'}
 - 情感节奏：${brief.pace.trim() || '慢热，关系变化必须由事件支撑'}
 - 边界与禁区：${brief.boundaries.trim() || '不替用户决定言行、心理和关键选择'}
+- 用户指定的开场白：${brief.greetingIdea?.trim() ? `\n<<<\n${brief.greetingIdea.trim()}\n>>>` : '未指定，由你根据设定创作'}
 - 开场白美化偏好：${brief.beautificationHint?.trim() || '结构化场景栏 + 剧情正文 + 状态栏；每轮回复沿用同一套标签，原始文本也必须可读'}
 
 设计规则：
@@ -359,7 +361,7 @@ export function buildCharacterWorkshopPrompt(brief: CharacterWorkshopBrief) {
 6. systemPrompt 必须锁定角色身份、知情边界、用户主权和稳定文风；不得代演用户。
 7. postHistoryInstructions 应要求先核对最近剧情、时间地点、已发生事实和未完成事项，禁止重复已完成剧情。
 8. 世界书只保留真正需要独立触发的背景、NPC、组织、关系阶段或剧情规则；角色的重要家人、事业网络和长期矛盾若会反复影响剧情，应拆成信息充分的独立条目，而不是压成一句话。
-9. 开场白要有具体时间、地点、局面和可回应入口，但不得替用户发言或行动。
+9. 开场白要有具体时间、地点、局面和可回应入口，但不得替用户发言或行动。若用户指定了开场白：它是用户自己的创作，优先级高于你的设计。内容像一段完整开场正文时，greeting 必须原样保留其情节、台词、措辞和顺序，只允许按美化协议在前后补上 <scene> 场景栏与 <gts_status> 状态栏，不得改写、扩写、删减或“润色”；内容只是场景构想或要求（例如“在雨夜的医院走廊重逢”）时，greeting 必须严格按这个构想创作。角色设定、scenario 与世界书要和这条开场白保持一致。alternateGreetings 仍由你另写两条不同的开局。
 10. 每张新卡都必须生成 beautificationProtocol：它是开场白和后续角色回复共用的原始文本协议，默认采用“<scene> 场景栏 → 剧情正文 → <gts_status> 状态栏”的顺序。协议必须明确标签、字段、连续性、用户主权和“只输出文本标记、不输出 HTML/CSS”。开场白正文必须实际遵守这套协议，而不是只在说明里提到。
 11. 每张新卡都必须生成两条可直接运行的 regexScripts：一条匹配 <scene>...</scene>，渲染开场与每轮回复顶部的时间／地点场景栏；一条匹配 <gts_status>...</gts_status>，渲染回复末尾状态栏。两条都必须包含完整 findRegex、带 $1 的 replaceString，placement [2]（固定），disabled=false，绝不使用 3，也不得返回空数组。用户未指定风格时，默认生成透明、轻磨砂、跟随正文颜色的样式。
 12. 正则替换模板必须让无背景的剧情正文使用 color: var(--chat-text-color, #000000) 或继承颜色，不能使用 #d1d5db、#e2e8f0、#cbd5e1、#f8fafc、白色等浅色作为通用正文色；只有明确写在深色背景面板上的标题或状态字才允许使用浅色。禁止 script、iframe、事件属性、position:fixed/sticky、100vh/100dvh 固定高度和 touch-action:none。
