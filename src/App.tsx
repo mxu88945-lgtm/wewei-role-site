@@ -50,6 +50,7 @@ import { countConversationStats } from './conversationStats'
 import { enforceRelationshipStageFloor, extractRelationshipStage, highestRelationshipStage, relationshipStageLockInstruction, repairRelationshipStageHistory, type RelationshipStage } from './relationshipStage'
 import { buildStatusFallback, getStatusProtocol, latestStatusContent } from './statusProtocol'
 import { dismissComposerKeyboard } from './composerKeyboard'
+import { createKeyboardScrollPin, VIEWPORT_CHANGE_EVENT, VIEWPORT_WILL_CHANGE_EVENT } from './keyboardScrollPin'
 
 type Page = 'home' | 'story-projects' | 'characters' | 'create' | 'character-workshop' | 'group-create' | 'director-template' | 'group-greeting-picker' | 'import-preview' | 'character-detail' | 'card-data' | 'card-worldbook' | 'card-regex' | 'card-memory' | 'greeting-picker' | 'chat' | 'more' | 'api' | 'reply-helper-api' | 'model' | 'settings' | 'appearance' | 'font' | 'display-reply' | 'identity' | 'worldbook' | 'theater-world' | 'temporary-plot' | 'story-scripts' | 'chat-search' | 'request-preview' | 'preset' | 'memory' | 'memory-api' | 'memory-list'
 type MessageEditor = { mode: 'assistant' | 'resend'; messageId: number; text: string }
@@ -458,6 +459,13 @@ function App() {
   const messageListRef = useRef<HTMLDivElement>(null)
   const messageListLayoutMarkerRef = useRef<HTMLDivElement>(null)
   const scrollUiFrameRef = useRef<number | null>(null)
+  // Keeps the chat on its newest message while the iOS keyboard opens/closes and
+  // index.html shrinks/grows the app to the visible area (only if it was at the bottom).
+  const [keyboardScrollPin] = useState(() => createKeyboardScrollPin(() => messageListRef.current, {
+    now: () => (typeof performance !== 'undefined' ? performance.now() : Date.now()),
+    requestAnimationFrame: (callback) => window.requestAnimationFrame(callback),
+    setTimeout: (callback, ms) => window.setTimeout(callback, ms),
+  }))
   const chatJumpHideTimerRef = useRef<number | null>(null)
   const chatScrollSnapshotsRef = useRef(new Map<string, ChatScrollSnapshot>())
   const pendingChatScrollRestoreRef = useRef<string | null>(null)
@@ -1012,6 +1020,35 @@ function App() {
       list.style.removeProperty('--composer-clearance')
     }
   }, [page, chatScrollKey])
+  useEffect(() => {
+    if (page !== 'chat') return
+    const list = messageListRef.current
+    const composer = composerDockRef.current
+    if (!list) return
+    // Arm before the viewport changes (composer focus, or index.html's
+    // will-change event) so we still see whether she was at the bottom; re-pin
+    // whenever the list's height actually changes while armed.
+    const arm = () => { keyboardScrollPin.arm() }
+    const pin = () => { keyboardScrollPin.pin() }
+    // Her own touch / wheel on the list means she wants to scroll: never yank her back.
+    const release = () => keyboardScrollPin.release()
+    const listObserver = typeof ResizeObserver === 'undefined' ? null : new ResizeObserver(pin)
+    listObserver?.observe(list)
+    window.addEventListener(VIEWPORT_WILL_CHANGE_EVENT, arm)
+    window.addEventListener(VIEWPORT_CHANGE_EVENT, pin)
+    composer?.addEventListener('focusin', arm)
+    list.addEventListener('touchstart', release, { passive: true })
+    list.addEventListener('wheel', release, { passive: true })
+    return () => {
+      listObserver?.disconnect()
+      window.removeEventListener(VIEWPORT_WILL_CHANGE_EVENT, arm)
+      window.removeEventListener(VIEWPORT_CHANGE_EVENT, pin)
+      composer?.removeEventListener('focusin', arm)
+      list.removeEventListener('touchstart', release)
+      list.removeEventListener('wheel', release)
+      keyboardScrollPin.release()
+    }
+  }, [page, chatScrollKey, keyboardScrollPin])
   useLayoutEffect(() => {
     if (page !== 'chat' || pendingChatLatestScrollRef.current !== chatScrollKey) return
     const list = messageListRef.current
@@ -2565,7 +2602,8 @@ function App() {
       const distanceToBottom = list.scrollHeight - list.scrollTop - list.clientHeight
       const next = { up: list.scrollTop > 280, down: distanceToBottom > 280 }
       rememberChatScroll()
-      const visible = next.up || next.down
+      // A keyboard re-pin is our own scroll, not hers: don't flash the jump buttons for it.
+      const visible = (next.up || next.down) && !keyboardScrollPin.recentlyPinned()
       setChatJump({ ...next, visible })
       if (chatJumpHideTimerRef.current !== null) window.clearTimeout(chatJumpHideTimerRef.current)
       if (visible) chatJumpHideTimerRef.current = window.setTimeout(() => {

@@ -28,9 +28,17 @@
                opens and the keyboard closes). */
             let lastH = null
             let lastKb = null
+            /* The app listens for these to keep the chat pinned to its newest message
+               while the keyboard opens/closes (src/keyboardScrollPin.ts): "will-change"
+               fires before the relayout so it can still see whether the list was at
+               the bottom, "change" after it so it can re-pin. */
+            const notify = (type, kb) => { try { window.dispatchEvent(new CustomEvent(type, { detail: { kb } })) } catch {} }
             const apply = (h, kb) => {
+              if (kb === lastKb && h === lastH) return
+              notify('weijing:viewport-will-change', kb)
               if (kb !== lastKb) { if (kb) root.setAttribute('data-kb', ''); else root.removeAttribute('data-kb'); lastKb = kb }
               if (h !== lastH) { if (h === null) root.style.removeProperty('--app-h'); else root.style.setProperty('--app-h', h); lastH = h }
+              notify('weijing:viewport-change', kb)
             }
             const measure = () => {
               const portrait = window.matchMedia('(orientation: portrait)').matches
