@@ -16,18 +16,37 @@
           /* In iOS standalone neither 100% nor 100vh/100dvh matches the physical
              screen (100% stops above the home indicator, 100vh overshoots and sinks
              the composer). Pin the app to the screen size instead; ordinary
-             browsers never get --app-h and keep 100% / 100dvh. */
+             browsers never get the inline heights and keep 100% / 100dvh. */
           const ios = /iP(?:hone|ad|od)/.test(navigator.userAgent) || (navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1)
           const standalone = navigator.standalone === true || (ios && window.matchMedia('(display-mode: standalone)').matches)
           if (standalone) {
             const root = document.documentElement
             root.setAttribute('data-standalone', '')
-            /* Write only when the value changes: every --app-h / data-kb write
-               relayouts the chat (pwa-fix.css registers --app-h as non-inherited
-               so it no longer restyles every message node as well), and iOS fires visualViewport resize/scroll
-               on every frame of the keyboard animation (e.g. when the @ picker
-               opens and the keyboard closes). */
+            /* The app height is written as an inline `height` on the few layout boxes
+               that need it (html, body, #root, .app-shell, .phone-canvas and the
+               expanded composer), never as an inherited custom property: an inherited
+               --app-h restyled every message node on each keyboard frame, and the
+               non-inherited @property + `inherit` chain tried in 2ec61d3 is not
+               invalidated reliably by iOS WebKit (the chat kept its pre-keyboard
+               height and the composer slid under the keyboard). `height` is not
+               inherited, so a write restyles only these boxes. Write only when the
+               value changes: iOS fires visualViewport resize/scroll on every frame
+               of the keyboard animation. */
             let lastH = null
+            const writeHeights = (h) => {
+              const wide = window.innerWidth >= 700
+              const boxes = [root, document.body, document.getElementById('root'), ...document.querySelectorAll('.app-shell, .phone-canvas, .composer-expanded-layer')]
+              for (const box of boxes) {
+                if (!box) continue
+                const value = h === null ? '' : wide && box.classList.contains('phone-canvas') ? `calc(${h} - 56px)` : h
+                if (box.__weijingAppH === value) continue
+                box.__weijingAppH = value
+                box.style.height = value
+              }
+            }
+            /* React calls this after mounting/re-rendering the layout boxes so new
+               ones (e.g. the expanded composer) get the current height at once. */
+            window.__weijingApplyAppHeight = () => writeHeights(lastH)
             let lastKb = null
             /* The app listens for these to keep the chat pinned to its newest message
                while the keyboard opens/closes (src/keyboardScrollPin.ts): "will-change"
@@ -38,7 +57,7 @@
               if (kb === lastKb && h === lastH) return
               notify('weijing:viewport-will-change', kb)
               if (kb !== lastKb) { if (kb) root.setAttribute('data-kb', ''); else root.removeAttribute('data-kb'); lastKb = kb }
-              if (h !== lastH) { if (h === null) root.style.removeProperty('--app-h'); else root.style.setProperty('--app-h', h); lastH = h }
+              if (h !== lastH) { lastH = h; writeHeights(h) }
               notify('weijing:viewport-change', kb)
             }
             const measure = () => {

@@ -2,7 +2,7 @@
  * Keeps the chat message list pinned to its newest message while the iOS soft
  * keyboard opens or closes.
  *
- * In the iPhone home-screen PWA, index.html shrinks --app-h to the visual
+ * In the iPhone home-screen PWA, index.html shrinks the app height to the visual
  * viewport when the keyboard opens. The message list gets shorter but its
  * scrollTop stays where it was, so the last message / status card ends up
  * hidden behind the composer and keyboard. If the list was at (or near) the

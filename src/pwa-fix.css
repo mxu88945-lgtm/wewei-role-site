@@ -114,39 +114,23 @@ select {
 
 /*
  * iOS standalone (black-translucent status bar): the page runs under the notch
- * and the home indicator. index.html sets data-standalone and --app-h (the
+ * and the home indicator. index.html sets data-standalone and the app height (the
  * physical screen height) only there; ordinary browsers keep 100% / 100dvh.
  */
 /*
- * --app-h changes on every frame of the iOS keyboard animation (index.html writes
- * it on <html>). As an ordinary custom property it is inherited, so each write
- * made the browser recompute the style of every element on the page: with a long
- * group chat that was thousands of message nodes per frame (300-400 ms each at
- * 6x CPU throttle), the real cause of the @ picker / keyboard jank. Registered as
- * non-inherited it only reaches the few layout boxes below that opt in with
- * `--app-h: inherit`, so the message list is no longer restyled. Browsers without
- * @property simply keep the old inherited behaviour.
+ * The physical/visible app height is written by index.html as an inline
+ * `height` on html, body, #root, .app-shell, .phone-canvas and
+ * .composer-expanded-layer (inline beats these rules). The values below are only
+ * the fallback before that script runs or when it opts out (iPad split view).
+ * Do not reintroduce an inherited --app-h (it restyled every message on each
+ * keyboard frame) or a non-inherited @property chain (iOS WebKit failed to
+ * propagate it, hiding the composer under the keyboard).
  */
-@property --app-h {
-  syntax: '*';
-  inherits: false;
-}
-
-html[data-standalone] body,
-html[data-standalone] #root,
-html[data-standalone] .app-shell,
-html[data-standalone] .phone-canvas,
-html[data-standalone] .chat-canvas,
-html[data-standalone] .chat-page,
-html[data-standalone] .composer-expanded-layer {
-  --app-h: inherit;
-}
-
 html[data-standalone],
 html[data-standalone] body,
 html[data-standalone] #root {
-  height: var(--app-h, 100%);
-  min-height: var(--app-h, 100%);
+  height: 100%;
+  min-height: 0;
 }
 
 html[data-standalone] body {
@@ -160,7 +144,7 @@ html[data-standalone] .app-shell,
 html[data-standalone] .phone-canvas,
 html[data-standalone] .chat-canvas,
 html[data-standalone] .composer-expanded-layer {
-  height: var(--app-h, 100dvh);
+  height: 100dvh;
   min-height: 0;
 }
 
@@ -179,11 +163,11 @@ html[data-standalone] .chat-canvas .chat-jump-controls {
 @media (min-width: 700px) {
   html[data-standalone] .phone-canvas,
   html[data-standalone] .chat-canvas {
-    height: calc(var(--app-h, 100dvh) - 56px);
+    height: calc(100dvh - 56px);
   }
 }
 
-/* Keyboard open (index.html sets data-kb and shrinks --app-h to the visible area):
+/* Keyboard open (index.html sets data-kb and shrinks the inline heights to the visible area):
    the home-indicator inset is under the keyboard, so drop it from the composer. */
 html[data-standalone][data-kb] .chat-canvas .composer { bottom: 8px; }
 html[data-standalone][data-kb] .chat-canvas .composer::before { bottom: -8px; }

@@ -824,7 +824,7 @@ function App() {
     const applyBottom = (hex: string) => { if (!cancelled) root.style.setProperty('--wall-bottom', hex) }
     if (!currentWallpaperImage) { const hex = wallpaperTopColor(wallpaper, chatBaseColor); apply(hex); applyBottom(hex) }
     else {
-      const height = Number.parseFloat(root.style.getPropertyValue('--app-h')) || window.innerHeight || 844
+      const height = Number.parseFloat(root.style.height) || window.innerHeight || 844
       const aspect = (window.innerWidth || 390) / height
       void sampleImageTopColor(currentWallpaperImage, aspect).then((top) => apply(wallpaperTopColor(wallpaper, chatBaseColor, top)))
       void sampleImageTopColor(currentWallpaperImage, aspect, .12, true).then((bottom) => applyBottom(wallpaperTopColor(wallpaper, chatBaseColor, bottom)))
@@ -908,6 +908,11 @@ function App() {
   useLayoutEffect(() => {
     if (page !== 'chat') phoneCanvasRef.current?.scrollTo({ top: 0, left: 0 })
   }, [page])
+  useLayoutEffect(() => {
+    // iOS standalone: index.html sizes the layout boxes with inline heights; give
+    // boxes React just mounted (expanded composer, a re-created canvas) the current value.
+    (window as Window & { __weijingApplyAppHeight?: () => void }).__weijingApplyAppHeight?.()
+  }, [page, composerExpanded])
   useLayoutEffect(() => {
     if (page !== 'chat') return
     const list = messageListRef.current
