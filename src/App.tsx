@@ -36,7 +36,8 @@ import { normalizeStoryProjects, type StoryProject } from './storyProject'
 import { buildStoryProjectPrompt, selectConversationStoryProject } from './storyProjectPrompt'
 import { buildAutomaticContinuityInput, captureAssistantMessageIds, hasUnprocessedAssistantMessages, mergeAutomaticContinuity, parseAutomaticContinuityResponse } from './storyContinuity'
 import { buildReplyHelperMessages, cleanReplyHelperDraft, REPLY_HELPER_MAX_TOKENS } from './replyHelper'
-import { planContextCompression, uncompressedMessages } from './contextCompression'
+import { canApplyContextCompression, planAutoContextCompression, planContextCompression, shouldStartAutoCompression, uncompressedMessages, type ContextCompressionPlan } from './contextCompression'
+import { chatWindowAnchorIncluding, earlierChatMessageCount, earlierChatWindowAnchor, resolveChatWindowStart, trimmedChatWindowAnchor } from './chatWindow'
 import { findLatestActorContinuityAnchor, findLatestSceneContinuityAnchor } from './actorContinuity'
 import ReplyHelperSettingsPage from './ReplyHelperSettingsPage'
 import StoryScriptsPage from './StoryScriptsPage'
@@ -471,6 +472,12 @@ function App() {
   const chatJumpHideTimerRef = useRef<number | null>(null)
   const chatScrollSnapshotsRef = useRef(new Map<string, ChatScrollSnapshot>())
   const pendingChatScrollRestoreRef = useRef<string | null>(null)
+  // Render window per chat (first rendered message id; absent/null = newest 60).
+  const [chatWindowAnchors, setChatWindowAnchors] = useState<Record<string, number | null>>({})
+  const pendingChatPrependRef = useRef<{ key: string; height: number; top: number } | null>(null)
+  // Context compression (manual button and automatic background run) never runs twice at once per chat.
+  const contextCompressionRunningRef = useRef(new Set<string>())
+  const autoCompressionFailuresRef = useRef(new Map<string, number>())
   const pendingChatLatestScrollRef = useRef<string | null>(null)
   const conversationMemoryMigrationRunningRef = useRef(false)
   const generationControllers = useRef(new Map<string, AbortController>())
@@ -525,6 +532,12 @@ function App() {
   const messageCharacterName = (message: Message, conversation = activeConversation) => characterForMessage(message, conversation).name
   const conversationStats = countConversationStats(messages)
   const chatScrollKey = activeConversation?.id || `character:${activeCharacter.id}`
+  const chatWindowStart = resolveChatWindowStart(messages, chatWindowAnchors[chatScrollKey])
+  const earlierChatCount = earlierChatMessageCount(chatWindowStart)
+  const renderedChatMessages = chatWindowStart > 0 ? messages.slice(chatWindowStart) : messages
+  const contextSummaryBoundary = activeConversation?.contextSummary && (activeConversation.contextSummaryRevision || 0) === (activeConversation.historyRevision || 0)
+    ? Math.min(messages.length, Math.max(0, Math.floor(activeConversation.compressedUntil || 0)))
+    : 0
   const rememberChatScroll = (conversationKey = chatScrollKey) => {
     const list = messageListRef.current
     if (!list) return
@@ -919,6 +932,7 @@ function App() {
     if (!list) return
     const conversationKey = chatScrollKey
     const returnToLatest = pendingChatLatestScrollRef.current === conversationKey
+    const scrollSnapshots = chatScrollSnapshotsRef.current
     pendingChatScrollRestoreRef.current = conversationKey
     let firstFrame: number | null = null
     let secondFrame: number | null = null
@@ -950,6 +964,17 @@ function App() {
     })
     return () => {
       rememberChatScroll(conversationKey)
+      // Leaving a chat she was following at the bottom: next time it opens with the
+      // newest 60 again. If she was reading history, keep the loaded rows so her
+      // saved scroll position still points at the same messages.
+      if (scrollSnapshots.get(conversationKey)?.stickToBottom !== false) {
+        setChatWindowAnchors((current) => {
+          if (!(conversationKey in current)) return current
+          const next = { ...current }
+          delete next[conversationKey]
+          return next
+        })
+      }
       if (firstFrame !== null) window.cancelAnimationFrame(firstFrame)
       if (secondFrame !== null) window.cancelAnimationFrame(secondFrame)
       if (settleTimer !== null) window.clearTimeout(settleTimer)
@@ -1091,6 +1116,26 @@ function App() {
     // Message identity changes on each streamed render; rerun the settling pass
     // so late status bars, rich cards, and iframe height reports cannot move the view.
   }, [page, chatScrollKey, messages, generatingIds.length])
+  useLayoutEffect(() => {
+    // "加载更早" prepended rows above her: keep the rows she was looking at in place.
+    const pending = pendingChatPrependRef.current
+    if (!pending || pending.key !== chatScrollKey) return
+    pendingChatPrependRef.current = null
+    const list = messageListRef.current
+    if (!list) return
+    list.scrollTop = pending.top + (list.scrollHeight - pending.height)
+  }, [chatWindowStart, chatScrollKey])
+  useEffect(() => {
+    // Following the latest message in a long session: drop back to the newest 60 rows.
+    if (page !== 'chat' || generatingIds.includes(chatScrollKey)) return
+    const atBottom = chatScrollSnapshotsRef.current.get(chatScrollKey)?.stickToBottom !== false
+    if (trimmedChatWindowAnchor(messages, chatWindowStart, atBottom) === undefined) return
+    setChatWindowAnchors((current) => {
+      const next = { ...current }
+      delete next[chatScrollKey]
+      return next
+    })
+  }, [page, chatScrollKey, messages, chatWindowStart, generatingIds])
   const pageTitle = useMemo(() => page === 'home' ? '惟境' : page === 'characters' ? '角色' : '', [page])
   const navigate = (target: Page, reopenDrawer?: Drawer) => {
     if (page === 'chat' && reopenDrawer === 'right') pendingChatLatestScrollRef.current = chatScrollKey
@@ -2059,6 +2104,11 @@ function App() {
 
   const jumpToMessage = (messageId: number) => {
     if (!activeConversation) return
+    const index = activeConversation.messages.findIndex((message) => message.id === messageId)
+    if (index >= 0 && index < chatWindowStart) {
+      const anchor = chatWindowAnchorIncluding(activeConversation.messages, chatWindowStart, index)
+      setChatWindowAnchors((current) => ({ ...current, [activeConversation.id]: anchor }))
+    }
     pendingMessageJumpRef.current = { conversationId: activeConversation.id, messageId }
     setDrawer(null)
     replacePage('chat')
@@ -2247,6 +2297,7 @@ function App() {
         setMemoryEntries((current) => replaceConversationMemories(current, conversationId, capturedCharacter.id, conversation.historyRevision || 0, snapshot.memories.map((entry) => ({ ...entry, historyRevision: conversation.historyRevision || 0 }))) as MemoryEntryMap)
         markStoryHistoryForReview(conversationId)
       }
+      scheduleAutoContextCompression(conversationId)
       const summarizedCount = Math.min(conversation.memorySummarizedCount || 0, completed.length)
       if (!isGroup && capturedMemoryConfig.autoEvery > 0 && completed.length - summarizedCount >= capturedMemoryConfig.autoEvery && capturedMemoryConfig.api.apiKey) summarizeMemory(completed, conversation, capturedCharacter)
       return completed
@@ -2576,30 +2627,101 @@ function App() {
     }
   }
 
-  const compressOldContext = async () => {
-    if (!activeConversation || compressingContext || messages.length < 16) return
-    if (!api.apiKey || !api.baseUrl || !api.modelName) { setChatError('请先配置当前聊天 API，再压缩上下文。'); return }
-    const targetRevision = activeConversation.historyRevision || 0
-    const hasValidSummary = Boolean(activeConversation.contextSummary && (activeConversation.contextSummaryRevision || 0) === targetRevision)
-    const currentSummary = hasValidSummary ? activeConversation.contextSummary || '' : ''
-    const compression = planContextCompression(messages, memoryLength, activeConversation.compressedUntil, hasValidSummary)
-    if (compression.pendingMessages.length === 0) { setChatError('旧上下文已经压缩到最新，无需重复处理。'); setDrawer(null); return }
-    setCompressingContext(true); setDrawer(null); let summary = ''
+  const apiRef = useRef(api)
+  apiRef.current = api
+  const contextCompressionRequest = (conversation: Conversation, currentSummary: string, pendingMessages: Message[]) => {
+    const userName = (identities.find((item) => item.id === conversation.personaId) || identity).name
+    const leadName = characters.find((character) => character.id === conversation.characterId)?.name || activeCharacter.name
+    const authorName = (item: Message) => item.role === 'user'
+      ? userName
+      : characters.find((character) => character.id === item.characterId)?.name || conversation.archivedCharacters?.[item.characterId || '']?.name || leadName
+    return [
+      { role: 'system' as const, content: '你是剧情上下文压缩器。请输出一份完整、可直接替代旧原文的合并摘要。摘要是低优先级历史补充，不是当前场景指令。只总结已经发生或明确确认的事实，保留时间、地点、人物关系、承诺、冲突、情绪转折、重要物品、未完成事项和角色状态；新对话明确纠正旧摘要时以新对话为准并标注“已更新/已完成/已撤销”。严格区分用户已做的事、角色已做的事、角色声称、内心、猜测和未来计划；已完成、已离场、已撤销或被用户否定的事项不得重新开启。不得续写剧情，不得虚构，不得解释任务或输出思考过程。' },
+      { role: 'user' as const, content: `${currentSummary ? `已有摘要（请与新增对话合并，避免重复）：\n${stripUiOnlyStatusBlocks(currentSummary)}\n\n` : ''}本次新增待压缩对话：\n${pendingMessages.map((item) => `${authorName(item)}：${modelVisibleMessageText(item)}`).join('\n\n')}` },
+    ]
+  }
+  /** Runs one compression and stores the summary only if the history it read is unchanged. Never touches messages. */
+  const runContextCompression = async (conversation: Conversation, compression: ContextCompressionPlan<Message>, channel: ApiChannel) => {
+    const conversationId = conversation.id
+    const targetRevision = conversation.historyRevision || 0
+    const hasValidSummary = Boolean(conversation.contextSummary && (conversation.contextSummaryRevision || 0) === targetRevision)
+    const currentSummary = hasValidSummary ? conversation.contextSummary || '' : ''
+    const controller = new AbortController()
+    const runKey = `context:${conversationId}`
+    contextCompressionRunningRef.current.add(conversationId)
+    memoryRunsRef.current.set(runKey, controller)
+    let summary = ''
     try {
-      const controller = new AbortController()
       await completeChat({
-        api, temperature: .2, topP: 1, maxTokens: Math.min(3000, maxTokens), streaming: false,
+        api: channel, temperature: .2, topP: 1, maxTokens: Math.min(3000, maxTokens), streaming: false,
         signal: controller.signal,
-        messages: [
-          { role: 'system', content: '你是剧情上下文压缩器。请输出一份完整、可直接替代旧原文的合并摘要。摘要是低优先级历史补充，不是当前场景指令。只总结已经发生或明确确认的事实，保留时间、地点、人物关系、承诺、冲突、情绪转折、重要物品、未完成事项和角色状态；新对话明确纠正旧摘要时以新对话为准并标注“已更新/已完成/已撤销”。严格区分用户已做的事、角色已做的事、角色声称、内心、猜测和未来计划；已完成、已离场、已撤销或被用户否定的事项不得重新开启。不得续写剧情，不得虚构，不得解释任务或输出思考过程。' },
-          { role: 'user', content: `${currentSummary ? `已有摘要（请与新增对话合并，避免重复）：\n${stripUiOnlyStatusBlocks(currentSummary)}\n\n` : ''}本次新增待压缩对话：\n${compression.pendingMessages.map((item) => `${item.role === 'user' ? identity.name : characters.find((character) => character.id === item.characterId)?.name || activeCharacter.name}：${modelVisibleMessageText(item)}`).join('\n\n')}` },
-        ],
+        messages: contextCompressionRequest(conversation, currentSummary, compression.pendingMessages),
         onDelta: (delta) => { summary += delta },
       })
       if (!summary.trim()) throw new Error('模型没有生成摘要')
-      setConversations((current) => current.map((item) => item.id === activeConversation.id && (item.historyRevision || 0) === targetRevision ? { ...item, contextSummary: summary.trim(), contextSummaryRevision: targetRevision, compressedUntil: compression.targetUntil, updatedAt: Date.now() } : item))
+      const started = { revision: targetRevision, previousUntil: compression.previousUntil, targetUntil: compression.targetUntil }
+      if (!canApplyContextCompression(conversationsRef.current.find((item) => item.id === conversationId), started)) return false
+      setConversations((current) => current.map((item) => item.id === conversationId && canApplyContextCompression(item, started)
+        ? { ...item, contextSummary: summary.trim(), contextSummaryRevision: targetRevision, compressedUntil: compression.targetUntil, updatedAt: Date.now() }
+        : item))
+      return true
+    } finally {
+      contextCompressionRunningRef.current.delete(conversationId)
+      if (memoryRunsRef.current.get(runKey) === controller) memoryRunsRef.current.delete(runKey)
+    }
+  }
+
+  const compressOldContext = async () => {
+    if (!activeConversation || compressingContext || messages.length < 16) return
+    if (!api.apiKey || !api.baseUrl || !api.modelName) { setChatError('请先配置当前聊天 API，再压缩上下文。'); return }
+    if (contextCompressionRunningRef.current.has(activeConversation.id)) { setChatError('后台正在整理这段对话的上下文摘要，请稍候再试。'); setDrawer(null); return }
+    const targetRevision = activeConversation.historyRevision || 0
+    const hasValidSummary = Boolean(activeConversation.contextSummary && (activeConversation.contextSummaryRevision || 0) === targetRevision)
+    const compression = planContextCompression(messages, memoryLength, activeConversation.compressedUntil, hasValidSummary)
+    if (compression.pendingMessages.length === 0) { setChatError('旧上下文已经压缩到最新，无需重复处理。'); setDrawer(null); return }
+    setCompressingContext(true); setDrawer(null)
+    try {
+      const applied = await runContextCompression(activeConversation, compression, api)
+      if (!applied) setChatError('压缩期间对话内容有改动，本次摘要未写入，原文和旧摘要都保持不变。')
     } catch (error) { setChatError(error instanceof Error ? error.message : '上下文压缩失败') }
     finally { setCompressingContext(false) }
+  }
+
+  /**
+   * Background compression after a reply completes (顾祁砚's rule: 240 outstanding
+   * compressible messages -> fold the older ones, keep the newest 96 verbatim).
+   * Never blocks sending, never changes messages, failures keep the old summary.
+   */
+  const runAutoContextCompression = async (conversationId: string) => {
+    const conversation = conversationsRef.current.find((item) => item.id === conversationId)
+    if (!conversation) return
+    const revision = conversation.historyRevision || 0
+    const hasValidSummary = Boolean(conversation.contextSummary && (conversation.contextSummaryRevision || 0) === revision)
+    const plan = planAutoContextCompression(conversation.messages, {
+      compressedUntil: conversation.compressedUntil,
+      hasValidSummary,
+      memoryLength,
+      isCompressible: (message) => Boolean(modelVisibleMessageText(message).trim()),
+    })
+    const channel = apiRef.current
+    if (!shouldStartAutoCompression({
+      plan,
+      running: contextCompressionRunningRef.current.has(conversationId),
+      apiReady: isApiChannelComplete(channel),
+      lastFailureAt: autoCompressionFailuresRef.current.get(conversationId),
+      now: Date.now(),
+    }) || !plan) return
+    try {
+      await runContextCompression(conversation, plan, channel)
+      autoCompressionFailuresRef.current.delete(conversationId)
+    } catch {
+      // Silent by design: originals and the previous summary are untouched; retry after the cooldown.
+      autoCompressionFailuresRef.current.set(conversationId, Date.now())
+    }
+  }
+  const scheduleAutoContextCompression = (conversationId: string) => {
+    // Let the finished reply commit to state (and conversationsRef) first.
+    window.setTimeout(() => { void runAutoContextCompression(conversationId) }, 1200)
   }
 
   const updateChatJump = () => {
@@ -2610,6 +2732,12 @@ function App() {
       const distanceToBottom = list.scrollHeight - list.scrollTop - list.clientHeight
       const next = { up: list.scrollTop > 280, down: distanceToBottom > 280 }
       rememberChatScroll()
+      // Reading history with the default (newest-60) window: pin the window's first
+      // row so a new reply doesn't drop the top row and shift what she is reading.
+      if (distanceToBottom > 96 && chatWindowAnchors[chatScrollKey] == null && chatWindowStart > 0) {
+        const anchorId = messages[chatWindowStart]?.id
+        if (anchorId !== undefined) setChatWindowAnchors((current) => current[chatScrollKey] == null ? { ...current, [chatScrollKey]: anchorId } : current)
+      }
       // A keyboard re-pin is our own scroll, not hers: don't flash the jump buttons for it.
       const visible = (next.up || next.down) && !keyboardScrollPin.recentlyPinned()
       setChatJump({ ...next, visible })
@@ -2621,6 +2749,17 @@ function App() {
     })
   }
 
+  const loadEarlierChatMessages = () => {
+    const list = messageListRef.current
+    if (list) pendingChatPrependRef.current = { key: chatScrollKey, height: list.scrollHeight, top: list.scrollTop }
+    // She is reading history now: don't let a pending "follow latest" pull her back down.
+    if (pendingChatLatestScrollRef.current === chatScrollKey) pendingChatLatestScrollRef.current = null
+    keyboardScrollPin.release()
+    chatScrollSnapshotsRef.current.set(chatScrollKey, { top: list?.scrollTop || 0, stickToBottom: false })
+    setChatWindowAnchors((current) => ({ ...current, [chatScrollKey]: earlierChatWindowAnchor(messages, chatWindowStart) }))
+  }
+
+  // ↑ goes to the top of the loaded window, where "加载更早 N 条" sits.
   const jumpChat = (edge: 'top' | 'bottom') => {
     const list = messageListRef.current; if (!list) return
     if (edge === 'bottom') scrollChatToLatest(list)
@@ -2793,7 +2932,7 @@ function App() {
 
     {page === 'group-greeting-picker' && <GroupGreetingPicker characters={groupGreetingCharacters} userName={groupGreetingUserName} onCancel={() => { const creatingFromConversation = Boolean(newConversationSourceId); setNewConversationSourceId(null); if (creatingFromConversation) replacePage('chat'); else goBack() }} onConfirm={beginGroupWithGreeting} />}
 
-    {page === 'chat' && <section className="chat-page"><header className="chat-header"><button className="icon-button drawer-trigger" aria-label="打开对话列表" onClick={() => setDrawer('left')}>☰</button><button className="chat-identity" onClick={() => navigate('character-detail')}>{activeCharacter.avatar ? <img src={activeCharacter.avatar} alt="" /> : <span>{activeCharacter.name.slice(-1)}</span>}<div><strong>{activeConversation?.kind === 'group' ? activeConversation.title : activeCharacter.name}</strong><small>{isGenerating ? '正在回应…' : activeConversation?.title || `${identity.name} · 沉浸共演中`}</small></div></button><button className="more-button" aria-label="打开聊天设置" onClick={() => setDrawer('right')}>•••</button></header>{chatError && <div className="chat-error" role="alert"><button className="chat-error-action" onClick={() => navigate(chatErrorIsPlot ? 'temporary-plot' : 'api')}><span>{chatErrorIsPlot ? '剧情安排提示' : '连接提示'}</span>{chatError}<i>{chatErrorIsPlot ? '查看幕后安排 ›' : '前往 API 设置 ›'}</i></button>{chatErrorIsPlot && activeConversation?.temporaryPlot && <button className="chat-error-end-plot" onClick={() => { const id = activeConversation.id; setConversations((current) => current.map((item) => item.id === id ? { ...item, temporaryPlot: undefined, updatedAt: Date.now() } : item)); setChatError('') }}>已落实，结束安排</button>}<button className="chat-error-close" aria-label="关闭提示" title="关闭提示" onClick={() => setChatError('')}>×</button></div>}<div ref={messageListRef} className="message-list" onScroll={updateChatJump}>{messages.map(renderChatMessage)}<div ref={messageListLayoutMarkerRef} className="message-list-layout-marker" aria-hidden="true" /></div>{(chatJump.up || chatJump.down) && <nav className={`chat-jump-controls ${chatJump.visible ? 'visible' : ''}`} aria-label="快速浏览对话" aria-hidden={!chatJump.visible}>{chatJump.up && <button tabIndex={chatJump.visible ? 0 : -1} onClick={() => jumpChat('top')} aria-label="回到对话顶部">↑</button>}{chatJump.down && <button tabIndex={chatJump.visible ? 0 : -1} onClick={() => jumpChat('bottom')} aria-label="跳到最新消息">↓</button>}</nav>}<div ref={composerDockRef} className={`${composerExpanded ? 'composer has-expanded' : 'composer'}${composerCanExpand ? ' can-expand' : ''}`}><button className="composer-plus" aria-label="打开输入工具" onClick={() => setComposerToolsOpen(true)}>{replyHelperState === 'generating' ? '…' : '＋'}</button><textarea ref={composerRef} rows={1} value={draft} onChange={(event) => { const value = event.target.value; setDraft(value); if (activeConversation?.kind === 'group' && /[@＠]$/.test(value) && value.length > draft.length) { event.currentTarget.blur(); setMentionPickerOpen(true) } }} placeholder={replyHelperState === 'generating' ? 'AI 帮答正在起草…' : isGenerating ? '可以先写下一条，停止后再发送' : groupReplyMode === 'specified' && activeConversation?.kind === 'group' ? '输入 @ 选择回答的角色……' : '写下你的回应……'} />{composerCanExpand && <button className="composer-expand" aria-label="展开长消息编辑器" title="展开编辑" onClick={() => setComposerExpanded(true)}>⛶</button>}<button className={`send-button ${isGenerating ? 'stop' : ''}`} aria-label={isGenerating ? '停止生成' : '发送'} onClick={() => isGenerating && activeConversation ? abortConversation(activeConversation.id) : sendMessage()}>{isGenerating ? '■' : '↑'}</button></div>{composerExpanded && <div className="composer-expanded-layer" role="dialog" aria-modal="true" aria-label="长消息编辑器"><header><button className="expanded-collapse" aria-label="收起编辑器" onClick={() => { setComposerExpanded(false); window.requestAnimationFrame(() => composerRef.current?.focus()) }}>‹</button><div><strong>长消息编辑</strong><small>{draft.length} 字 · 草稿实时保留</small></div><button className="expanded-tools" aria-label="打开输入工具" onClick={() => setComposerToolsOpen(true)}>＋</button></header><textarea ref={expandedComposerRef} value={draft} onChange={(event) => { const value = event.target.value; setDraft(value); if (activeConversation?.kind === 'group' && /[@＠]$/.test(value) && value.length > draft.length) { event.currentTarget.blur(); setMentionPickerOpen(true) } }} placeholder={replyHelperState === 'generating' ? 'AI 帮答正在起草…' : '在这里慢慢写完整段落……'} /><footer><button className="expanded-done" onClick={() => { setComposerExpanded(false); window.requestAnimationFrame(() => composerRef.current?.focus()) }}>收起</button><button className={isGenerating ? 'expanded-send stop' : 'expanded-send'} disabled={!draft.trim() && !isGenerating} onClick={() => { if (isGenerating && activeConversation) { abortConversation(activeConversation.id); return } setComposerExpanded(false); void sendMessage() }}>{isGenerating ? '停止生成' : '发送'}</button></footer></div>}</section>}
+    {page === 'chat' && <section className="chat-page"><header className="chat-header"><button className="icon-button drawer-trigger" aria-label="打开对话列表" onClick={() => setDrawer('left')}>☰</button><button className="chat-identity" onClick={() => navigate('character-detail')}>{activeCharacter.avatar ? <img src={activeCharacter.avatar} alt="" /> : <span>{activeCharacter.name.slice(-1)}</span>}<div><strong>{activeConversation?.kind === 'group' ? activeConversation.title : activeCharacter.name}</strong><small>{isGenerating ? '正在回应…' : activeConversation?.title || `${identity.name} · 沉浸共演中`}</small></div></button><button className="more-button" aria-label="打开聊天设置" onClick={() => setDrawer('right')}>•••</button></header>{chatError && <div className="chat-error" role="alert"><button className="chat-error-action" onClick={() => navigate(chatErrorIsPlot ? 'temporary-plot' : 'api')}><span>{chatErrorIsPlot ? '剧情安排提示' : '连接提示'}</span>{chatError}<i>{chatErrorIsPlot ? '查看幕后安排 ›' : '前往 API 设置 ›'}</i></button>{chatErrorIsPlot && activeConversation?.temporaryPlot && <button className="chat-error-end-plot" onClick={() => { const id = activeConversation.id; setConversations((current) => current.map((item) => item.id === id ? { ...item, temporaryPlot: undefined, updatedAt: Date.now() } : item)); setChatError('') }}>已落实，结束安排</button>}<button className="chat-error-close" aria-label="关闭提示" title="关闭提示" onClick={() => setChatError('')}>×</button></div>}<div ref={messageListRef} className="message-list" onScroll={updateChatJump}>{earlierChatCount > 0 && <button type="button" className="chat-load-earlier" onClick={loadEarlierChatMessages}>加载更早 {earlierChatCount} 条</button>}{renderedChatMessages.map((message, offset) => contextSummaryBoundary > 0 && chatWindowStart + offset === contextSummaryBoundary && contextSummaryBoundary < messages.length ? [<div key="context-summary-divider" className="context-summary-divider" role="note">以上 {contextSummaryBoundary} 条已在后台整理进上下文摘要</div>, renderChatMessage(message)] : renderChatMessage(message))}<div ref={messageListLayoutMarkerRef} className="message-list-layout-marker" aria-hidden="true" /></div>{(chatJump.up || chatJump.down) && <nav className={`chat-jump-controls ${chatJump.visible ? 'visible' : ''}`} aria-label="快速浏览对话" aria-hidden={!chatJump.visible}>{chatJump.up && <button tabIndex={chatJump.visible ? 0 : -1} onClick={() => jumpChat('top')} aria-label="回到对话顶部">↑</button>}{chatJump.down && <button tabIndex={chatJump.visible ? 0 : -1} onClick={() => jumpChat('bottom')} aria-label="跳到最新消息">↓</button>}</nav>}<div ref={composerDockRef} className={`${composerExpanded ? 'composer has-expanded' : 'composer'}${composerCanExpand ? ' can-expand' : ''}`}><button className="composer-plus" aria-label="打开输入工具" onClick={() => setComposerToolsOpen(true)}>{replyHelperState === 'generating' ? '…' : '＋'}</button><textarea ref={composerRef} rows={1} value={draft} onChange={(event) => { const value = event.target.value; setDraft(value); if (activeConversation?.kind === 'group' && /[@＠]$/.test(value) && value.length > draft.length) { event.currentTarget.blur(); setMentionPickerOpen(true) } }} placeholder={replyHelperState === 'generating' ? 'AI 帮答正在起草…' : isGenerating ? '可以先写下一条，停止后再发送' : groupReplyMode === 'specified' && activeConversation?.kind === 'group' ? '输入 @ 选择回答的角色……' : '写下你的回应……'} />{composerCanExpand && <button className="composer-expand" aria-label="展开长消息编辑器" title="展开编辑" onClick={() => setComposerExpanded(true)}>⛶</button>}<button className={`send-button ${isGenerating ? 'stop' : ''}`} aria-label={isGenerating ? '停止生成' : '发送'} onClick={() => isGenerating && activeConversation ? abortConversation(activeConversation.id) : sendMessage()}>{isGenerating ? '■' : '↑'}</button></div>{composerExpanded && <div className="composer-expanded-layer" role="dialog" aria-modal="true" aria-label="长消息编辑器"><header><button className="expanded-collapse" aria-label="收起编辑器" onClick={() => { setComposerExpanded(false); window.requestAnimationFrame(() => composerRef.current?.focus()) }}>‹</button><div><strong>长消息编辑</strong><small>{draft.length} 字 · 草稿实时保留</small></div><button className="expanded-tools" aria-label="打开输入工具" onClick={() => setComposerToolsOpen(true)}>＋</button></header><textarea ref={expandedComposerRef} value={draft} onChange={(event) => { const value = event.target.value; setDraft(value); if (activeConversation?.kind === 'group' && /[@＠]$/.test(value) && value.length > draft.length) { event.currentTarget.blur(); setMentionPickerOpen(true) } }} placeholder={replyHelperState === 'generating' ? 'AI 帮答正在起草…' : '在这里慢慢写完整段落……'} /><footer><button className="expanded-done" onClick={() => { setComposerExpanded(false); window.requestAnimationFrame(() => composerRef.current?.focus()) }}>收起</button><button className={isGenerating ? 'expanded-send stop' : 'expanded-send'} disabled={!draft.trim() && !isGenerating} onClick={() => { if (isGenerating && activeConversation) { abortConversation(activeConversation.id); return } setComposerExpanded(false); void sendMessage() }}>{isGenerating ? '停止生成' : '发送'}</button></footer></div>}</section>}
 
     {page === 'more' && <><BackHeader title="设置" onBack={goBack} /><section className="settings-stack compact-settings">{[[['API 连接', 'api'], ['用户身份', 'identity']], [['模型设置', 'model'], ['全局预设', 'preset'], ['全局世界书', 'worldbook'], ['长记忆', 'memory']], [['应用设置', 'settings']]].map((group, index) => <div className="settings-group" key={index}>{group.map(([label, target]) => <button key={label} onClick={() => navigate(target as Page)}><span>{label}</span><span>›</span></button>)}</div>)}</section></>}
 
