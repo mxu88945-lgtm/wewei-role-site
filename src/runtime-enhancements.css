@@ -152,13 +152,11 @@
   border-left: 4px solid #8a61d8;
   border-radius: 5px 15px 15px 5px;
   color: inherit;
-  background: rgba(255, 255, 255, .10);
+  background: rgba(255, 255, 255, .14);
   border-top: 1px solid rgba(138, 97, 216, .12);
   border-right: 1px solid rgba(138, 97, 216, .12);
   border-bottom: 1px solid rgba(138, 97, 216, .12);
   box-shadow: 0 7px 18px rgba(91, 64, 125, .055);
-  backdrop-filter: blur(8px);
-  -webkit-backdrop-filter: blur(8px);
   font-size: .9em !important;
   line-height: 1.72;
   white-space: pre-wrap;
@@ -170,10 +168,8 @@
   border: 1px solid rgba(133, 103, 168, .16);
   border-radius: 14px;
   color: inherit;
-  background: rgba(255, 255, 255, .08);
+  background: rgba(255, 255, 255, .12);
   box-shadow: 0 7px 18px rgba(91, 64, 125, .045);
-  backdrop-filter: blur(8px);
-  -webkit-backdrop-filter: blur(8px);
   font-size: .84em !important;
   line-height: 1.76;
   white-space: pre-wrap;
@@ -239,4 +235,20 @@
   .message-safe-html .weijing-czw-status-header { margin: -10px -11px 10px; padding: 10px 11px; }
   .message-safe-html .weijing-czw-status-fields { grid-template-columns: 1fr; gap: 7px; }
   .message-safe-html .weijing-czw-status-field.wide { grid-column: auto; }
+}
+
+/*
+ * No backdrop blur inside chat messages. Every assistant reply carried two or
+ * three of them (scene strip, status card, plus any glass panel in the card's own
+ * HTML): ~140 blurred layers in the 60-message window, ~315 with 140 rows. On iOS
+ * each is a separate compositing layer that is re-blurred whenever anything
+ * behind it moves, e.g. every frame of the keyboard closing for the @ picker. The
+ * panels keep their translucent fill (slightly stronger above for the built-in
+ * ones); the header and composer keep their blur.
+ */
+.message-safe-html *,
+.message-safe-html *::before,
+.message-safe-html *::after {
+  -webkit-backdrop-filter: none !important;
+  backdrop-filter: none !important;
 }

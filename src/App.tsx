@@ -2419,11 +2419,12 @@ function App() {
   }
 
   const closeMentionPicker = useCallback(() => setMentionPickerOpen(false), [])
-  const insertGroupMention = (name: string) => {
+  // Stable identity so the memoised MentionPicker doesn't re-render with every App render.
+  const insertGroupMention = useCallback((name: string) => {
     setDraft((current) => /[@＠][^@＠\s]*$/.test(current) ? current.replace(/[@＠][^@＠\s]*$/, `@${name} `) : `${current}${current && !/\s$/.test(current) ? ' ' : ''}@${name} `)
     setMentionPickerOpen(false)
     window.requestAnimationFrame(() => composerRef.current?.focus())
-  }
+  }, [])
 
   const copyMessage = async (message: Message) => {
     try { await navigator.clipboard.writeText(message.text) } catch {
@@ -2801,7 +2802,8 @@ function App() {
   const menuConversation = conversations.find((item) => item.id === conversationMenuId)
   const menuMessage = messages.find((item) => item.id === messageMenuId)
   const menuCharacter = characters.find((item) => item.id === characterMenuId)
-  const groupParticipants = activeConversation?.kind === 'group' ? (activeConversation.participantIds || []).map((id) => characters.find((item) => item.id === id)).filter(Boolean) as Character[] : []
+  const groupParticipantIdsKey = activeConversation?.kind === 'group' ? (activeConversation.participantIds || []).join('|') : ''
+  const groupParticipants = useMemo(() => groupParticipantIdsKey ? groupParticipantIdsKey.split('|').map((id) => characters.find((item) => item.id === id)).filter(Boolean) as Character[] : [], [groupParticipantIdsKey, characters])
   const groupAvatarsKey = groupParticipants.map((member) => `${member.id}:${member.avatar?.length || 0}`).join('|')
   useEffect(() => {
     // Make small avatar thumbnails as soon as a group chat opens, so the @ picker
