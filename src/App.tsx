@@ -1,4 +1,4 @@
-import { useEffect, useId, useLayoutEffect, useMemo, useRef, useState } from 'react'
+import { useCallback, useEffect, useId, useLayoutEffect, useMemo, useRef, useState } from 'react'
 import ApiSettingsPage from './ApiSettingsPage'
 import BackupCard from './BackupCard'
 import ChatSearchPage from './ChatSearchPage'
@@ -8,6 +8,8 @@ import './story-tools.css'
 import PresetEditor from './PresetEditor'
 import CharacterCardManager from './CharacterCardManager'
 import { GreetingPicker, GroupGreetingPicker, ImportPreview, type GroupGreetingChoice } from './ImportFlow'
+import MentionPicker from './MentionPicker'
+import { prewarmAvatarThumbnails } from './avatarThumbnail'
 import MessageContent from './MessageContent'
 import { createBlankCharacter, importCharacterCard, normalizeStoredCharacter, type Character } from './characterCard'
 import { activeCharacterMemory, characterMemoryEntryFromConversation, characterMemoryExtractionPrompt, characterMemorySummaryProtocol, parseCharacterMemoryCandidates, splitCharacterMemorySummary } from './characterMemory'
@@ -2360,6 +2362,7 @@ function App() {
     await generateAssistant(conversation, baseMessages)
   }
 
+  const closeMentionPicker = useCallback(() => setMentionPickerOpen(false), [])
   const insertGroupMention = (name: string) => {
     setDraft((current) => /[@＠][^@＠\s]*$/.test(current) ? current.replace(/[@＠][^@＠\s]*$/, `@${name} `) : `${current}${current && !/\s$/.test(current) ? ' ' : ''}@${name} `)
     setMentionPickerOpen(false)
@@ -2655,6 +2658,14 @@ function App() {
   const menuMessage = messages.find((item) => item.id === messageMenuId)
   const menuCharacter = characters.find((item) => item.id === characterMenuId)
   const groupParticipants = activeConversation?.kind === 'group' ? (activeConversation.participantIds || []).map((id) => characters.find((item) => item.id === id)).filter(Boolean) as Character[] : []
+  const groupAvatarsKey = groupParticipants.map((member) => `${member.id}:${member.avatar?.length || 0}`).join('|')
+  useEffect(() => {
+    // Make small avatar thumbnails as soon as a group chat opens, so the @ picker
+    // never has to mount a multi-megabyte data URL while it pops up.
+    if (page === 'chat') prewarmAvatarThumbnails(groupParticipants.map((member) => member.avatar))
+    // groupAvatarsKey captures which avatars are in play; the array itself is rebuilt every render.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [page, groupAvatarsKey])
   const cardManagerBaseCharacter = activeConversation?.kind === 'group'
     ? groupParticipants.find((character) => character.id === cardManagerCharacterId) || groupParticipants[0] || activeCharacter
     : activeCharacter
@@ -2831,7 +2842,7 @@ function App() {
 
     {composerToolsOpen && <div className="composer-tools-layer" role="dialog" aria-modal="true" aria-label="输入工具"><button className="drawer-backdrop" aria-label="关闭输入工具" onClick={() => replyHelperState === 'idle' && setComposerToolsOpen(false)} /><section className="composer-tools-sheet"><header><div><small>输入工具</small><strong>接下来想怎么写</strong></div><button onClick={() => setComposerToolsOpen(false)} disabled={replyHelperState === 'generating'}>×</button></header><button className="reply-helper-action" onClick={() => void generateReplyHelperDraft()} disabled={replyHelperState === 'generating' || isGenerating}><span>✦</span><div><strong>{replyHelperState === 'generating' ? 'AI 正在帮你起草…' : 'AI 帮答'}</strong><small>{draft.trim() ? '沿用输入框里的想法，润色补成一条回复' : '读取当前上下文，生成一版可修改的回复草稿'}</small></div><i>›</i></button><p>只会填入输入框，不会自动发送，也不会替其他角色继续演。</p></section></div>}
 
-    {mentionPickerOpen && activeConversation?.kind === 'group' && <div className="mention-picker-layer" role="dialog" aria-modal="true" aria-label="选择要提及的角色"><button className="drawer-backdrop" aria-label="关闭角色选择" onClick={() => setMentionPickerOpen(false)} /><section className="mention-picker"><header><strong>选择 @ 的角色</strong><button onClick={() => setMentionPickerOpen(false)}>×</button></header>{groupParticipants.map((member) => <button className="mention-member" key={member.id} onClick={() => insertGroupMention(member.name)}>{member.avatar ? <img src={member.avatar} alt="" decoding="async" /> : <span>{member.name.slice(-1)}</span>}<strong>{member.name}</strong></button>)}</section></div>}
+    {mentionPickerOpen && activeConversation?.kind === 'group' && <MentionPicker members={groupParticipants} onPick={insertGroupMention} onClose={closeMentionPicker} />}
 
     {menuCharacter && <div className="character-menu-layer"><button className="drawer-backdrop" aria-label="关闭角色菜单" onClick={() => setCharacterMenuId(null)} /><section className="conversation-menu character-action-menu"><header><div><small>角色操作</small><strong>{menuCharacter.name}</strong></div><button onClick={() => setCharacterMenuId(null)}>×</button></header><button onClick={() => { selectLibraryCharacter(menuCharacter.id); setCharacterMenuId(null); navigate('card-data') }}>编辑角色卡</button><button onClick={() => duplicateCharacter(menuCharacter)}>复制角色</button><button onClick={() => exportCharacter(menuCharacter)}>导出 Character Card V3 JSON</button><button className="danger" onClick={() => deleteCharacter(menuCharacter)}>删除角色及相关数据</button></section></div>}
 

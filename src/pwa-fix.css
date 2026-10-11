@@ -117,6 +117,31 @@ select {
  * and the home indicator. index.html sets data-standalone and --app-h (the
  * physical screen height) only there; ordinary browsers keep 100% / 100dvh.
  */
+/*
+ * --app-h changes on every frame of the iOS keyboard animation (index.html writes
+ * it on <html>). As an ordinary custom property it is inherited, so each write
+ * made the browser recompute the style of every element on the page: with a long
+ * group chat that was thousands of message nodes per frame (300-400 ms each at
+ * 6x CPU throttle), the real cause of the @ picker / keyboard jank. Registered as
+ * non-inherited it only reaches the few layout boxes below that opt in with
+ * `--app-h: inherit`, so the message list is no longer restyled. Browsers without
+ * @property simply keep the old inherited behaviour.
+ */
+@property --app-h {
+  syntax: '*';
+  inherits: false;
+}
+
+html[data-standalone] body,
+html[data-standalone] #root,
+html[data-standalone] .app-shell,
+html[data-standalone] .phone-canvas,
+html[data-standalone] .chat-canvas,
+html[data-standalone] .chat-page,
+html[data-standalone] .composer-expanded-layer {
+  --app-h: inherit;
+}
+
 html[data-standalone],
 html[data-standalone] body,
 html[data-standalone] #root {

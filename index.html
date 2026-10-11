@@ -23,7 +23,8 @@
             const root = document.documentElement
             root.setAttribute('data-standalone', '')
             /* Write only when the value changes: every --app-h / data-kb write
-               relayouts the whole chat, and iOS fires visualViewport resize/scroll
+               relayouts the chat (pwa-fix.css registers --app-h as non-inherited
+               so it no longer restyles every message node as well), and iOS fires visualViewport resize/scroll
                on every frame of the keyboard animation (e.g. when the @ picker
                opens and the keyboard closes). */
             let lastH = null
