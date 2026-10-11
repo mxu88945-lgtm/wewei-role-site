@@ -8,13 +8,41 @@ export type ChatWallpaper = {
   colorOpacity: number
 }
 export type ChatWallpapers = Record<string, ChatWallpaper>
-type ChatScope = { id: string; characterId: string; kind?: 'single' | 'group' }
+type ChatScope = { id: string; characterId: string; kind?: 'single' | 'group'; themePresetId?: string; updatedAt?: number }
 const unit = (value: unknown, fallback: number) => typeof value === 'number' && Number.isFinite(value) ? Math.max(0, Math.min(1, value)) : fallback
 const color = (value: unknown, fallback = '#f5f1f8') => typeof value === 'string' && /^#[\da-f]{6}$/i.test(value) ? value : fallback
 
-/** Stable IDs keep renamed/same-named roles separate; a group never borrows its lead's wallpaper. */
-export function wallpaperScopeKey(conversation: ChatScope | undefined, characterId: string) {
+/** Wallpaper owned by the chat itself (used only while no theme is bound). */
+export function chatWallpaperScopeKey(conversation: ChatScope | undefined, characterId: string) {
   return conversation?.kind === 'group' ? `conversation:${conversation.id}` : `character:${conversation?.characterId || characterId}`
+}
+
+export const themeWallpaperKey = (themeId: string) => `theme:${themeId}`
+
+/**
+ * A chat bound to a theme shows that theme's wallpaper, so each theme is a
+ * complete look of its own: switching themes switches the wallpaper with it.
+ * Chats with no bound theme keep their per-character / per-group wallpaper.
+ */
+export function wallpaperScopeKey(conversation: ChatScope | undefined, characterId: string) {
+  return conversation?.themePresetId ? themeWallpaperKey(conversation.themePresetId) : chatWallpaperScopeKey(conversation, characterId)
+}
+
+/**
+ * One-time move to theme-owned wallpapers: each theme in use adopts the
+ * wallpaper its most recently used chat was showing, so nothing visibly
+ * disappears. Chat-owned entries are kept untouched as a fallback.
+ */
+export function migrateThemeWallpapers(wallpapers: ChatWallpapers, conversations: ChatScope[]): ChatWallpapers {
+  const next = { ...wallpapers }
+  const ordered = [...conversations].filter((item) => item.themePresetId).sort((a, b) => (b.updatedAt || 0) - (a.updatedAt || 0))
+  for (const conversation of ordered) {
+    const key = themeWallpaperKey(conversation.themePresetId!)
+    if (next[key]) continue
+    const own = wallpapers[chatWallpaperScopeKey(conversation, conversation.characterId)]
+    if (own) next[key] = own
+  }
+  return next
 }
 
 export function normalizeWallpaper(value: unknown, themeColor = '#f5f1f8'): ChatWallpaper {
@@ -31,7 +59,7 @@ export function normalizeWallpaper(value: unknown, themeColor = '#f5f1f8'): Chat
 
 export function normalizeWallpapers(value: unknown): ChatWallpapers {
   if (!value || typeof value !== 'object' || Array.isArray(value)) return {}
-  return Object.fromEntries(Object.entries(value).filter(([key, item]) => /^(?:character|conversation):.+/.test(key) && item && typeof item === 'object' && !Array.isArray(item)).map(([key, item]) => [key, normalizeWallpaper(item)]))
+  return Object.fromEntries(Object.entries(value).filter(([key, item]) => /^(?:character|conversation|theme):.+/.test(key) && item && typeof item === 'object' && !Array.isArray(item)).map(([key, item]) => [key, normalizeWallpaper(item)]))
 }
 
 /** Migrate once, to one scope only. Even an empty new map is an intentional saved configuration. */

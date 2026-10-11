@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it, vi } from 'vitest'
-import { migrateLegacyWallpaper, mixHex, normalizeWallpaper, normalizeWallpapers, readWallpaperImage, WallpaperUploadTickets, wallpaperImage, wallpaperScopeKey, wallpaperTopColor } from './chatWallpaper'
+import { migrateThemeWallpapers, migrateLegacyWallpaper, mixHex, normalizeWallpaper, normalizeWallpapers, readWallpaperImage, WallpaperUploadTickets, wallpaperImage, wallpaperScopeKey, wallpaperTopColor } from './chatWallpaper'
 const photo = 'data:image/jpeg;base64,photo'
 afterEach(() => vi.unstubAllGlobals())
 
@@ -86,3 +86,26 @@ describe('wallpaper top colour for the full-screen iOS top fade', () => {
     expect(wallpaperTopColor({ ...wallpaper, colorOpacity: 0 }, '#f5f1f8', '#204060')).toBe('#204060')
   })
 })
+
+describe('theme-owned wallpapers', () => {
+  const wp = (color: string) => normalizeWallpaper({ color })
+  it('a chat bound to a theme uses that theme\'s wallpaper; switching theme switches it', () => {
+    const chat = { id: 'c1', characterId: 'a', kind: 'single' as const }
+    expect(wallpaperScopeKey({ ...chat, themePresetId: 'pudding' }, 'a')).toBe('theme:pudding')
+    expect(wallpaperScopeKey({ ...chat, themePresetId: 'sage' }, 'a')).toBe('theme:sage')
+    expect(wallpaperScopeKey(chat, 'a')).toBe('character:a')
+    expect(normalizeWallpapers({ 'theme:sage': wp('#112233') })['theme:sage'].color).toBe('#112233')
+  })
+  it('each theme in use adopts its most recent chat\'s wallpaper once', () => {
+    const migrated = migrateThemeWallpapers({ 'character:a': wp('#aaaaaa'), 'character:b': wp('#bbbbbb'), 'conversation:g': wp('#cccccc') }, [
+      { id: '1', characterId: 'a', themePresetId: 'pudding', updatedAt: 1 },
+      { id: '2', characterId: 'b', themePresetId: 'pudding', updatedAt: 5 },
+      { id: 'g', characterId: 'a', kind: 'group', themePresetId: 'sage', updatedAt: 2 },
+      { id: '3', characterId: 'a', updatedAt: 9 },
+    ])
+    expect(migrated['theme:pudding'].color).toBe('#bbbbbb')
+    expect(migrated['theme:sage'].color).toBe('#cccccc')
+    expect(migrated['character:a'].color).toBe('#aaaaaa')
+  })
+})
+

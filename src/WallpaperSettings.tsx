@@ -10,11 +10,11 @@ export function WallpaperLayers({ wallpaper, avatar, themeColor, className = '' 
   </div>
 }
 
-export default function WallpaperSettings({ wallpaper, avatar, themeColor, scopeLabel, group, ready, upload, onChange, onUpload, onReset }: { wallpaper: ChatWallpaper; avatar?: string; themeColor: string; scopeLabel: string; group: boolean; ready: boolean; upload?: { busy: boolean; message: string }; onChange: (patch: Partial<ChatWallpaper>) => void; onUpload: (file: File) => void; onReset: () => void }) {
+export default function WallpaperSettings({ wallpaper, avatar, themeColor, scopeLabel, themeName, group, ready, upload, onChange, onUpload, onReset }: { wallpaper: ChatWallpaper; avatar?: string; themeColor: string; scopeLabel: string; themeName?: string; group: boolean; ready: boolean; upload?: { busy: boolean; message: string }; onChange: (patch: Partial<ChatWallpaper>) => void; onUpload: (file: File) => void; onReset: () => void }) {
   const image = wallpaperImage(wallpaper, avatar)
   return <section className="appearance-card wallpaper-settings" aria-label="独立聊天壁纸">
-    <div className="wallpaper-heading"><div><strong>独立聊天壁纸</strong><small>{group ? '仅这个群聊' : '仅这个角色的单人聊天'} · {scopeLabel}</small></div><button type="button" className={'switch ' + (wallpaper.enabled ? 'on' : '')} role="switch" aria-label="启用当前聊天壁纸" aria-checked={wallpaper.enabled} disabled={!ready} onClick={() => onChange({ enabled: !wallpaper.enabled })}><span /></button></div>
-    <p className="wallpaper-note">{group ? '不会影响成员的单人聊天，也不会影响其他群聊。' : '同一角色的其他单人窗口共用这份壁纸；切换角色不会串图。'}关闭后保留设置，可随时重新开启。</p>
+    <div className="wallpaper-heading"><div><strong>{themeName ? '主题壁纸' : '独立聊天壁纸'}</strong><small>{themeName ? `属于主题「${themeName}」` : `${group ? '仅这个群聊' : '仅这个角色的单人聊天'} · ${scopeLabel}`}</small></div><button type="button" className={'switch ' + (wallpaper.enabled ? 'on' : '')} role="switch" aria-label="启用当前聊天壁纸" aria-checked={wallpaper.enabled} disabled={!ready} onClick={() => onChange({ enabled: !wallpaper.enabled })}><span /></button></div>
+    <p className="wallpaper-note">{themeName ? '这张壁纸跟着主题走：切到别的主题会显示那套主题自己的壁纸，切回来还是这张；用这套主题的聊天都显示它。' : group ? '不会影响成员的单人聊天，也不会影响其他群聊。' : '同一角色的其他单人窗口共用这份壁纸；切换角色不会串图。'}关闭后保留设置，可随时重新开启。</p>
     <fieldset disabled={!ready} className="wallpaper-controls">
       <label>背景来源<select value={wallpaper.source} onChange={(event) => onChange({ source: event.target.value as ChatWallpaper['source'] })}><option value="none">仅使用底色</option><option value="avatar">{group ? '使用群聊首位成员头像' : '使用角色头像'}</option><option value="image">使用自选图片</option></select></label>
       {wallpaper.source === 'avatar' && !avatar && <p role="status">当前没有头像，可以先设置角色头像或选择图片。</p>}
@@ -24,7 +24,7 @@ export default function WallpaperSettings({ wallpaper, avatar, themeColor, scope
       <label className="wallpaper-range">底色遮罩透明度 <output>{Math.round(wallpaper.colorOpacity * 100)}%</output><input aria-label="底色遮罩透明度" type="range" min={0} max={100} step={1} value={Math.round(wallpaper.colorOpacity * 100)} onChange={(event) => onChange({ colorOpacity: Number(event.target.value) / 100 })} /></label>
       <p className="wallpaper-note">图片 100% 为原图；底色遮罩 0% 不遮图，调高后文字更清楚。</p>
       {upload?.message && <p role="status">{upload.message}</p>}
-      <div className="wallpaper-preview" aria-label="当前聊天壁纸预览"><WallpaperLayers wallpaper={wallpaper} avatar={avatar} themeColor={themeColor} /><div className="wallpaper-preview-content"><small>{scopeLabel} · 实时预览</small><p>{!wallpaper.enabled ? '壁纸已关闭，聊天显示主题底色。' : image ? '这是聊天里的壁纸效果。' : '当前使用纯底色。'}</p><span>你的回应会显示在这里。</span></div></div>
+      <div className="wallpaper-preview" aria-label="当前聊天壁纸预览"><WallpaperLayers wallpaper={wallpaper} avatar={avatar} themeColor={themeColor} /><div className="wallpaper-preview-content"><small>{themeName || scopeLabel} · 实时预览</small><p>{!wallpaper.enabled ? '壁纸已关闭，聊天显示主题底色。' : image ? '这是聊天里的壁纸效果。' : '当前使用纯底色。'}</p><span>你的回应会显示在这里。</span></div></div>
       <div className="appearance-actions"><button type="button" className="secondary-button" onClick={onReset}>恢复当前壁纸默认</button></div>
     </fieldset>
   </section>
