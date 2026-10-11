@@ -49,6 +49,7 @@ import { isFailedTransportAssistantMessage, modelVisibleMessageText, stripUiOnly
 import { countConversationStats } from './conversationStats'
 import { enforceRelationshipStageFloor, extractRelationshipStage, highestRelationshipStage, relationshipStageLockInstruction, repairRelationshipStageHistory, type RelationshipStage } from './relationshipStage'
 import { buildStatusFallback, getStatusProtocol, latestStatusContent } from './statusProtocol'
+import { dismissComposerKeyboard } from './composerKeyboard'
 
 type Page = 'home' | 'story-projects' | 'characters' | 'create' | 'character-workshop' | 'group-create' | 'director-template' | 'group-greeting-picker' | 'import-preview' | 'character-detail' | 'card-data' | 'card-worldbook' | 'card-regex' | 'card-memory' | 'greeting-picker' | 'chat' | 'more' | 'api' | 'reply-helper-api' | 'model' | 'settings' | 'appearance' | 'font' | 'display-reply' | 'identity' | 'worldbook' | 'theater-world' | 'temporary-plot' | 'story-scripts' | 'chat-search' | 'request-preview' | 'preset' | 'memory' | 'memory-api' | 'memory-list'
 type MessageEditor = { mode: 'assistant' | 'resend'; messageId: number; text: string }
@@ -2269,6 +2270,9 @@ function App() {
     requestChatLatestScroll(conversation.id)
     const sourceMessages = historyOverride ?? messages
     setDraft('')
+    // A composer send (no override) closes the soft keyboard on touch devices;
+    // edit/resend paths pass textOverride and keep whatever focus they had.
+    if (textOverride === undefined) dismissComposerKeyboard([composerRef.current, expandedComposerRef.current])
     if (conversation.kind === 'group') {
       const stopRevision = conversationStopRevisions.current.get(conversation.id) || 0
       const participantIds = conversation.participantIds || []

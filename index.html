@@ -57,6 +57,9 @@
               frame = requestAnimationFrame(() => { frame = 0; measure() })
             }
             measure()
+            /* Re-run by the app after it blurs the composer: iOS sometimes skips the
+               final visualViewport resize when the keyboard closes. */
+            window.__weijingSyncViewport = setAppHeight
             window.addEventListener('orientationchange', () => setTimeout(setAppHeight, 150))
             window.addEventListener('resize', setAppHeight)
             if (window.visualViewport) {
