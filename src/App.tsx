@@ -2339,12 +2339,10 @@ function App() {
         cleanOutput = checked.reply
         plotApplied = checked.applied
         if (checked.verdict.status === 'ignored') {
-          // Do not persist the unrelated retry as an interrupted reply or feed
-          // it into later group members' history through the catch branch.
-          output = ''
-          throw new Error('模型补写后仍未落实幕后安排，本轮未写入剧情；安排已保留，可重试。')
-        }
-        if (!plotApplied) setChatError('检查认为幕后安排可能与当前事实或角色控制权冲突，本轮回复已保留，安排未消耗。若正文其实已落实，点“已落实，结束安排”即可清空。')
+          // Two drafts and minutes of waiting must not end in nothing: keep the
+          // rewrite as this turn's reply, and leave the arrangement pending.
+          setChatError('两次都没完全落实幕后安排，已保留重写后的这一稿；安排未消耗，可以重生成再试，或点“已落实，结束安排”。')
+        } else if (!plotApplied) setChatError('检查认为幕后安排可能与当前事实或角色控制权冲突，本轮回复已保留，安排未消耗。若正文其实已落实，点“已落实，结束安排”即可清空。')
       }
       if (completion.finishReason) {
         setConversations((current) => current.map((item) => item.id === conversationId ? { ...item, messages: item.messages.map((message) => message.id === assistantMessage.id ? { ...message, finishReason: completion.finishReason } : message) } : item))
