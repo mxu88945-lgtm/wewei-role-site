@@ -127,3 +127,14 @@
   .workshop-two,.workshop-regex-options { grid-template-columns: 1fr; }
   .workshop-regex-options > strong,.workshop-regex-options > p { grid-column: 1; }
 }
+
+/* 读取已有角色卡 */
+.enhance-card { display: grid; gap: 12px; }
+.enhance-pick { display: flex; gap: 8px; }
+.enhance-pick select { flex: 1; min-width: 0; }
+.enhance-pick button { flex: none; padding: 0 16px; border: 0; border-radius: 13px; background: var(--theme-accent-soft); color: var(--theme-accent-strong); font-weight: 750; }
+.enhance-pick button:disabled { opacity: .5; }
+.enhance-file { display: block; position: relative; padding: 12px 14px; border: 1px dashed color-mix(in srgb,var(--theme-accent) 35%,transparent); border-radius: 14px; text-align: center; font-size: .9em; opacity: .85; }
+.enhance-file input { position: absolute; inset: 0; opacity: 0; width: 100%; }
+.enhance-loaded { display: grid; gap: 8px; font-size: .92em; overflow-wrap: anywhere; }
+.enhance-loaded small { opacity: .72; line-height: 1.55; }

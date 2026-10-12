@@ -176,3 +176,46 @@ describe('character workshop', () => {
     expect(empty).toContain('未指定，由你根据设定创作')
   })
 })
+
+import { applyCardEnhancement, buildCardEnhancePrompt, enhancedCopyFromDraft, parseCardEnhanceResponse, workshopDraftFromCharacter, wrapGreetingWithStatus } from './characterWorkshop'
+import { normalizeStoredCharacter as normalizeForEnhance } from './characterCard'
+
+describe('读取已有角色卡并补状态栏', () => {
+  const base = normalizeForEnhance({
+    id: 'orig', name: '沈砚', description: '冷静的律师', personality: '克制', scenario: '律所',
+    greeting: '他抬眼看你。\n「来了？」', alternateGreetings: ['雨很大。'], creator: '别人',
+    regexScripts: [], characterBook: { name: 'wb', entries: [{ id: 1, keys: ['律所'], secondary_keys: ['x'], comment: '律所', content: '老律所', constant: false, selective: true, insertion_order: 9, enabled: true, position: 'after_char', use_regex: false, extensions: { position: 1, probability: 100, useProbability: true, depth: 4 } }] },
+  })
+
+  it('keeps every original greeting body byte-for-byte and adds 2-3 dynamic fields', () => {
+    const draft = workshopDraftFromCharacter(base)
+    expect(buildCardEnhancePrompt(draft)).toContain('2—3 个字段')
+    const enhancement = parseCardEnhanceResponse(JSON.stringify({
+      statusFields: [{ name: '心绪', hint: '此刻内心' }, { name: '对你', hint: '态度和想法' }, { name: '案卷', hint: '' }, { name: '多余', hint: '' }],
+      greetings: [{ scene: '傍晚 · 律所', status: '心绪：平静\n其实有点紧张\n对你：想听你解释' }, { scene: '雨夜', status: '心绪：烦\n对你：担心' }],
+      note: '律师',
+    }), 2)
+    expect(enhancement.statusFields).toHaveLength(3)
+    const next = applyCardEnhancement(draft, enhancement)
+    expect(next.greeting).toContain(base.greeting)
+    expect(next.greeting.startsWith('<scene>傍晚 · 律所</scene>')).toBe(true)
+    expect(next.greeting).toContain('心绪：平静 其实有点紧张\n对你：想听你解释\n案卷：……')
+    expect(next.alternateGreetings[0]).toContain('雨很大。')
+    expect(next.beautificationProtocol).toContain('心绪：此刻内心')
+    expect(next.regexScripts.some((script) => script.findRegex.includes('gts_status'))).toBe(true)
+  })
+
+  it('does not double-wrap a greeting that already has tags', () => {
+    expect(wrapGreetingWithStatus('<scene>x</scene>正文<gts_status>a：b</gts_status>', 'y', 'c：d')).toBe('<scene>x</scene>正文<gts_status>a：b</gts_status>')
+  })
+
+  it('saves as a new card and preserves original worldbook details', () => {
+    const copy = enhancedCopyFromDraft(base, workshopDraftFromCharacter(base))
+    expect(copy.id).not.toBe('orig')
+    expect(copy.name).toBe('沈砚')
+    expect(copy.creator).toBe('别人')
+    expect(copy.tagline.startsWith('【美化版】')).toBe(true)
+    expect(copy.characterBook?.entries[0].secondary_keys).toEqual(['x'])
+    expect(copy.characterBook?.entries[0].position).toBe('after_char')
+  })
+})

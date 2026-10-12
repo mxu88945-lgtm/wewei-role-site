@@ -65,7 +65,7 @@ export const DEFAULT_BEAUTIFICATION_PROTOCOL = `【每轮美化输出协议】
 每次角色回复（包括第一条开场白）必须按以下顺序输出：
 1. 首个非空字符必须是 <scene>...</scene>，只写角色能够确认的时间、地点和环境；
 2. 接着输出剧情正文，保持自然、可读的纯文本，不输出 HTML 或 CSS；
-3. 末尾只能有一个 <gts_status>...</gts_status>，只记录本轮已经确认的状态、关系进展或未完成事项。
+3. 末尾只能有一个 <gts_status>...</gts_status>，只写 2—3 项“字段名：内容”，如角色的内心状态、对{{user}}的态度和想法。
 标签、顺序和字段名保持稳定；没有新信息时沿用当前状态，不编造用户的台词、动作、心理或决定。`
 
 const text = (value: unknown) => typeof value === 'string' ? value.trim() : ''
@@ -362,7 +362,7 @@ export function buildCharacterWorkshopPrompt(brief: CharacterWorkshopBrief) {
 7. postHistoryInstructions 应要求先核对最近剧情、时间地点、已发生事实和未完成事项，禁止重复已完成剧情。
 8. 世界书只保留真正需要独立触发的背景、NPC、组织、关系阶段或剧情规则；角色的重要家人、事业网络和长期矛盾若会反复影响剧情，应拆成信息充分的独立条目，而不是压成一句话。
 9. 开场白要有具体时间、地点、局面和可回应入口，但不得替用户发言或行动。若用户指定了开场白：它是用户自己的创作，优先级高于你的设计。内容像一段完整开场正文时，greeting 必须原样保留其情节、台词、措辞和顺序，只允许按美化协议在前后补上 <scene> 场景栏与 <gts_status> 状态栏，不得改写、扩写、删减或“润色”；内容只是场景构想或要求（例如“在雨夜的医院走廊重逢”）时，greeting 必须严格按这个构想创作。角色设定、scenario 与世界书要和这条开场白保持一致。alternateGreetings 仍由你另写两条不同的开局。
-10. 每张新卡都必须生成 beautificationProtocol：它是开场白和后续角色回复共用的原始文本协议，默认采用“<scene> 场景栏 → 剧情正文 → <gts_status> 状态栏”的顺序。协议必须明确标签、字段、连续性、用户主权和“只输出文本标记、不输出 HTML/CSS”。开场白正文必须实际遵守这套协议，而不是只在说明里提到。
+10. 每张新卡都必须生成 beautificationProtocol：它是开场白和后续角色回复共用的原始文本协议，默认采用“<scene> 场景栏 → 剧情正文 → <gts_status> 状态栏”的顺序。状态栏项目要少：只设 2—3 个字段，每行“字段名：内容”；前两个固定思路是角色此刻的内心状态、对{{user}}的态度和想法，第三个仅当人物特质确实需要时才加（如病娇的执念、杀手的伤势）。字段名要贴合这个人物的气质，不要用“状态／关系／待回应”这种泛用名。协议必须明确标签、字段、连续性、用户主权和“只输出文本标记、不输出 HTML/CSS”。开场白正文必须实际遵守这套协议，而不是只在说明里提到。
 11. 每张新卡都必须生成两条可直接运行的 regexScripts：一条匹配 <scene>...</scene>，渲染开场与每轮回复顶部的时间／地点场景栏；一条匹配 <gts_status>...</gts_status>，渲染回复末尾状态栏。两条都必须包含完整 findRegex、带 $1 的 replaceString，placement [2]（固定），disabled=false，绝不使用 3，也不得返回空数组。用户未指定风格时，默认生成透明、轻磨砂、跟随正文颜色的样式。
 12. 正则替换模板必须让无背景的剧情正文使用 color: var(--chat-text-color, #000000) 或继承颜色，不能使用 #d1d5db、#e2e8f0、#cbd5e1、#f8fafc、白色等浅色作为通用正文色；只有明确写在深色背景面板上的标题或状态字才允许使用浅色。禁止 script、iframe、事件属性、position:fixed/sticky、100vh/100dvh 固定高度和 touch-action:none。
 
@@ -453,5 +453,181 @@ export function characterFromWorkshopDraft(draft: CharacterWorkshopDraft, avatar
     characterBook: characterBook(draft.name, draft.worldbook),
     beautificationProtocol: draft.beautificationProtocol,
     regexScripts: draft.regexScripts.map(normalizeWorkshopRegexScript),
+  })
+}
+
+// ---------------------------------------------------------------------------
+// 读取已有角色卡 → 给原开场白补场景栏 / 动态状态栏 / 正则
+// ---------------------------------------------------------------------------
+
+export type CardEnhanceStatusField = { name: string; hint: string }
+export type CardEnhanceResult = {
+  statusFields: CardEnhanceStatusField[]
+  greetings: Array<{ scene: string; status: string }>
+  note: string
+}
+
+const MAX_ENHANCE_GREETINGS = 6
+const MAX_ENHANCE_STATUS_FIELDS = 3
+const clip = (value: string, max: number) => value.length > max ? `${value.slice(0, max)}…（后文省略）` : value
+
+/** Load an existing library / imported card into the workshop as an editable draft. */
+export function workshopDraftFromCharacter(character: Character): CharacterWorkshopDraft {
+  return {
+    ...createEmptyCharacterWorkshopDraft(),
+    name: character.name || '',
+    tagline: character.tagline || '',
+    description: character.description || '',
+    personality: character.personality || '',
+    scenario: character.scenario || '',
+    greeting: character.greeting || '',
+    alternateGreetings: [...(character.alternateGreetings || [])],
+    mesExample: character.mesExample || '',
+    creatorNotes: character.creatorNotes || '',
+    systemPrompt: character.systemPrompt || '',
+    postHistoryInstructions: character.postHistoryInstructions || '',
+    beautificationProtocol: character.beautificationProtocol || '',
+    tags: [...(character.tags || [])],
+    worldbook: (character.characterBook?.entries || []).map((entry, index) => ({
+      title: entry.comment || `条目 ${index + 1}`,
+      keywords: [...(entry.keys || [])],
+      content: entry.content || '',
+      constant: entry.constant === true,
+    })),
+    regexScripts: (character.regexScripts || []).map(normalizeWorkshopRegexScript),
+  }
+}
+
+export function buildCardEnhancePrompt(draft: CharacterWorkshopDraft) {
+  const greetings = [draft.greeting, ...draft.alternateGreetings].slice(0, MAX_ENHANCE_GREETINGS)
+  return `你是惟境的角色卡美化助手。用户导入了一张别人做好的角色卡，开场白缺少场景栏和状态栏。请先读懂人物，再为每条开场白补上“场景栏”和“状态栏”的内容。开场白正文由程序原样保留，你绝对不要改写、复述或输出正文。
+
+状态栏要求（用户明确要求：简单、不要太多项）：
+1. 只设计 2—3 个字段。前两个固定思路：一个写角色此刻的内心状态（如“内心”），一个写角色对{{user}}的态度和想法（如“对你”）。第三个可选，只有当人物特质真的需要时才加（例如病娇的“执念”、杀手的“伤势”、商人的“盘算”），否则不要加。
+2. 字段名 2—4 个字，贴合这个人物的气质和说话方式，不要用“状态”“关系”“待回应”这种泛用名。
+3. 每个字段的值按需要写，长短自然，用角色自己的视角和语气，写这条开场白当下的真实心思。
+4. 不替{{user}}写台词、动作、心理或决定；不剧透角色此时不知道的事。
+
+场景栏要求：一行，写这条开场白发生的时间与地点，如“深夜 · 医院走廊”，不超过 20 字；正文没交代就合理概括，不编造关键情节。
+
+角色资料：
+- 姓名：${draft.name}
+- 描述：${clip(draft.description, 2500)}
+- 性格：${clip(draft.personality, 1500)}
+- 场景：${clip(draft.scenario, 1200)}
+- 系统提示（节选）：${clip(draft.systemPrompt, 600) || '无'}
+
+开场白（共 ${greetings.length} 条，按顺序）：
+${greetings.map((greeting, index) => `【第 ${index + 1} 条】\n${clip(greeting, 2500)}`).join('\n\n')}
+
+只输出一个 JSON 对象，不要代码围栏和解释：
+{
+  "statusFields":[{"name":"内心","hint":"这一栏写什么"},{"name":"对你","hint":"..."}],
+  "greetings":[{"scene":"时间 · 地点","status":"内心：……\\n对你：……"}],
+  "note":"一句话说明为什么这样设计状态栏"
+}
+greetings 数量必须等于 ${greetings.length}，顺序一致；status 每行“字段名：值”，字段名与 statusFields 完全一致、顺序一致。`
+}
+
+export function parseCardEnhanceResponse(raw: string, expectedGreetings: number): CardEnhanceResult {
+  const cleaned = raw.trim().replace(/^```(?:json)?\s*/i, '').replace(/\s*```$/i, '')
+  const start = cleaned.indexOf('{')
+  const end = cleaned.lastIndexOf('}')
+  if (start < 0 || end <= start) throw new Error('模型没有返回可识别的美化结果，请重试或换一个模型。')
+  let value: unknown
+  try { value = JSON.parse(cleaned.slice(start, end + 1)) } catch { throw new Error('模型返回的美化结果不完整，请重试。') }
+  const source = (value && typeof value === 'object' ? value : {}) as Record<string, unknown>
+  const statusFields = (Array.isArray(source.statusFields) ? source.statusFields : []).flatMap((item) => {
+    if (typeof item === 'string') return item.trim() ? [{ name: item.trim(), hint: '' }] : []
+    if (!item || typeof item !== 'object') return []
+    const entry = item as Record<string, unknown>
+    const name = text(entry.name).replace(/[：:]/g, '')
+    return name ? [{ name, hint: text(entry.hint) }] : []
+  }).slice(0, MAX_ENHANCE_STATUS_FIELDS)
+  if (statusFields.length < 1) throw new Error('模型没有给出状态栏字段，请重试。')
+  const greetings = (Array.isArray(source.greetings) ? source.greetings : []).map((item) => {
+    const entry = (item && typeof item === 'object' ? item : {}) as Record<string, unknown>
+    return { scene: text(entry.scene), status: text(entry.status) }
+  })
+  const wanted = Math.min(expectedGreetings, MAX_ENHANCE_GREETINGS)
+  if (greetings.length < wanted) throw new Error(`模型只返回了 ${greetings.length}/${wanted} 条开场白的状态栏，请重试。`)
+  return { statusFields, greetings: greetings.slice(0, wanted), note: text(source.note) }
+}
+
+function normalizeStatusBlock(status: string, fields: CardEnhanceStatusField[]) {
+  const names = new Set(fields.map((field) => field.name))
+  const values = new Map<string, string>()
+  const loose: string[] = []
+  let current = ''
+  for (const line of status.split(/\n/).map((item) => item.trim()).filter(Boolean)) {
+    const match = line.match(/^([^：:]{1,8})[：:]\s*(.*)$/)
+    if (match && names.has(match[1].trim())) { current = match[1].trim(); values.set(current, match[2].trim()); continue }
+    if (current) values.set(current, `${values.get(current) || ''}${values.get(current) ? ' ' : ''}${line}`)
+    else loose.push(line.replace(/^[^：:]{1,8}[：:]\s*/, ''))
+  }
+  return fields.map((field, index) => `${field.name}：${values.get(field.name) || loose[index] || '……'}`).join('\n')
+}
+
+/** Wrap one original greeting with scene/status tags; the body text is never altered. */
+export function wrapGreetingWithStatus(original: string, scene: string, status: string) {
+  const hasScene = /<scene\b/i.test(original)
+  const hasStatus = /<gts_status\b/i.test(original)
+  const parts: string[] = []
+  if (!hasScene && scene) parts.push(`<scene>${scene}</scene>`)
+  parts.push(original)
+  if (!hasStatus && status) parts.push(`<gts_status>\n${status}\n</gts_status>`)
+  return parts.join('\n\n')
+}
+
+export function buildDynamicStatusProtocol(fields: CardEnhanceStatusField[]) {
+  return `【每轮美化输出协议】
+每次角色回复（包括开场白）按以下顺序输出纯文本标记，不输出 HTML/CSS：
+1. 首个非空字符是 <scene>时间 · 地点</scene>，一行即可；
+2. 接着是剧情正文；
+3. 末尾唯一一个 <gts_status>…</gts_status>，固定 ${fields.length} 行，字段名和顺序不变：
+${fields.map((field) => `${field.name}：${field.hint || '按本轮剧情填写'}`).join('\n')}
+用角色视角写本轮真实心思，长短自然；状态随剧情自然变化，不要每轮照抄。不替{{user}}写台词、动作、心理或决定。`
+}
+
+export function applyCardEnhancement(draft: CharacterWorkshopDraft, enhancement: CardEnhanceResult): CharacterWorkshopDraft {
+  const greetings = [draft.greeting, ...draft.alternateGreetings]
+  const wrapped = greetings.map((greeting, index) => {
+    const item = enhancement.greetings[index]
+    if (!item) return greeting
+    return wrapGreetingWithStatus(greeting, item.scene, normalizeStatusBlock(item.status, enhancement.statusFields))
+  })
+  return {
+    ...draft,
+    greeting: wrapped[0] || draft.greeting,
+    alternateGreetings: wrapped.slice(1),
+    beautificationProtocol: buildDynamicStatusProtocol(enhancement.statusFields),
+    regexScripts: ensureWorkshopDisplayRegexScripts(draft.regexScripts),
+  }
+}
+
+/** Save an enhanced copy of an existing card. The original card is left untouched. */
+export function enhancedCopyFromDraft(base: Character, draft: CharacterWorkshopDraft, avatar?: string): Character {
+  const originalEntries = base.characterBook?.entries || []
+  const entries: WorldBookEntry[] = draft.worldbook.map((entry, index) => {
+    const original = originalEntries.find((item) => (item.comment || '') === entry.title)
+    if (original) return { ...original, keys: [...entry.keywords], content: entry.content, constant: entry.constant === true }
+    return {
+      id: originalEntries.length + index + 1, keys: entry.keywords, secondary_keys: [], comment: entry.title, content: entry.content,
+      constant: entry.constant === true, selective: entry.constant !== true, insertion_order: 100 - index, enabled: true,
+      position: 'before_char', use_regex: false, extensions: { position: 0, probability: 100, useProbability: true, depth: 4 },
+    }
+  })
+  const tagline = draft.tagline.startsWith('【美化版】') ? draft.tagline : `【美化版】${draft.tagline}`
+  return normalizeStoredCharacter({
+    ...base,
+    ...draft,
+    id: crypto.randomUUID(),
+    tagline,
+    avatar: avatar || base.avatar,
+    characterBook: entries.length ? { ...(base.characterBook || { name: `${draft.name} · 世界书` }), entries } : undefined,
+    beautificationProtocol: draft.beautificationProtocol,
+    regexScripts: draft.regexScripts.map(normalizeWorkshopRegexScript),
+    rawCard: undefined,
+    characterMemory: undefined,
   })
 }

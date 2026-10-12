@@ -5,7 +5,7 @@ import { createCharacterCardPng, importCharacterCard, type Character, type Regex
 import {
   applyWorkshopCopilotPatch, buildCharacterWorkshopPrompt, buildWorkshopCopilotCompressionPrompt,
   buildWorkshopCopilotPrompt, characterFromWorkshopDraft, createEmptyCharacterWorkshopDraft,
-  describeWorkshopCopilotPatch, normalizeWorkshopRegexScript, parseCharacterWorkshopDraft, parseWorkshopCopilotResponse,
+  describeWorkshopCopilotPatch, normalizeWorkshopRegexScript, workshopDraftFromCharacter, buildCardEnhancePrompt, parseCardEnhanceResponse, applyCardEnhancement, enhancedCopyFromDraft, parseCharacterWorkshopDraft, parseWorkshopCopilotResponse,
   type CharacterWorkshopBrief, type CharacterWorkshopDraft, type WorkshopCopilotMessage, type WorkshopCopilotPatch,
 } from './characterWorkshop'
 import './character-workshop.css'
@@ -18,6 +18,8 @@ type SavedWorkshop = {
   copilotMemory?: string
   pendingCopilotPatch?: WorkshopCopilotPatch | null
   copilotUndoSnapshot?: CharacterWorkshopDraft | null
+  baseCharacter?: Character | null
+  enhanceNote?: string
 }
 
 const initialBrief: CharacterWorkshopBrief = {
@@ -85,7 +87,7 @@ const loadSaved = (): SavedWorkshop => {
     if (!raw) return { brief: initialBrief, result: null }
     const parsed = JSON.parse(raw) as Partial<SavedWorkshop> | null
     if (!parsed || typeof parsed !== 'object') return { brief: initialBrief, result: null }
-    return { brief: parsed.brief || initialBrief, result: parsed.result || null, avatar: parsed.avatar, copilotMessages: parsed.copilotMessages || [], copilotMemory: parsed.copilotMemory || '', pendingCopilotPatch: parsed.pendingCopilotPatch || null, copilotUndoSnapshot: parsed.copilotUndoSnapshot || null }
+    return { brief: parsed.brief || initialBrief, result: parsed.result || null, avatar: parsed.avatar, copilotMessages: parsed.copilotMessages || [], copilotMemory: parsed.copilotMemory || '', pendingCopilotPatch: parsed.pendingCopilotPatch || null, copilotUndoSnapshot: parsed.copilotUndoSnapshot || null, baseCharacter: parsed.baseCharacter || null, enhanceNote: parsed.enhanceNote || '' }
   } catch { return { brief: initialBrief, result: null } }
 }
 
@@ -99,8 +101,9 @@ function TextArea({ label, value, rows = 5, onChange }: { label: string; value: 
   return <label><span>{label}</span><textarea rows={rows} value={value} onChange={(event) => onChange(event.target.value)} /></label>
 }
 
-export default function CharacterWorkshop({ channels, defaultChannelId, onBack, onSave, onExport, onAvatar }: {
+export default function CharacterWorkshop({ channels, characters = [], defaultChannelId, onBack, onSave, onExport, onAvatar }: {
   channels: ApiChannel[]
+  characters?: Character[]
   defaultChannelId: string
   onBack: () => void
   onSave: (character: Character) => void
@@ -116,6 +119,11 @@ export default function CharacterWorkshop({ channels, defaultChannelId, onBack, 
     regexScripts: (saved.result.regexScripts || []).map(normalizeWorkshopRegexScript),
   } : null)
   const [avatar, setAvatar] = useState(saved.avatar || '')
+  const [baseCharacter, setBaseCharacter] = useState<Character | null>(saved.baseCharacter || null)
+  const [enhanceNote, setEnhanceNote] = useState(saved.enhanceNote || '')
+  const [enhanceState, setEnhanceState] = useState<'idle' | 'loading' | 'enhancing'>('idle')
+  const [pickCharacterId, setPickCharacterId] = useState('')
+  const enhanceControllerRef = useRef<AbortController | null>(null)
   const [cardImage, setCardImage] = useState('')
   const [channelId, setChannelId] = useState(defaultChannelId || channels[0]?.id || '')
   const [state, setState] = useState<'idle' | 'generating' | 'error'>('idle')
@@ -140,7 +148,8 @@ export default function CharacterWorkshop({ channels, defaultChannelId, onBack, 
 
   useEffect(() => {
     const persistedMessages = copilotMessages.slice(-MAX_PERSISTED_COPILOT_MESSAGES).map(({ images: _images, ...message }) => message)
-    const payload = { brief, result, avatar, copilotMessages: persistedMessages, copilotMemory, pendingCopilotPatch, copilotUndoSnapshot }
+    const persistedBase = baseCharacter ? { ...baseCharacter, rawCard: undefined, characterMemory: undefined } : null
+    const payload = { brief, result, avatar, copilotMessages: persistedMessages, copilotMemory, pendingCopilotPatch, copilotUndoSnapshot, baseCharacter: persistedBase, enhanceNote }
     try {
       localStorage.setItem(WORKSHOP_STORAGE_KEY, JSON.stringify(payload))
     } catch {
@@ -153,7 +162,7 @@ export default function CharacterWorkshop({ channels, defaultChannelId, onBack, 
         // The workshop remains usable when storage is unavailable; this draft is best-effort.
       }
     }
-  }, [brief, result, avatar, copilotMessages, copilotMemory, pendingCopilotPatch, copilotUndoSnapshot])
+  }, [brief, result, avatar, copilotMessages, copilotMemory, pendingCopilotPatch, copilotUndoSnapshot, baseCharacter, enhanceNote])
 
   useEffect(() => { copilotEndRef.current?.scrollIntoView({ block: 'nearest', behavior: 'smooth' }) }, [copilotMessages, copilotState])
 
@@ -203,6 +212,7 @@ export default function CharacterWorkshop({ channels, defaultChannelId, onBack, 
         throw new Error('角色卡输出达到当前模型的长度上限，未写入半张卡。请换输出上限更高的模型，或把设定再精简一点后重试。')
       }
       setResult(parseCharacterWorkshopDraft(raw))
+      setBaseCharacter(null); setEnhanceNote('')
       setCopilotMessages([]); setCopilotMemory(''); setPendingCopilotPatch(null); setCopilotUndoSnapshot(null); setCopilotInput(''); setCopilotImages([]); setCopilotError(''); setCopilotState('idle')
       setState('idle')
     } catch (cause) {
@@ -338,7 +348,76 @@ export default function CharacterWorkshop({ channels, defaultChannelId, onBack, 
     }
   }
 
-  const makeCharacter = () => result ? characterFromWorkshopDraft(result, avatar) : null
+  const resetCopilot = () => {
+    copilotControllerRef.current?.abort()
+    setCopilotMessages([]); setCopilotMemory(''); setPendingCopilotPatch(null); setCopilotUndoSnapshot(null); setCopilotInput(''); setCopilotImages([]); setCopilotError(''); setCopilotState('idle')
+  }
+
+  const loadExistingCharacter = (character: Character) => {
+    generationRevisionRef.current += 1
+    controllerRef.current?.abort()
+    enhanceControllerRef.current?.abort()
+    resetCopilot()
+    setBaseCharacter(character)
+    setResult(workshopDraftFromCharacter(character))
+    setAvatar(character.avatar || ''); setCardImage('')
+    setEnhanceNote(''); setError(''); setExportNotice(''); setState('idle'); setEnhanceState('idle')
+  }
+
+  const loadFromLibrary = () => {
+    const character = characters.find((item) => item.id === pickCharacterId)
+    if (!character) { setError('先在下拉里选一张角色卡。'); setState('error'); return }
+    loadExistingCharacter(character)
+  }
+
+  const loadFromFile = async (file?: File) => {
+    if (!file) return
+    setEnhanceState('loading'); setError('')
+    try {
+      const character = await importCharacterCard(file)
+      loadExistingCharacter(character)
+      if (file.type === 'image/png' || /\.png$/i.test(file.name)) {
+        setCardImage(await new Promise<string>((resolve, reject) => { const reader = new FileReader(); reader.onload = () => resolve(String(reader.result || '')); reader.onerror = () => reject(new Error('读取立绘失败')); reader.readAsDataURL(file) }))
+      }
+    } catch (cause) {
+      setError(cause instanceof Error ? cause.message : '读取角色卡失败。'); setState('error'); setEnhanceState('idle')
+    }
+  }
+
+  const enhanceExistingCard = async () => {
+    if (!result) return
+    if (!channel?.apiKey.trim() || !channel.modelName.trim()) { setError('当前 API 渠道还没有可用的密钥或模型，请先去 API 设置。'); setState('error'); return }
+    enhanceControllerRef.current?.abort()
+    const controller = new AbortController()
+    enhanceControllerRef.current = controller
+    const revision = generationRevisionRef.current
+    const draft = result
+    setEnhanceState('enhancing'); setError('')
+    let raw = ''
+    try {
+      await completeChat({
+        api: channel,
+        messages: [
+          { role: 'system', content: '你只输出严格有效的 JSON，不使用 Markdown，不添加解释。' },
+          { role: 'user', content: buildCardEnhancePrompt(draft) },
+        ],
+        temperature: .7, topP: .9, maxTokens: 3000, streaming: false, signal: controller.signal,
+        onDelta: (delta) => { raw += delta },
+      })
+      if (revision !== generationRevisionRef.current || controller.signal.aborted) return
+      const enhancement = parseCardEnhanceResponse(raw, 1 + draft.alternateGreetings.length)
+      setCopilotUndoSnapshot(draft)
+      setResult(applyCardEnhancement(draft, enhancement))
+      setEnhanceNote(`状态栏：${enhancement.statusFields.map((field) => field.name).join(' · ')}${enhancement.note ? `｜${enhancement.note}` : ''}`)
+      setEnhanceState('idle')
+    } catch (cause) {
+      setEnhanceState('idle')
+      if (controller.signal.aborted) return
+      setError(workshopRequestError(cause, channel, '补状态栏失败，请重试。')); setState('error')
+    }
+  }
+
+  const makeCharacter = () => result ? (baseCharacter ? enhancedCopyFromDraft(baseCharacter, result, avatar) : characterFromWorkshopDraft(result, avatar)) : null
   const exportPng = async () => {
     const character = makeCharacter()
     const imageSource = cardImage || avatar
@@ -373,6 +452,8 @@ export default function CharacterWorkshop({ channels, defaultChannelId, onBack, 
     generationRevisionRef.current += 1
     controllerRef.current?.abort()
     copilotControllerRef.current?.abort()
+    enhanceControllerRef.current?.abort()
+    setBaseCharacter(null); setEnhanceNote(''); setEnhanceState('idle')
     setBrief(initialBrief); setResult(null); setAvatar(''); setCardImage(''); setError(''); setExportNotice(''); setState('idle')
     setCopilotMessages([]); setCopilotMemory(''); setPendingCopilotPatch(null); setCopilotUndoSnapshot(null); setCopilotInput(''); setCopilotError(''); setCopilotState('idle')
     localStorage.removeItem(WORKSHOP_STORAGE_KEY)
@@ -382,6 +463,26 @@ export default function CharacterWorkshop({ channels, defaultChannelId, onBack, 
     <header className="page-header"><button className="icon-button" onClick={onBack}>‹</button><h1>AI 角色卡工坊</h1><div className="header-action"><button className="text-button" onClick={clear}>清空</button></div></header>
     <section className="workshop-stack">
       <div className="workshop-intro"><span>✦</span><div><strong>把脑洞交给我</strong><p>生成完整 Card V3，结果先进入草稿，不会覆盖角色库里的任何卡。</p></div></div>
+      <div className="workshop-card enhance-card">
+        <div className="workshop-section-heading"><div><strong>读取已有角色卡</strong><small>给别人做的卡补上场景栏、状态栏和正则；开场白正文一字不改，另存为新卡</small></div></div>
+        <div className="enhance-pick">
+          <select value={pickCharacterId} onChange={(event) => setPickCharacterId(event.target.value)}>
+            <option value="">从角色库选一张…</option>
+            {characters.map((item) => <option key={item.id} value={item.id}>{item.name}{item.tagline?.startsWith('【美化版】') ? '（美化版）' : ''}</option>)}
+          </select>
+          <button type="button" disabled={!pickCharacterId || enhanceState !== 'idle'} onClick={loadFromLibrary}>读取</button>
+        </div>
+        <label className="enhance-file"><span>{enhanceState === 'loading' ? '正在读取…' : '或导入 PNG / JSON 角色卡'}</span><input type="file" accept=".png,.json,image/png,application/json" onChange={async (event) => { const file = event.target.files?.[0]; event.currentTarget.value = ''; await loadFromFile(file) }} /></label>
+        {baseCharacter && result && <div className="enhance-loaded">
+          <div>已读取：<strong>{baseCharacter.name}</strong> · {1 + result.alternateGreetings.length} 条开场白 · {result.regexScripts.length} 条正则</div>
+          {enhanceNote && <small>✓ {enhanceNote}</small>}
+          {enhanceState === 'enhancing'
+            ? <button type="button" className="workshop-stop" onClick={() => enhanceControllerRef.current?.abort()}>停止</button>
+            : <button type="button" className="workshop-generate" onClick={enhanceExistingCard}>{enhanceNote ? '换一版状态栏' : '✦ 读懂人设，补状态栏与正则'}</button>}
+          {enhanceState === 'enhancing' && <small>正在读人设、设计状态栏…</small>}
+        </div>}
+      </div>
+
       <div className="workshop-card brief-card">
         <label><span>一句话讲讲这个角色 *</span><textarea rows={5} value={brief.concept} onChange={(event) => patchBrief({ concept: event.target.value })} placeholder="例如：国外认识的年下珠宝设计师，表面小奶狗，实际很会以退为进；有自己的品牌和人生目标……" /></label>
         <div className="workshop-two"><label><span>指定姓名</span><input value={brief.name} onChange={(event) => patchBrief({ name: event.target.value })} placeholder="留空让 AI 取名" /></label><label><span>与用户的关系</span><input value={brief.relationship} onChange={(event) => patchBrief({ relationship: event.target.value })} placeholder="旧识、宿敌、契约婚姻…" /></label></div><label><span>想要的开场白（选填）</span><textarea rows={5} value={brief.greetingIdea || ''} onChange={(event) => patchBrief({ greetingIdea: event.target.value })} placeholder="直接贴一段写好的开场白，会原样保留，只补场景栏和状态栏；也可以只写构想，例如：雨夜医院走廊重逢，他刚做完手术……" /></label>
@@ -486,7 +587,7 @@ export default function CharacterWorkshop({ channels, defaultChannelId, onBack, 
             <button className="workshop-delete" onClick={() => patchResult({ regexScripts: result.regexScripts.filter((item) => item.id !== script.id) })}>删除这条美化</button>
           </details>)}
         </div>
-        <div className="workshop-export-block"><div className="workshop-actions"><button onClick={() => { const character = makeCharacter(); if (character) onExport(character) }}>导出 V3 JSON</button><button disabled={!avatar || pngExporting} onClick={exportPng}>{pngExporting ? '正在生成并自检…' : avatar ? '导出／分享元数据 PNG' : '上传立绘后导出 PNG'}</button><button className="primary" onClick={() => { const character = makeCharacter(); if (character) onSave(character) }}>加入角色库</button></div>{exportNotice && <div className="workshop-export-notice">✓ {exportNotice}</div>}<div className="workshop-export-tip">iPhone：请选择“存储到文件”，再从文件 App 导入。存进相册会被系统洗掉角色卡元数据。</div></div>
+        <div className="workshop-export-block"><div className="workshop-actions"><button onClick={() => { const character = makeCharacter(); if (character) onExport(character) }}>导出 V3 JSON</button><button disabled={!avatar || pngExporting} onClick={exportPng}>{pngExporting ? '正在生成并自检…' : avatar ? '导出／分享元数据 PNG' : '上传立绘后导出 PNG'}</button><button className="primary" onClick={() => { const character = makeCharacter(); if (character) onSave(character) }}>{baseCharacter ? '另存为新卡' : '加入角色库'}</button></div>{exportNotice && <div className="workshop-export-notice">✓ {exportNotice}</div>}<div className="workshop-export-tip">iPhone：请选择“存储到文件”，再从文件 App 导入。存进相册会被系统洗掉角色卡元数据。</div></div>
       </>}
     </section>
   </div>
