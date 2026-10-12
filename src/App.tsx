@@ -498,6 +498,9 @@ function App() {
   const contextCompressionRunningRef = useRef(new Set<string>())
   const autoCompressionFailuresRef = useRef(new Map<string, number>())
   const pendingChatLatestScrollRef = useRef<string | null>(null)
+  // While her finger is on the list (and briefly after, for momentum) no
+  // programmatic scroll may move it.
+  const chatTouchUntilRef = useRef(0)
   const conversationMemoryMigrationRunningRef = useRef(false)
   const generationControllers = useRef(new Map<string, AbortController>())
   const generationRollbacks = useRef(new Map<string, { controller: AbortController; conversation: Conversation }>())
@@ -1047,6 +1050,7 @@ function App() {
           marker.style.height = `${markerHeight}px`
           void list.offsetHeight
           const snapshot = chatScrollSnapshotsRef.current.get(conversationKey)
+          if (Date.now() < chatTouchUntilRef.current) return
           if (pendingChatLatestScrollRef.current === conversationKey) {
             scrollChatToLatest(list)
           } else if (pendingChatScrollRestoreRef.current === conversationKey || snapshot?.stickToBottom) {
@@ -1103,15 +1107,33 @@ function App() {
     const arm = () => { keyboardScrollPin.arm() }
     const pin = () => { keyboardScrollPin.pin() }
     // Her own touch / wheel on the list means she wants to scroll: never yank her back.
-    const release = () => keyboardScrollPin.release()
+    // It also ends "follow the newest reply": while a reply is generating, the
+    // follow flag stays armed and every live update (the 幕后安排 timer ticks each
+    // second) would otherwise pull her back to the bottom.
+    const release = () => {
+      chatTouchUntilRef.current = Date.now() + 60_000
+      keyboardScrollPin.release()
+      if (pendingChatLatestScrollRef.current === chatScrollKey) pendingChatLatestScrollRef.current = null
+    }
     const listObserver = typeof ResizeObserver === 'undefined' ? null : new ResizeObserver(pin)
     listObserver?.observe(list)
     window.addEventListener(VIEWPORT_WILL_CHANGE_EVENT, arm)
     window.addEventListener(VIEWPORT_CHANGE_EVENT, pin)
     composer?.addEventListener('focusin', arm)
+    const touchEnd = () => {
+      // Momentum keeps scrolling after the finger lifts; then the list follows
+      // the newest reply again only if she ended near the bottom.
+      chatTouchUntilRef.current = Date.now() + 800
+    }
+    const wheel = () => { release(); touchEnd() }
     list.addEventListener('touchstart', release, { passive: true })
-    list.addEventListener('wheel', release, { passive: true })
+    list.addEventListener('touchend', touchEnd, { passive: true })
+    list.addEventListener('touchcancel', touchEnd, { passive: true })
+    list.addEventListener('wheel', wheel, { passive: true })
     return () => {
+      list.removeEventListener('touchend', touchEnd)
+      list.removeEventListener('touchcancel', touchEnd)
+      list.removeEventListener('wheel', wheel)
       listObserver?.disconnect()
       window.removeEventListener(VIEWPORT_WILL_CHANGE_EVENT, arm)
       window.removeEventListener(VIEWPORT_CHANGE_EVENT, pin)
@@ -1130,7 +1152,7 @@ function App() {
     let secondFrame: number | null = null
     const settleTimers: number[] = []
     const settleLatestScroll = () => {
-      if (pendingChatLatestScrollRef.current !== conversationKey) return
+      if (pendingChatLatestScrollRef.current !== conversationKey || Date.now() < chatTouchUntilRef.current) return
       const target = scrollChatToLatest(list)
       chatScrollSnapshotsRef.current.set(conversationKey, { top: target, stickToBottom: true })
       setChatJump({ up: target > 240, down: false, visible: false })
