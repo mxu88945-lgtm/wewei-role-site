@@ -450,6 +450,9 @@ function App() {
   // preset only overrides it while that chat is open; leaving it restores the default.
   const unboundThemeRef = useRef<Omit<ChatThemePreset, 'id' | 'name' | 'custom'> | null>(null)
   const themeBoundRef = useRef(false)
+  // The last theme picked in the library. Chats that never had a theme of their own
+  // (new chats, other characters) use it, wallpaper included, instead of 默认.
+  const [defaultThemePresetId, setDefaultThemePresetId] = useState<string>(() => read('weijing.defaultThemePresetId', ''))
   const [globalMemoryApi, setGlobalMemoryApi] = useState<ApiConfig>(() => read('weijing.globalMemoryApi', { baseUrl: 'https://api.openai.com/v1', apiKey: '', modelName: 'gpt-4.1-mini' }))
   const [memoryConfigs, setMemoryConfigs] = useState<MemoryConfigMap>(() => migrateMemoryConfigs(read('weijing.memoryConfigs', { [demoCharacter.id]: defaultMemoryConfig() })))
   const [memoryEntries, setMemoryEntries] = useState<MemoryEntryMap>(() => read('weijing.memoryEntries', { [demoCharacter.id]: [] }))
@@ -517,7 +520,11 @@ function App() {
   )
   const activeConversation = (explicitConversation?.kind === 'group' ? explicitConversation : conversations.find((item) => item.id === activeConversationId && item.characterId === activeCharacter.id))
     || conversations.filter((item) => item.characterId === activeCharacter.id).sort((a, b) => b.updatedAt - a.updatedAt)[0]
-  const wallpaperKey = wallpaperScopeKey(activeConversation, activeCharacter.id)
+  // Older installs never stored a default id: fall back to the theme of the most
+  // recently used themed chat so the look the user last picked carries over.
+  const effectiveDefaultThemeId = defaultThemePresetId || [...conversations].filter((item) => item.themePresetId).sort((x, y) => (y.updatedAt || 0) - (x.updatedAt || 0))[0]?.themePresetId || ''
+  const effectiveThemeId = activeConversation?.themePresetId || effectiveDefaultThemeId
+  const wallpaperKey = effectiveThemeId ? themeWallpaperKey(effectiveThemeId) : wallpaperScopeKey(activeConversation, activeCharacter.id)
   const currentWallpaper = normalizeWallpaper(chatWallpapers[wallpaperKey], chatBaseColor)
   const identity = identities.find((item) => item.id === activeConversation?.personaId) || identities.find((item) => item.id === activePersonaId) || identities[0] || { id: 'persona-default', name: '周惟惟', description: '由用户亲自决定言行、心理与关键选择。' }
   const sourceGroupConversation = conversations.find((item) => item.id === newConversationSourceId && item.kind === 'group')
@@ -683,6 +690,7 @@ function App() {
       // and chats without their own theme keep it instead of snapping back to 默认.
       const nextDefault = { mode: preset.mode, baseColor: preset.baseColor, textColor: preset.textColor, narrationColor: preset.narrationColor, quoteColor: preset.quoteColor, frost: preset.frost }
       unboundThemeRef.current = nextDefault
+      setDefaultThemePresetId(preset.id); write('weijing.defaultThemePresetId', preset.id)
       write('weijing.chatTheme', nextDefault.mode); write('weijing.chatBaseColor', nextDefault.baseColor); write('weijing.chatTextColor', nextDefault.textColor)
       write('weijing.chatNarrationColor', nextDefault.narrationColor); write('weijing.chatQuoteColor', nextDefault.quoteColor); write('weijing.chatBackgroundFrost', nextDefault.frost)
     }
@@ -779,7 +787,7 @@ function App() {
     return () => { cancelled = true }
   }, [])
   useEffect(() => {
-    const preset = allThemes.find((item) => item.id === activeConversation?.themePresetId)
+    const preset = allThemes.find((item) => item.id === effectiveThemeId)
     if (preset) {
       applyThemePreset(preset, false)
       const savedFrost = activeConversation ? read<number | undefined>(conversationFrostKey(activeConversation.id), undefined) : undefined
@@ -798,7 +806,7 @@ function App() {
     // Theme helpers are recreated with theme state; rerunning for those identities would
     // overwrite an in-progress edit. Conversation/preset changes are the intended trigger.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [activeConversation?.id, activeConversation?.themePresetId, persistenceReady])
+  }, [activeConversation?.id, effectiveThemeId, persistenceReady])
   useEffect(() => {
     if (!persistenceReady) return
     setConversations((current) => {
@@ -2183,8 +2191,27 @@ function App() {
     let stagedVisibleOutput = ''
     let streamRenderTimer: number | null = null
     let thinkingIndicatorShown = false
+    // Hidden steps (a finite 幕后安排 writes and checks before showing anything) get a
+    // live label with the seconds waited, so a slow model never looks frozen.
+    let phaseTimer: number | null = null
+    const generationStartedAt = Date.now()
+    const stopPhase = () => {
+      if (phaseTimer !== null) window.clearInterval(phaseTimer)
+      phaseTimer = null
+    }
+    const showPhase = (label: string) => {
+      stopPhase()
+      const render = () => {
+        const seconds = Math.max(0, Math.round((Date.now() - generationStartedAt) / 1000))
+        const text = `${label}（已等 ${seconds} 秒）`
+        setConversations((current) => current.map((item) => item.id === conversationId ? { ...item, messages: item.messages.map((message) => message.id === assistantMessage.id ? { ...message, text } : message) } : item))
+      }
+      render()
+      phaseTimer = window.setInterval(render, 1000)
+    }
     const commitStreamOutput = () => {
       streamRenderTimer = null
+      stopPhase()
       const text = stagedVisibleOutput || '正在整理回复…'
       setConversations((current) => current.map((item) => item.id === conversationId ? { ...item, messages: item.messages.map((message) => message.id === assistantMessage.id ? { ...message, text } : message) } : item))
     }
@@ -2210,7 +2237,7 @@ function App() {
         streaming,
         signal: controller.signal,
         onActivity: (activity) => {
-          if (activity !== 'thinking' || output || thinkingIndicatorShown) return
+          if (activity !== 'thinking' || output || thinkingIndicatorShown || phaseTimer !== null) return
           thinkingIndicatorShown = true
           setConversations((current) => current.map((item) => item.id === conversationId ? {
             ...item,
@@ -2229,6 +2256,8 @@ function App() {
         },
       })
       }
+      const finitePlot = Boolean(capturedTemporaryPlot && capturedTemporaryPlot.mode !== 'persistent')
+      if (finitePlot) showPhase('幕后安排 1/3 · 正在写第一稿')
       let completion = await runCompletion()
       cancelQueuedStreamRender()
       if (!output.trim()) throw new Error('模型没有返回内容')
@@ -2238,7 +2267,8 @@ function App() {
         output = ''
         stagedVisibleOutput = ''
         thinkingIndicatorShown = false
-        setConversations((current) => current.map((item) => item.id === conversationId ? { ...item, messages: item.messages.map((message) => message.id === assistantMessage.id ? { ...message, text: '正在补全正文…' } : message) } : item))
+        if (finitePlot) showPhase('幕后安排 1/3 · 第一稿不完整，正在补全正文')
+        else setConversations((current) => current.map((item) => item.id === conversationId ? { ...item, messages: item.messages.map((message) => message.id === assistantMessage.id ? { ...message, text: '正在补全正文…' } : message) } : item))
         promptMessages = withAssistantRetryInstruction(promptMessages, identityLeak
           ? `刚才输出发生了群聊身份串位或后台解释，已作废。你本轮唯一身份是「${speaker.name}」；不得自称、扮演、解释或代替任何其他群成员，不得代演用户，也不得提及系统、提示词、格式、暂停或角色扮演。现在只从最新场景继续输出 ${speaker.name} 的实际剧情回应。`
           : isDirector
@@ -2254,8 +2284,8 @@ function App() {
       }
       let plotApplied = true
       if (capturedTemporaryPlot && capturedTemporaryPlot.mode !== 'persistent') {
-        setConversations((current) => current.map((item) => item.id === conversationId ? { ...item, messages: item.messages.map((message) => message.id === assistantMessage.id ? { ...message, text: '正在检查幕后安排…' } : message) } : item))
-        const checked = await checkAndRepairTemporaryPlot(cleanOutput || output, (reply) => reviewTemporaryPlotReply({
+        let repairing = false
+        const checked = await checkAndRepairTemporaryPlot(cleanOutput || output, (reply) => (showPhase(repairing ? '幕后安排 3/3 · 重写完成，正在复查' : '幕后安排 2/3 · 正在检查是否落实'), reviewTemporaryPlotReply({
           api: resolvedSpeakerApi,
           signal: controller.signal,
           direction: capturedTemporaryPlot.text,
@@ -2267,11 +2297,12 @@ function App() {
           // The checker receives visible recent history only, never another
           // member's card, project files, memories or private variables.
           recentHistory: nextMessages.slice(-4).map((message) => `${message.role}: ${modelVisibleMessageText({ ...message, text: sanitizeAssistantOutput(message.text, { director: message.characterId === conversation.directorCharacterId }) })}`).join('\n').slice(-6000),
-        }), async () => {
+        })), async () => {
+          repairing = true
           output = ''
           stagedVisibleOutput = ''
           thinkingIndicatorShown = false
-          setConversations((current) => current.map((item) => item.id === conversationId ? { ...item, messages: item.messages.map((message) => message.id === assistantMessage.id ? { ...message, text: '正在落实幕后安排…' } : message) } : item))
+          showPhase('幕后安排 3/3 · 第一稿没落实，正在重写')
           promptMessages = withAssistantRetryInstruction(promptMessages, '上次回复没有落实本轮幕后安排，不能把只延续旧场景或沿用旧的阻断状态当作完成。请重新生成本轮完整回复，实际启动安排的第一步，并停在用户或独立角色可以回应的位置；不替他们行动或决定，不复述后台指令，保持原输出结构。', true)
           completion = await runCompletion()
           cancelQueuedStreamRender()
@@ -2282,6 +2313,7 @@ function App() {
           }
           return repaired
         })
+        stopPhase()
         cleanOutput = checked.reply
         plotApplied = checked.applied
         if (checked.verdict.status === 'ignored') {
@@ -2334,6 +2366,7 @@ function App() {
       if (!isGroup && capturedMemoryConfig.autoEvery > 0 && completed.length - summarizedCount >= capturedMemoryConfig.autoEvery && capturedMemoryConfig.api.apiKey) summarizeMemory(completed, conversation, capturedCharacter)
       return completed
     } catch (error) {
+      stopPhase()
       cancelQueuedStreamRender()
       if (requestOptions.rollbackConversation) {
         const rollback = requestOptions.rollbackConversation
@@ -2370,6 +2403,7 @@ function App() {
         return nextMessages
       }
     } finally {
+      stopPhase()
       cancelQueuedStreamRender()
       if (generationRollbacks.current.get(conversationId)?.controller === controller) generationRollbacks.current.delete(conversationId)
       if (generationControllers.current.get(conversationId) === controller) {
@@ -3040,7 +3074,7 @@ function App() {
 
     {page === 'model' && <><BackHeader title="模型设置" onBack={goBack} /><section className="settings-stack compact-settings"><div className="settings-group range-group"><RangeRow label="记忆长度" value={memoryLength} min={10} max={100} step={1} onChange={setMemoryLength} /><RangeRow label="回复令牌限制" hint={`当前最多请求 ${maxTokens} 个输出令牌`} value={maxTokens} min={1000} max={64000} step={1000} onChange={setMaxTokens} /></div><div className="settings-group range-group"><RangeRow label="温度" value={temperature} min={0} max={2} step={0.05} onChange={setTemperature} /><RangeRow label="Top-P" value={topP} min={0} max={1} step={0.05} onChange={setTopP} /></div><div className="settings-group toggle-row"><div><strong>流式传输</strong><small>立即逐字显示回复</small></div><button className={`switch ${streaming ? 'on' : ''}`} onClick={() => setStreaming(!streaming)}><span /></button></div></section></>}
     {page === 'settings' && <><BackHeader title="应用设置" onBack={goBack} /><section className="settings-stack compact-settings"><div className="storage-health-card"><div><strong>本地数据保险库</strong><small>惟境真实数据：{appDataUsage}</small><small>Safari 站点总占用：{storageUsage}（含 PWA 缓存与系统预留，刷新波动不代表聊天重复增长）</small></div><span>{appDataUsage}</span></div><div className="settings-group"><button onClick={() => navigate('appearance')}><span>外观 · 自定义主题</span><span>›</span></button><button><span>语言 · 简体中文</span><span>›</span></button><button onClick={() => navigate('font')}><span>字体 · 界面 {uiFontScale}% / 正文 {chatFontSize}px</span><span>›</span></button></div><BackupCard disabled={!persistenceReady || !wallpaperHydrationReady || generatingIds.length > 0 || memoryState === 'summarizing' || compressingContext || continuityRunningProjectIds.current.size > 0} liveData={{ 'weijing.characters': characters, 'weijing.conversations': conversations, 'weijing.identities': identities, 'weijing.memoryConfigs': memoryConfigs, 'weijing.memoryEntries': memoryEntries, 'weijing.globalMemoryApi': globalMemoryApi, 'weijing.storyProjects': storyProjects, 'weijing.chatWallpapers': chatWallpapers, 'weijing.chatBackground': '', 'weijing.plotTemplates': plotTemplates }} /><UpdateCard /></section></>}
-    {page === 'appearance' && <><BackHeader title="主题与背景" onBack={goBack} action={<button className="soft-button" onClick={() => applyThemePreset(builtInThemes[0])}>恢复默认</button>} /><section className="settings-stack appearance-page compact-settings"><div className="theme-choice-card"><div><strong>主题库</strong><small>每套主题有自己的配色和壁纸，切换主题会一起换过去；点“使用”绑定当前聊天。</small></div><div className="theme-choice-grid">{builtInThemes.map((preset) => <button key={preset.id} className={`${activeConversation?.themePresetId === preset.id ? 'active ' : ''}${preset.mode}`} onClick={() => applyThemePreset(preset)}><i style={{ background: preset.baseColor }} /><span><strong>{preset.name}</strong><small>{activeConversation?.themePresetId === preset.id ? '✓ 当前使用' : '点按使用'}</small></span></button>)}</div>{customThemes.length > 0 && <div className="custom-theme-list">{customThemes.map((preset) => <article key={preset.id} className={activeConversation?.themePresetId === preset.id ? 'active' : ''}><button className="custom-theme-use" onClick={() => applyThemePreset(preset)}><i style={{ background: `linear-gradient(135deg, ${preset.baseColor}, ${preset.textColor})` }} /><span><strong>{preset.name}</strong><small>{activeConversation?.themePresetId === preset.id ? '✓ 当前聊天正在使用' : '使用这个主题'}</small></span></button><div className="custom-theme-actions"><button onClick={() => renameCustomTheme(preset)}>改名</button><button className="danger" onClick={() => deleteCustomTheme(preset)}>删除</button></div></article>)}</div>}<button className="duplicate-theme-button" onClick={duplicateCurrentTheme}>＋ 复制当前配色为我的主题</button></div><div className="appearance-preview theme-preview wallpaper-preview"><WallpaperLayers wallpaper={currentWallpaper} avatar={activeCharacter.avatar} themeColor={chatBaseColor} /><div className="wallpaper-preview-content"><small>当前聊天预览</small><p>主题与壁纸叠加后的实际效果。</p></div></div><div className="appearance-card"><label className="appearance-color-row"><div><strong>主题底色</strong><small>关闭独立壁纸后显示 · {chatBaseColor}</small></div><input type="color" value={chatBaseColor} onChange={(event) => setChatBaseColor(event.target.value)} /></label></div>{wallpaperStorageError && <div className="privacy-note" role="alert">{wallpaperStorageError}{wallpaperHydrationReady && <button className="soft-button" onClick={() => setChatWallpapers((current) => ({ ...current }))}>重试保存壁纸</button>}</div>}<WallpaperSettings key={wallpaperKey} wallpaper={currentWallpaper} avatar={activeCharacter.avatar} themeColor={chatBaseColor} scopeLabel={activeConversation?.kind === 'group' ? activeConversation.title : activeCharacter.name} themeName={allThemes.find((item) => item.id === activeConversation?.themePresetId)?.name} group={activeConversation?.kind === 'group'} ready={persistenceReady && wallpaperHydrationReady} upload={wallpaperUploads[wallpaperKey]} onChange={updateChatWallpaper} onUpload={(file) => { void uploadChatWallpaper(file) }} onReset={resetChatWallpaper} /><PetSettings enabled={petEnabled} variant={petVariant} onEnabledChange={setPetEnabled} onVariantChange={setPetVariant} onReset={() => setPetPosition({ x: .86, y: .7 })} /></section></>}
+    {page === 'appearance' && <><BackHeader title="主题与背景" onBack={goBack} action={<button className="soft-button" onClick={() => applyThemePreset(builtInThemes[0])}>恢复默认</button>} /><section className="settings-stack appearance-page compact-settings"><div className="theme-choice-card"><div><strong>主题库</strong><small>每套主题有自己的配色和壁纸，切换主题会一起换过去；点“使用”绑定当前聊天。</small></div><div className="theme-choice-grid">{builtInThemes.map((preset) => <button key={preset.id} className={`${activeConversation?.themePresetId === preset.id ? 'active ' : ''}${preset.mode}`} onClick={() => applyThemePreset(preset)}><i style={{ background: preset.baseColor }} /><span><strong>{preset.name}</strong><small>{activeConversation?.themePresetId === preset.id ? '✓ 当前使用' : '点按使用'}</small></span></button>)}</div>{customThemes.length > 0 && <div className="custom-theme-list">{customThemes.map((preset) => <article key={preset.id} className={activeConversation?.themePresetId === preset.id ? 'active' : ''}><button className="custom-theme-use" onClick={() => applyThemePreset(preset)}><i style={{ background: `linear-gradient(135deg, ${preset.baseColor}, ${preset.textColor})` }} /><span><strong>{preset.name}</strong><small>{activeConversation?.themePresetId === preset.id ? '✓ 当前聊天正在使用' : '使用这个主题'}</small></span></button><div className="custom-theme-actions"><button onClick={() => renameCustomTheme(preset)}>改名</button><button className="danger" onClick={() => deleteCustomTheme(preset)}>删除</button></div></article>)}</div>}<button className="duplicate-theme-button" onClick={duplicateCurrentTheme}>＋ 复制当前配色为我的主题</button></div><div className="appearance-preview theme-preview wallpaper-preview"><WallpaperLayers wallpaper={currentWallpaper} avatar={activeCharacter.avatar} themeColor={chatBaseColor} /><div className="wallpaper-preview-content"><small>当前聊天预览</small><p>主题与壁纸叠加后的实际效果。</p></div></div><div className="appearance-card"><label className="appearance-color-row"><div><strong>主题底色</strong><small>关闭独立壁纸后显示 · {chatBaseColor}</small></div><input type="color" value={chatBaseColor} onChange={(event) => setChatBaseColor(event.target.value)} /></label></div>{wallpaperStorageError && <div className="privacy-note" role="alert">{wallpaperStorageError}{wallpaperHydrationReady && <button className="soft-button" onClick={() => setChatWallpapers((current) => ({ ...current }))}>重试保存壁纸</button>}</div>}<WallpaperSettings key={wallpaperKey} wallpaper={currentWallpaper} avatar={activeCharacter.avatar} themeColor={chatBaseColor} scopeLabel={activeConversation?.kind === 'group' ? activeConversation.title : activeCharacter.name} themeName={allThemes.find((item) => item.id === effectiveThemeId)?.name} group={activeConversation?.kind === 'group'} ready={persistenceReady && wallpaperHydrationReady} upload={wallpaperUploads[wallpaperKey]} onChange={updateChatWallpaper} onUpload={(file) => { void uploadChatWallpaper(file) }} onReset={resetChatWallpaper} /><PetSettings enabled={petEnabled} variant={petVariant} onEnabledChange={setPetEnabled} onVariantChange={setPetVariant} onReset={() => setPetPosition({ x: .86, y: .7 })} /></section></>}
     {page === 'font' && <><BackHeader title="字体与文字颜色" onBack={goBack} action={<button className="soft-button" onClick={() => { setUiFontScale(90); setUiFontWeight(500); setChatFontSize(16); setChatTextColor('#4e4852'); setChatNarrationColor('#7f7089'); setChatQuoteColor('#7b4d67') }}>恢复默认</button>} /><section className="settings-stack appearance-page compact-settings"><div className="appearance-card range-group"><RangeRow label="界面字号" hint="统一调整标题、按钮、说明与编辑区文字" value={uiFontScale} min={80} max={115} step={5} onChange={setUiFontScale} /><RangeRow label="界面字重" hint="数值越小越轻，聊天正文不受影响" value={uiFontWeight} min={400} max={700} step={100} onChange={setUiFontWeight} /></div><div className="appearance-preview chat-font-preview" style={{ color: chatTextColor, fontSize: chatFontSize }}><small>聊天正文预览</small><p><span style={{ color: chatNarrationColor }}>（他终于等到你回来。）</span><br /><span style={{ color: chatQuoteColor }}>“我一直在这里。”</span></p></div><div className="appearance-card"><RangeRow label="聊天正文字号" hint="只调整聊天内容，不影响系统界面" value={chatFontSize} min={13} max={22} step={1} onChange={setChatFontSize} /><label className="appearance-color-row"><div><strong>正文颜色</strong><small>{chatTextColor}</small></div><input type="color" value={chatTextColor} onChange={(event) => setChatTextColor(event.target.value)} /></label><label className="appearance-color-row"><div><strong>旁白颜色</strong><small>识别 *旁白*、（旁白）</small></div><input type="color" value={chatNarrationColor} onChange={(event) => setChatNarrationColor(event.target.value)} /></label><label className="appearance-color-row"><div><strong>引用颜色</strong><small>识别 “对话” 与「对话」</small></div><input type="color" value={chatQuoteColor} onChange={(event) => setChatQuoteColor(event.target.value)} /></label></div></section></>}
 
     {page === 'display-reply' && <><BackHeader title="显示与回复" onBack={goBack} action={<span className="saved-label">自动保存</span>} /><section className="settings-stack compact-settings display-reply-page"><div className="drawer-compact-group display-reply-card"><div className="drawer-section-title"><strong>消息显示</strong></div><div className="drawer-inline-setting"><span>布局方式</span><div className="mini-segment"><button className={chatLayout === 'bubble' ? 'active' : ''} onClick={() => setChatLayout('bubble')}>气泡</button><button className={chatLayout === 'flat' ? 'active' : ''} onClick={() => setChatLayout('flat')}>平铺</button></div></div><div className="drawer-color-setting"><label><span>正文</span><input type="color" value={chatTextColor} onChange={(event) => setChatTextColor(event.target.value)} /></label><label><span>旁白</span><input type="color" value={chatNarrationColor} onChange={(event) => setChatNarrationColor(event.target.value)} /></label><label><span>引用</span><input type="color" value={chatQuoteColor} onChange={(event) => setChatQuoteColor(event.target.value)} /></label></div></div><div className="drawer-compact-group display-reply-card"><div className="drawer-section-title"><strong>群聊回复</strong></div>{activeConversation?.kind === 'group' ? <div className="drawer-inline-setting reply-mode-row"><span>回复模式</span><strong>指定 @</strong></div> : <div className="display-reply-note">当前是单角色对话，消息会由当前角色直接回复。</div>}<div className="display-reply-note">群聊只会由你 @ 点名的角色发言；新增或删除成员不会改变这个规则。</div></div></section></>}
