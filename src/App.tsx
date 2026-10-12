@@ -2894,7 +2894,13 @@ function App() {
     if (isUser && !displayText && !message.images?.length) return null
     const streaming = message.role === 'assistant' && isGenerating && message.id === messages[messages.length - 1]?.id
     const imageGrid = message.images?.length ? <div className={`message-images count-${Math.min(message.images.length, 4)}`}>{message.images.map((image) => <button type="button" key={image.id} aria-label="查看图片" onClick={() => setViewerImage(image)}><img src={image.dataUrl} alt="" loading="lazy" decoding="async" style={message.images!.length === 1 ? { aspectRatio: `${image.width} / ${image.height}` } : undefined} /></button>)}</div> : null
-    const textContent = displayText ? <MessageContent text={displayText} role={message.role} character={messageCharacter} userName={identity.name} layout={chatLayout} streaming={streaming} /> : null
+    // Opening message of a solo chat: card home pages (Tavo / SillyTavern style) can
+    // jump to another opening, which replaces this message's text in place.
+    const openingConversationId = activeConversation?.id
+    const isOpening = !isUser && activeConversation?.kind !== 'group' && activeConversation?.messages[0]?.id === message.id
+    const openingGreetings = isOpening ? [messageCharacter.greeting, ...messageCharacter.alternateGreetings].filter((item) => typeof item === 'string') : undefined
+    const selectOpening = isOpening ? (_index: number, text: string) => setConversations((current) => current.map((item) => item.id === openingConversationId ? { ...item, messages: item.messages.map((entry) => entry.id === message.id ? { ...entry, text } : entry), updatedAt: Date.now() } : item)) : undefined
+    const textContent = displayText ? <MessageContent text={displayText} role={message.role} character={messageCharacter} userName={identity.name} layout={chatLayout} streaming={streaming} greetings={openingGreetings} onSelectGreeting={selectOpening} /> : null
     const content = imageGrid ? <>{imageGrid}{textContent}</> : textContent
 
     return <div key={message.id} data-message-id={message.id} className={`message-row ${message.role} message-layout-${chatLayout}`}>

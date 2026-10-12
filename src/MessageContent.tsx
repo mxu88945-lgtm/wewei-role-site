@@ -12,6 +12,31 @@ function unwrapCodeFence(value: string) {
     .trim()
 }
 
+export type MessageSegment = { kind: 'html' | 'text'; value: string }
+
+/**
+ * Tavo / SillyTavern "Code Block" mode: every ```html fence is its own isolated
+ * page, and the story text around it renders normally. Cards often ship several
+ * full HTML documents in one message (a home page, a music player, a "back to
+ * home" button), which must never be merged into one document.
+ */
+export function splitHtmlFences(value: string): MessageSegment[] | null {
+  const fence = /```[ \t]*html[ \t]*\r?\n([\s\S]*?)```/gi
+  const segments: MessageSegment[] = []
+  let last = 0
+  for (let match = fence.exec(value); match; match = fence.exec(value)) {
+    if (!/<[a-z!][^>]*>/i.test(match[1])) continue
+    const before = value.slice(last, match.index)
+    if (before.trim()) segments.push({ kind: 'text', value: before.trim() })
+    segments.push({ kind: 'html', value: match[1].trim() })
+    last = match.index + match[0].length
+  }
+  if (!segments.some((segment) => segment.kind === 'html')) return null
+  const rest = value.slice(last)
+  if (rest.trim()) segments.push({ kind: 'text', value: rest.trim() })
+  return segments
+}
+
 function looksLikeHtml(value: string) {
   return /<!doctype\s+html|<html[\s>]|<(?:div|section|article|style|audio|details|table|p|span|plot)\b/i.test(value)
 }
@@ -146,17 +171,24 @@ function SafeInlineHtml({ html }: { html: string }) {
   return <div className="message-safe-html" dangerouslySetInnerHTML={{ __html: clean }} />
 }
 
-function SandboxHtml({ html }: { html: string }) {
+type SceneHooks = { greetings?: string[]; onSelectGreeting?: (index: number, text: string) => void }
+
+function SandboxHtml({ html, raw = false, greetings, onSelectGreeting }: { html: string; raw?: boolean } & SceneHooks) {
   const frameRef = useRef<HTMLIFrameElement>(null)
   const tokenRef = useRef(`render-${crypto.randomUUID()}`)
   const fullDocument = useMemo(() => /<!doctype\s+html|<html[\s>]/i.test(unwrapCodeFence(html)), [html])
+  // A fenced page is sized to its own content, like Tavo, instead of a fixed 620px box.
+  const autoSize = raw || !fullDocument
   const [height, setHeight] = useState(fullDocument ? 620 : 220)
+  const greetingsKey = greetings ? JSON.stringify(greetings) : ''
   const source = useMemo(() => {
     // Rich character cards containing their own <style> are rendered in an iframe.
     // Run the same mixed-markup paragraphing used by safe inline HTML first, so a
     // long model-authored story does not collapse into one dense block just because
     // the card ships custom CSS.
-    const document = new DOMParser().parseFromString(normalizeMixedMarkup(html), 'text/html')
+    // A fenced page is the card author's own document: parse it untouched (no <br>
+    // between tags, which used to push stray line breaks into <head> and break layouts).
+    const document = new DOMParser().parseFromString(raw ? html : normalizeMixedMarkup(html), 'text/html')
     const policy = document.createElement('meta')
     policy.httpEquiv = 'Content-Security-Policy'
     policy.content = "default-src 'none'; img-src data: https:; media-src data: https:; font-src data: https:; style-src 'unsafe-inline'; script-src 'unsafe-inline'; connect-src 'none'; frame-src 'none'; form-action 'none'; base-uri 'none'"
@@ -164,28 +196,45 @@ function SandboxHtml({ html }: { html: string }) {
     const baseStyle = document.createElement('style')
     baseStyle.textContent = 'html,body{margin:0!important;padding:0!important;min-height:0!important;overflow-x:hidden;box-sizing:border-box}*,*:before,*:after{box-sizing:border-box;max-width:100%}.message-paragraph-break{display:block;height:.62em}.message-auto-paragraph-break{height:.82em}'
     document.head.append(baseStyle)
-    if (!fullDocument) {
+    if (greetingsKey) {
+      // Minimal SillyTavern / TavernHelper bridge so card home pages can jump to an opening.
+      const bridge = document.createElement('script')
+      bridge.textContent = `(()=>{const token=${JSON.stringify(tokenRef.current)};const swipes=${greetingsKey.replace(/</g, '\\u003c')};const pick=(i)=>parent.postMessage({type:'weijing-select-greeting',token,index:Number(i)||0},'*');window.getChatMessages=async()=>[{message_id:0,role:'assistant',message:swipes[0],swipes}];window.setChatMessage=async(_m,_id,opts)=>{pick(opts&&opts.swipe_id!=null?opts.swipe_id:0)};window.jumpToSwipe=pick;addEventListener('DOMContentLoaded',()=>{const home=document.getElementById('returnHomeText');if(home)home.addEventListener('click',()=>pick(0))})})();`
+      document.head.prepend(bridge)
+    }
+    if (autoSize) {
       const reporter = document.createElement('script')
       reporter.textContent = `(()=>{const token=${JSON.stringify(tokenRef.current)};let last=0,queued=false;const report=()=>{queued=false;const next=Math.ceil(Math.max(document.body?.scrollHeight||0,document.documentElement?.scrollHeight||0));if(next!==last){last=next;parent.postMessage({type:'weijing-render-size',token,height:next},'*')}};const queue=()=>{if(!queued){queued=true;requestAnimationFrame(report)}};addEventListener('load',queue);new ResizeObserver(queue).observe(document.documentElement);setTimeout(queue,80);setTimeout(queue,500);setTimeout(queue,1500)})();`
       document.body.append(reporter)
     }
     return `<!doctype html>${document.documentElement.outerHTML}`
-  }, [html, fullDocument])
+  }, [html, fullDocument, raw, autoSize, greetingsKey])
 
+  const greetingsRef = useRef(greetings)
+  const onSelectRef = useRef(onSelectGreeting)
+  greetingsRef.current = greetings
+  onSelectRef.current = onSelectGreeting
   useLayoutEffect(() => {
     const receive = (event: MessageEvent) => {
-      if (event.source !== frameRef.current?.contentWindow || event.data?.type !== 'weijing-render-size' || event.data?.token !== tokenRef.current) return
-      const next = Math.max(56, Math.min(1200, Number(event.data.height) || 220))
+      if (event.source !== frameRef.current?.contentWindow || event.data?.token !== tokenRef.current) return
+      if (event.data?.type === 'weijing-select-greeting') {
+        const index = Number(event.data.index) || 0
+        const text = greetingsRef.current?.[index]
+        if (text) onSelectRef.current?.(index, text)
+        return
+      }
+      if (event.data?.type !== 'weijing-render-size') return
+      const next = Math.max(40, Math.min(raw ? 4000 : 1200, Number(event.data.height) || 220))
       setHeight((current) => Math.abs(current - next) > 1 ? next : current)
     }
     window.addEventListener('message', receive)
     return () => window.removeEventListener('message', receive)
   }, [])
 
-  return <iframe ref={frameRef} className={`message-script-frame ${fullDocument ? 'full-document' : 'inline-script'}`} title="角色卡互动内容" sandbox="allow-scripts" srcDoc={source} style={{ height }} />
+  return <iframe ref={frameRef} className={`message-script-frame ${fullDocument && !raw ? 'full-document' : 'inline-script'}${raw ? ' fenced-page' : ''}`} title="角色卡互动内容" sandbox="allow-scripts" srcDoc={source} style={{ height }} />
 }
 
-function MessageContent({ text, role, character, userName, layout = 'bubble', streaming = false }: { text: string; role: 'user' | 'assistant'; character: Character; userName: string; layout?: 'bubble' | 'flat'; streaming?: boolean }) {
+function MessageContent({ text, role, character, userName, layout = 'bubble', streaming = false, greetings, onSelectGreeting }: { text: string; role: 'user' | 'assistant'; character: Character; userName: string; layout?: 'bubble' | 'flat'; streaming?: boolean } & SceneHooks) {
   const rendered = useMemo(() => {
     const director = character.tags.includes('共演导演') || character.tags.includes('旁白导演')
     const cleanText = role === 'assistant' ? sanitizeAssistantOutput(text, { director }) : text
@@ -218,6 +267,16 @@ function MessageContent({ text, role, character, userName, layout = 'bubble', st
       : applyMacros(visibleText, character, userName)
   }, [text, role, character, userName, streaming])
 
+  const segments = streaming ? null : splitHtmlFences(rendered)
+  if (segments) {
+    return <div className="message-content message-content-rich message-content-segments">{segments.map((segment, index) => segment.kind === 'html'
+      ? <SandboxHtml key={`h${index}`} html={segment.value} raw greetings={greetings} onSelectGreeting={onSelectGreeting} />
+      : <RenderedBlock key={`t${index}`} rendered={segment.value} role={role} layout={layout} />)}</div>
+  }
+  return <RenderedBlock rendered={rendered} role={role} layout={layout} />
+}
+
+function RenderedBlock({ rendered, role, layout }: { rendered: string; role: 'user' | 'assistant'; layout: 'bubble' | 'flat' }) {
   if (hasExecutableScript(rendered) || isFullHtmlDocument(rendered)) return <div className="message-content message-content-rich"><SandboxHtml html={rendered} /></div>
   if (looksLikeHtml(rendered)) return <div className="message-content message-content-rich"><SafeInlineHtml html={rendered} /></div>
   const paragraphs = role === 'user' ? userTextParagraphs(rendered) : plainTextParagraphs(rendered)

@@ -44,3 +44,20 @@ describe('character-card mixed markup', () => {
   })
 
 })
+
+describe('Tavo-style ```html code blocks', () => {
+  it('splits each fenced page from the story text around it', async () => {
+    const { splitHtmlFences } = await import('./MessageContent')
+    const text = '```html\n<!DOCTYPE html><html><body><div>主页</div></body></html>\n```\n\n```html\n<!DOCTYPE html><html><body><div class="player">播放器</div></body></html>\n```\n\n北江市的冬雨。\n\n```html\n<div id="returnHomeText">返回</div>\n```'
+    const segments = splitHtmlFences(text)!
+    expect(segments.map((segment) => segment.kind)).toEqual(['html', 'html', 'text', 'html'])
+    expect(segments[0].value.startsWith('<!DOCTYPE html>')).toBe(true)
+    expect(segments[0].value).not.toContain('```')
+    expect(segments[2].value).toBe('北江市的冬雨。')
+  })
+  it('leaves messages without fenced HTML alone', async () => {
+    const { splitHtmlFences } = await import('./MessageContent')
+    expect(splitHtmlFences('普通的回复\n```\n代码\n```')).toBeNull()
+    expect(splitHtmlFences('<div>行内</div>')).toBeNull()
+  })
+})
