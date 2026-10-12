@@ -172,3 +172,8 @@ html[data-standalone] .chat-canvas .chat-jump-controls {
 html[data-standalone][data-kb] .chat-canvas .composer { bottom: 8px; }
 html[data-standalone][data-kb] .chat-canvas .composer::before { bottom: -8px; }
 html[data-standalone][data-kb] .chat-canvas .message-list { padding-bottom: var(--composer-clearance, 122px); }
+
+/* Full-page field editor (角色描述 etc.): index.html writes its inline height too, so with the
+   keyboard open it ends at the keyboard and the textarea scrolls all the way to its last line. */
+html[data-standalone] .metadata-full-page { bottom: auto; }
+html[data-standalone][data-kb] .metadata-full-page { padding-bottom: 10px; }

@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react'
+import { useEffect, useLayoutEffect, useState } from 'react'
 import {
   CHARACTER_MEMORY_CATEGORY_OPTIONS,
   CHARACTER_MEMORY_STATUS_OPTIONS,
@@ -95,6 +95,11 @@ export default function CharacterCardManager({ character, onChange, onBack, init
   const memoryEntries = Array.isArray(character.characterMemory) ? character.characterMemory : []
 
   useEffect(() => { setNameDraft(character.name) }, [character.id, character.name])
+  useLayoutEffect(() => {
+    // iOS standalone: index.html sizes full-screen pages to the visible area while the
+    // keyboard is open, so the end of a long field is never stuck under the keyboard.
+    (window as Window & { __weijingApplyAppHeight?: () => void }).__weijingApplyAppHeight?.()
+  }, [fullEditorField, nameEditorOpen])
 
   const patch = (value: Partial<Character>) => onChange({ ...character, ...value })
   const commitName = () => {
