@@ -678,6 +678,14 @@ function App() {
     setChatTheme(preset.mode); setChatBaseColor(preset.baseColor); setChatTextColor(preset.textColor)
     setChatNarrationColor(preset.narrationColor); setChatQuoteColor(preset.quoteColor)
     setChatBackgroundFrost(preset.frost)
+    if (bind) {
+      // Choosing a theme in the library is also the user's new default: home, settings
+      // and chats without their own theme keep it instead of snapping back to 默认.
+      const nextDefault = { mode: preset.mode, baseColor: preset.baseColor, textColor: preset.textColor, narrationColor: preset.narrationColor, quoteColor: preset.quoteColor, frost: preset.frost }
+      unboundThemeRef.current = nextDefault
+      write('weijing.chatTheme', nextDefault.mode); write('weijing.chatBaseColor', nextDefault.baseColor); write('weijing.chatTextColor', nextDefault.textColor)
+      write('weijing.chatNarrationColor', nextDefault.narrationColor); write('weijing.chatQuoteColor', nextDefault.quoteColor); write('weijing.chatBackgroundFrost', nextDefault.frost)
+    }
     if (bind && activeConversation) {
       write(conversationFrostKey(activeConversation.id), preset.frost)
       setConversations((current) => current.map((item) => item.id === activeConversation.id ? { ...item, themePresetId: preset.id, themeFrost: preset.frost } : item))
