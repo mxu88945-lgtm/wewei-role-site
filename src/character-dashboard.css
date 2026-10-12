@@ -180,3 +180,7 @@
   .detail-stack > .detail-card,
   .detail-stack > .data-summary-card { padding: 17px; min-height: 132px; }
 }
+
+/* Long unbroken card text (URLs, CSS, HTML) must wrap instead of widening the page. */
+.detail-stack, .detail-stack > * { min-width: 0; max-width: 100%; }
+.detail-stack p, .detail-stack blockquote, .character-hero p { overflow-wrap: anywhere; word-break: break-word; }

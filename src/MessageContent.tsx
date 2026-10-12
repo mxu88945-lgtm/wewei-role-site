@@ -179,7 +179,7 @@ function SandboxHtml({ html, raw = false, greetings, onSelectGreeting }: { html:
   const fullDocument = useMemo(() => /<!doctype\s+html|<html[\s>]/i.test(unwrapCodeFence(html)), [html])
   // A fenced page is sized to its own content, like Tavo, instead of a fixed 620px box.
   const autoSize = raw || !fullDocument
-  const [height, setHeight] = useState(fullDocument ? 620 : 220)
+  const [height, setHeight] = useState(raw ? 120 : fullDocument ? 620 : 220)
   const greetingsKey = greetings ? JSON.stringify(greetings) : ''
   const source = useMemo(() => {
     // Rich character cards containing their own <style> are rendered in an iframe.
@@ -194,8 +194,19 @@ function SandboxHtml({ html, raw = false, greetings, onSelectGreeting }: { html:
     policy.content = "default-src 'none'; img-src data: https:; media-src data: https:; font-src data: https:; style-src 'unsafe-inline'; script-src 'unsafe-inline'; connect-src 'none'; frame-src 'none'; form-action 'none'; base-uri 'none'"
     document.head.prepend(policy)
     const baseStyle = document.createElement('style')
-    baseStyle.textContent = 'html,body{margin:0!important;padding:0!important;min-height:0!important;overflow-x:hidden;box-sizing:border-box}*,*:before,*:after{box-sizing:border-box;max-width:100%}.message-paragraph-break{display:block;height:.62em}.message-auto-paragraph-break{height:.82em}'
+    baseStyle.textContent = (raw ? 'html,body{margin:0!important;' : 'html,body{margin:0!important;padding:0!important;') + 'min-height:0!important;overflow-x:hidden;box-sizing:border-box}*,*:before,*:after{box-sizing:border-box;max-width:100%}.message-paragraph-break{display:block;height:.62em}.message-auto-paragraph-break{height:.82em}'
     document.head.append(baseStyle)
+    if (raw) {
+      // Size a fenced page to its content: html/body must not stretch to the iframe's own
+      // height (height:100% / 100vh), or the measured height feeds back and leaves a huge blank.
+      const fitStyle = document.createElement('style')
+      fitStyle.textContent = 'html,body{height:auto!important;min-height:0!important;max-height:none!important;overflow:hidden!important}'
+      document.head.append(fitStyle)
+      const vh = Math.max(4, Math.round((window.innerHeight || 800) / 100 * 100) / 100)
+      const fixVh = (css: string) => css.replace(/(-?\d*\.?\d+)(?:d|s|l)?vh\b/gi, (_m, n) => `${Math.round(Number(n) * vh)}px`)
+      document.querySelectorAll('style').forEach((node) => { if (node !== baseStyle && node !== fitStyle) node.textContent = fixVh(node.textContent || '') })
+      document.querySelectorAll<HTMLElement>('[style]').forEach((node) => node.setAttribute('style', fixVh(node.getAttribute('style') || '')))
+    }
     if (greetingsKey) {
       // Minimal SillyTavern / TavernHelper bridge so card home pages can jump to an opening.
       const bridge = document.createElement('script')
@@ -204,7 +215,7 @@ function SandboxHtml({ html, raw = false, greetings, onSelectGreeting }: { html:
     }
     if (autoSize) {
       const reporter = document.createElement('script')
-      reporter.textContent = `(()=>{const token=${JSON.stringify(tokenRef.current)};let last=0,queued=false;const report=()=>{queued=false;const next=Math.ceil(Math.max(document.body?.scrollHeight||0,document.documentElement?.scrollHeight||0));if(next!==last){last=next;parent.postMessage({type:'weijing-render-size',token,height:next},'*')}};const queue=()=>{if(!queued){queued=true;requestAnimationFrame(report)}};addEventListener('load',queue);new ResizeObserver(queue).observe(document.documentElement);setTimeout(queue,80);setTimeout(queue,500);setTimeout(queue,1500)})();`
+      reporter.textContent = `(()=>{const token=${JSON.stringify(tokenRef.current)};let last=0,queued=false;const report=()=>{queued=false;const b=document.body;const next=Math.ceil(${raw ? "b?Math.max(b.scrollHeight,b.getBoundingClientRect().height):0" : "Math.max(document.body?.scrollHeight||0,document.documentElement?.scrollHeight||0)"});if(next!==last){last=next;parent.postMessage({type:'weijing-render-size',token,height:next},'*')}};const queue=()=>{if(!queued){queued=true;requestAnimationFrame(report)}};addEventListener('load',queue);new ResizeObserver(queue).observe(document.documentElement);setTimeout(queue,80);setTimeout(queue,500);setTimeout(queue,1500)})();`
       document.body.append(reporter)
     }
     return `<!doctype html>${document.documentElement.outerHTML}`
