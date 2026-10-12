@@ -9,7 +9,9 @@ import { modelVisibleMessageText, stripUiOnlyStatusBlocks } from './modelContext
 import { getStatusProtocol } from './statusProtocol'
 import { characterMemoryContinuityGuard, characterMemoryPrompt } from './characterMemory'
 
-type SourceMessage = { role: 'user' | 'assistant'; text: string; characterId?: string; images?: ChatImage[] }
+// promptRole: how the turn is sent to the model. In a group chat another
+// member's reply goes out as 'user' so the model never reads it as its own.
+type SourceMessage = { role: 'user' | 'assistant'; promptRole?: 'user' | 'assistant'; text: string; characterId?: string; images?: ChatImage[] }
 type MemoryInput = { entries: LongMemoryEntry[]; injectPosition: string; injectPrompt: string }
 
 type PromptInput = {
@@ -234,7 +236,7 @@ ${stripStageGateMetadata(input.actorContinuityAnchor || '')}`,
       message.role === 'user' ? 1 : 2,
       'prompt',
     )
-    return { role: message.role, content: message.role === 'user' ? userContentWithImages(text, message.images, imageTurns.has(index)) : text }
+    return { role: message.promptRole || message.role, content: message.role === 'user' ? userContentWithImages(text, message.images, imageTurns.has(index)) : text }
   }).filter((message) => Array.isArray(message.content) || String(message.content).trim())
   result.push(...history)
 

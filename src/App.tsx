@@ -2088,7 +2088,14 @@ function App() {
       onDiagnostics: (stats) => { promptStats = stats },
       character: capturedCharacter,
       user: identity,
-      messages: sanitizedHistory.map((message) => ({ ...message, text: message.role === 'assistant' && isGroup ? `【${messageCharacterName(message, conversation)}】\n${message.text}` : message.text })),
+      // Group chat: only the speaker's own past replies are "assistant". Every other
+      // member's reply is sent as a labelled user-side turn, so the model never
+      // mistakes 陆屿's lines for its own and keeps writing as him.
+      messages: sanitizedHistory.map((message) => {
+        if (!isGroup || message.role !== 'assistant') return message
+        if (message.characterId === speaker.id) return message
+        return { ...message, promptRole: 'user' as const, text: `【${messageCharacterName(message, conversation)}｜其他成员的发言，不是你写的，不要接着演他】\n${message.text}` }
+      }),
       preset: [enabledPresetText(presetSections), isGroup && `【群聊发言边界｜最高优先级】\n本轮你只能扮演 ${speaker.name}。群聊成员为：${groupNames.join('、')}。不得替用户发言、行动或思考；不得代替其他群聊角色说话、行动或决定。你可以观察并回应其他成员，但本轮输出只能属于 ${speaker.name}。`].filter(Boolean).join('\n\n'),
       globalWorldbook: worldbook,
       theaterWorldBackground: conversation.theaterWorldBackground || '',
