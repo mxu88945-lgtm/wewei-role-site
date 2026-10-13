@@ -41,6 +41,14 @@ describe('character workshop', () => {
     expect(prompt).toContain('不能写成“身份＋几个形容词”的简介')
     expect(prompt).toContain('亲密关系和重大选择中的行为方式')
     expect(prompt).toContain('不要写成精简概述')
+    expect(prompt).toContain('能原样放进去就原样放')
+  })
+
+  it('tells the copilot to keep pasted persona and world text instead of summarising it', () => {
+    const prompt = buildWorkshopCopilotPrompt({ draft: parseCharacterWorkshopDraft('{"name":"沈砚","description":"调查员","greeting":"你来了。"}'), request: '把这段世界观写进去', messages: [] })
+    expect(prompt).toContain('能原样放进去就原样放进去')
+    expect(prompt).toContain('绝对不要把原文压缩成概述')
+    expect(prompt).toContain('自然完整的陈述句')
   })
 
   it('keeps generated opening UI and repairs the legacy placement 3', () => {

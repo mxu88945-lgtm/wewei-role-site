@@ -250,7 +250,7 @@ export default function CharacterWorkshop({ channels, characters = [], defaultCh
         { type: 'text', text: prompt },
         ...images.map((image): ChatApiContentPart => ({ type: 'image_url', image_url: { url: image.dataUrl, detail: 'high' } })),
       ]
-      await completeChat({
+      const completion = await completeChat({
         api: channel,
         messages: [
           { role: 'system', content: '你是可持续对话的角色卡工坊助手。严格按用户提示输出单个 JSON 对象，不要 Markdown。' },
@@ -263,6 +263,9 @@ export default function CharacterWorkshop({ channels, characters = [], defaultCh
         onDelta: (delta) => { raw += delta },
       })
       if (revision !== generationRevisionRef.current || controller.signal.aborted) return
+      if (completion.finishReason === 'length' || completion.finishReason === 'max_tokens') {
+        throw new Error('这次要写进去的原文太长，助手的回复被模型长度上限截断了，未写入半截内容。可以分几次发：例如先让它写人设，再单独发世界观。')
+      }
       const response = parseWorkshopCopilotResponse(raw)
       appendCopilotMessage('assistant', response.reply)
       if (response.patch) setPendingCopilotPatch(response.patch)
