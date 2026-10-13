@@ -368,6 +368,16 @@ function greetingPreview(greeting: string) {
   return text.length > 400 ? `${text.slice(0, 400)}…` : text
 }
 
+function PhaseElapsed({ label, startedAt }: { label: string; startedAt: number }) {
+  const [now, setNow] = useState(() => Date.now())
+  useEffect(() => {
+    const timer = window.setInterval(() => setNow(Date.now()), 1000)
+    return () => window.clearInterval(timer)
+  }, [])
+  const seconds = Math.max(0, Math.round((now - startedAt) / 1000))
+  return <div className="message-content message-phase"><p>{label}（已等 {seconds} 秒）</p></div>
+}
+
 function App() {
   const [page, setPage] = useState<Page>('home')
   const [history, setHistory] = useState<HistoryEntry[]>([])
@@ -498,6 +508,7 @@ function App() {
   const contextCompressionRunningRef = useRef(new Set<string>())
   const autoCompressionFailuresRef = useRef(new Map<string, number>())
   const pendingChatLatestScrollRef = useRef<string | null>(null)
+  const phaseStartedAtRef = useRef(new Map<string, number>())
   // While her finger is on the list (and briefly after, for momentum) no
   // programmatic scroll may move it.
   const chatTouchUntilRef = useRef(0)
@@ -917,9 +928,11 @@ function App() {
     return () => { current = false }
   }, [chatWallpapers, persistenceReady, wallpaperHydrationReady])
   useEffect(() => {
+    // Only the settings page shows this; stringifying every chat and wallpaper on each change froze generation.
+    if (page !== 'settings') return
     const bytes = new Blob([JSON.stringify({ characters, conversations, identities, storyProjects, globalMemoryApi, memoryConfigs, memoryEntries, chatWallpapers, plotTemplates })]).size
     setAppDataUsage(bytes < 1048576 ? `${(bytes / 1024).toFixed(0)} KB` : `${(bytes / 1048576).toFixed(2)} MB`)
-  }, [characters, conversations, identities, storyProjects, globalMemoryApi, memoryConfigs, memoryEntries, chatWallpapers, plotTemplates])
+  }, [page, characters, conversations, identities, storyProjects, globalMemoryApi, memoryConfigs, memoryEntries, chatWallpapers, plotTemplates])
   useEffect(() => {
     document.documentElement.classList.toggle('chat-layout-flat', chatLayout === 'flat')
     return () => document.documentElement.classList.remove('chat-layout-flat')
@@ -1045,12 +1058,13 @@ function App() {
           // Safari can keep the pre-toggle scroll extent for a native <details>
           // inside a flex scroller. A one-pixel end-marker change invalidates that
           // cached extent without replacing the character card's HTML or open state.
+          // Her finger is on the list: forcing a relayout now cancels the iOS drag.
+          if (Date.now() < chatTouchUntilRef.current) return
           markerHeight = markerHeight === 1 ? 2 : 1
           marker.style.flexBasis = `${markerHeight}px`
           marker.style.height = `${markerHeight}px`
           void list.offsetHeight
           const snapshot = chatScrollSnapshotsRef.current.get(conversationKey)
-          if (Date.now() < chatTouchUntilRef.current) return
           if (pendingChatLatestScrollRef.current === conversationKey) {
             scrollChatToLatest(list)
           } else if (pendingChatScrollRestoreRef.current === conversationKey || snapshot?.stickToBottom) {
@@ -1139,7 +1153,6 @@ function App() {
       window.removeEventListener(VIEWPORT_CHANGE_EVENT, pin)
       composer?.removeEventListener('focusin', arm)
       list.removeEventListener('touchstart', release)
-      list.removeEventListener('wheel', release)
       keyboardScrollPin.release()
     }
   }, [page, chatScrollKey, keyboardScrollPin])
@@ -2224,19 +2237,18 @@ function App() {
     // live label with the seconds waited, so a slow model never looks frozen.
     let phaseTimer: number | null = null
     const generationStartedAt = Date.now()
+    // The seconds tick inside <PhaseElapsed> only. Writing them into conversations
+    // every second re-rendered the whole app, re-serialized every chat (and the
+    // wallpapers) and froze scrolling on iOS for the entire hidden phase.
+    const phaseKey = `${conversationId}|${assistantMessage.id}`
     const stopPhase = () => {
-      if (phaseTimer !== null) window.clearInterval(phaseTimer)
       phaseTimer = null
+      phaseStartedAtRef.current.delete(phaseKey)
     }
     const showPhase = (label: string) => {
-      stopPhase()
-      const render = () => {
-        const seconds = Math.max(0, Math.round((Date.now() - generationStartedAt) / 1000))
-        const text = `${label}（已等 ${seconds} 秒）`
-        setConversations((current) => current.map((item) => item.id === conversationId ? { ...item, messages: item.messages.map((message) => message.id === assistantMessage.id ? { ...message, text } : message) } : item))
-      }
-      render()
-      phaseTimer = window.setInterval(render, 1000)
+      phaseTimer = 1
+      phaseStartedAtRef.current.set(phaseKey, generationStartedAt)
+      setConversations((current) => current.map((item) => item.id === conversationId ? { ...item, messages: item.messages.map((message) => message.id === assistantMessage.id ? { ...message, text: label } : message) } : item))
     }
     const commitStreamOutput = () => {
       streamRenderTimer = null
@@ -2980,7 +2992,8 @@ function App() {
     const isOpening = !isUser && activeConversation?.kind !== 'group' && activeConversation?.messages[0]?.id === message.id
     const openingGreetings = isOpening ? [messageCharacter.greeting, ...messageCharacter.alternateGreetings].filter((item) => typeof item === 'string') : undefined
     const selectOpening = isOpening ? (_index: number, text: string) => setConversations((current) => current.map((item) => item.id === openingConversationId ? { ...item, messages: item.messages.map((entry) => entry.id === message.id ? { ...entry, text } : entry), updatedAt: Date.now() } : item)) : undefined
-    const textContent = displayText ? <MessageContent text={displayText} role={message.role} character={messageCharacter} userName={identity.name} layout={chatLayout} streaming={streaming} greetings={openingGreetings} onSelectGreeting={selectOpening} /> : null
+    const phaseStartedAt = streaming && activeConversation ? phaseStartedAtRef.current.get(`${activeConversation.id}|${message.id}`) : undefined
+    const textContent = phaseStartedAt !== undefined ? <PhaseElapsed label={displayText} startedAt={phaseStartedAt} /> : displayText ? <MessageContent text={displayText} role={message.role} character={messageCharacter} userName={identity.name} layout={chatLayout} streaming={streaming} greetings={openingGreetings} onSelectGreeting={selectOpening} /> : null
     const content = imageGrid ? <>{imageGrid}{textContent}</> : textContent
 
     return <div key={message.id} data-message-id={message.id} className={`message-row ${message.role} message-layout-${chatLayout}`}>
