@@ -1,22 +1,11 @@
 import { useEffect, useState } from 'react'
+import { weatherLabel } from './phoneGroup'
 
 /** 小手机顶部：实时本地时间 + 当地天气（定位 + Open-Meteo，无需密钥，缓存 30 分钟）。 */
 type Weather = { temp: number; code: number; high: number; low: number; place?: string; at: number }
 const CACHE_KEY = 'weijing.phoneWeather'
 const ENABLED_KEY = 'weijing.phoneWeatherEnabled'
 const TTL = 30 * 60 * 1000
-
-function weatherLabel(code: number): { text: string; icon: string } {
-  if (code === 0) return { text: '晴', icon: '☀️' }
-  if (code <= 2) return { text: '多云', icon: '⛅️' }
-  if (code === 3) return { text: '阴', icon: '☁️' }
-  if (code === 45 || code === 48) return { text: '雾', icon: '🌫️' }
-  if (code >= 51 && code <= 57) return { text: '毛毛雨', icon: '🌦️' }
-  if ((code >= 61 && code <= 67) || (code >= 80 && code <= 82)) return { text: code >= 65 || code === 82 ? '大雨' : '雨', icon: '🌧️' }
-  if ((code >= 71 && code <= 77) || code === 85 || code === 86) return { text: '雪', icon: '❄️' }
-  if (code >= 95) return { text: '雷雨', icon: '⛈️' }
-  return { text: '—', icon: '🌡️' }
-}
 
 const readCache = (): Weather | null => { try { return JSON.parse(localStorage.getItem(CACHE_KEY) || 'null') } catch { return null } }
 

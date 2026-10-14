@@ -122,3 +122,19 @@ describe('情境发言 parsing', () => {
     expect(pickPhoneChatters(['a', 'b', 'c', 'd'], 'a', () => 0, true)).toHaveLength(4)
   })
 })
+
+describe('buildPhoneRealWorldNote', () => {
+  it('includes local time and fresh weather', async () => {
+    const { buildPhoneRealWorldNote } = await import('./phoneGroup')
+    const now = new Date(2026, 9, 14, 23, 30)
+    const note = buildPhoneRealWorldNote(now, { temp: 24, code: 61, high: 28, low: 22, at: now.getTime() - 60_000 })
+    expect(note).toContain('23:30')
+    expect(note).toContain('深夜')
+    expect(note).toContain('雨，24°C')
+  })
+  it('drops stale weather', async () => {
+    const { buildPhoneRealWorldNote } = await import('./phoneGroup')
+    const now = new Date(2026, 9, 14, 9, 5)
+    expect(buildPhoneRealWorldNote(now, { temp: 24, code: 0, high: 28, low: 22, at: now.getTime() - 4 * 3600_000 })).not.toContain('天气：')
+  })
+})
