@@ -701,3 +701,12 @@ button { cursor: pointer; }
 .export-range-select small { color: #8a8190; font-size: 12px; }
 .export-range-select select { width: 100%; min-height: 48px; padding: 0 14px; border: 1px solid rgba(91,68,104,.12); border-radius: 14px; background: #f2eef4; color: #3e3842; font-size: 16px; -webkit-appearance: none; appearance: none; text-overflow: ellipsis; }
 .export-range-count { margin: 0; color: #8a8190; font-size: 13px; }
+.phone-status-widget { display: grid; grid-template-columns: 1fr auto; align-items: center; gap: 10px 14px; padding: 16px 18px; border-radius: 22px; background: linear-gradient(135deg,#f3eefa,#fbf4f7); box-shadow: 0 6px 20px rgba(60,40,70,.06); }
+.phone-status-time strong { display: block; font-size: 38px; font-weight: 800; letter-spacing: .5px; color: #3b3440; font-variant-numeric: tabular-nums; line-height: 1.05; }
+.phone-status-time small { display: block; margin-top: 4px; color: #8f8894; font-size: 13px; }
+.phone-status-weather { display: flex; align-items: center; gap: 8px; min-height: 52px; padding: 6px 12px; border: 0; border-radius: 16px; background: rgba(255,255,255,.75); color: #3b3440; text-align: left; }
+.phone-status-weather b { display: block; font-size: 22px; }
+.phone-status-weather small { display: block; color: #8f8894; font-size: 11px; white-space: nowrap; }
+.phone-status-icon { font-size: 28px; }
+.phone-status-connect { font-size: 14px; font-weight: 700; color: #7a5bb0; }
+.phone-status-error { grid-column: 1 / -1; margin: 0; color: #b0576b; font-size: 12px; line-height: 1.5; }

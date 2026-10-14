@@ -11,6 +11,7 @@ import { GreetingPicker, GroupGreetingPicker, ImportPreview, type GroupGreetingC
 import MentionPicker from './MentionPicker'
 import { prewarmAvatarThumbnails } from './avatarThumbnail'
 import MessageContent, { isPendingAssistantText } from './MessageContent'
+import PhoneStatusWidget from './PhoneStatusWidget'
 import { createBlankCharacter, importCharacterCard, normalizeStoredCharacter, LIBRARY_ROLES, type Character, type LibraryRole } from './characterCard'
 import { Moments, type MomentSeed } from './Moments'
 import { USER_AUTHOR, communityMemberIds, excerptFromMessage } from './moments'
@@ -3250,6 +3251,7 @@ function App() {
     {page === 'character-workshop' && <CharacterWorkshop channels={apiChannels} characters={characters} defaultChannelId={activeApiId} onBack={goBack} onAvatar={imageThumbnail} onExport={(character) => downloadJson(`${character.name}-character-card-v3.json`, exportableCharacter(character))} onSave={(character) => { localStorage.removeItem('weijing.characterWorkshop'); addImportedCharacter(character) }} />}
 
     {page === 'phone' && <><BackHeader title={phoneDraft?.editingId ? '小手机群设置' : '小手机'} onBack={() => { setPhoneDraft(null); goBack() }} /><section className="content-stack phone-page">
+      {!phoneDraft && <PhoneStatusWidget />}
       {!phoneDraft && <div className="phone-tabs" role="tablist"><button role="tab" aria-selected={phoneTab === 'groups'} className={phoneTab === 'groups' ? 'active' : ''} onClick={() => setPhoneTab('groups')}>群聊</button><button role="tab" aria-selected={phoneTab === 'moments'} className={phoneTab === 'moments' ? 'active' : ''} onClick={() => setPhoneTab('moments')}>动态</button></div>}
       {!phoneDraft && phoneTab === 'moments' && <Moments characters={characters} conversations={conversations} userName={identity.name} userAvatar={identity.avatar} api={api} seed={momentSeed} onSeedUsed={clearMomentSeed} onSaveToMemory={saveMomentToMemory} />}
       {!phoneDraft && phoneTab === 'groups' && <>
@@ -3526,7 +3528,7 @@ function UpdateCard() {
     }
   }
 
-  return <section className="update-card"><strong>应用更新</strong><p>主动检查并拉取最新网页版本，不会删除角色、聊天记录或本地设置。</p><small>当前版本：v57 · 2026.10.14 导出范围下拉显示开头</small><button onClick={refresh} disabled={state === 'checking'}>{state === 'checking' ? '正在检查更新…' : state === 'error' ? '更新失败，点我重试' : '强制刷新到最新版'}</button></section>
+  return <section className="update-card"><strong>应用更新</strong><p>主动检查并拉取最新网页版本，不会删除角色、聊天记录或本地设置。</p><small>当前版本：v58 · 2026.10.14 小手机时间与天气</small><button onClick={refresh} disabled={state === 'checking'}>{state === 'checking' ? '正在检查更新…' : state === 'error' ? '更新失败，点我重试' : '强制刷新到最新版'}</button></section>
 }
 
 function PersonaPage({ identities, selectedId, isBound, onSelect, onAdd, onDelete, onUpdate, onBack }: { identities: UserIdentity[]; selectedId: string; isBound: boolean; onSelect: (id: string) => void; onAdd: () => void; onDelete: (id: string) => void; onUpdate: (patch: Partial<UserIdentity>) => void; onBack: () => void }) {
