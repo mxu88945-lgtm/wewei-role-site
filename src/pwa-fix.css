@@ -181,3 +181,9 @@ html[data-standalone][data-kb] .metadata-full-page { padding-bottom: 10px; }
 /* 角色库「分组与身份」面板：index.html 给这一层写入可见高度，键盘弹起时面板贴在键盘上方，不再被挡。 */
 html[data-standalone] .library-sheet-layer { bottom: auto; }
 html[data-standalone][data-kb] .library-sheet-layer .conversation-menu { bottom: 10px; max-height: calc(100% - 20px - env(safe-area-inset-top)); overflow-y: auto; -webkit-overflow-scrolling: touch; }
+
+/* 编辑改写 / 编辑后重发：同样写入可见高度，键盘弹起时整张卡片贴在键盘上方，保存按钮不被挡。 */
+html[data-standalone] .message-editor-layer { bottom: auto; }
+html[data-standalone][data-kb] .message-editor-layer { align-items: flex-end; padding-bottom: 10px; }
+html[data-standalone][data-kb] .message-editor-sheet { max-height: calc(100% - 10px - max(14px, env(safe-area-inset-top))); min-height: 0; }
+html[data-standalone][data-kb] .message-editor-sheet textarea { flex: 1 1 auto; height: auto; min-height: 96px; }

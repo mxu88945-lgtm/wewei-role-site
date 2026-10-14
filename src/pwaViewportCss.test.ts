@@ -21,9 +21,18 @@ describe('iOS standalone app height', () => {
   })
 
   it('index.html writes the height inline on exactly the layout boxes', () => {
-    expect(indexHtml).toMatch(/querySelectorAll\('\.app-shell, \.phone-canvas, \.composer-expanded-layer, \.metadata-full-page, \.library-sheet-layer'\)/)
+    expect(indexHtml).toMatch(/querySelectorAll\('\.app-shell, \.phone-canvas, \.composer-expanded-layer, \.metadata-full-page, \.library-sheet-layer, \.message-editor-layer'\)/)
     expect(indexHtml).toMatch(/document\.getElementById\('root'\)/)
     expect(indexHtml).toMatch(/box\.style\.height = value/)
     expect(indexHtml).toMatch(/window\.__weijingApplyAppHeight\s*=/)
+  })
+})
+
+describe('message editor above the iOS keyboard', () => {
+  it('pins the edit sheet to the visible area so the save button stays reachable', async () => {
+    const { readFileSync } = await import('node:fs')
+    const css = readFileSync(new URL('./pwa-fix.css', import.meta.url), 'utf8')
+    expect(css).toContain('html[data-standalone] .message-editor-layer { bottom: auto; }')
+    expect(css).toContain('html[data-standalone][data-kb] .message-editor-layer { align-items: flex-end;')
   })
 })

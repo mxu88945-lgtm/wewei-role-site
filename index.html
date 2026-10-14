@@ -35,7 +35,7 @@
             let lastH = null
             const writeHeights = (h) => {
               const wide = window.innerWidth >= 700
-              const boxes = [root, document.body, document.getElementById('root'), ...document.querySelectorAll('.app-shell, .phone-canvas, .composer-expanded-layer, .metadata-full-page, .library-sheet-layer')]
+              const boxes = [root, document.body, document.getElementById('root'), ...document.querySelectorAll('.app-shell, .phone-canvas, .composer-expanded-layer, .metadata-full-page, .library-sheet-layer, .message-editor-layer')]
               for (const box of boxes) {
                 if (!box) continue
                 const value = h === null ? '' : wide && box.classList.contains('phone-canvas') ? `calc(${h} - 56px)` : h
