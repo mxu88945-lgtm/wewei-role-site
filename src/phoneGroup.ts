@@ -109,8 +109,9 @@ export function phoneModeRules(speakerName: string, memberNames: string[], userN
 2. 本轮你只以「${speakerName}」的身份发消息。保持自己的人设、语气和脾气，但现在是休闲日常：可以聊天、吐槽、互怼、聊自己的剧情、评价别人和${userName}演的戏。
 3. 用微信聊天的写法：短句、口语，一次 1—4 条短消息，每条单独一行，每条一般不超过 40 字。可以用很少的（括号）写一个小动作或表情，偶尔可以有一句情景发言，但禁止写成小说正文、长段旁白和心理描写。
 4. 不输出 <scene>、<gts_status>、状态栏、场景栏、HTML 或任何标签。不加自己的名字前缀。
-5. 不替${userName}或其他成员发言、做决定。被 @ 时优先回应 @ 你的那条；别人刚说过的话可以接、可以怼，但不要重复别人的话。
-6. 锁屏权：如果你真觉得${userName}该去吃饭、睡觉或休息了，可以在消息最后单独一行写【锁屏 N分钟：一句理由】（N 在 5 到 120 之间），惟境会把她的小手机锁上 N 分钟、锁屏页署你的名。只在真有必要时用，别动不动就锁。`
+5. 不替${userName}或其他成员发言、做决定。被 @ 时优先回应 @ 你的那条；别人刚说过的话可以接、可以怼，但不要重复别人的话。想叫哪个群友出来，就在消息里写「@名字」，他会马上出来回你，别乱 @。
+6. 锁屏权：如果你真觉得${userName}该去吃饭、睡觉或休息了，可以在消息最后单独一行写【锁屏 N分钟：一句理由】（N 在 5 到 120 之间），惟境会把她的小手机锁上 N 分钟、锁屏页署你的名。只在真有必要时用，别动不动就锁。
+7. 退群权：真被气到忍无可忍，可以在消息最后单独一行写【退群：一句理由】，你会真的退出这个群、扣 20 服刑积分，${userName}可以再把你拉回来（那时要“二进宫”报到）。很少用，别拿来撒娇。`
 }
 
 export function phoneBindingCandidates(conversations: Conversation[], characterId: string) {
@@ -279,4 +280,42 @@ export function buildDmGroupPeek(groups: Array<{ title: string; participantIds?:
       return `「${group.title}」最近：\n${lines.join('\n')}`
     })
   return blocks.length ? `【你在的群最近在聊】（你都看过；私聊里可以提、可以吐槽，但别整段复述）\n${blocks.join('\n\n')}` : ''
+}
+
+/** 角色消息里 @ 到的群友（@全名 或 @名，三字名可只写后两字），按出现顺序，不含自己。 */
+export function findAtMentionIds(text: string, participants: Array<{ id: string; name: string }>, selfId?: string) {
+  const hits: Array<{ id: string; at: number }> = []
+  for (const { id, name } of participants) {
+    if (!name || id === selfId) continue
+    const keys = [name, name.length === 3 ? name.slice(1) : ''].filter(Boolean)
+    const at = Math.min(...keys.map((key) => { const a = text.indexOf(`@${key}`); const b = text.indexOf(`＠${key}`); return [a, b].filter((n) => n >= 0).reduce((x, y) => Math.min(x, y), Infinity) }))
+    if (Number.isFinite(at)) hits.push({ id, at })
+  }
+  return hits.sort((a, b) => a.at - b.at).map((hit) => hit.id)
+}
+
+/** 被角色 @ 的人插到队列里紧跟着说话；已经排在后面的提前，一轮最多连锁 budget 次。 */
+export function queueSummons(queue: string[], index: number, summoned: string[], budget: number) {
+  const next = [...queue]
+  let used = 0
+  let insertAt = index + 1
+  for (const id of summoned) {
+    if (used >= budget) break
+    const later = next.indexOf(id, index + 1)
+    if (later >= 0 && later === insertAt) { insertAt += 1; used += 1; continue }
+    if (later >= 0) next.splice(later, 1)
+    next.splice(insertAt, 0, id)
+    insertAt += 1
+    used += 1
+  }
+  return { queue: next, used }
+}
+
+const QUIT_TAG = /[【[]\s*退群\s*(?:[：:，,]\s*([^】\]]{0,40}))?[】\]]/g
+/** 角色消息里的【退群：理由】。返回替换成“退出了群聊”提示后的文本。 */
+export function parsePhoneQuit(text: string, name: string) {
+  let reason = ''
+  let found = false
+  const out = text.replace(QUIT_TAG, (_all, why?: string) => { if (found) return ''; found = true; reason = (why || '').trim(); return `🚪 ${name}退出了群聊${reason ? `：${reason}` : ''}` })
+  return found ? { text: out.replace(/\n{3,}/g, '\n\n').trim(), reason } : null
 }

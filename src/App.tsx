@@ -21,12 +21,12 @@ import { Forum } from './Forum'
 import { buildForumRecapNote, threadsFromMoments, type ForumThread } from './forum'
 import PhoneAutoSettingsCard from './PhoneAutoSettings'
 import PhonePointsCard from './PhonePointsCard'
-import { applyMessagePoints, buildPointsNote, readPoints, writePoints } from './phonePoints'
+import { addPoints, applyMessagePoints, buildPointsNote, readPoints, writePoints } from './phonePoints'
 import { FORUM_UPDATED_EVENT, dueRunAt, forumAutoTick, forumWelcomeThread, isQuietHour, pickAutoGroup, readPhoneAuto, writePhoneAuto } from './phoneAuto'
 import type { Moment } from './moments'
 import { USER_AUTHOR, communityMemberIds, excerptFromMessage } from './moments'
 import { buildDmGroupPeek, phoneDmRules } from './phoneGroup'
-import { PHONE_REPLY_MODES, findNamedParticipantIds, selectPhoneSpeakers, pickPhoneChatters, cleanPhoneOutput, phoneFinalGuard, buildSmartPickPrompt, parseSmartPick, buildPhoneArchive, buildPhoneGroupBackground, phoneBindingCandidates, buildPhoneRealWorldNote, parsePhoneLockCommand, buildPhoneLockBreachNote, type PhoneLockState, type PhoneLockBreach, phoneCharacter, phoneModeRules } from './phoneGroup'
+import { PHONE_REPLY_MODES, findAtMentionIds, queueSummons, parsePhoneQuit, findNamedParticipantIds, selectPhoneSpeakers, pickPhoneChatters, cleanPhoneOutput, phoneFinalGuard, buildSmartPickPrompt, parseSmartPick, buildPhoneArchive, buildPhoneGroupBackground, phoneBindingCandidates, buildPhoneRealWorldNote, parsePhoneLockCommand, buildPhoneLockBreachNote, type PhoneLockState, type PhoneLockBreach, phoneCharacter, phoneModeRules } from './phoneGroup'
 import { assignChatGroup, chatGroupNames, groupConversations, setChatGroupMembers } from './chatGroups'
 import { assignLibraryGroup, setLibraryGroupMembers, effectiveLibraryRole, groupLibraryCharacters, LIBRARY_ROLE_LABELS, libraryGroupNames } from './characterLibraryGroups'
 import { activeCharacterMemory, characterMemoryEntryFromConversation, characterMemoryExtractionPrompt, characterMemorySummaryProtocol, parseCharacterMemoryCandidates, splitCharacterMemorySummary } from './characterMemory'
@@ -411,7 +411,8 @@ function App() {
     setPhoneLock(null)
   }
   const forumThreadsRef = useRef<ForumThread[]>([])
-  const pendingWelcomeRef = useRef<{ conversationId: string; ids: string[] } | null>(null)
+  const pendingWelcomeRef = useRef<{ conversationId: string; ids: string[]; returning?: Record<string, string> } | null>(null)
+  const phoneQuitRef = useRef(new Set<string>())
   const welcomeRunning = useRef(false)
   const phoneWelcomeLatest = useRef<() => Promise<void>>(async () => undefined)
   const [phoneAutoStatus, setPhoneAutoStatus] = useState('')
@@ -1809,7 +1810,9 @@ function App() {
       const editingId = phoneDraft.editingId
       const before = conversations.find((item) => item.id === editingId)?.participantIds || []
       const added = members.map((member) => member.id).filter((id) => !before.includes(id))
-      if (added.length) pendingWelcomeRef.current = { conversationId: editingId, ids: added.slice(0, 3) }
+      const leftBefore = conversations.find((item) => item.id === editingId)?.phone?.left || {}
+      added.forEach((id) => phoneQuitRef.current.delete(`${editingId}:${id}`))
+      if (added.length) pendingWelcomeRef.current = { conversationId: editingId, ids: added.slice(0, 3), returning: Object.fromEntries(added.filter((id) => leftBefore[id]).map((id) => [id, leftBefore[id].reason])) }
       setConversations((current) => current.map((item) => {
         if (item.id !== editingId) return item
         const sameMembers = (item.participantIds || []).join('|') === members.map((member) => member.id).join('|')
@@ -1817,7 +1820,7 @@ function App() {
           ...item, title, characterId: members[0].id, participantIds: members.map((member) => member.id),
           participantApiIds: { ...apiIds, ...Object.fromEntries(Object.entries(item.participantApiIds || {}).filter(([id]) => phoneDraft.memberIds.includes(id))) },
           participantModelNames: { ...modelNames, ...Object.fromEntries(Object.entries(item.participantModelNames || {}).filter(([id]) => phoneDraft.memberIds.includes(id))) },
-          phone: { bindings },
+          phone: { ...item.phone, bindings, left: Object.fromEntries(Object.entries(item.phone?.left || {}).filter(([id]) => !phoneDraft.memberIds.includes(id))) },
           theaterWorldBackground: sameMembers && item.theaterWorldBackground?.trim() ? item.theaterWorldBackground : buildPhoneGroupBackground(members),
           updatedAt: now,
         }
@@ -2388,6 +2391,7 @@ function App() {
         content: isPhone && requestOptions.phoneNudge ? requestOptions.phoneNudge : isPhone ? `${identity.name}现在没说话。请以「${speaker.name}」的身份在群里接着聊：接上一位成员的话头，或自然挑起一个日常话题、吐槽、互怼。不要提及本条指令。` : `请让${speaker.name}从上一条回复的结束处自然续演并推进当前剧情。不要复述已经写过的内容，不要替用户新增台词、动作、心理或关键选择，不要提及本条续演指令。`,
       })
     }
+    if (isPhone && requestOptions.phoneNudge && !requestOptions.continueWithoutUser) promptMessages.push({ role: 'system', content: requestOptions.phoneNudge })
     const variablesPrompt = buildStoryVariablesPrompt(requestOptions.contextOverride ? requestOptions.contextOverride.storyVariables : conversation.storyVariables, speaker.id)
     if (variablesPrompt) promptMessages.push({ role: 'system', content: variablesPrompt })
     // This must be the final outbound instruction.  In particular, director
@@ -2621,6 +2625,18 @@ function App() {
         ? normalizeDirectorStatusOutput(cleanOutput || output)
         : conversation.phone ? cleanPhoneOutput(cleanOutput || output) || phoneLockCommand?.text || cleanOutput || output
         : cleanOutput || output
+      const phoneQuit = conversation.phone && !conversation.phone.dm && !isDirector ? parsePhoneQuit(visibleOutput, speaker.name) : null
+      if (phoneQuit) {
+        visibleOutput = phoneQuit.text
+        writePoints(addPoints(readPoints(), speaker.id, -20, `退群${phoneQuit.reason ? `：${phoneQuit.reason}` : ''}`, Date.now()))
+        phoneQuitRef.current.add(`${conversationId}:${speaker.id}`)
+        setConversations((current) => current.map((item) => {
+          if (item.id !== conversationId || !item.phone) return item
+          const bindings = { ...item.phone.bindings }
+          delete bindings[speaker.id]
+          return { ...item, participantIds: (item.participantIds || []).filter((id) => id !== speaker.id), phone: { ...item.phone, bindings, left: { ...(item.phone.left || {}), [speaker.id]: { at: Date.now(), reason: phoneQuit.reason } } } }
+        }))
+      }
       if (conversation.phone && !isDirector && visibleOutput.trim()) {
         const points = applyMessagePoints(readPoints(), speaker.id, visibleOutput, Date.now())
         writePoints(points.state)
@@ -2738,15 +2754,26 @@ function App() {
     const lastSpeakerId = [...groupMessages].reverse().find((item) => item.role === 'assistant')?.characterId
     const speakerIds = conversation.phone?.dm ? participantIds.slice(0, 1) : pickPhoneChatters(participantIds, lastSpeakerId, Math.random, conversation.phone?.mode === 'all')
     setChatError('')
-    for (const speakerId of speakerIds) {
+    let queue = [...speakerIds]
+    let summonBudget = conversation.phone?.dm ? 0 : 3
+    const summonedBy = new Map<string, string>()
+    for (let index = 0; index < queue.length; index += 1) {
+      const speakerId = queue[index]
       if ((conversationStopRevisions.current.get(conversation.id) || 0) !== stopRevision) break
       const speaker = characters.find((item) => item.id === speakerId)
-      if (!speaker) continue
-      const next = await generateAssistant(conversation, groupMessages, speaker, conversationApiFor(conversation, speakerId, api), { continueWithoutUser: true })
+      if (!speaker || phoneQuitRef.current.has(`${conversation.id}:${speakerId}`)) continue
+      const caller = summonedBy.get(speakerId)
+      const next = await generateAssistant(conversation, groupMessages, speaker, conversationApiFor(conversation, speakerId, api), { continueWithoutUser: true, ...(caller ? { phoneNudge: `${caller}刚在群里 @ 了你，先回他那条。`, explicitlyMentioned: true } : {}) })
       if ((conversationStopRevisions.current.get(conversation.id) || 0) !== stopRevision) break
       if (next.length === groupMessages.length) break
       if (next[next.length - 1]?.finishReason === 'connection_interrupted') break
       groupMessages = next
+      if (summonBudget > 0) {
+        const summoned = findAtMentionIds(next[next.length - 1]?.text || '', participantIds.map((id) => ({ id, name: characters.find((item) => item.id === id)?.name || '' })), speakerId)
+        const result = queueSummons(queue, index, summoned, summonBudget)
+        summoned.slice(0, result.used).forEach((id) => summonedBy.set(id, speaker.name))
+        queue = result.queue; summonBudget -= result.used
+      }
     }
   }
 
@@ -2803,7 +2830,8 @@ function App() {
       for (const id of pending.ids) {
         const speaker = characters.find((item) => item.id === id)
         if (!speaker) continue
-        const nudge = `「${speaker.name}」刚被${identity.name}拉进这个小手机群。请以「${speaker.name}」的身份发新人报到：打招呼、说自己是从哪个故事来的、一句话介绍自己，可以带点人设脾气，也可以顺手跟已经认识的人搭话。像真人进群那样短，1—3 行。不要提及本条指令。`
+        const returning = pending.returning && id in pending.returning
+        const nudge = returning ? `「${speaker.name}」之前在这个群里自己退群了${pending.returning?.[id] ? `（当时说：${pending.returning[id]}）` : ''}，现在又被${identity.name}拉了回来。请以「${speaker.name}」的身份发“二进宫”报到：嘴硬、尴尬、找台阶下或者翻脸不认账都行，按人设来，可以顺手回应刚才把你气走的人。1—3 行。不要提及本条指令。` : `「${speaker.name}」刚被${identity.name}拉进这个小手机群。请以「${speaker.name}」的身份发新人报到：打招呼、说自己是从哪个故事来的、一句话介绍自己，可以带点人设脾气，也可以顺手跟已经认识的人搭话。像真人进群那样短，1—3 行。不要提及本条指令。`
         const next = await generateAssistant({ ...conversation, messages: groupMessages }, groupMessages, speaker, conversationApiFor(conversation, id, api), { continueWithoutUser: true, phoneNudge: nudge })
         if (next.length === groupMessages.length) break
         groupMessages = next
@@ -2812,7 +2840,7 @@ function App() {
         let threads = forumThreadsRef.current.length ? forumThreadsRef.current : await durableGet<ForumThread[]>('weijing.forum') || []
         for (const id of pending.ids) {
           const newcomer = characters.find((item) => item.id === id)
-          if (!newcomer || threads.some((thread) => thread.board === '新人报到' && thread.authorId === id)) continue
+          if (!newcomer || pending.returning?.[id] !== undefined || threads.some((thread) => thread.board === '新人报到' && thread.authorId === id)) continue
           try { threads = await forumWelcomeThread({ threads, newcomer, characters, conversations, api, userName: identity.name, at: Date.now() }) } catch { /* 报到帖失败不影响群聊 */ }
         }
         forumThreadsRef.current = threads
@@ -2910,16 +2938,27 @@ function App() {
         }
       }
       let groupMessages = baseMessages
-      for (const speakerId of speakerIds) {
+      let queue = [...speakerIds]
+      let summonBudget = conversation.phone && !conversation.phone.dm ? 3 : 0
+      const summonedBy = new Map<string, string>()
+      for (let index = 0; index < queue.length; index += 1) {
+        const speakerId = queue[index]
         if ((conversationStopRevisions.current.get(conversation.id) || 0) !== stopRevision) break
         const speaker = characters.find((item) => item.id === speakerId)
-        if (!speaker) continue
+        if (!speaker || phoneQuitRef.current.has(`${conversation.id}:${speakerId}`)) continue
         const channel = conversationApiFor(conversation, speakerId, api)
-        const nextGroupMessages = await generateAssistant(conversation, groupMessages, speaker, channel, { explicitlyMentioned: mentionedIds.includes(speakerId) })
+        const caller = summonedBy.get(speakerId)
+        const nextGroupMessages = await generateAssistant(conversation, groupMessages, speaker, channel, { explicitlyMentioned: mentionedIds.includes(speakerId) || Boolean(caller), ...(caller ? { phoneNudge: `${caller}刚在群里 @ 了你，先回他那条。` } : {}) })
         if ((conversationStopRevisions.current.get(conversation.id) || 0) !== stopRevision) break
         if (nextGroupMessages.length === groupMessages.length) break
         if (nextGroupMessages[nextGroupMessages.length - 1]?.finishReason === 'connection_interrupted') break
         groupMessages = nextGroupMessages
+        if (summonBudget > 0) {
+          const summoned = findAtMentionIds(nextGroupMessages[nextGroupMessages.length - 1]?.text || '', participantIds.map((id) => ({ id, name: characters.find((item) => item.id === id)?.name || '' })), speakerId)
+          const result = queueSummons(queue, index, summoned, summonBudget)
+          summoned.slice(0, result.used).forEach((id) => summonedBy.set(id, speaker.name))
+          queue = result.queue; summonBudget -= result.used
+        }
       }
       const memoryCharacter = characters.find((item) => item.id === participantIds[0]) || activeCharacter
       const groupMemoryConfig = memoryConfigFor(memoryCharacter.id)
@@ -3749,7 +3788,7 @@ function UpdateCard() {
     }
   }
 
-  return <section className="update-card"><strong>应用更新</strong><p>主动检查并拉取最新网页版本，不会删除角色、聊天记录或本地设置。</p><small>当前版本：v70 · 2026.10.14 论坛举报投诉分享和@</small><button onClick={refresh} disabled={state === 'checking'}>{state === 'checking' ? '正在检查更新…' : state === 'error' ? '更新失败，点我重试' : '强制刷新到最新版'}</button></section>
+  return <section className="update-card"><strong>应用更新</strong><p>主动检查并拉取最新网页版本，不会删除角色、聊天记录或本地设置。</p><small>当前版本：v71 · 2026.10.14 角色互相@和退群</small><button onClick={refresh} disabled={state === 'checking'}>{state === 'checking' ? '正在检查更新…' : state === 'error' ? '更新失败，点我重试' : '强制刷新到最新版'}</button></section>
 }
 
 function PersonaPage({ identities, selectedId, isBound, onSelect, onAdd, onDelete, onUpdate, onBack }: { identities: UserIdentity[]; selectedId: string; isBound: boolean; onSelect: (id: string) => void; onAdd: () => void; onDelete: (id: string) => void; onUpdate: (patch: Partial<UserIdentity>) => void; onBack: () => void }) {
