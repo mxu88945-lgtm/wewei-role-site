@@ -697,3 +697,7 @@ button { cursor: pointer; }
 .export-range-field input:focus { border-color: rgba(139,87,199,.55); }
 .export-range-field button { margin-left: auto; min-height: 36px; padding: 0 12px; border: 0; border-radius: 12px; background: #eeeaf0; color: #77707b; font-weight: 700; }
 .export-range-preview { margin: -6px 0 0; padding: 9px 12px; border-radius: 12px; background: #f6f3f7; color: #8a8190; font-size: 12px; line-height: 1.5; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.export-range-select { display: flex; flex-direction: column; gap: 6px; }
+.export-range-select small { color: #8a8190; font-size: 12px; }
+.export-range-select select { width: 100%; min-height: 48px; padding: 0 14px; border: 1px solid rgba(91,68,104,.12); border-radius: 14px; background: #f2eef4; color: #3e3842; font-size: 16px; -webkit-appearance: none; appearance: none; text-overflow: ellipsis; }
+.export-range-count { margin: 0; color: #8a8190; font-size: 13px; }
