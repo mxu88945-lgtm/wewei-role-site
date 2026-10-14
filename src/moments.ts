@@ -59,7 +59,7 @@ export function characterBrief(character: Character, conversations: Conversation
   const boundId = phoneGroupsOf(conversations).map((group) => group.phone?.bindings[character.id]).find(Boolean)
   const bound = boundId ? conversations.find((item) => item.id === boundId) : undefined
   const story = bound ? clip(bound.contextSummary, 500) || clip(bound.messages.slice(-4).map((message) => message.text).join(' / '), 300) : ''
-  return `【${character.name}】${clip(character.description, 420)}${character.personality ? `｜性格：${clip(character.personality, 160)}` : ''}${story ? `\n他自己演过的戏（只有他本人清楚细节）：${story}` : ''}`
+  return `【${character.name}】${clip(character.description, 420)}${character.personality ? `｜性格：${clip(character.personality, 160)}` : ''}${character.scenario?.trim() ? `\n所在故事背景：${clip(character.scenario, 300)}` : ''}${story ? `\n他演过的戏（大家都看过）：${story}` : ''}`
 }
 
 export function momentLine(moment: Moment, nameOf: (id: string) => string) {
@@ -73,7 +73,7 @@ export function threadText(moment: Moment, nameOf: (id: string) => string, limit
 export const COMMUNITY_RULES = (userName: string) => `【惟境戏外社区·动态】
 这是惟境角色们的“朋友圈”。所有人都知道自己是惟境里的角色卡，${userName}是现实里陪他们对戏、扮演故事女主的人，也是社区管理员“周导”。
 · 口吻像真实朋友圈：短、口语、有梗，可以吐槽、互怼、举报、阴阳怪气，但保持各自人设。
-· 每个人只清楚自己演过的戏；别人的剧情细节没被授权就不知道，可以“申请查看出处”。
+· 大家演过的戏互相公开、都看过，可以直接聊别人的剧情和人物关系；只是别编档案里没有的细节。
 · 不写小说正文，不写旁白、心理描写，不输出任何标签或状态栏。`
 
 export function buildPostPrompt(input: { author: Character; brief: string; userName: string; recent: string[]; summaries: string[]; sourceExcerpt?: string }) {

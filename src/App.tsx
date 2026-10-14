@@ -2297,8 +2297,11 @@ function App() {
     const actorContinuityAnchor = isGroup && !isPhone ? findLatestActorContinuityAnchor(nextMessages, speaker.id, speaker.name) : ''
     const phonePreset = isPhone ? (() => {
       const members = (conversation.participantIds || []).map((id) => characters.find((item) => item.id === id)).filter(Boolean) as Character[]
-      const sources = members.map((member) => {
-        const boundId = conversation.phone?.bindings[member.id]
+      // 私聊：TA 群里的每个人的剧情档案和人设都看得到（大家互相透明）。
+      const dmMates = conversation.phone?.dm ? [...new Set(conversations.filter((item) => item.phone && !item.phone.dm && item.participantIds?.includes(speaker.id)).flatMap((item) => item.participantIds || []))].filter((id) => id !== speaker.id).map((id) => characters.find((item) => item.id === id)).filter(Boolean) as Character[] : []
+      const bindingOf = (memberId: string) => conversation.phone?.bindings[memberId] || conversations.map((item) => item.phone && !item.phone.dm ? item.phone.bindings[memberId] : undefined).find(Boolean)
+      const sources = [...members, ...dmMates].map((member) => {
+        const boundId = bindingOf(member.id)
         const bound = boundId ? conversations.find((item) => item.id === boundId) : undefined
         return {
           character: member,
@@ -2309,8 +2312,12 @@ function App() {
       })
       const nameOf = (message: Message) => characters.find((item) => item.id === message.characterId)?.name || members[0]?.name || '角色'
       const realWorld = [(() => { try { return buildPhoneRealWorldNote(new Date(), JSON.parse(localStorage.getItem('weijing.phoneWeather') || 'null')) } catch { return buildPhoneRealWorldNote(new Date()) } })(), (() => { const web = phoneWebNoteRef.current; return web && web.conversationId === conversation.id && Date.now() - web.at < 5 * 60 * 1000 ? web.note : '' })(), buildForumRecapNote(forumThreadsRef.current, members.map((member) => member.id), (id) => id === 'user' ? identity.name : characters.find((item) => item.id === id)?.name || '已离开的角色', identity.name), (() => { try { return buildPhoneLockBreachNote(JSON.parse(localStorage.getItem('weijing.phoneLockBreach') || 'null'), Date.now(), identity.name) } catch { return '' } })()].filter(Boolean).join('\n')
+      // 群世界观是建群时生成的；后来加进来的人，现场补上他的人设，免得别人不认识。
+      const missingMates = conversation.phone?.dm ? [] : members.filter((member) => !(conversation.theaterWorldBackground || '').includes(`【${member.name}`))
+      const mateBackground = missingMates.length ? `【补充成员人设】\n${buildPhoneGroupBackground(missingMates).split('\n\n').slice(1).join('\n\n')}` : ''
+      const dmBackground = dmMates.length ? `【群友们的人设与世界观】（大家互相透明，你都知道）\n${buildPhoneGroupBackground(dmMates).split('\n\n').slice(1).join('\n\n')}` : ''
       const dmPeek = conversation.phone?.dm ? buildDmGroupPeek(conversations, speaker.id, (message) => message.role === 'user' ? identity.name : characters.find((item) => item.id === message.characterId)?.name || '群友') : ''
-      return [conversation.phone?.dm ? phoneDmRules(speaker.name, identity.name) : phoneModeRules(speaker.name, members.map((member) => member.name), identity.name), realWorld, dmPeek, buildPhoneArchive(sources, speaker.id, identity.name, (message) => message.characterId ? nameOf(message) : sources.find((source) => source.conversation?.messages.includes(message))?.character.name || '角色')].join('\n\n')
+      return [conversation.phone?.dm ? phoneDmRules(speaker.name, identity.name) : phoneModeRules(speaker.name, members.map((member) => member.name), identity.name), realWorld, mateBackground, dmBackground, dmPeek, buildPhoneArchive(sources, speaker.id, identity.name, (message) => message.characterId ? nameOf(message) : sources.find((source) => source.conversation?.messages.includes(message))?.character.name || '角色')].join('\n\n')
     })() : ''
     const sanitizedHistory = (isPhone ? nextMessages.map((message) => message.role === 'assistant' ? { ...message, text: cleanPhoneOutput(message.text) || message.text } : message) : nextMessages).flatMap((message) => {
       const fromDirector = message.role === 'assistant' && message.characterId === conversation.directorCharacterId
@@ -3675,7 +3682,7 @@ function UpdateCard() {
     }
   }
 
-  return <section className="update-card"><strong>应用更新</strong><p>主动检查并拉取最新网页版本，不会删除角色、聊天记录或本地设置。</p><small>当前版本：v67 · 2026.10.14 小手机私聊</small><button onClick={refresh} disabled={state === 'checking'}>{state === 'checking' ? '正在检查更新…' : state === 'error' ? '更新失败，点我重试' : '强制刷新到最新版'}</button></section>
+  return <section className="update-card"><strong>应用更新</strong><p>主动检查并拉取最新网页版本，不会删除角色、聊天记录或本地设置。</p><small>当前版本：v68 · 2026.10.14 小手机互相透明</small><button onClick={refresh} disabled={state === 'checking'}>{state === 'checking' ? '正在检查更新…' : state === 'error' ? '更新失败，点我重试' : '强制刷新到最新版'}</button></section>
 }
 
 function PersonaPage({ identities, selectedId, isBound, onSelect, onAdd, onDelete, onUpdate, onBack }: { identities: UserIdentity[]; selectedId: string; isBound: boolean; onSelect: (id: string) => void; onAdd: () => void; onDelete: (id: string) => void; onUpdate: (patch: Partial<UserIdentity>) => void; onBack: () => void }) {

@@ -72,7 +72,7 @@ export const FORUM_RULES = (userName: string) => `【惟境戏外社区·论坛�
 这是惟境角色们自己的论坛，像贴吧/豆瓣小组。所有人都知道自己是惟境里的角色卡，${userName}是现实里陪他们对戏、扮演故事女主的人，也是论坛管理员“周导”。
 · 口吻像真实网友盖楼：短、口语、有梗，可以吐槽、互怼、阴阳怪气、拉踩、站队、玩梗、发“+1”“前排”，但保持各自人设和说话习惯。
 · 可以偶尔匿名发言（anonymous 为 true），匿名时语气也要像本人，让大家能猜。
-· 每个人只清楚自己演过的戏；别人的剧情细节不知道就别编，可以追问。
+· 大家演过的戏和人设互相公开、都看过，可以直接聊、拿别人的剧情和人物关系开涮；只是别编没有的细节。
 · 不写小说正文、旁白、心理描写，不输出任何标签或状态栏。`
 
 export function buildThreadPrompt(input: { authorName: string; brief: string; userName: string; recent: string[]; board?: ForumBoard; sourceExcerpt?: string; hint?: string }) {

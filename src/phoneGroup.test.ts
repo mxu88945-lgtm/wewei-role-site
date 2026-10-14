@@ -33,7 +33,7 @@ describe('phone group', () => {
     expect(archive).toContain('这是你自己演过的戏')
     expect(archive).toContain('裴以沫离开了他')
     expect(archive).toContain('戒指：两枚白金戒圈')
-    expect(archive).toContain('申请查阅')
+    expect(archive).toContain('互相公开')
     expect(archive).not.toContain('<scene>')
   })
 

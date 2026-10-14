@@ -94,12 +94,12 @@ export function buildPhoneArchive(sources: PhoneArchiveSource[], speakerId: stri
     const own = character.id === speakerId
     return [
       `【${character.name}的剧情档案｜来自对话「${conversation.title}」${own ? '｜这是你自己演过的戏' : ''}】`,
-      conversation.contextSummary?.trim() && `剧情摘要：\n${clip(conversation.contextSummary, own ? 3000 : 1500)}`,
+      conversation.contextSummary?.trim() && `剧情摘要：\n${clip(conversation.contextSummary, own ? 3000 : 2400)}`,
       memories && `记忆：\n${memories}`,
-      `最近几句：\n${tail(conversation.messages, (message) => message.role === 'user' ? userName : nameOf(message), own ? 12 : 6)}`,
+      `最近几句：\n${tail(conversation.messages, (message) => message.role === 'user' ? userName : nameOf(message), own ? 12 : 10)}`,
     ].filter(Boolean).join('\n')
   })
-  return `【小手机｜成员剧情档案】\n你最熟悉自己的那份档案，可以随口聊自己的剧情、吐槽自己演过的事。别人的档案你知道存在：想聊别人的细节时，可以在群里“申请查阅”某人的聊天记录，对方答应或${userName}允许后再引用；没被查阅前别把别人的隐私细节当成自己早就知道。\n\n${blocks.join('\n\n')}`
+  return `【小手机｜成员剧情档案｜大家互相公开】\n这些档案所有人都看过，彼此透明：别人演过什么、跟${userName}在戏里发生过什么、各自的人物关系和故事背景，你都知道，可以直接聊、对比、吐槽、拿来调侃。自己那份你最熟，细节最清楚；别人的你看过但只记得大概，别编档案里没有的细节。\n\n${blocks.join('\n\n')}`
 }
 
 export function phoneModeRules(speakerName: string, memberNames: string[], userName: string) {
