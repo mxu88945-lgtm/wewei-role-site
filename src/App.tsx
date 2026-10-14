@@ -73,6 +73,7 @@ import { enforceRelationshipStageFloor, extractRelationshipStage, highestRelatio
 import { buildStatusFallback, getStatusProtocol, latestStatusContent } from './statusProtocol'
 import { dismissComposerKeyboard } from './composerKeyboard'
 import { createKeyboardScrollPin, VIEWPORT_CHANGE_EVENT, VIEWPORT_WILL_CHANGE_EVENT } from './keyboardScrollPin'
+import { isChatScoped, legacyDefaultThemeId, pickGlobalIdentity, pickIdentity, pickThemeId, repairLeakedGlobalPersona } from './chatScope'
 
 type Page = 'home' | 'phone' | 'story-projects' | 'characters' | 'create' | 'character-workshop' | 'group-create' | 'director-template' | 'group-greeting-picker' | 'import-preview' | 'character-detail' | 'card-data' | 'card-worldbook' | 'card-regex' | 'card-memory' | 'greeting-picker' | 'chat' | 'more' | 'api' | 'reply-helper-api' | 'model' | 'settings' | 'appearance' | 'font' | 'display-reply' | 'identity' | 'worldbook' | 'theater-world' | 'temporary-plot' | 'story-scripts' | 'chat-search' | 'request-preview' | 'preset' | 'memory' | 'memory-api' | 'memory-list'
 type MessageEditor = { mode: 'assistant' | 'resend'; messageId: number; text: string }
@@ -596,13 +597,24 @@ function App() {
   )
   const activeConversation = (explicitConversation?.kind === 'group' ? explicitConversation : conversations.find((item) => item.id === activeConversationId && item.characterId === activeCharacter.id))
     || conversations.filter((item) => !item.phone && item.characterId === activeCharacter.id).sort((a, b) => b.updatedAt - a.updatedAt)[0]
-  // Older installs never stored a default id: fall back to the theme of the most
-  // recently used themed chat so the look the user last picked carries over.
-  const effectiveDefaultThemeId = defaultThemePresetId || [...conversations].filter((item) => item.themePresetId).sort((x, y) => (y.updatedAt || 0) - (x.updatedAt || 0))[0]?.themePresetId || ''
-  const effectiveThemeId = activeConversation?.themePresetId || effectiveDefaultThemeId
+  // A story conversation's own theme and persona apply only inside that chat (and the
+  // chat-settings pages opened from it). Home, 小手机, the forum and global settings use
+  // the user's default theme and global identity. Older installs without a stored
+  // default get one computed once at startup (see the durable-load effect), so the
+  // default no longer follows whichever conversation was updated last.
+  const chatScoped = isChatScoped(page, history)
+  const scopedConversation = chatScoped ? activeConversation : undefined
+  const effectiveThemeId = pickThemeId(chatScoped, activeConversation, defaultThemePresetId)
+  // Which theme the library marks as in use: the chat's own pick inside a chat, the default elsewhere.
+  const themeMarkId = scopedConversation ? scopedConversation.themePresetId : defaultThemePresetId
   const wallpaperKey = effectiveThemeId ? themeWallpaperKey(effectiveThemeId) : wallpaperScopeKey(activeConversation, activeCharacter.id)
   const currentWallpaper = normalizeWallpaper(chatWallpapers[wallpaperKey], chatBaseColor)
-  const identity = identities.find((item) => item.id === activeConversation?.personaId) || identities.find((item) => item.id === activePersonaId) || identities[0] || { id: 'persona-default', name: '周惟惟', description: '由用户亲自决定言行、心理与关键选择。' }
+  // globalIdentity: home, 小手机 lists, forum, background ticks. identityFor(conversation):
+  // inside one conversation (its bound persona, else global). identity: whatever the
+  // current page is about — the open chat's persona on chat pages, global elsewhere.
+  const globalIdentity = pickGlobalIdentity(identities, activePersonaId)
+  const identityFor = (conversation: Conversation | undefined) => pickIdentity(conversation, identities, activePersonaId)
+  const identity = chatScoped ? identityFor(activeConversation) : globalIdentity
   const sourceGroupConversation = conversations.find((item) => item.id === newConversationSourceId && item.kind === 'group')
   const groupGreetingCharacters = (sourceGroupConversation?.participantIds || groupDraft.participantIds).map((id) => characters.find((item) => item.id === id)).filter(Boolean) as Character[]
   const groupGreetingUserName = newConversationSourceId ? identity.name : (identities.find((item) => item.id === activePersonaId) || identity).name
@@ -770,9 +782,11 @@ function App() {
       write('weijing.chatTheme', nextDefault.mode); write('weijing.chatBaseColor', nextDefault.baseColor); write('weijing.chatTextColor', nextDefault.textColor)
       write('weijing.chatNarrationColor', nextDefault.narrationColor); write('weijing.chatQuoteColor', nextDefault.quoteColor); write('weijing.chatBackgroundFrost', nextDefault.frost)
     }
-    if (bind && activeConversation) {
-      write(conversationFrostKey(activeConversation.id), preset.frost)
-      setConversations((current) => current.map((item) => item.id === activeConversation.id ? { ...item, themePresetId: preset.id, themeFrost: preset.frost } : item))
+    // From global settings (外观) a pick only sets the default; it binds to a chat only
+    // when the theme page was opened from that chat.
+    if (bind && scopedConversation) {
+      write(conversationFrostKey(scopedConversation.id), preset.frost)
+      setConversations((current) => current.map((item) => item.id === scopedConversation.id ? { ...item, themePresetId: preset.id, themeFrost: preset.frost } : item))
     }
   }
   const updateChatWallpaper = (patch: Partial<ChatWallpaper>) => {
@@ -821,7 +835,7 @@ function App() {
     if (!window.confirm(`删除“${preset.name}”？`)) return
     setCustomThemes((current) => current.filter((item) => item.id !== preset.id))
     if (wallpaperHydrationReady) setChatWallpapers((current) => { const next = { ...current }; delete next[themeWallpaperKey(preset.id)]; return next })
-    if (activeConversation?.themePresetId === preset.id) applyThemePreset(builtInThemes[0])
+    if (scopedConversation?.themePresetId === preset.id || defaultThemePresetId === preset.id) applyThemePreset(builtInThemes[0])
   }
 
   useEffect(() => {
@@ -854,6 +868,21 @@ function App() {
       }
       setChatWallpapers(loadedWallpapers)
       setWallpaperHydrationReady(true)
+      if (!read('weijing.defaultThemePresetId', '')) {
+        // One-time, stable default for installs that never stored one.
+        const legacyDefault = legacyDefaultThemeId(loadedConversations)
+        if (legacyDefault) { setDefaultThemePresetId(legacyDefault); try { write('weijing.defaultThemePresetId', legacyDefault) } catch { /* recomputed next launch */ } }
+      }
+      if (!read('weijing.personaScopeV76', false)) {
+        const loadedIdentities = storedIdentities?.length ? storedIdentities : storedIdentity ? [{ ...storedIdentity, id: storedIdentity.id || 'persona-default' }] : read<UserIdentity[]>('weijing.identities', [])
+        const repair = repairLeakedGlobalPersona(loadedConversations, loadedIdentities, read('weijing.activePersona', 'persona-default'))
+        if (repair) {
+          const cleared = new Set(repair.conversations.filter((item, index) => item !== loadedConversations[index]).map((item) => item.id))
+          setActivePersonaId(repair.activePersonaId)
+          if (cleared.size) setConversations((current) => current.map((item) => cleared.has(item.id) ? { ...item, personaId: undefined } : item))
+        }
+        try { write('weijing.personaScopeV76', true) } catch { /* re-running is harmless */ }
+      }
       if (storedGlobalMemoryApi) setGlobalMemoryApi(storedGlobalMemoryApi)
       if (storedStoryProjects) setStoryProjects(normalizeStoryProjects(storedStoryProjects))
       if (storedPlotTemplates) setPlotTemplates(storedPlotTemplates)
@@ -866,9 +895,11 @@ function App() {
     const preset = allThemes.find((item) => item.id === effectiveThemeId)
     if (preset) {
       applyThemePreset(preset, false)
-      const savedFrost = activeConversation ? read<number | undefined>(conversationFrostKey(activeConversation.id), undefined) : undefined
+      // Per-chat frost only belongs to a chat whose own theme is on screen.
+      const ownTheme = scopedConversation?.themePresetId === preset.id ? scopedConversation : undefined
+      const savedFrost = ownTheme ? read<number | undefined>(conversationFrostKey(ownTheme.id), undefined) : undefined
       if (typeof savedFrost === 'number') setChatBackgroundFrost(savedFrost)
-      else if (typeof activeConversation?.themeFrost === 'number') setChatBackgroundFrost(activeConversation.themeFrost)
+      else if (typeof ownTheme?.themeFrost === 'number') setChatBackgroundFrost(ownTheme.themeFrost)
     } else if (themeBoundRef.current) {
       // This chat has no bound theme: go back to the default instead of keeping
       // whatever the previously opened chat applied.
@@ -882,7 +913,7 @@ function App() {
     // Theme helpers are recreated with theme state; rerunning for those identities would
     // overwrite an in-progress edit. Conversation/preset changes are the intended trigger.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [activeConversation?.id, effectiveThemeId, persistenceReady])
+  }, [scopedConversation?.id, effectiveThemeId, persistenceReady])
   useEffect(() => {
     if (!persistenceReady) return
     setConversations((current) => {
@@ -1848,7 +1879,7 @@ function App() {
       kind: 'group', characterId: members[0].id,
       participantIds: members.map((member) => member.id),
       participantApiIds: apiIds, participantModelNames: modelNames,
-      title, messages: [], createdAt: now, updatedAt: now, personaId: activePersonaId,
+      title, messages: [], createdAt: now, updatedAt: now,
       phone: { bindings, avatar: phoneDraft.avatar, notice, allowQuit: phoneDraft.allowQuit !== false, allowKick: phoneDraft.allowKick !== false },
       theaterWorldBackground: buildPhoneGroupBackground(members),
     }
@@ -1870,7 +1901,7 @@ function App() {
       kind: 'group', characterId,
       participantIds: [characterId],
       participantApiIds: { [characterId]: api.id }, participantModelNames: { [characterId]: api.modelName },
-      title: character.name, messages: [], createdAt: now, updatedAt: now, personaId: activePersonaId,
+      title: character.name, messages: [], createdAt: now, updatedAt: now,
       phone: { bindings: binding ? { [characterId]: binding } : {}, dm: true },
       theaterWorldBackground: buildPhoneGroupBackground([character]),
     }
@@ -1887,6 +1918,7 @@ function App() {
 
   const forwardDmToGroup = (message: Message) => {
     const dm = activeConversation
+    const identity = identityFor(dm)
     const characterId = dm?.participantIds?.[0]
     if (!dm?.phone?.dm || !characterId) return
     const groups = conversations.filter((item) => item.phone && !item.phone.dm && item.participantIds?.includes(characterId)).sort((a, b) => b.updatedAt - a.updatedAt)
@@ -1969,11 +2001,14 @@ function App() {
   const updateIdentity = (patch: Partial<UserIdentity>) => {
     setIdentities((current) => current.map((item) => item.id === identity.id ? { ...item, ...patch, id: item.id } : item))
   }
+  // Inside a chat a pick binds that chat only; from global settings it changes the
+  // global identity used by home, 小手机 and new conversations.
   const selectIdentity = (id: string) => {
-    setActivePersonaId(id)
-    if (activeConversation) {
-      setConversations((current) => current.map((item) => item.id === activeConversation.id ? { ...item, personaId: id, updatedAt: Date.now() } : item))
+    if (scopedConversation) {
+      setConversations((current) => current.map((item) => item.id === scopedConversation.id ? { ...item, personaId: id, updatedAt: Date.now() } : item))
+      return
     }
+    setActivePersonaId(id)
   }
   const addIdentity = () => {
     const next: UserIdentity = { id: crypto.randomUUID(), name: `新身份 ${identities.length + 1}`, description: '填写这个用户角色的人设、背景、关系与行为边界。' }
@@ -2105,6 +2140,7 @@ function App() {
   }
 
   const summarizeMemory = async (sourceMessages = messages, targetConversation = activeConversation, targetCharacter = activeCharacter) => {
+    const identity = identityFor(targetConversation)
     const config = memoryConfigFor(targetCharacter.id)
     const targetRevision = targetConversation?.historyRevision || 0
     const summarizedCount = Math.min(targetConversation?.memorySummarizedCount || 0, sourceMessages.length)
@@ -2306,6 +2342,7 @@ function App() {
   }
 
   const prepareAssistantRequest = (conversation: Conversation, nextMessages: Message[], speaker: Character, requestOptions: AssistantRequestOptions = {}) => {
+    const identity = identityFor(conversation)
     const capturedTemporaryPlot = captureTemporaryPlot(conversation, Boolean(requestOptions.explicitlyMentioned), speaker.id)
     const isPhone = Boolean(conversation.phone)
     const capturedCharacter = {
@@ -2470,6 +2507,7 @@ function App() {
     speakerApi = api,
     requestOptions: AssistantRequestOptions = {},
   ): Promise<Message[]> => {
+    const identity = identityFor(conversation)
     const resolvedSpeakerApi = conversationApiFor(conversation, speaker.id, speakerApi)
     if (!isApiChannelComplete(resolvedSpeakerApi)) {
       setChatError(`请先为 ${speaker.name} 配置完整的 API 渠道。`)
@@ -2766,6 +2804,7 @@ function App() {
 
   /** 小手机：用户不说话，让群里的角色自己聊几句。 */
   const pickSmartSpeakers = async (conversation: Conversation, history: Message[], participants: Array<{ id: string; name: string }>, text: string, storyUpdatedNames: string[] = []) => {
+    const identity = identityFor(conversation)
     try {
       const nameOf = (message: Message) => message.role === 'user' ? identity.name : participants.find((item) => item.id === message.characterId)?.name || '角色'
       const recent = history.filter((message) => message.text?.trim() && !message.phoneNotice).slice(-12).map((message) => `${nameOf(message)}：${cleanPhoneOutput(message.text).replace(/\s+/g, ' ').slice(0, 80)}`)
@@ -2828,7 +2867,7 @@ function App() {
             const [stored, moments] = await Promise.all([durableGet<ForumThread[]>('weijing.forum'), durableGet<Moment[]>('weijing.moments')])
             current = stored || (moments?.length ? threadsFromMoments(moments) : [])
           }
-          const threads = await forumAutoTick({ threads: current, characters, conversations, api, userName: identity.name, at })
+          const threads = await forumAutoTick({ threads: current, characters, conversations, api, userName: globalIdentity.name, at })
           forumThreadsRef.current = threads
           await durableSet('weijing.forum', threads.slice(0, 300))
           window.dispatchEvent(new CustomEvent(FORUM_UPDATED_EVENT, { detail: threads }))
@@ -2905,6 +2944,7 @@ function App() {
     if (!conversation || !pending.ids.every((id) => conversation.participantIds?.includes(id))) return
     pendingWelcomeRef.current = null
     welcomeRunning.current = true
+    const identity = identityFor(conversation)
     try {
       let groupMessages = conversation.messages
       for (const id of pending.ids) {
@@ -2922,7 +2962,7 @@ function App() {
         for (const id of pending.ids) {
           const newcomer = characters.find((item) => item.id === id)
           if (!newcomer || pending.returning?.[id] !== undefined || threads.some((thread) => thread.board === '新人报到' && thread.authorId === id)) continue
-          try { threads = await forumWelcomeThread({ threads, newcomer, characters, conversations, api, userName: identity.name, at: Date.now() }) } catch { /* 报到帖失败不影响群聊 */ }
+          try { threads = await forumWelcomeThread({ threads, newcomer, characters, conversations, api, userName: globalIdentity.name, at: Date.now() }) } catch { /* 报到帖失败不影响群聊 */ }
         }
         forumThreadsRef.current = threads
         await durableSet('weijing.forum', threads.slice(0, 300))
@@ -3291,7 +3331,7 @@ function App() {
   const apiRef = useRef(api)
   apiRef.current = api
   const contextCompressionRequest = (conversation: Conversation, currentSummary: string, pendingMessages: Message[]) => {
-    const userName = (identities.find((item) => item.id === conversation.personaId) || identity).name
+    const userName = identityFor(conversation).name
     const leadName = characters.find((character) => character.id === conversation.characterId)?.name || activeCharacter.name
     const authorName = (item: Message) => item.role === 'user'
       ? userName
@@ -3596,7 +3636,7 @@ function App() {
       {!phoneDraft && <PhoneAutoSettingsCard status={phoneAutoStatus} />}
       {!phoneDraft && <PhonePointsCard members={[...new Set(conversations.filter((item) => item.phone && !item.phone.dm).flatMap((item) => item.participantIds || []))].map((id) => characters.find((item) => item.id === id)).filter((item): item is Character => Boolean(item))} />}
       {!phoneDraft && <div className="phone-tabs" role="tablist"><button role="tab" aria-selected={phoneTab === 'groups'} className={phoneTab === 'groups' ? 'active' : ''} onClick={() => setPhoneTab('groups')}>群聊</button><button role="tab" aria-selected={phoneTab === 'dms'} className={phoneTab === 'dms' ? 'active' : ''} onClick={() => setPhoneTab('dms')}>私聊</button><button role="tab" aria-selected={phoneTab === 'moments'} className={phoneTab === 'moments' ? 'active' : ''} onClick={() => setPhoneTab('moments')}>论坛</button></div>}
-      {!phoneDraft && phoneTab === 'moments' && <Forum characters={characters} conversations={conversations} userName={identity.name} userAvatar={identity.avatar} api={api} seed={momentSeed} onSeedUsed={clearMomentSeed} onSaveToMemory={saveMomentToMemory} onThreadsChange={handleForumChange} onShare={shareForumToChat} />}
+      {!phoneDraft && phoneTab === 'moments' && <Forum characters={characters} conversations={conversations} userName={globalIdentity.name} userAvatar={globalIdentity.avatar} api={api} seed={momentSeed} onSeedUsed={clearMomentSeed} onSaveToMemory={saveMomentToMemory} onThreadsChange={handleForumChange} onShare={shareForumToChat} />}
       {!phoneDraft && phoneTab === 'dms' && <>
         <div className="privacy-note">一对一私聊：TA 看得到自己所在群最近的聊天和论坛，可以私下跟你吐槽；群里的人看不到私聊。</div>
         {(() => {
@@ -3687,7 +3727,7 @@ function App() {
     {page === 'api' && <ApiSettingsPage api={api} channels={apiChannels} connection={connection} connectionMessage={connectionMessage} onApiChange={updateApiChannel} onSelectChannel={selectApiChannel} onAddChannel={addApiChannel} onDeleteChannel={deleteApiChannel} onConnectionReset={resetApiConnection} onBack={goBack} onTest={testConnection} replyHelperChannelName={(apiChannels.find((item) => item.id === replyHelperApiId) || api).name} replyHelperModelName={replyHelperModelName || (apiChannels.find((item) => item.id === replyHelperApiId) || api).modelName} onOpenReplyHelper={() => navigate('reply-helper-api')} />}
     {page === 'reply-helper-api' && <ReplyHelperSettingsPage channels={apiChannels} channelId={(apiChannels.find((item) => item.id === replyHelperApiId) || api).id} modelName={replyHelperModelName || (apiChannels.find((item) => item.id === replyHelperApiId) || api).modelName} onChannelChange={setReplyHelperApiId} onModelChange={setReplyHelperModelName} onBack={goBack} />}
 
-    {page === 'identity' && <PersonaPage identities={identities} selectedId={identity.id} isBound={Boolean(activeConversation?.personaId)} onSelect={selectIdentity} onAdd={addIdentity} onDelete={deleteIdentity} onUpdate={updateIdentity} onBack={goBack} />}
+    {page === 'identity' && <PersonaPage identities={identities} selectedId={identity.id} isBound={Boolean(scopedConversation?.personaId)} onSelect={selectIdentity} onAdd={addIdentity} onDelete={deleteIdentity} onUpdate={updateIdentity} onBack={goBack} />}
     {page === 'worldbook' && <EditablePage title="世界书" value={worldbook} onChange={setWorldbook} onBack={goBack} />}
     {page === 'chat-search' && activeConversation && <ChatSearchPage key={activeConversation.id} conversation={activeConversation} onBack={goBack} onJump={jumpToMessage} onBookmark={updateBookmark} authorName={(message) => message.role === 'user' ? identity.name : messageCharacterName(message, activeConversation)} />}
     {page === 'request-preview' && activeConversation && <RequestPreviewPage key={activeConversation.id} previews={requestPreviews} lastRequests={[...(lastRequestsRef.current.get(activeConversation.id)?.values() || [])]} onBack={goBack} />}
@@ -3727,7 +3767,7 @@ function App() {
 
     {page === 'model' && <><BackHeader title="模型设置" onBack={goBack} /><section className="settings-stack compact-settings"><div className="settings-group range-group"><RangeRow label="记忆长度" value={memoryLength} min={10} max={100} step={1} onChange={setMemoryLength} /><RangeRow label="回复令牌限制" hint={`当前最多请求 ${maxTokens} 个输出令牌`} value={maxTokens} min={1000} max={64000} step={1000} onChange={setMaxTokens} /></div><div className="settings-group range-group"><RangeRow label="温度" value={temperature} min={0} max={2} step={0.05} onChange={setTemperature} /><RangeRow label="Top-P" value={topP} min={0} max={1} step={0.05} onChange={setTopP} /></div><div className="settings-group toggle-row"><div><strong>流式传输</strong><small>立即逐字显示回复</small></div><button className={`switch ${streaming ? 'on' : ''}`} onClick={() => setStreaming(!streaming)}><span /></button></div></section></>}
     {page === 'settings' && <><BackHeader title="应用设置" onBack={goBack} /><section className="settings-stack compact-settings"><div className="storage-health-card"><div><strong>本地数据保险库</strong><small>惟境真实数据：{appDataUsage}</small><small>Safari 站点总占用：{storageUsage}（含 PWA 缓存与系统预留，刷新波动不代表聊天重复增长）</small></div><span>{appDataUsage}</span></div><div className="settings-group"><button onClick={() => navigate('appearance')}><span>外观 · 自定义主题</span><span>›</span></button><button><span>语言 · 简体中文</span><span>›</span></button><button onClick={() => navigate('font')}><span>字体 · 界面 {uiFontScale}% / 正文 {chatFontSize}px</span><span>›</span></button></div><BackupCard disabled={!persistenceReady || !wallpaperHydrationReady || generatingIds.length > 0 || memoryState === 'summarizing' || compressingContext || continuityRunningProjectIds.current.size > 0} liveData={{ 'weijing.characters': characters, 'weijing.conversations': conversations, 'weijing.identities': identities, 'weijing.memoryConfigs': memoryConfigs, 'weijing.memoryEntries': memoryEntries, 'weijing.globalMemoryApi': globalMemoryApi, 'weijing.storyProjects': storyProjects, 'weijing.chatWallpapers': chatWallpapers, 'weijing.chatBackground': '', 'weijing.plotTemplates': plotTemplates }} /><UpdateCard /></section></>}
-    {page === 'appearance' && <><BackHeader title="主题与背景" onBack={goBack} action={<button className="soft-button" onClick={() => applyThemePreset(builtInThemes[0])}>恢复默认</button>} /><section className="settings-stack appearance-page compact-settings"><div className="theme-choice-card"><div><strong>主题库</strong><small>每套主题有自己的配色和壁纸，切换主题会一起换过去；点“使用”绑定当前聊天。</small></div><div className="theme-choice-grid">{builtInThemes.map((preset) => <button key={preset.id} className={`${activeConversation?.themePresetId === preset.id ? 'active ' : ''}${preset.mode}`} onClick={() => applyThemePreset(preset)}><i style={{ background: preset.baseColor }} /><span><strong>{preset.name}</strong><small>{activeConversation?.themePresetId === preset.id ? '✓ 当前使用' : '点按使用'}</small></span></button>)}</div>{customThemes.length > 0 && <div className="custom-theme-list">{customThemes.map((preset) => <article key={preset.id} className={activeConversation?.themePresetId === preset.id ? 'active' : ''}><button className="custom-theme-use" onClick={() => applyThemePreset(preset)}><i style={{ background: `linear-gradient(135deg, ${preset.baseColor}, ${preset.textColor})` }} /><span><strong>{preset.name}</strong><small>{activeConversation?.themePresetId === preset.id ? '✓ 当前聊天正在使用' : '使用这个主题'}</small></span></button><div className="custom-theme-actions"><button onClick={() => renameCustomTheme(preset)}>改名</button><button className="danger" onClick={() => deleteCustomTheme(preset)}>删除</button></div></article>)}</div>}<button className="duplicate-theme-button" onClick={duplicateCurrentTheme}>＋ 复制当前配色为我的主题</button></div><div className="appearance-preview theme-preview wallpaper-preview"><WallpaperLayers wallpaper={currentWallpaper} avatar={activeCharacter.avatar} themeColor={chatBaseColor} /><div className="wallpaper-preview-content"><small>当前聊天预览</small><p>主题与壁纸叠加后的实际效果。</p></div></div><div className="appearance-card"><label className="appearance-color-row"><div><strong>主题底色</strong><small>关闭独立壁纸后显示 · {chatBaseColor}</small></div><input type="color" value={chatBaseColor} onChange={(event) => setChatBaseColor(event.target.value)} /></label></div>{wallpaperStorageError && <div className="privacy-note" role="alert">{wallpaperStorageError}{wallpaperHydrationReady && <button className="soft-button" onClick={() => setChatWallpapers((current) => ({ ...current }))}>重试保存壁纸</button>}</div>}<WallpaperSettings key={wallpaperKey} wallpaper={currentWallpaper} avatar={activeCharacter.avatar} themeColor={chatBaseColor} scopeLabel={activeConversation?.kind === 'group' ? activeConversation.title : activeCharacter.name} themeName={allThemes.find((item) => item.id === effectiveThemeId)?.name} group={activeConversation?.kind === 'group'} ready={persistenceReady && wallpaperHydrationReady} upload={wallpaperUploads[wallpaperKey]} onChange={updateChatWallpaper} onUpload={(file) => { void uploadChatWallpaper(file) }} onReset={resetChatWallpaper} /><PetSettings enabled={petEnabled} variant={petVariant} onEnabledChange={setPetEnabled} onVariantChange={setPetVariant} onReset={() => setPetPosition({ x: .86, y: .7 })} /></section></>}
+    {page === 'appearance' && <><BackHeader title="主题与背景" onBack={goBack} action={<button className="soft-button" onClick={() => applyThemePreset(builtInThemes[0])}>恢复默认</button>} /><section className="settings-stack appearance-page compact-settings"><div className="theme-choice-card"><div><strong>主题库</strong><small>每套主题有自己的配色和壁纸，切换主题会一起换过去；点“使用”绑定当前聊天。</small></div><div className="theme-choice-grid">{builtInThemes.map((preset) => <button key={preset.id} className={`${themeMarkId === preset.id ? 'active ' : ''}${preset.mode}`} onClick={() => applyThemePreset(preset)}><i style={{ background: preset.baseColor }} /><span><strong>{preset.name}</strong><small>{themeMarkId === preset.id ? '✓ 当前使用' : '点按使用'}</small></span></button>)}</div>{customThemes.length > 0 && <div className="custom-theme-list">{customThemes.map((preset) => <article key={preset.id} className={themeMarkId === preset.id ? 'active' : ''}><button className="custom-theme-use" onClick={() => applyThemePreset(preset)}><i style={{ background: `linear-gradient(135deg, ${preset.baseColor}, ${preset.textColor})` }} /><span><strong>{preset.name}</strong><small>{themeMarkId === preset.id ? '✓ 当前聊天正在使用' : '使用这个主题'}</small></span></button><div className="custom-theme-actions"><button onClick={() => renameCustomTheme(preset)}>改名</button><button className="danger" onClick={() => deleteCustomTheme(preset)}>删除</button></div></article>)}</div>}<button className="duplicate-theme-button" onClick={duplicateCurrentTheme}>＋ 复制当前配色为我的主题</button></div><div className="appearance-preview theme-preview wallpaper-preview"><WallpaperLayers wallpaper={currentWallpaper} avatar={activeCharacter.avatar} themeColor={chatBaseColor} /><div className="wallpaper-preview-content"><small>当前聊天预览</small><p>主题与壁纸叠加后的实际效果。</p></div></div><div className="appearance-card"><label className="appearance-color-row"><div><strong>主题底色</strong><small>关闭独立壁纸后显示 · {chatBaseColor}</small></div><input type="color" value={chatBaseColor} onChange={(event) => setChatBaseColor(event.target.value)} /></label></div>{wallpaperStorageError && <div className="privacy-note" role="alert">{wallpaperStorageError}{wallpaperHydrationReady && <button className="soft-button" onClick={() => setChatWallpapers((current) => ({ ...current }))}>重试保存壁纸</button>}</div>}<WallpaperSettings key={wallpaperKey} wallpaper={currentWallpaper} avatar={activeCharacter.avatar} themeColor={chatBaseColor} scopeLabel={activeConversation?.kind === 'group' ? activeConversation.title : activeCharacter.name} themeName={allThemes.find((item) => item.id === effectiveThemeId)?.name} group={activeConversation?.kind === 'group'} ready={persistenceReady && wallpaperHydrationReady} upload={wallpaperUploads[wallpaperKey]} onChange={updateChatWallpaper} onUpload={(file) => { void uploadChatWallpaper(file) }} onReset={resetChatWallpaper} /><PetSettings enabled={petEnabled} variant={petVariant} onEnabledChange={setPetEnabled} onVariantChange={setPetVariant} onReset={() => setPetPosition({ x: .86, y: .7 })} /></section></>}
     {page === 'font' && <><BackHeader title="字体与文字颜色" onBack={goBack} action={<button className="soft-button" onClick={() => { setUiFontScale(90); setUiFontWeight(500); setChatFontSize(16); setChatTextColor('#4e4852'); setChatNarrationColor('#7f7089'); setChatQuoteColor('#7b4d67') }}>恢复默认</button>} /><section className="settings-stack appearance-page compact-settings"><div className="appearance-card range-group"><RangeRow label="界面字号" hint="统一调整标题、按钮、说明与编辑区文字" value={uiFontScale} min={80} max={115} step={5} onChange={setUiFontScale} /><RangeRow label="界面字重" hint="数值越小越轻，聊天正文不受影响" value={uiFontWeight} min={400} max={700} step={100} onChange={setUiFontWeight} /></div><div className="appearance-preview chat-font-preview" style={{ color: chatTextColor, fontSize: chatFontSize }}><small>聊天正文预览</small><p><span style={{ color: chatNarrationColor }}>（他终于等到你回来。）</span><br /><span style={{ color: chatQuoteColor }}>“我一直在这里。”</span></p></div><div className="appearance-card"><RangeRow label="聊天正文字号" hint="只调整聊天内容，不影响系统界面" value={chatFontSize} min={13} max={22} step={1} onChange={setChatFontSize} /><label className="appearance-color-row"><div><strong>正文颜色</strong><small>{chatTextColor}</small></div><input type="color" value={chatTextColor} onChange={(event) => setChatTextColor(event.target.value)} /></label><label className="appearance-color-row"><div><strong>旁白颜色</strong><small>识别 *旁白*、（旁白）</small></div><input type="color" value={chatNarrationColor} onChange={(event) => setChatNarrationColor(event.target.value)} /></label><label className="appearance-color-row"><div><strong>引用颜色</strong><small>识别 “对话” 与「对话」</small></div><input type="color" value={chatQuoteColor} onChange={(event) => setChatQuoteColor(event.target.value)} /></label></div></section></>}
 
     {page === 'display-reply' && <><BackHeader title="显示与回复" onBack={goBack} action={<span className="saved-label">自动保存</span>} /><section className="settings-stack compact-settings display-reply-page"><div className="drawer-compact-group display-reply-card"><div className="drawer-section-title"><strong>消息显示</strong></div><div className="drawer-inline-setting"><span>布局方式</span><div className="mini-segment"><button className={chatLayout === 'bubble' ? 'active' : ''} onClick={() => setChatLayout('bubble')}>气泡</button><button className={chatLayout === 'flat' ? 'active' : ''} onClick={() => setChatLayout('flat')}>平铺</button></div></div><div className="drawer-color-setting"><label><span>正文</span><input type="color" value={chatTextColor} onChange={(event) => setChatTextColor(event.target.value)} /></label><label><span>旁白</span><input type="color" value={chatNarrationColor} onChange={(event) => setChatNarrationColor(event.target.value)} /></label><label><span>引用</span><input type="color" value={chatQuoteColor} onChange={(event) => setChatQuoteColor(event.target.value)} /></label></div></div><div className="drawer-compact-group display-reply-card"><div className="drawer-section-title"><strong>群聊回复</strong></div>{activeConversation?.kind === 'group' ? <div className="drawer-inline-setting reply-mode-row"><span>回复模式</span><strong>指定 @</strong></div> : <div className="display-reply-note">当前是单角色对话，消息会由当前角色直接回复。</div>}<div className="display-reply-note">群聊只会由你 @ 点名的角色发言；新增或删除成员不会改变这个规则。</div></div></section></>}
@@ -3902,7 +3942,7 @@ function UpdateCard() {
     }
   }
 
-  return <section className="update-card"><strong>应用更新</strong><p>主动检查并拉取最新网页版本，不会删除角色、聊天记录或本地设置。</p><small>当前版本：v75 · 2026.10.14 退群/踢人开关 + 剧情更新提醒 + 盖楼修复</small><button onClick={refresh} disabled={state === 'checking'}>{state === 'checking' ? '正在检查更新…' : state === 'error' ? '更新失败，点我重试' : '强制刷新到最新版'}</button></section>
+  return <section className="update-card"><strong>应用更新</strong><p>主动检查并拉取最新网页版本，不会删除角色、聊天记录或本地设置。</p><small>当前版本：v76 · 2026.10.14 主题/身份不再串戏</small><button onClick={refresh} disabled={state === 'checking'}>{state === 'checking' ? '正在检查更新…' : state === 'error' ? '更新失败，点我重试' : '强制刷新到最新版'}</button></section>
 }
 
 function PersonaPage({ identities, selectedId, isBound, onSelect, onAdd, onDelete, onUpdate, onBack }: { identities: UserIdentity[]; selectedId: string; isBound: boolean; onSelect: (id: string) => void; onAdd: () => void; onDelete: (id: string) => void; onUpdate: (patch: Partial<UserIdentity>) => void; onBack: () => void }) {
