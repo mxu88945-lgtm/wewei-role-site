@@ -1,3 +1,24 @@
+const PHONE_LOCK_TAG = /[【[]\s*锁屏\s*(\d{1,3})\s*(?:分钟|分|min)?\s*(?:[：:，,]\s*([^】\]]{0,60}))?[】\]]/
+const PHONE_LOCK_TAG_GLOBAL = new RegExp(PHONE_LOCK_TAG.source, 'g')
+
+/** 角色在小手机里下的锁屏指令：【锁屏 40分钟：去吃饭】。返回去掉指令后的文本与分钟数（限制 5–120）。 */
+export function parsePhoneLockCommand(text: string): { text: string; minutes: number; reason: string } | null {
+  const match = text.match(PHONE_LOCK_TAG)
+  if (!match) return null
+  const minutes = Math.min(120, Math.max(5, Number(match[1]) || 0))
+  return { text: text.replace(PHONE_LOCK_TAG_GLOBAL, '').replace(/\n{3,}/g, '\n\n').trim(), minutes, reason: (match[2] || '').trim() }
+}
+
+export type PhoneLockState = { until: number; startedAt: number; byId: string; byName: string; reason: string }
+export type PhoneLockBreach = { at: number; byName: string; remainingMinutes: number; reason: string }
+
+/** 她偷偷解锁后 15 分钟内，群里所有人都知道。 */
+export function buildPhoneLockBreachNote(breach: PhoneLockBreach | null | undefined, now: number, userName: string) {
+  if (!breach || now - breach.at > 15 * 60 * 1000) return ''
+  const ago = Math.max(0, Math.round((now - breach.at) / 60000))
+  return `【告状】${ago ? `${ago} 分钟前` : '刚刚'}，${userName}点了「偷偷解锁」，提前 ${breach.remainingMinutes} 分钟解开了${breach.byName}给她设的锁屏${breach.reason ? `（理由：${breach.reason}）` : ''}。群里的人都知道了，可以按各自人设反应（${breach.byName}尤其）。`
+}
+
 import type { Character } from './characterCard'
 import type { Conversation, Message } from './conversationLifecycle'
 import type { LongMemoryEntry } from './memoryEngine'
@@ -88,7 +109,8 @@ export function phoneModeRules(speakerName: string, memberNames: string[], userN
 2. 本轮你只以「${speakerName}」的身份发消息。保持自己的人设、语气和脾气，但现在是休闲日常：可以聊天、吐槽、互怼、聊自己的剧情、评价别人和${userName}演的戏。
 3. 用微信聊天的写法：短句、口语，一次 1—4 条短消息，每条单独一行，每条一般不超过 40 字。可以用很少的（括号）写一个小动作或表情，偶尔可以有一句情景发言，但禁止写成小说正文、长段旁白和心理描写。
 4. 不输出 <scene>、<gts_status>、状态栏、场景栏、HTML 或任何标签。不加自己的名字前缀。
-5. 不替${userName}或其他成员发言、做决定。被 @ 时优先回应 @ 你的那条；别人刚说过的话可以接、可以怼，但不要重复别人的话。`
+5. 不替${userName}或其他成员发言、做决定。被 @ 时优先回应 @ 你的那条；别人刚说过的话可以接、可以怼，但不要重复别人的话。
+6. 锁屏权：如果你真觉得${userName}该去吃饭、睡觉或休息了，可以在消息最后单独一行写【锁屏 N分钟：一句理由】（N 在 5 到 120 之间），惟境会把她的小手机锁上 N 分钟、锁屏页署你的名。只在真有必要时用，别动不动就锁。`
 }
 
 export function phoneBindingCandidates(conversations: Conversation[], characterId: string) {
@@ -117,7 +139,7 @@ const isStatusLine = (line: string) => {
 
 /** 小手机最终清理：任何 HTML/标签块、状态栏、场景栏、内心字段都不保留。 */
 export function cleanPhoneOutput(text: string) {
-  let out = text
+  let out = text.replace(PHONE_LOCK_TAG_GLOBAL, '')
   for (let i = 0; i < 3; i += 1) out = out.replace(/<([A-Za-z\u4e00-\u9fa5][\w\u4e00-\u9fa5-]*)\b[^>]*>[\s\S]*?<\/\1\s*>/g, '')
   out = out
     .replace(/<([A-Za-z\u4e00-\u9fa5][\w\u4e00-\u9fa5-]*(?:status|state|scene|plot)[\w-]*|status|state|scene|plot|statusbar)\b[^>]*>[\s\S]*$/gi, '')

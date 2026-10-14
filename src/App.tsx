@@ -12,10 +12,11 @@ import MentionPicker from './MentionPicker'
 import { prewarmAvatarThumbnails } from './avatarThumbnail'
 import MessageContent, { isPendingAssistantText } from './MessageContent'
 import PhoneStatusWidget from './PhoneStatusWidget'
+import PhoneLockScreen from './PhoneLockScreen'
 import { createBlankCharacter, importCharacterCard, normalizeStoredCharacter, LIBRARY_ROLES, type Character, type LibraryRole } from './characterCard'
 import { Moments, type MomentSeed } from './Moments'
 import { USER_AUTHOR, communityMemberIds, excerptFromMessage } from './moments'
-import { PHONE_REPLY_MODES, findNamedParticipantIds, selectPhoneSpeakers, pickPhoneChatters, cleanPhoneOutput, phoneFinalGuard, buildSmartPickPrompt, parseSmartPick, buildPhoneArchive, buildPhoneGroupBackground, phoneBindingCandidates, buildPhoneRealWorldNote, phoneCharacter, phoneModeRules } from './phoneGroup'
+import { PHONE_REPLY_MODES, findNamedParticipantIds, selectPhoneSpeakers, pickPhoneChatters, cleanPhoneOutput, phoneFinalGuard, buildSmartPickPrompt, parseSmartPick, buildPhoneArchive, buildPhoneGroupBackground, phoneBindingCandidates, buildPhoneRealWorldNote, parsePhoneLockCommand, buildPhoneLockBreachNote, type PhoneLockState, type PhoneLockBreach, phoneCharacter, phoneModeRules } from './phoneGroup'
 import { assignChatGroup, chatGroupNames, groupConversations, setChatGroupMembers } from './chatGroups'
 import { assignLibraryGroup, setLibraryGroupMembers, effectiveLibraryRole, groupLibraryCharacters, LIBRARY_ROLE_LABELS, libraryGroupNames } from './characterLibraryGroups'
 import { activeCharacterMemory, characterMemoryEntryFromConversation, characterMemoryExtractionPrompt, characterMemorySummaryProtocol, parseCharacterMemoryCandidates, splitCharacterMemorySummary } from './characterMemory'
@@ -391,6 +392,14 @@ function App() {
   const [conversationMenuId, setConversationMenuId] = useState<string | null>(null)
   const [messageMenuId, setMessageMenuId] = useState<number | null>(null)
   const [messageEditor, setMessageEditor] = useState<MessageEditor | null>(null)
+  const [phoneLock, setPhoneLockState] = useState<PhoneLockState | null>(() => { try { const value = JSON.parse(localStorage.getItem('weijing.phoneLock') || 'null') as PhoneLockState | null; return value && value.until > Date.now() ? value : null } catch { return null } })
+  const setPhoneLock = (value: PhoneLockState | null) => { setPhoneLockState(value); try { if (value) localStorage.setItem('weijing.phoneLock', JSON.stringify(value)); else localStorage.removeItem('weijing.phoneLock') } catch { /* 存不下也不影响本次锁屏 */ } }
+  const breakPhoneLock = () => {
+    if (!phoneLock) return
+    const breach: PhoneLockBreach = { at: Date.now(), byName: phoneLock.byName, remainingMinutes: Math.max(1, Math.ceil((phoneLock.until - Date.now()) / 60000)), reason: phoneLock.reason }
+    try { localStorage.setItem('weijing.phoneLockBreach', JSON.stringify(breach)) } catch { /* ignore */ }
+    setPhoneLock(null)
+  }
   const [exportRange, setExportRange] = useState<{ start: string; end: string } | null>(null)
   const [characterMenuId, setCharacterMenuId] = useState<string | null>(null)
   const [characterQuery, setCharacterQuery] = useState('')
@@ -2239,7 +2248,7 @@ function App() {
         }
       })
       const nameOf = (message: Message) => characters.find((item) => item.id === message.characterId)?.name || members[0]?.name || '角色'
-      const realWorld = (() => { try { return buildPhoneRealWorldNote(new Date(), JSON.parse(localStorage.getItem('weijing.phoneWeather') || 'null')) } catch { return buildPhoneRealWorldNote(new Date()) } })()
+      const realWorld = [(() => { try { return buildPhoneRealWorldNote(new Date(), JSON.parse(localStorage.getItem('weijing.phoneWeather') || 'null')) } catch { return buildPhoneRealWorldNote(new Date()) } })(), (() => { try { return buildPhoneLockBreachNote(JSON.parse(localStorage.getItem('weijing.phoneLockBreach') || 'null'), Date.now(), identity.name) } catch { return '' } })()].filter(Boolean).join('\n')
       return [phoneModeRules(speaker.name, members.map((member) => member.name), identity.name), realWorld, buildPhoneArchive(sources, speaker.id, identity.name, (message) => message.characterId ? nameOf(message) : sources.find((source) => source.conversation?.messages.includes(message))?.character.name || '角色')].join('\n\n')
     })() : ''
     const sanitizedHistory = (isPhone ? nextMessages.map((message) => message.role === 'assistant' ? { ...message, text: cleanPhoneOutput(message.text) || message.text } : message) : nextMessages).flatMap((message) => {
@@ -2522,9 +2531,10 @@ function App() {
       }
 
       if (!cleanOutput && containsHiddenReasoning(output, isDirector)) throw new Error('模型只返回了内部分析，惟境已拦截且没有写入剧情。请重试或换一个更遵守指令的模型。')
+      const phoneLockCommand = conversation.phone ? parsePhoneLockCommand(cleanOutput || output) : null
       const visibleOutput = isDirector
         ? normalizeDirectorStatusOutput(cleanOutput || output)
-        : conversation.phone ? cleanPhoneOutput(cleanOutput || output) || cleanOutput || output
+        : conversation.phone ? cleanPhoneOutput(cleanOutput || output) || phoneLockCommand?.text || cleanOutput || output
         : cleanOutput || output
       const statusFallback = requiresCharacterStatus
         ? buildStatusFallback(capturedCharacter, identity.name, {
@@ -2543,6 +2553,7 @@ function App() {
       const reportedRelationshipStage = capturedCharacter.name === '顾霆深' ? extractRelationshipStage(finalOutput) : undefined
       const nextRelationshipStage = Math.max(storedRelationshipStage || 0, reportedRelationshipStage || 0)
       const generatedMessage: Message = { ...assistantMessage, text: finalOutput, finishReason: completion.finishReason }
+      if (phoneLockCommand) setPhoneLock({ until: Date.now() + phoneLockCommand.minutes * 60000, startedAt: Date.now(), byId: speaker.id, byName: speaker.name, reason: phoneLockCommand.reason })
       const completedMessage = requestOptions.replacement ? appendReplyAlternative(requestOptions.replacement, generatedMessage) : generatedMessage
       setConversations((current) => current.map((item) => item.id === conversationId ? {
         ...(plotApplied ? consumeTemporaryPlot(item, capturedTemporaryPlot, conversation.historyRevision || 0) : item),
@@ -3463,6 +3474,7 @@ function App() {
     })()}
     {messageEditor && <div className="message-editor-layer" role="dialog" aria-modal="true" aria-label={messageEditor.mode === 'assistant' ? '编辑模型消息' : '编辑后重新发送'}><button className="drawer-backdrop" aria-label="取消编辑" onClick={() => setMessageEditor(null)} /><form className="message-editor-sheet" onSubmit={(event) => { event.preventDefault(); void saveMessageEditor() }}><header><div><small>{messageEditor.mode === 'assistant' ? '模型消息' : '用户消息'}</small><strong>{messageEditor.mode === 'assistant' ? '编辑改写' : '编辑后重新发送'}</strong></div><button type="button" aria-label="关闭编辑框" onClick={() => setMessageEditor(null)}>×</button></header><textarea autoFocus value={messageEditor.text} onChange={(event) => setMessageEditor({ ...messageEditor, text: event.target.value })} /><footer><button type="button" onClick={() => setMessageEditor(null)}>取消</button><button type="submit" className="primary" disabled={!messageEditor.text.trim() || (messageEditor.mode === 'resend' && isGenerating)}>{messageEditor.mode === 'assistant' ? '保存修改' : '重新发送'}</button></footer></form></div>}
     <Pet enabled={petEnabled} variant={petVariant} position={petPosition} onPositionChange={setPetPosition} containerRef={phoneCanvasRef} messageCount={messages.length} />
+    {phoneLock && (page === 'phone' || (page === 'chat' && activeConversation?.phone)) && <PhoneLockScreen lock={phoneLock} avatar={characters.find((item) => item.id === phoneLock.byId)?.avatar} userName={identity.name} onExpire={() => setPhoneLock(null)} onBreak={breakPhoneLock} onLeave={goHome} />}
   </main></div>
 }
 
@@ -3529,7 +3541,7 @@ function UpdateCard() {
     }
   }
 
-  return <section className="update-card"><strong>应用更新</strong><p>主动检查并拉取最新网页版本，不会删除角色、聊天记录或本地设置。</p><small>当前版本：v59 · 2026.10.14 小手机成员知道时间天气</small><button onClick={refresh} disabled={state === 'checking'}>{state === 'checking' ? '正在检查更新…' : state === 'error' ? '更新失败，点我重试' : '强制刷新到最新版'}</button></section>
+  return <section className="update-card"><strong>应用更新</strong><p>主动检查并拉取最新网页版本，不会删除角色、聊天记录或本地设置。</p><small>当前版本：v60 · 2026.10.14 小手机锁屏</small><button onClick={refresh} disabled={state === 'checking'}>{state === 'checking' ? '正在检查更新…' : state === 'error' ? '更新失败，点我重试' : '强制刷新到最新版'}</button></section>
 }
 
 function PersonaPage({ identities, selectedId, isBound, onSelect, onAdd, onDelete, onUpdate, onBack }: { identities: UserIdentity[]; selectedId: string; isBound: boolean; onSelect: (id: string) => void; onAdd: () => void; onDelete: (id: string) => void; onUpdate: (patch: Partial<UserIdentity>) => void; onBack: () => void }) {

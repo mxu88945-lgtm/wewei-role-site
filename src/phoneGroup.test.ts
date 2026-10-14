@@ -138,3 +138,20 @@ describe('buildPhoneRealWorldNote', () => {
     expect(buildPhoneRealWorldNote(now, { temp: 24, code: 0, high: 28, low: 22, at: now.getTime() - 4 * 3600_000 })).not.toContain('天气：')
   })
 })
+
+describe('phone lock', () => {
+  it('parses and strips lock command', async () => {
+    const { parsePhoneLockCommand, cleanPhoneOutput } = await import('./phoneGroup')
+    const parsed = parsePhoneLockCommand('去吃饭。\n【锁屏 40分钟：先吃饭】')
+    expect(parsed).toEqual({ text: '去吃饭。', minutes: 40, reason: '先吃饭' })
+    expect(parsePhoneLockCommand('【锁屏 999】')?.minutes).toBe(120)
+    expect(cleanPhoneOutput('好\n【锁屏 10分钟】')).toBe('好')
+    expect(parsePhoneLockCommand('没有锁')).toBeNull()
+  })
+  it('reports breach for 15 minutes', async () => {
+    const { buildPhoneLockBreachNote } = await import('./phoneGroup')
+    const breach = { at: 1000, byName: '顾祁砚', remainingMinutes: 30, reason: '吃饭' }
+    expect(buildPhoneLockBreachNote(breach, 1000 + 60000, '周惟惟')).toContain('提前 30 分钟')
+    expect(buildPhoneLockBreachNote(breach, 1000 + 16 * 60000, '周惟惟')).toBe('')
+  })
+})

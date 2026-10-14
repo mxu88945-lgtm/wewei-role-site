@@ -710,3 +710,17 @@ button { cursor: pointer; }
 .phone-status-icon { font-size: 28px; }
 .phone-status-connect { font-size: 14px; font-weight: 700; color: #7a5bb0; }
 .phone-status-error { grid-column: 1 / -1; margin: 0; color: #b0576b; font-size: 12px; line-height: 1.5; }
+.phone-lock-layer { position: fixed; inset: 0; z-index: 80; display: flex; align-items: center; justify-content: center; padding: 24px; background: rgba(28,22,34,.62); -webkit-backdrop-filter: blur(18px); backdrop-filter: blur(18px); }
+.phone-lock-card { width: min(100%,360px); display: flex; flex-direction: column; align-items: center; gap: 10px; padding: 28px 22px 22px; border-radius: 30px; background: rgba(250,248,251,.96); box-shadow: 0 28px 80px rgba(20,12,28,.4); text-align: center; }
+.phone-lock-avatar { position: relative; width: 84px; height: 84px; }
+.phone-lock-avatar img,.phone-lock-avatar span { width: 84px; height: 84px; border-radius: 50%; object-fit: cover; display: flex; align-items: center; justify-content: center; background: #e9e2f0; font-size: 30px; font-weight: 800; color: #6c5a7c; }
+.phone-lock-avatar i { position: absolute; right: -4px; bottom: -4px; font-style: normal; font-size: 26px; }
+.phone-lock-card small { color: #8f8894; font-size: 14px; font-weight: 700; }
+.phone-lock-timer { font-size: 54px; font-weight: 800; color: #3b3440; font-variant-numeric: tabular-nums; line-height: 1; }
+.phone-lock-bar { width: 100%; height: 6px; border-radius: 3px; background: #ece7f0; overflow: hidden; }
+.phone-lock-bar span { display: block; height: 100%; border-radius: 3px; background: linear-gradient(90deg,#7c55d6,#d77fb8); }
+.phone-lock-reason { margin: 4px 0 0; color: #4c4352; font-size: 16px; line-height: 1.5; }
+.phone-lock-hint { margin: 0; color: #a39aa8; font-size: 12px; }
+.phone-lock-actions { width: 100%; display: grid; grid-template-columns: 1fr 1fr; gap: 9px; margin-top: 8px; }
+.phone-lock-actions button { min-height: 46px; border: 0; border-radius: 15px; background: #eeebf0; color: #756e79; font-weight: 800; }
+.phone-lock-actions button.danger { background: #f6dde3; color: #b0475f; }
