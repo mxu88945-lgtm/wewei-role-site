@@ -638,3 +638,51 @@ button { cursor: pointer; }
 .phone-binding select { width: 100%; min-height: 40px; border: 1px solid rgba(71,55,80,.1); border-radius: 12px; padding: 0 10px; font-size: 14px; color: #37313a; background: #fff; }
 .phone-chat .message-row .message-bubble, .phone-chat .message-row .message-content { font-size: calc(var(--chat-font-size, 16px) * .94); line-height: 1.55; }
 .phone-chat .message-row .message-bubble { padding: 9px 13px; border-radius: 16px; }
+
+/* 戏外动态 */
+.phone-tabs { display: grid; grid-template-columns: 1fr 1fr; gap: 4px; padding: 4px; border-radius: 16px; background: #efedf0; }
+.phone-tabs button { min-height: 38px; border: 0; border-radius: 12px; font-weight: 700; color: #8f8894; background: transparent; }
+.phone-tabs button.active { color: #3b3440; background: #fff; box-shadow: 0 2px 8px rgba(60,40,70,.08); }
+.moments { display: grid; gap: 12px; }
+.moments-busy { padding: 10px 14px; border-radius: 14px; font-size: 13px; color: var(--theme-accent); background: var(--theme-accent-soft); }
+.moments-error { display: flex; justify-content: space-between; gap: 8px; padding: 10px 14px; border-radius: 14px; font-size: 13px; color: #b0435a; background: #fde9ee; }
+.moments-error button { border: 0; background: transparent; color: inherit; font-size: 18px; }
+.moment-compose, .moment-card { border-radius: 20px; padding: 14px; display: grid; gap: 10px; background: #fff; box-shadow: 0 4px 18px rgba(60,40,70,.06); }
+.moment-compose label { display: grid; gap: 6px; font-size: 12px; font-weight: 700; color: #7d7583; }
+.moment-compose select, .moment-compose textarea { width: 100%; border: 1px solid rgba(71,55,80,.1); border-radius: 12px; padding: 10px; font: inherit; font-size: 15px; color: #37313a; background: #f6f5f7; }
+.moment-compose textarea { resize: vertical; min-height: 80px; }
+.moment-member-picks { display: flex; flex-wrap: wrap; gap: 6px; }
+.moment-member-picks button { border: 1px solid rgba(71,55,80,.12); border-radius: 999px; padding: 6px 12px; font-size: 13px; color: #6d6573; background: #fff; }
+.moment-member-picks button.picked { color: #fff; border-color: transparent; background: var(--theme-accent); }
+.moment-compose-actions { display: flex; justify-content: flex-end; gap: 8px; }
+.moment-compose-actions button { min-height: 38px; padding: 0 16px; border: 0; border-radius: 12px; font-weight: 700; color: #6d6573; background: #efedf0; }
+.moment-compose-actions button.primary { color: #fff; background: var(--theme-accent); }
+.moment-compose-actions button:disabled { opacity: .5; }
+.moment-source-chip { display: flex; justify-content: space-between; gap: 8px; padding: 8px 10px; border-radius: 10px; font-size: 12px; color: #7d7583; background: #f3f1f5; }
+.moment-source-chip button { border: 0; background: transparent; color: inherit; }
+.moment-card.pinned { box-shadow: 0 0 0 1.5px var(--theme-accent-soft), 0 4px 18px rgba(60,40,70,.06); }
+.moment-card header { display: grid; grid-template-columns: 42px 1fr auto; gap: 10px; align-items: center; }
+.moment-card header img, .moment-avatar { width: 42px; height: 42px; border-radius: 12px; object-fit: cover; display: grid; place-items: center; font-weight: 700; color: #fff; background: var(--theme-accent); }
+.moment-card header strong { display: block; font-size: 15px; color: var(--theme-accent); }
+.moment-card header small { display: block; font-size: 11px; color: #a39ca8; }
+.moment-more { border: 0; background: transparent; color: #a39ca8; font-size: 16px; padding: 6px; }
+.moment-menu { display: flex; flex-wrap: wrap; gap: 6px; }
+.moment-menu button { border: 0; border-radius: 10px; padding: 7px 11px; font-size: 13px; color: #5d5563; background: #f3f1f5; }
+.moment-menu button.danger { color: #c0475f; }
+.moment-menu button:disabled { opacity: .5; }
+.moment-text { margin: 0; font-size: 15px; line-height: 1.6; color: #37313a; white-space: pre-wrap; }
+.moment-image { padding: 22px 14px; border-radius: 14px; font-size: 13px; color: #6f6875; text-align: center; background: linear-gradient(135deg, #eef1fb, #f7eef6); }
+.moment-source { justify-self: start; border: 0; padding: 0; font-size: 12px; color: var(--theme-accent); background: transparent; }
+.moment-source-text { margin: 0; padding: 10px 12px; border-left: 3px solid var(--theme-accent-soft); border-radius: 0 10px 10px 0; font-size: 13px; line-height: 1.6; color: #6f6875; background: #f6f5f7; white-space: pre-wrap; }
+.moment-actions { display: flex; justify-content: flex-end; gap: 8px; }
+.moment-actions button { border: 0; border-radius: 10px; padding: 6px 12px; font-size: 13px; color: #6d6573; background: #f3f1f5; }
+.moment-actions button.liked { color: #d4546f; }
+.moment-thread { display: grid; gap: 2px; padding: 8px 10px; border-radius: 12px; background: #f6f5f7; }
+.moment-likes { padding-bottom: 6px; margin-bottom: 4px; border-bottom: 1px solid rgba(71,55,80,.06); font-size: 13px; color: var(--theme-accent); }
+.moment-comment { border: 0; padding: 3px 0; text-align: left; font-size: 14px; line-height: 1.5; color: #37313a; background: transparent; }
+.moment-comment b { color: var(--theme-accent); font-weight: 700; }
+.moment-closed { font-size: 12px; color: #a39ca8; }
+.moment-comment-input { display: grid; grid-template-columns: 1fr auto auto; gap: 6px; }
+.moment-comment-input input { min-width: 0; border: 1px solid rgba(71,55,80,.12); border-radius: 12px; padding: 9px 11px; font-size: 16px; background: #fff; }
+.moment-comment-input button { border: 0; border-radius: 12px; padding: 0 12px; font-weight: 700; color: #fff; background: var(--theme-accent); }
+.moment-comment-input button:last-child { color: #7d7583; background: #efedf0; }

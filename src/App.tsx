@@ -12,6 +12,8 @@ import MentionPicker from './MentionPicker'
 import { prewarmAvatarThumbnails } from './avatarThumbnail'
 import MessageContent from './MessageContent'
 import { createBlankCharacter, importCharacterCard, normalizeStoredCharacter, LIBRARY_ROLES, type Character, type LibraryRole } from './characterCard'
+import { Moments, type MomentSeed } from './Moments'
+import { USER_AUTHOR, communityMemberIds, excerptFromMessage } from './moments'
 import { buildPhoneArchive, buildPhoneGroupBackground, phoneBindingCandidates, phoneCharacter, phoneModeRules } from './phoneGroup'
 import { assignChatGroup, chatGroupNames, groupConversations, setChatGroupMembers } from './chatGroups'
 import { assignLibraryGroup, setLibraryGroupMembers, effectiveLibraryRole, groupLibraryCharacters, LIBRARY_ROLE_LABELS, libraryGroupNames } from './characterLibraryGroups'
@@ -393,6 +395,9 @@ function App() {
   const [characterSelectionMode, setCharacterSelectionMode] = useState(false)
   const [selectedCharacterIds, setSelectedCharacterIds] = useState<string[]>([])
   const [collapsedLibraryGroups, setCollapsedLibraryGroups] = useState<string[]>(() => read<string[]>('weijing.libraryCollapsed', []))
+  const [phoneTab, setPhoneTab] = useState<'groups' | 'moments'>('groups')
+  const [momentSeed, setMomentSeed] = useState<MomentSeed | null>(null)
+  const clearMomentSeed = useCallback(() => setMomentSeed(null), [])
   const [phoneDraft, setPhoneDraft] = useState<{ editingId?: string; title: string; memberIds: string[]; bindings: Record<string, string> } | null>(null)
   const [collapsedChatGroups, setCollapsedChatGroups] = useState<string[]>(() => read<string[]>('weijing.chatCollapsed', []))
   const [chatGroupSheet, setChatGroupSheet] = useState<{ id: string; group: string } | null>(null)
@@ -1712,6 +1717,28 @@ function App() {
     if (!chatGroupEditor.name.trim()) { window.alert('组名不能为空。想解散这个组，就把聊天全部取消勾选。'); return }
     setConversations((current) => setChatGroupMembers(current, chatGroupEditor.original, chatGroupEditor.name, chatGroupEditor.memberIds))
     setChatGroupEditor(null)
+  }
+  const saveMomentToMemory = (groupIds: string[], title: string, content: string) => {
+    const now = Date.now()
+    setMemoryEntries((current) => {
+      const next = { ...current }
+      for (const groupId of groupIds) {
+        const group = conversations.find((item) => item.id === groupId)
+        if (!group) continue
+        next[groupId] = [...(next[groupId] || []), { id: crypto.randomUUID(), createdAt: now, title, content, sourceCount: 1, historyRevision: group.historyRevision || 0 }]
+      }
+      return next
+    })
+  }
+  const postMessageToMoments = (message: Message) => {
+    if (!activeConversation) return
+    const members = communityMemberIds(conversations)
+    const authorId = message.role === 'assistant' ? message.characterId || activeConversation.characterId : USER_AUTHOR
+    setMomentSeed({ authorId: authorId === USER_AUTHOR || members.includes(authorId) ? authorId : USER_AUTHOR, sourceConversationId: activeConversation.id, sourceExcerpt: excerptFromMessage(message.text) })
+    setMessageMenuId(null)
+    setPhoneDraft(null)
+    setPhoneTab('moments')
+    navigate('phone')
   }
   const phoneMembersPool = characters.filter((item) => item.creator !== '惟境内置导演模板' && !item.directorTemplateConfig)
   const openPhonePage = (editing?: Conversation) => {
@@ -3171,7 +3198,9 @@ function App() {
     {page === 'character-workshop' && <CharacterWorkshop channels={apiChannels} characters={characters} defaultChannelId={activeApiId} onBack={goBack} onAvatar={imageThumbnail} onExport={(character) => downloadJson(`${character.name}-character-card-v3.json`, exportableCharacter(character))} onSave={(character) => { localStorage.removeItem('weijing.characterWorkshop'); addImportedCharacter(character) }} />}
 
     {page === 'phone' && <><BackHeader title={phoneDraft?.editingId ? '小手机群设置' : '小手机'} onBack={() => { setPhoneDraft(null); goBack() }} /><section className="content-stack phone-page">
-      {!phoneDraft && <>
+      {!phoneDraft && <div className="phone-tabs" role="tablist"><button role="tab" aria-selected={phoneTab === 'groups'} className={phoneTab === 'groups' ? 'active' : ''} onClick={() => setPhoneTab('groups')}>群聊</button><button role="tab" aria-selected={phoneTab === 'moments'} className={phoneTab === 'moments' ? 'active' : ''} onClick={() => setPhoneTab('moments')}>动态</button></div>}
+      {!phoneDraft && phoneTab === 'moments' && <Moments characters={characters} conversations={conversations} userName={identity.name} userAvatar={identity.avatar} api={api} seed={momentSeed} onSeedUsed={clearMomentSeed} onSaveToMemory={saveMomentToMemory} />}
+      {!phoneDraft && phoneTab === 'groups' && <>
         <div className="privacy-note">戏外日常群：角色们知道自己是惟境里的角色，你是陪他们对戏、演女主的人。聊天是微信式短句，可以 @ 谁就谁回，也会有人自然接话。</div>
         {conversations.filter((item) => item.phone).sort((a, b) => b.updatedAt - a.updatedAt).map((item) => {
           const names = (item.participantIds || []).map((id) => characters.find((character) => character.id === id)?.name).filter(Boolean).join('、')
@@ -3365,7 +3394,7 @@ function App() {
       return <article className={joined ? 'joined' : ''} key={character.id} onClick={() => { if (!joined) addConversationMember(character.id) }}><div className="member-picker-main"><CharacterPortrait item={character} /><div><strong>{character.name}</strong><small>{joined ? '已在当前会话' : character.tagline}</small></div><button onClick={(event) => { event.stopPropagation(); if (joined) { if (canRemove) removeConversationMember(character.id) } else addConversationMember(character.id) }} disabled={joined && !canRemove}>{joined ? canRemove ? '移除' : '保留' : '＋ 加入'}</button></div>{joined && <div onClick={(event) => event.stopPropagation()}><MemberApiBinding channels={apiChannels} channelId={channel.id} modelName={activeConversation.participantModelNames?.[character.id] || channel.modelName} onChannelChange={(nextChannelId) => updateConversationMemberApi(character.id, nextChannelId)} onModelChange={(modelName) => updateConversationMemberModel(character.id, modelName)} /></div>}</article>
     })}</div><div className="privacy-note">同一渠道可以给不同成员指定不同模型；不单独修改时使用该渠道的默认模型。已有消息与署名不会丢失。</div></section></div>}
 
-    {menuMessage && <div className="message-menu-layer"><button className="drawer-backdrop" aria-label="关闭消息菜单" onClick={() => setMessageMenuId(null)} /><section className="message-action-sheet"><header><div><small>{menuMessage.role === 'assistant' ? '模型消息' : '用户消息'}</small><strong>消息操作</strong></div><button onClick={() => setMessageMenuId(null)}>×</button></header><button onClick={() => createStoryBranch(menuMessage)} disabled={isGenerating}>从这里另开剧情分线</button>{menuMessage.role === 'assistant' ? <><button onClick={() => regenerateMessage(menuMessage)} disabled={isGenerating}>重新生成（保留旧版）</button><button onClick={() => editAssistantMessage(menuMessage)} disabled={isGenerating}>编辑改写</button><button onClick={() => copyMessage(menuMessage)}>复制文本</button><button className="danger" onClick={() => withdrawMessage(menuMessage)} disabled={isGenerating}>撤回到这里</button><button className="danger" onClick={() => deleteMessage(menuMessage)} disabled={isGenerating}>仅删除此句</button></> : <><button onClick={() => editAndResendUserMessage(menuMessage)} disabled={isGenerating}>编辑并重新发送</button><button onClick={() => copyMessage(menuMessage)}>复制文本</button><button className="danger" onClick={() => deleteMessage(menuMessage)} disabled={isGenerating}>仅删除此句</button></>}</section></div>}
+    {menuMessage && <div className="message-menu-layer"><button className="drawer-backdrop" aria-label="关闭消息菜单" onClick={() => setMessageMenuId(null)} /><section className="message-action-sheet"><header><div><small>{menuMessage.role === 'assistant' ? '模型消息' : '用户消息'}</small><strong>消息操作</strong></div><button onClick={() => setMessageMenuId(null)}>×</button></header><button onClick={() => createStoryBranch(menuMessage)} disabled={isGenerating}>从这里另开剧情分线</button>{!activeConversation?.phone && <button onClick={() => postMessageToMoments(menuMessage)}>发到戏外动态</button>}{menuMessage.role === 'assistant' ? <><button onClick={() => regenerateMessage(menuMessage)} disabled={isGenerating}>重新生成（保留旧版）</button><button onClick={() => editAssistantMessage(menuMessage)} disabled={isGenerating}>编辑改写</button><button onClick={() => copyMessage(menuMessage)}>复制文本</button><button className="danger" onClick={() => withdrawMessage(menuMessage)} disabled={isGenerating}>撤回到这里</button><button className="danger" onClick={() => deleteMessage(menuMessage)} disabled={isGenerating}>仅删除此句</button></> : <><button onClick={() => editAndResendUserMessage(menuMessage)} disabled={isGenerating}>编辑并重新发送</button><button onClick={() => copyMessage(menuMessage)}>复制文本</button><button className="danger" onClick={() => deleteMessage(menuMessage)} disabled={isGenerating}>仅删除此句</button></>}</section></div>}
     {messageEditor && <div className="message-editor-layer" role="dialog" aria-modal="true" aria-label={messageEditor.mode === 'assistant' ? '编辑模型消息' : '编辑后重新发送'}><button className="drawer-backdrop" aria-label="取消编辑" onClick={() => setMessageEditor(null)} /><form className="message-editor-sheet" onSubmit={(event) => { event.preventDefault(); void saveMessageEditor() }}><header><div><small>{messageEditor.mode === 'assistant' ? '模型消息' : '用户消息'}</small><strong>{messageEditor.mode === 'assistant' ? '编辑改写' : '编辑后重新发送'}</strong></div><button type="button" aria-label="关闭编辑框" onClick={() => setMessageEditor(null)}>×</button></header><textarea autoFocus value={messageEditor.text} onChange={(event) => setMessageEditor({ ...messageEditor, text: event.target.value })} /><footer><button type="button" onClick={() => setMessageEditor(null)}>取消</button><button type="submit" className="primary" disabled={!messageEditor.text.trim() || (messageEditor.mode === 'resend' && isGenerating)}>{messageEditor.mode === 'assistant' ? '保存修改' : '重新发送'}</button></footer></form></div>}
     <Pet enabled={petEnabled} variant={petVariant} position={petPosition} onPositionChange={setPetPosition} containerRef={phoneCanvasRef} messageCount={messages.length} />
   </main></div>
