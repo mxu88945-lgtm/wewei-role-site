@@ -73,7 +73,17 @@ export function Forum({ characters, conversations, userName, userAvatar, api, se
   const [complaint, setComplaint] = useState('')
   useEffect(() => { if (sheet) (window as Window & { __weijingApplyAppHeight?: () => void }).__weijingApplyAppHeight?.() }, [sheet])
   const threadsRef = useRef(threads)
+  const replyBoxRef = useRef<HTMLDivElement>(null)
+  const replyInputRef = useRef<HTMLTextAreaElement>(null)
   threadsRef.current = threads
+
+  const startReply = (floor: number) => {
+    setReplyTo(floor)
+    // The composer always lives after every floor. Focus during the tap so iOS
+    // opens the keyboard, then bring the otherwise off-screen box into view.
+    replyInputRef.current?.focus({ preventScroll: true })
+    window.requestAnimationFrame(() => replyBoxRef.current?.scrollIntoView({ block: 'center', behavior: 'smooth' }))
+  }
 
   useEffect(() => {
     let cancelled = false
@@ -357,7 +367,7 @@ export function Forum({ characters, conversations, userName, userAvatar, api, se
         {thread.imageNote && <div className="moment-image">📷 {thread.imageNote}</div>}
         {thread.sourceExcerpt && <button className="moment-source" onClick={() => setSourceOpen(!sourceOpen)}>出处：{conversations.find((item) => item.id === thread.sourceConversationId)?.title || '原剧情'} {sourceOpen ? '收起' : '查看'}</button>}
         {sourceOpen && thread.sourceExcerpt && <blockquote className="moment-source-text">{thread.sourceExcerpt}</blockquote>}
-        <div className="moment-actions"><button className={thread.likes.includes(FORUM_USER) ? 'liked' : ''} onClick={() => update(thread.id, (item) => ({ ...item, likes: item.likes.includes(FORUM_USER) ? item.likes.filter((id) => id !== FORUM_USER) : [...item.likes, FORUM_USER] }))}>♡ {thread.likes.length || ''}</button><button onClick={() => setSheet({ kind: 'report', floor: 1 })}>举报{thread.reports?.length ? ` ${thread.reports.length}` : ''}</button><button onClick={() => setSheet({ kind: 'complain', floor: 1 })}>投诉</button><button onClick={() => setSheet({ kind: 'share', floor: 1 })}>分享</button>{!thread.locked && <button onClick={() => setReplyTo(1)}>回复楼主</button>}</div>
+        <div className="moment-actions"><button className={thread.likes.includes(FORUM_USER) ? 'liked' : ''} onClick={() => update(thread.id, (item) => ({ ...item, likes: item.likes.includes(FORUM_USER) ? item.likes.filter((id) => id !== FORUM_USER) : [...item.likes, FORUM_USER] }))}>♡ {thread.likes.length || ''}</button><button onClick={() => setSheet({ kind: 'report', floor: 1 })}>举报{thread.reports?.length ? ` ${thread.reports.length}` : ''}</button><button onClick={() => setSheet({ kind: 'complain', floor: 1 })}>投诉</button><button onClick={() => setSheet({ kind: 'share', floor: 1 })}>分享</button>{!thread.locked && <button onClick={() => startReply(1)}>回复楼主</button>}</div>
         {thread.likes.length > 0 && <div className="moment-likes">♡ {thread.likes.map(nameOf).join('、')}</div>}
       </article>
       {thread.floors.map((floor, index) => {
@@ -365,7 +375,7 @@ export function Forum({ characters, conversations, userName, userAvatar, api, se
         const target = floor.replyToFloor ? (floor.replyToFloor === 1 ? { name: thread.anonymous ? '匿名用户' : nameOf(thread.authorId), text: thread.body } : thread.floors[floor.replyToFloor - 2] ? { name: thread.floors[floor.replyToFloor - 2].anonymous ? '匿名用户' : nameOf(thread.floors[floor.replyToFloor - 2].authorId), text: thread.floors[floor.replyToFloor - 2].text } : null) : null
         const isOp = !floor.anonymous && !thread.anonymous && floor.authorId === thread.authorId
         return <article key={floor.id} className="forum-floor">
-          <header>{avatarNode(floor.authorId, floor.anonymous)}<div><strong>{floor.anonymous ? '匿名用户' : nameOf(floor.authorId)}{isOp && <em>楼主</em>}</strong><small>{number}楼 · {timeLabel(floor.createdAt)}</small></div>{!thread.locked && <button className="forum-reply-button" onClick={() => setReplyTo(number)}>回复</button>}</header>
+          <header>{avatarNode(floor.authorId, floor.anonymous)}<div><strong>{floor.anonymous ? '匿名用户' : nameOf(floor.authorId)}{isOp && <em>楼主</em>}</strong><small>{number}楼 · {timeLabel(floor.createdAt)}</small></div>{!thread.locked && <button className="forum-reply-button" onClick={() => startReply(number)}>回复</button>}</header>
           {target && <blockquote className="forum-quote">回复 {floor.replyToFloor}楼 {target.name}：{target.text.slice(0, 40)}{target.text.length > 40 ? '…' : ''}</blockquote>}
           {floor.text && <p className="moment-text">{floor.text}</p>}
           {imageGrid(floor.images)}
@@ -374,9 +384,9 @@ export function Forum({ characters, conversations, userName, userAvatar, api, se
       })}
       {thread.locked ? <div className="moment-closed">帖子已锁，不能再回</div> : <>
         <button className="forum-more-floors" disabled={Boolean(busy)} onClick={() => void gatherFloors(thread.id, '再来一轮：逛论坛的角色继续刷这个帖子，接着楼里的话头吐槽、互怼、站队。')}>让大家再盖一轮</button>
-        <div className="forum-reply-box">
+        <div ref={replyBoxRef} className="forum-reply-box">
           {replyTo > 0 && <div className="moment-source-chip">回复 {replyTo}楼<button onClick={() => setReplyTo(0)}>×</button></div>}
-          <textarea onFocus={revealOnFocus} rows={2} value={replyText} onChange={(event) => setReplyText(event.target.value)} placeholder="回帖……可以 @角色" />
+          <textarea ref={replyInputRef} onFocus={revealOnFocus} rows={2} value={replyText} onChange={(event) => setReplyText(event.target.value)} placeholder="回帖……可以 @角色" />
           {mentionPicker(replyText, setReplyText)}
           {imagePicker(replyImages, FORUM_FLOOR_IMAGE_LIMIT, setReplyImages)}
           <div className="forum-reply-actions"><label className="forum-anon"><input type="checkbox" checked={replyAnonymous} onChange={(event) => setReplyAnonymous(event.target.checked)} />匿名</label><button className="primary" disabled={Boolean(busy) || (!replyText.trim() && !replyImages.length)} onClick={() => void sendReply(thread)}>回帖</button></div>
