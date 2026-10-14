@@ -12,7 +12,7 @@ import MentionPicker from './MentionPicker'
 import { prewarmAvatarThumbnails } from './avatarThumbnail'
 import MessageContent from './MessageContent'
 import { createBlankCharacter, importCharacterCard, normalizeStoredCharacter, LIBRARY_ROLES, type Character, type LibraryRole } from './characterCard'
-import { assignLibraryGroup, effectiveLibraryRole, groupLibraryCharacters, LIBRARY_ROLE_LABELS, libraryGroupNames } from './characterLibraryGroups'
+import { assignLibraryGroup, setLibraryGroupMembers, effectiveLibraryRole, groupLibraryCharacters, LIBRARY_ROLE_LABELS, libraryGroupNames } from './characterLibraryGroups'
 import { activeCharacterMemory, characterMemoryEntryFromConversation, characterMemoryExtractionPrompt, characterMemorySummaryProtocol, parseCharacterMemoryCandidates, splitCharacterMemorySummary } from './characterMemory'
 import { ChatApiError, completeChat, fetchApiModels, testApiConnection, type ApiConfig, type ApiModel } from './chatApi'
 import { buildChatPrompt } from './promptBuilder'
@@ -391,6 +391,7 @@ function App() {
   const [characterSelectionMode, setCharacterSelectionMode] = useState(false)
   const [selectedCharacterIds, setSelectedCharacterIds] = useState<string[]>([])
   const [collapsedLibraryGroups, setCollapsedLibraryGroups] = useState<string[]>(() => read<string[]>('weijing.libraryCollapsed', []))
+  const [groupEditor, setGroupEditor] = useState<{ original: string; name: string; memberIds: string[] } | null>(null)
   const [librarySheet, setLibrarySheet] = useState<{ ids: string[]; group: string; role: LibraryRole | null | undefined } | null>(null)
   const [groupDraft, setGroupDraft] = useState<{ title: string; participantIds: string[]; apiIds: Record<string, string>; modelNames: Record<string, string> }>({ title: '', participantIds: [], apiIds: {}, modelNames: {} })
   const [groupDirectorDraft, setGroupDirectorDraft] = useState<DirectorTemplateConfig>(() => createDirectorTemplateConfig())
@@ -980,7 +981,7 @@ function App() {
   useLayoutEffect(() => {
     if (page !== 'chat') phoneCanvasRef.current?.scrollTo({ top: 0, left: 0 })
   }, [page])
-  const librarySheetOpen = librarySheet !== null
+  const librarySheetOpen = librarySheet !== null || groupEditor !== null
   useLayoutEffect(() => {
     // iOS standalone: index.html sizes the layout boxes with inline heights; give
     // boxes React just mounted (expanded composer, a re-created canvas) the current value.
@@ -1691,6 +1692,13 @@ function App() {
     if (group) setCollapsedLibraryGroups((current) => current.filter((item) => item !== group))
     setLibrarySheet(null)
     if (characterSelectionMode) closeCharacterSelection()
+  }
+  const openGroupEditor = (name: string) => setGroupEditor({ original: name, name, memberIds: characters.filter((item) => item.libraryGroup === name).map((item) => item.id) })
+  const saveGroupEditor = () => {
+    if (!groupEditor) return
+    if (!groupEditor.name.trim()) { window.alert('组名不能为空。想解散这个组，就把成员全部取消勾选。'); return }
+    setCharacters((current) => setLibraryGroupMembers(current, groupEditor.original, groupEditor.name, groupEditor.memberIds))
+    setGroupEditor(null)
   }
   const closeCharacterSelection = () => {
     setCharacterSelectionMode(false)
@@ -3059,7 +3067,7 @@ function App() {
       return sections.map((section) => {
         const collapsed = !searching && collapsedLibraryGroups.includes(section.key)
         return <div className="library-group" key={section.key}>
-          <button className={`library-group-header${collapsed ? ' collapsed' : ''}`} aria-expanded={!collapsed} onClick={() => toggleLibraryGroup(section.key)}><strong>{section.name}</strong><span>{section.items.length} 张</span><i>›</i></button>
+          <div className="library-group-head"><button className={`library-group-header${collapsed ? ' collapsed' : ''}`} aria-expanded={!collapsed} onClick={() => toggleLibraryGroup(section.key)}><strong>{section.name}</strong><span>{section.items.length} 张</span><i>›</i></button>{section.key !== '__ungrouped__' && <button className="library-group-edit" onClick={() => openGroupEditor(section.name)}>成员</button>}</div>
           {!collapsed && section.items.map((item) => <CharacterCard key={item.id} item={item} />)}
         </div>
       })
@@ -3156,6 +3164,14 @@ function App() {
 
     {mentionPickerOpen && activeConversation?.kind === 'group' && <MentionPicker members={groupParticipants} onPick={insertGroupMention} onClose={closeMentionPicker} />}
 
+    {groupEditor && <div className="character-menu-layer library-sheet-layer"><button className="drawer-backdrop" aria-label="关闭成员管理" onClick={() => setGroupEditor(null)} /><section className="conversation-menu library-group-sheet"><header><div><small>管理分组成员</small><strong>已选 {groupEditor.memberIds.length} 张</strong></div><button onClick={() => setGroupEditor(null)}>×</button></header>
+      <div className="library-sheet-block"><small>组名</small><input value={groupEditor.name} maxLength={40} onChange={(event) => setGroupEditor({ ...groupEditor, name: event.target.value })} /></div>
+      <div className="library-member-list">{characters.filter((item) => item.creator !== '惟境内置导演模板').slice().sort((a, b) => Number(groupEditor.memberIds.includes(b.id)) - Number(groupEditor.memberIds.includes(a.id))).map((item) => {
+        const checked = groupEditor.memberIds.includes(item.id)
+        const elsewhere = item.libraryGroup && item.libraryGroup !== groupEditor.original ? item.libraryGroup : ''
+        return <button key={item.id} className={`library-member${checked ? ' checked' : ''}`} aria-pressed={checked} onClick={() => setGroupEditor({ ...groupEditor, memberIds: checked ? groupEditor.memberIds.filter((id) => id !== item.id) : [...groupEditor.memberIds, item.id] })}><i>{checked ? '✓' : ''}</i><strong>{item.name}</strong><span>{effectiveLibraryRole(item) ? LIBRARY_ROLE_LABELS[effectiveLibraryRole(item) as LibraryRole] : ''}{elsewhere ? ` · 现在在「${elsewhere}」` : ''}</span></button>
+      })}</div>
+      <button className="library-sheet-save" onClick={saveGroupEditor}>保存</button></section></div>}
     {librarySheet && <div className="character-menu-layer library-sheet-layer"><button className="drawer-backdrop" aria-label="关闭分组" onClick={() => setLibrarySheet(null)} /><section className="conversation-menu library-group-sheet"><header><div><small>分组与身份</small><strong>{librarySheet.ids.length > 1 ? `${librarySheet.ids.length} 个角色` : characters.find((item) => item.id === librarySheet.ids[0])?.name}</strong></div><button onClick={() => setLibrarySheet(null)}>×</button></header>
       <div className="library-sheet-block"><small>属于哪个故事</small><input value={librarySheet.group} maxLength={40} onChange={(event) => setLibrarySheet({ ...librarySheet, group: event.target.value })} placeholder="例如：谢聿衡篇（留空 = 不分组）" /><div className="library-chip-row">{libraryGroupNames(characters).map((name) => <button key={name} className={librarySheet.group.trim() === name ? 'active' : ''} onClick={() => setLibrarySheet({ ...librarySheet, group: name })}>{name}</button>)}<button className={!librarySheet.group.trim() ? 'active' : ''} onClick={() => setLibrarySheet({ ...librarySheet, group: '' })}>不分组</button></div></div>
       <div className="library-sheet-block"><small>在故事里的身份</small><div className="library-chip-row">{LIBRARY_ROLES.map((role) => <button key={role} className={librarySheet.role === role ? 'active' : ''} onClick={() => setLibrarySheet({ ...librarySheet, role })}>{LIBRARY_ROLE_LABELS[role]}</button>)}<button className={librarySheet.role === null ? 'active' : ''} onClick={() => setLibrarySheet({ ...librarySheet, role: null })}>不标</button></div>{librarySheet.role === undefined && <p>这几张身份不一样，不点就各自保留。</p>}</div>

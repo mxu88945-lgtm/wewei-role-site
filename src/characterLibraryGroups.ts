@@ -52,3 +52,15 @@ export function assignLibraryGroup(characters: Character[], ids: string[], chang
     return next
   })
 }
+
+/** Set a group's exact members (and optionally rename it). Cards dropped from the group become ungrouped. */
+export function setLibraryGroupMembers(characters: Character[], original: string, name: string, memberIds: string[]) {
+  const next = name.trim().slice(0, 40)
+  const members = new Set(memberIds)
+  return characters.map((character) => {
+    const inOriginal = Boolean(original) && character.libraryGroup === original
+    if (members.has(character.id)) return character.libraryGroup === next ? character : { ...character, libraryGroup: next || undefined }
+    if (inOriginal) return { ...character, libraryGroup: undefined, libraryRole: character.libraryRole }
+    return character
+  })
+}

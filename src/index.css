@@ -607,3 +607,13 @@ button { cursor: pointer; }
 .library-chip-row button { min-height: 34px; border: 0; border-radius: 999px; padding: 0 13px; color: #5a5260; background: #eee9f1; font-size: 13px; font-weight: 700; }
 .library-chip-row button.active { color: #fff; background: var(--theme-accent); }
 .library-sheet-save { margin-top: 10px; min-height: 48px; border: 0; border-radius: 16px; color: #fff; font-weight: 800; background: linear-gradient(135deg, var(--theme-accent-strong), var(--theme-accent-end)); }
+.library-group-head { display: flex; gap: 8px; align-items: stretch; }
+.library-group-head .library-group-header { flex: 1; min-width: 0; }
+.library-group-edit { flex: none; min-height: 44px; border: 0; border-radius: 16px; padding: 0 14px; color: var(--theme-accent-text); background: var(--theme-accent-soft); font-size: 13px; font-weight: 800; }
+.library-member-list { max-height: 46vh; overflow-y: auto; -webkit-overflow-scrolling: touch; padding: 6px 4px; display: grid; gap: 4px; }
+.library-member { min-height: 46px; border: 0; border-radius: 14px; padding: 0 10px; display: flex; align-items: center; gap: 10px; color: #4d4651; background: transparent; text-align: left; }
+.library-member i { flex: none; width: 24px; height: 24px; border-radius: 50%; display: grid; place-items: center; font-style: normal; font-size: 13px; color: #fff; border: 1.5px solid rgba(74,56,84,.22); }
+.library-member.checked i { border-color: transparent; background: var(--theme-accent); }
+.library-member strong { font-size: 14px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.library-member span { margin-left: auto; color: #9d97a1; font-size: 11px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.library-member:active { background: #eee9f1; }

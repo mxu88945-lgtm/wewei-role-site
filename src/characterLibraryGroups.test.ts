@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import { normalizeStoredCharacter } from './characterCard'
-import { assignLibraryGroup, effectiveLibraryRole, groupLibraryCharacters, libraryGroupNames } from './characterLibraryGroups'
+import { assignLibraryGroup, setLibraryGroupMembers, effectiveLibraryRole, groupLibraryCharacters, libraryGroupNames } from './characterLibraryGroups'
 
 const card = (id: string, extra: Record<string, unknown> = {}) => normalizeStoredCharacter({ id, name: id, ...extra })
 
@@ -35,5 +35,11 @@ describe('character library groups', () => {
     const cleared = assignLibraryGroup(moved, ['a'], { group: '', role: null })
     expect(cleared[0]).toMatchObject({ libraryGroup: undefined, libraryRole: undefined })
     expect(cleared[1].libraryRole).toBe('npc')
+  })
+
+  it('adds, removes and renames members of a group', () => {
+    const list = [card('a', { libraryGroup: '谢篇' }), card('b', { libraryGroup: '谢篇' }), card('c'), card('d', { libraryGroup: '别篇' })]
+    const next = setLibraryGroupMembers(list, '谢篇', '谢聿衡篇', ['a', 'c'])
+    expect(next.map((c) => c.libraryGroup)).toEqual(['谢聿衡篇', undefined, '谢聿衡篇', '别篇'])
   })
 })
