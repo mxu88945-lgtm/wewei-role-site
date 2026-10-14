@@ -26,7 +26,7 @@ import { addPoints, applyMessagePoints, buildPointsNote, readPoints, writePoints
 import { FORUM_UPDATED_EVENT, dueRunAt, forumAutoTick, forumWelcomeThread, isQuietHour, pickAutoGroup, readPhoneAuto, writePhoneAuto } from './phoneAuto'
 import type { Moment } from './moments'
 import { USER_AUTHOR, communityMemberIds, excerptFromMessage } from './moments'
-import { buildDmGroupPeek, phoneDmRules, phonePromptHistory, PHONE_COMPLETION_TIMEOUT_MS } from './phoneGroup'
+import { buildDmGroupPeek, buildGroupDmPeek, phoneDmRules, phonePromptHistory, PHONE_COMPLETION_TIMEOUT_MS } from './phoneGroup'
 import { PHONE_REPLY_MODES, NOTICE_DURATIONS, lurkFallback, activeNotice, noticeRemaining, buildNoticeNote, findAtMentionIds, queueSummons, parsePhoneQuit, parsePhoneKick, parsePhoneVote, kickPassed, findNamedParticipantIds, selectPhoneSpeakers, pickPhoneChatters, cleanPhoneOutput, phoneStreamPreview, containsPhoneReasoning, phoneFinalGuard, buildSmartPickPrompt, parseSmartPick, buildPhoneArchive, buildPhoneGroupBackground, phoneBindingCandidates, buildPhoneRealWorldNote, parsePhoneLockCommand, buildPhoneLockBreachNote, type PhoneLockState, type PhoneLockBreach, phoneCharacter, phoneModeRules, stripPhoneQuitTag, stripPhoneKickTag, computeStoryUpdates, resetStorySeenForBindingChanges, storyUpdateNotice, buildStoryUpdateNote } from './phoneGroup'
 import { assignChatGroup, chatGroupNames, groupConversations, setChatGroupMembers } from './chatGroups'
 import { assignLibraryGroup, setLibraryGroupMembers, effectiveLibraryRole, groupLibraryCharacters, LIBRARY_ROLE_LABELS, libraryGroupNames } from './characterLibraryGroups'
@@ -2393,9 +2393,10 @@ function App() {
       const mateBackground = missingMates.length ? `【补充成员人设】\n${buildPhoneGroupBackground(missingMates).split('\n\n').slice(1).join('\n\n')}` : ''
       const dmBackground = dmMates.length ? `【群友们的人设与世界观】（大家互相透明，你都知道）\n${buildPhoneGroupBackground(dmMates).split('\n\n').slice(1).join('\n\n')}` : ''
       const dmPeek = conversation.phone?.dm ? buildDmGroupPeek(conversations, speaker.id, (message) => message.role === 'user' ? identity.name : characters.find((item) => item.id === message.characterId)?.name || '群友') : ''
+      const privateDmMemory = conversation.phone?.dm ? '' : buildGroupDmPeek(conversations, speaker.id, speaker.name, identity.name)
       const noticeNote = conversation.phone?.dm ? '' : [buildNoticeNote(activeNotice(conversation.phone?.notice), identity.name), (() => { const story = phoneStoryNoteRef.current; return story && story.conversationId === conversation.id ? story.note : '' })()].filter(Boolean).join('\n\n')
       const pointsNote = buildPointsNote(readPoints(), [...members, ...dmMates].map((member) => ({ id: member.id, name: member.name })), identity.name)
-      return [conversation.phone?.dm ? phoneDmRules(speaker.name, identity.name) : phoneModeRules(speaker.name, members.map((member) => member.name), identity.name, { allowQuit: conversation.phone?.allowQuit, allowKick: conversation.phone?.allowKick }), realWorld, noticeNote, pointsNote, mateBackground, dmBackground, dmPeek, buildPhoneArchive(sources, speaker.id, identity.name, (message) => message.characterId ? nameOf(message) : sources.find((source) => source.conversation?.messages.includes(message))?.character.name || '角色')].join('\n\n')
+      return [conversation.phone?.dm ? phoneDmRules(speaker.name, identity.name) : phoneModeRules(speaker.name, members.map((member) => member.name), identity.name, { allowQuit: conversation.phone?.allowQuit, allowKick: conversation.phone?.allowKick }), realWorld, noticeNote, pointsNote, mateBackground, dmBackground, dmPeek, privateDmMemory, buildPhoneArchive(sources, speaker.id, identity.name, (message) => message.characterId ? nameOf(message) : sources.find((source) => source.conversation?.messages.includes(message))?.character.name || '角色')].join('\n\n')
     })() : ''
     const sanitizedHistory = (isPhone ? phonePromptHistory(nextMessages, memoryLength) : nextMessages).flatMap((message) => {
       const fromDirector = message.role === 'assistant' && message.characterId === conversation.directorCharacterId
@@ -4025,7 +4026,7 @@ function UpdateCard() {
     }
   }
 
-  return <section className="update-card"><strong>应用更新</strong><p>主动检查并拉取最新网页版本，不会删除角色、聊天记录或本地设置。</p><small>当前版本：v82 · 2026.10.14 小手机群聊请求修复</small><button onClick={refresh} disabled={state === 'checking'}>{state === 'checking' ? '正在检查更新…' : state === 'error' ? '更新失败，点我重试' : '强制刷新到最新版'}</button></section>
+  return <section className="update-card"><strong>应用更新</strong><p>主动检查并拉取最新网页版本，不会删除角色、聊天记录或本地设置。</p><small>当前版本：v83 · 2026.10.14 群聊读取本人私聊记忆</small><button onClick={refresh} disabled={state === 'checking'}>{state === 'checking' ? '正在检查更新…' : state === 'error' ? '更新失败，点我重试' : '强制刷新到最新版'}</button></section>
 }
 
 function PersonaPage({ identities, selectedId, isBound, onSelect, onAdd, onDelete, onUpdate, onBack }: { identities: UserIdentity[]; selectedId: string; isBound: boolean; onSelect: (id: string) => void; onAdd: () => void; onDelete: (id: string) => void; onUpdate: (patch: Partial<UserIdentity>) => void; onBack: () => void }) {

@@ -338,6 +338,26 @@ export function buildDmGroupPeek(groups: Array<{ title: string; participantIds?:
   return blocks.length ? `【你在的群最近在聊】（你都看过；私聊里可以提、可以吐槽，但别整段复述）\n${blocks.join('\n\n')}` : ''
 }
 
+/** Group requests receive only the current speaker's own DM, never another member's. */
+export function buildGroupDmPeek(conversations: Conversation[], characterId: string, speakerName: string, userName: string) {
+  const dm = conversations.filter((conversation) => conversation.phone?.dm
+    && conversation.participantIds?.length === 1
+    && conversation.participantIds[0] === characterId)
+    .sort((left, right) => right.updatedAt - left.updatedAt)[0]
+  if (!dm) return ''
+  const summary = dm.contextSummary && (dm.contextSummaryRevision || 0) === (dm.historyRevision || 0)
+    ? clip(cleanPhoneOutput(sanitizeAssistantOutput(dm.contextSummary)), 1800) : ''
+  const recent = phonePromptHistory(dm.messages, 14)
+    .filter((message) => message.role === 'user' || !message.characterId || message.characterId === characterId)
+    .filter((message) => !/^(?:正在回应|正在等待模型回复|正在连接模型|模型正在思考|正在整理回复|已收到数据，正在生成消息|渠道暂未返回，正在重连)(?:…|\.{3})?$/.test(message.text.trim()))
+    .map((message) => `${message.role === 'user' ? userName : speakerName}：${clip(message.text.replace(/\s+/g, ' '), 320)}`)
+    .join('\n')
+  if (!summary && !recent) return ''
+  return `【仅${speakerName}本人可见｜你与${userName}的私聊记忆】
+以下是你自己与${userName}在小手机里私聊过的内容。你在群里也记得这些，可以自然接上之前的话题、约定与态度。其他群友没有收到这份私聊，不要把它当作群里已经公开说过的话，也不必主动复述私密原话。若你在群里主动说出某件事，别人只会从你的这条公开发言得知。
+${summary ? `较早私聊摘要：\n${summary}\n\n` : ''}${recent ? `最近私聊：\n${recent}` : ''}`
+}
+
 /** 角色消息里 @ 到的群友（@全名 或 @名，三字名可只写后两字），按出现顺序，不含自己。 */
 export function findAtMentionIds(text: string, participants: Array<{ id: string; name: string }>, selfId?: string) {
   const hits: Array<{ id: string; at: number }> = []

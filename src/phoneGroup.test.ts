@@ -1,11 +1,51 @@
 import { describe, expect, it } from 'vitest'
 import { normalizeStoredCharacter } from './characterCard'
 import type { Conversation } from './conversationLifecycle'
-import { buildPhoneArchive, buildPhoneGroupBackground, phoneBindingCandidates, phoneCharacter, phoneModeRules } from './phoneGroup'
+import { buildPhoneArchive, buildPhoneGroupBackground, buildGroupDmPeek, phoneBindingCandidates, phoneCharacter, phoneModeRules } from './phoneGroup'
 
 const xie = normalizeStoredCharacter({ id: 'xie', name: '谢聿衡', description: '临江谢氏掌权人，婚内出轨。', personality: '自负冷硬。', scenario: '婚姻破裂。', greeting: '<scene>夜</scene>你来了', systemPrompt: '永不出戏', beautificationProtocol: '<gts_status>', characterBook: { name: 'b', entries: [{ id: 1, keys: ['栖澜公馆'], content: '谢家的顶层复式。', comment: '栖澜公馆', enabled: true }] } as never })
 const gu = normalizeStoredCharacter({ id: 'gu', name: '顾祁砚', description: '另一个故事的男主。' })
 const chat = (id: string, characterId: string, extra: Partial<Conversation> = {}) => ({ id, characterId, title: id, messages: [{ id: 1, role: 'assistant', text: '<scene>夜</scene>你回来了' }, { id: 2, role: 'user', text: '嗯' }], createdAt: 0, updatedAt: 1, ...extra }) as Conversation
+
+describe('group speaker private DM continuity', () => {
+  const dm = (id: string, characterId: string, text: string, extra: Partial<Conversation> = {}) => chat(id, characterId, { kind: 'group', participantIds: [characterId], phone: { dm: true, bindings: {} }, messages: [{ id: 1, role: 'user', text }, { id: 2, role: 'assistant', characterId, text: '我记住了。' }], ...extra })
+
+  it('injects only the speaking member’s own DM; every other member receives their own private context', () => {
+    const conversations = [dm('xie-dm', 'xie', '私下答应给你留位置'), dm('gu-dm', 'gu', '明天陪我看电影'), chat('public', 'xie', { participantIds: ['xie', 'gu'], phone: { bindings: {} }, messages: [{ id: 1, role: 'user', text: '群里的公开消息' }] })]
+    const xiePeek = buildGroupDmPeek(conversations, 'xie', '谢聿衡', '惟惟')
+    expect(xiePeek).toContain('惟惟：私下答应给你留位置')
+    expect(xiePeek).toContain('谢聿衡：我记住了。')
+    expect(xiePeek).not.toContain('明天陪我看电影')
+    expect(xiePeek).not.toContain('群里的公开消息')
+    expect(buildGroupDmPeek(conversations, 'gu', '顾祁砚', '惟惟')).toContain('明天陪我看电影')
+    expect(buildGroupDmPeek(conversations, 'gu', '顾祁砚', '惟惟')).not.toContain('私下答应给你留位置')
+    expect(buildGroupDmPeek(conversations, 'new', '新人', '惟惟')).toBe('')
+  })
+
+  it('uses the latest own DM and retains valid earlier summary', () => {
+    const conversations = [dm('old', 'xie', '旧窗口的私聊', { updatedAt: 1 }), dm('current', 'xie', '最新私聊', { updatedAt: 2, contextSummary: '约好不公开旧事', historyRevision: 3, contextSummaryRevision: 3 }), dm('not-private', 'xie', '混入别人的私聊', { updatedAt: 3, participantIds: ['xie', 'gu'] })]
+    const peek = buildGroupDmPeek(conversations, 'xie', '谢聿衡', '惟惟')
+    expect(peek).toContain('最新私聊')
+    expect(peek).toContain('约好不公开旧事')
+    expect(peek).not.toContain('旧窗口的私聊')
+    expect(peek).not.toContain('混入别人的私聊')
+    expect(conversations[0].messages[0].text).toBe('旧窗口的私聊')
+  })
+
+  it('does not carry failed notices, model analysis, other speakers or obsolete summaries into a group turn', () => {
+    const source = dm('current', 'xie', '私聊原话', { historyRevision: 2, contextSummaryRevision: 1, contextSummary: '已回滚的旧结论', messages: [
+      { id: 1, role: 'user', text: '私聊原话' },
+      { id: 2, role: 'assistant', characterId: 'xie', text: '<think>内部推理。</think>我的回复。' },
+      { id: 3, role: 'assistant', text: '连接失败', phoneNotice: true },
+      { id: 4, role: 'assistant', characterId: 'gu', text: '其他人的私人回复' },
+      { id: 5, role: 'assistant', characterId: 'xie', text: '正在连接模型…' },
+    ] })
+    const peek = buildGroupDmPeek([source], 'xie', '谢聿衡', '惟惟')
+    expect(peek).toContain('我的回复。')
+    expect(peek).not.toMatch(/内部推理|连接失败|其他人的私人回复|正在连接模型|已回滚的旧结论/)
+    expect(buildGroupDmPeek([dm('empty', 'xie', '', { messages: [] })], 'xie', '谢聿衡', '惟惟')).toBe('')
+  })
+})
 
 describe('phone group', () => {
   it('request history keeps the latest turns and quotes without changing saved messages or including failed notices', async () => {
