@@ -11,7 +11,8 @@ import { GreetingPicker, GroupGreetingPicker, ImportPreview, type GroupGreetingC
 import MentionPicker from './MentionPicker'
 import { prewarmAvatarThumbnails } from './avatarThumbnail'
 import MessageContent from './MessageContent'
-import { createBlankCharacter, importCharacterCard, normalizeStoredCharacter, type Character } from './characterCard'
+import { createBlankCharacter, importCharacterCard, normalizeStoredCharacter, LIBRARY_ROLES, type Character, type LibraryRole } from './characterCard'
+import { assignLibraryGroup, effectiveLibraryRole, groupLibraryCharacters, LIBRARY_ROLE_LABELS, libraryGroupNames } from './characterLibraryGroups'
 import { activeCharacterMemory, characterMemoryEntryFromConversation, characterMemoryExtractionPrompt, characterMemorySummaryProtocol, parseCharacterMemoryCandidates, splitCharacterMemorySummary } from './characterMemory'
 import { ChatApiError, completeChat, fetchApiModels, testApiConnection, type ApiConfig, type ApiModel } from './chatApi'
 import { buildChatPrompt } from './promptBuilder'
@@ -389,6 +390,8 @@ function App() {
   const [characterQuery, setCharacterQuery] = useState('')
   const [characterSelectionMode, setCharacterSelectionMode] = useState(false)
   const [selectedCharacterIds, setSelectedCharacterIds] = useState<string[]>([])
+  const [collapsedLibraryGroups, setCollapsedLibraryGroups] = useState<string[]>(() => read<string[]>('weijing.libraryCollapsed', []))
+  const [librarySheet, setLibrarySheet] = useState<{ ids: string[]; group: string; role: LibraryRole | null | undefined } | null>(null)
   const [groupDraft, setGroupDraft] = useState<{ title: string; participantIds: string[]; apiIds: Record<string, string>; modelNames: Record<string, string> }>({ title: '', participantIds: [], apiIds: {}, modelNames: {} })
   const [groupDirectorDraft, setGroupDirectorDraft] = useState<DirectorTemplateConfig>(() => createDirectorTemplateConfig())
   const [directorEditorTarget, setDirectorEditorTarget] = useState<'draft' | 'conversation-new' | 'conversation'>('draft')
@@ -1671,6 +1674,23 @@ function App() {
   const toggleCharacterSelection = (characterId: string) => setSelectedCharacterIds((current) => current.includes(characterId)
     ? current.filter((id) => id !== characterId)
     : [...current, characterId])
+  useEffect(() => { write('weijing.libraryCollapsed', collapsedLibraryGroups) }, [collapsedLibraryGroups])
+  const toggleLibraryGroup = (key: string) => setCollapsedLibraryGroups((current) => current.includes(key) ? current.filter((item) => item !== key) : [...current, key])
+  const openLibrarySheet = (ids: string[]) => {
+    const picked = characters.filter((item) => ids.includes(item.id))
+    if (!picked.length) return
+    const groups = new Set(picked.map((item) => item.libraryGroup || ''))
+    const roles = new Set(picked.map((item) => item.libraryRole || null))
+    setLibrarySheet({ ids, group: groups.size === 1 ? [...groups][0] : '', role: roles.size === 1 ? [...roles][0] : undefined })
+  }
+  const saveLibrarySheet = () => {
+    if (!librarySheet) return
+    const group = librarySheet.group.trim()
+    setCharacters((current) => assignLibraryGroup(current, librarySheet.ids, { group, ...(librarySheet.role !== undefined ? { role: librarySheet.role } : {}) }))
+    if (group) setCollapsedLibraryGroups((current) => current.filter((item) => item !== group))
+    setLibrarySheet(null)
+    if (characterSelectionMode) closeCharacterSelection()
+  }
   const closeCharacterSelection = () => {
     setCharacterSelectionMode(false)
     setSelectedCharacterIds([])
@@ -2915,7 +2935,7 @@ function App() {
     return <div className={`character-card-shell${characterSelectionMode ? ' selection-mode' : ''}${selected ? ' selected' : ''}`}>
       <button className="character-card" onClick={() => characterSelectionMode ? toggleCharacterSelection(item.id) : openCharacter(item.id)}>
         <CharacterPortrait item={item} />
-        <div className="character-copy"><div className="character-title"><strong>{item.name}</strong><span>{item.id === activeId ? '最近共演' : item.cardSpecVersion ? `Card ${item.cardSpecVersion}` : '角色卡'}</span></div><p>{item.tagline}</p><small>“{item.greeting}”</small></div>
+        <div className="character-copy"><div className="character-title"><strong>{item.name}</strong><span className={effectiveLibraryRole(item) ? `library-role-badge role-${effectiveLibraryRole(item)}` : undefined}>{effectiveLibraryRole(item) ? LIBRARY_ROLE_LABELS[effectiveLibraryRole(item) as LibraryRole] : item.id === activeId ? '最近共演' : item.cardSpecVersion ? `Card ${item.cardSpecVersion}` : '角色卡'}</span></div><p>{item.tagline}</p><small>“{item.greeting}”</small></div>
       </button>
       {characterSelectionMode
         ? <button className={`character-card-select${selected ? ' selected' : ''}`} aria-label={`${selected ? '取消选择' : '选择'}${item.name}`} aria-pressed={selected} onClick={() => toggleCharacterSelection(item.id)}>{selected ? '✓' : ''}</button>
@@ -3031,7 +3051,18 @@ function App() {
       </div>
     </section>}
 
-    {page === 'characters' && <><BackHeader title="角色库" onBack={characterSelectionMode ? closeCharacterSelection : goBack} /><section className="content-stack"><div className="section-heading"><div><h2>{characterSelectionMode ? '选择角色' : '全部角色'}</h2><p>{characterSelectionMode ? `已选择 ${selectedCharacterIds.length} 个角色` : '支持 Tavern PNG · Card V2/V3'}</p></div><div className="library-actions">{characterSelectionMode ? <button className="library-manage-button active" onClick={closeCharacterSelection}>完成</button> : <><button className="workshop-entry-button" onClick={() => navigate('character-workshop')}>✦ AI 工坊</button><button onClick={() => navigate('create')}>＋ 新建</button><button className="library-manage-button" onClick={() => { setCharacterSelectionMode(true); setSelectedCharacterIds([]) }}>管理</button></>}</div></div><div className="character-search"><span>⌕</span><input value={characterQuery} onChange={(event) => setCharacterQuery(event.target.value)} placeholder="搜索名字、作者或标签" />{characterQuery && <button onClick={() => setCharacterQuery('')}>×</button>}</div>{characterSelectionMode && <div className="character-bulk-toolbar"><button onClick={toggleAllFilteredCharacters} disabled={!filteredCharacters.length}>{allFilteredCharactersSelected ? '取消全选' : characterQuery.trim() ? '全选结果' : '全选'}</button><span>已选 {selectedCharacterIds.length}</span><button className="danger" onClick={deleteSelectedCharacters} disabled={!selectedCharacterIds.length}>删除所选</button></div>}{importState === 'reading' && <div className="import-notice">正在解析角色卡、世界书与正则…</div>}{importState === 'error' && <div className="import-notice error">{importError}</div>}{filteredCharacters.map((item) => <CharacterCard key={item.id} item={item} />)}{filteredCharacters.length === 0 && <div className="library-empty">没有找到匹配的角色。</div>}</section></>}
+    {page === 'characters' && <><BackHeader title="角色库" onBack={characterSelectionMode ? closeCharacterSelection : goBack} /><section className="content-stack"><div className="section-heading"><div><h2>{characterSelectionMode ? '选择角色' : '全部角色'}</h2><p>{characterSelectionMode ? `已选择 ${selectedCharacterIds.length} 个角色` : '支持 Tavern PNG · Card V2/V3'}</p></div><div className="library-actions">{characterSelectionMode ? <button className="library-manage-button active" onClick={closeCharacterSelection}>完成</button> : <><button className="workshop-entry-button" onClick={() => navigate('character-workshop')}>✦ AI 工坊</button><button onClick={() => navigate('create')}>＋ 新建</button><button className="library-manage-button" onClick={() => { setCharacterSelectionMode(true); setSelectedCharacterIds([]) }}>管理</button></>}</div></div><div className="character-search"><span>⌕</span><input value={characterQuery} onChange={(event) => setCharacterQuery(event.target.value)} placeholder="搜索名字、作者或标签" />{characterQuery && <button onClick={() => setCharacterQuery('')}>×</button>}</div>{characterSelectionMode && <div className="character-bulk-toolbar"><button onClick={toggleAllFilteredCharacters} disabled={!filteredCharacters.length}>{allFilteredCharactersSelected ? '取消全选' : characterQuery.trim() ? '全选结果' : '全选'}</button><span>已选 {selectedCharacterIds.length}</span><button onClick={() => openLibrarySheet(selectedCharacterIds)} disabled={!selectedCharacterIds.length}>分组</button><button className="danger" onClick={deleteSelectedCharacters} disabled={!selectedCharacterIds.length}>删除所选</button></div>}{importState === 'reading' && <div className="import-notice">正在解析角色卡、世界书与正则…</div>}{importState === 'error' && <div className="import-notice error">{importError}</div>}{(() => {
+      const sections = groupLibraryCharacters(filteredCharacters)
+      const searching = Boolean(characterQuery.trim())
+      if (sections.length === 1 && sections[0].key === '__ungrouped__') return sections[0].items.map((item) => <CharacterCard key={item.id} item={item} />)
+      return sections.map((section) => {
+        const collapsed = !searching && collapsedLibraryGroups.includes(section.key)
+        return <div className="library-group" key={section.key}>
+          <button className={`library-group-header${collapsed ? ' collapsed' : ''}`} aria-expanded={!collapsed} onClick={() => toggleLibraryGroup(section.key)}><strong>{section.name}</strong><span>{section.items.length} 张</span><i>›</i></button>
+          {!collapsed && section.items.map((item) => <CharacterCard key={item.id} item={item} />)}
+        </div>
+      })
+    })()}{filteredCharacters.length === 0 && <div className="library-empty">没有找到匹配的角色。</div>}</section></>}
 
     {page === 'create' && <><BackHeader title="新建角色" onBack={goBack} action={<button className="text-button" onClick={createCharacter}>保存</button>} /><section className="content-stack form-stack"><button className="drop-zone compact" onClick={() => fileInputRef.current?.click()}><span className="drop-plus">＋</span><strong>{importState === 'reading' ? '正在读取角色卡…' : '从文件导入角色卡'}</strong><small>支持带元数据的 PNG 与 JSON</small></button><div className="url-import-card"><div><strong>从 URL 导入角色卡</strong><small>粘贴 PNG 或 JSON 角色卡直链</small></div><div><input type="url" value={characterUrl} onChange={(event) => setCharacterUrl(event.target.value)} onKeyDown={(event) => { if (event.key === 'Enter') { event.preventDefault(); handleCharacterUrl() } }} placeholder="https://…/character.png" /><button onClick={handleCharacterUrl} disabled={!characterUrl.trim() || importState === 'reading'}>{importState === 'reading' ? '读取中' : '导入'}</button></div></div>{importState === 'error' && <div className="import-notice error">{importError}</div>}<div className="form-divider"><span>或者手动创建</span></div><label className="avatar-upload-row"><span className="avatar-upload-preview">{newCharacter.avatar ? <img src={newCharacter.avatar} alt="" /> : '＋'}</span><span><strong>角色头像</strong><small>选择照片并自动裁成方形</small></span><input type="file" accept="image/*" onChange={async (event) => { const file = event.target.files?.[0]; if (file) setNewCharacter({ ...newCharacter, avatar: await imageThumbnail(file) }); event.currentTarget.value = '' }} /></label><label>角色名称<input value={newCharacter.name} onChange={(e) => setNewCharacter({ ...newCharacter, name: e.target.value })} placeholder="例如：霍烬" /></label><label>一句话简介<input value={newCharacter.tagline} onChange={(e) => setNewCharacter({ ...newCharacter, tagline: e.target.value })} /></label><label>角色设定<textarea rows={7} value={newCharacter.description} onChange={(e) => setNewCharacter({ ...newCharacter, description: e.target.value })} /></label><label>开场白<textarea rows={4} value={newCharacter.greeting} onChange={(e) => setNewCharacter({ ...newCharacter, greeting: e.target.value })} /></label><label>标签<input value={newCharacter.tags} onChange={(e) => setNewCharacter({ ...newCharacter, tags: e.target.value })} placeholder="慢热，守护，剧情向" /></label><button className="primary-button full" onClick={createCharacter}>创建并保存</button></section></>}
 
@@ -3124,7 +3155,11 @@ function App() {
 
     {mentionPickerOpen && activeConversation?.kind === 'group' && <MentionPicker members={groupParticipants} onPick={insertGroupMention} onClose={closeMentionPicker} />}
 
-    {menuCharacter && <div className="character-menu-layer"><button className="drawer-backdrop" aria-label="关闭角色菜单" onClick={() => setCharacterMenuId(null)} /><section className="conversation-menu character-action-menu"><header><div><small>角色操作</small><strong>{menuCharacter.name}</strong></div><button onClick={() => setCharacterMenuId(null)}>×</button></header><button onClick={() => { selectLibraryCharacter(menuCharacter.id); setCharacterMenuId(null); navigate('card-data') }}>编辑角色卡</button><button onClick={() => duplicateCharacter(menuCharacter)}>复制角色</button><button onClick={() => exportCharacter(menuCharacter)}>导出 Character Card V3 JSON</button><button className="danger" onClick={() => deleteCharacter(menuCharacter)}>删除角色及相关数据</button></section></div>}
+    {librarySheet && <div className="character-menu-layer"><button className="drawer-backdrop" aria-label="关闭分组" onClick={() => setLibrarySheet(null)} /><section className="conversation-menu library-group-sheet"><header><div><small>分组与身份</small><strong>{librarySheet.ids.length > 1 ? `${librarySheet.ids.length} 个角色` : characters.find((item) => item.id === librarySheet.ids[0])?.name}</strong></div><button onClick={() => setLibrarySheet(null)}>×</button></header>
+      <div className="library-sheet-block"><small>属于哪个故事</small><input value={librarySheet.group} maxLength={40} onChange={(event) => setLibrarySheet({ ...librarySheet, group: event.target.value })} placeholder="例如：谢聿衡篇（留空 = 不分组）" /><div className="library-chip-row">{libraryGroupNames(characters).map((name) => <button key={name} className={librarySheet.group.trim() === name ? 'active' : ''} onClick={() => setLibrarySheet({ ...librarySheet, group: name })}>{name}</button>)}<button className={!librarySheet.group.trim() ? 'active' : ''} onClick={() => setLibrarySheet({ ...librarySheet, group: '' })}>不分组</button></div></div>
+      <div className="library-sheet-block"><small>在故事里的身份</small><div className="library-chip-row">{LIBRARY_ROLES.map((role) => <button key={role} className={librarySheet.role === role ? 'active' : ''} onClick={() => setLibrarySheet({ ...librarySheet, role })}>{LIBRARY_ROLE_LABELS[role]}</button>)}<button className={librarySheet.role === null ? 'active' : ''} onClick={() => setLibrarySheet({ ...librarySheet, role: null })}>不标</button></div>{librarySheet.role === undefined && <p>这几张身份不一样，不点就各自保留。</p>}</div>
+      <button className="library-sheet-save" onClick={saveLibrarySheet}>保存</button></section></div>}
+    {menuCharacter && <div className="character-menu-layer"><button className="drawer-backdrop" aria-label="关闭角色菜单" onClick={() => setCharacterMenuId(null)} /><section className="conversation-menu character-action-menu"><header><div><small>角色操作</small><strong>{menuCharacter.name}</strong></div><button onClick={() => setCharacterMenuId(null)}>×</button></header><button onClick={() => { selectLibraryCharacter(menuCharacter.id); setCharacterMenuId(null); navigate('card-data') }}>编辑角色卡</button><button onClick={() => { openLibrarySheet([menuCharacter.id]); setCharacterMenuId(null) }}>分组与身份{menuCharacter.libraryGroup ? ` · ${menuCharacter.libraryGroup}` : ''}</button><button onClick={() => duplicateCharacter(menuCharacter)}>复制角色</button><button onClick={() => exportCharacter(menuCharacter)}>导出 Character Card V3 JSON</button><button className="danger" onClick={() => deleteCharacter(menuCharacter)}>删除角色及相关数据</button></section></div>}
 
     {drawer && <div className="drawer-layer" role="presentation">
       <button className="drawer-backdrop" aria-label="关闭抽屉" onClick={() => { setDrawer(null); setConversationMenuId(null) }} />

@@ -157,8 +157,16 @@ export type Character = {
   regexScripts: RegexScript[]
   directorTemplateConfig?: DirectorTemplateConfig
   directorLibrarySourceId?: string
+  /** 角色库分组（故事名），只在本机整理用，不写进导出的卡。 */
+  libraryGroup?: string
+  /** 在分组里的身份：主角 / 独立卡 / NPC / 导演。 */
+  libraryRole?: LibraryRole
   rawCard?: Record<string, unknown>
 }
+
+export type LibraryRole = 'lead' | 'standalone' | 'npc' | 'director'
+export const LIBRARY_ROLES: LibraryRole[] = ['lead', 'standalone', 'npc', 'director']
+const isLibraryRole = (value: unknown): value is LibraryRole => typeof value === 'string' && (LIBRARY_ROLES as string[]).includes(value)
 
 type CardData = Record<string, unknown> & {
   name?: string
@@ -921,6 +929,8 @@ export function normalizeStoredCharacter(character: Partial<Character>): Charact
       : [],
     directorTemplateConfig: normalizeDirectorTemplateConfig(character.directorTemplateConfig),
     directorLibrarySourceId: character.directorLibrarySourceId,
+    libraryGroup: typeof character.libraryGroup === 'string' && character.libraryGroup.trim() ? character.libraryGroup.trim().slice(0, 40) : undefined,
+    libraryRole: isLibraryRole(character.libraryRole) ? character.libraryRole : undefined,
     rawCard: character.rawCard,
   }
 }
