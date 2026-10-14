@@ -187,3 +187,6 @@ html[data-standalone] .message-editor-layer { bottom: auto; }
 html[data-standalone][data-kb] .message-editor-layer { align-items: flex-end; padding-bottom: 10px; }
 html[data-standalone][data-kb] .message-editor-sheet { max-height: calc(100% - 10px - max(14px, env(safe-area-inset-top))); min-height: 0; }
 html[data-standalone][data-kb] .message-editor-sheet textarea { flex: 1 1 auto; height: auto; min-height: 96px; }
+
+html[data-standalone] .forum-sheet-layer { bottom: auto; }
+html[data-standalone][data-kb] .forum-sheet { padding-bottom: 12px; }

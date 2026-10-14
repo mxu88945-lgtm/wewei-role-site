@@ -21,7 +21,7 @@ describe('iOS standalone app height', () => {
   })
 
   it('index.html writes the height inline on exactly the layout boxes', () => {
-    expect(indexHtml).toMatch(/querySelectorAll\('\.app-shell, \.phone-canvas, \.composer-expanded-layer, \.metadata-full-page, \.library-sheet-layer, \.message-editor-layer'\)/)
+    expect(indexHtml).toMatch(/querySelectorAll\('\.app-shell, \.phone-canvas, \.composer-expanded-layer, \.metadata-full-page, \.library-sheet-layer, \.message-editor-layer, \.forum-sheet-layer'\)/)
     expect(indexHtml).toMatch(/document\.getElementById\('root'\)/)
     expect(indexHtml).toMatch(/box\.style\.height = value/)
     expect(indexHtml).toMatch(/window\.__weijingApplyAppHeight\s*=/)

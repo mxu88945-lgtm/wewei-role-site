@@ -1861,6 +1861,13 @@ function App() {
     setActiveId(characterId); setActiveConversationId(conversation.id)
     navigate('chat')
   }
+  const shareForumToChat = (conversationId: string, text: string) => {
+    const target = conversations.find((item) => item.id === conversationId)
+    if (!target) return
+    setConversations((current) => current.map((item) => item.id === conversationId ? { ...item, messages: [...item.messages, { id: nextMessageId(item.messages), role: 'user', text }], updatedAt: Date.now() } : item))
+    window.alert(`已分享到「${target.title}」，下次有人说话时就看到了。`)
+  }
+
   const forwardDmToGroup = (message: Message) => {
     const dm = activeConversation
     const characterId = dm?.participantIds?.[0]
@@ -3448,7 +3455,7 @@ function App() {
       {!phoneDraft && <PhoneAutoSettingsCard status={phoneAutoStatus} />}
       {!phoneDraft && <PhonePointsCard members={[...new Set(conversations.filter((item) => item.phone && !item.phone.dm).flatMap((item) => item.participantIds || []))].map((id) => characters.find((item) => item.id === id)).filter((item): item is Character => Boolean(item))} />}
       {!phoneDraft && <div className="phone-tabs" role="tablist"><button role="tab" aria-selected={phoneTab === 'groups'} className={phoneTab === 'groups' ? 'active' : ''} onClick={() => setPhoneTab('groups')}>群聊</button><button role="tab" aria-selected={phoneTab === 'dms'} className={phoneTab === 'dms' ? 'active' : ''} onClick={() => setPhoneTab('dms')}>私聊</button><button role="tab" aria-selected={phoneTab === 'moments'} className={phoneTab === 'moments' ? 'active' : ''} onClick={() => setPhoneTab('moments')}>论坛</button></div>}
-      {!phoneDraft && phoneTab === 'moments' && <Forum characters={characters} conversations={conversations} userName={identity.name} userAvatar={identity.avatar} api={api} seed={momentSeed} onSeedUsed={clearMomentSeed} onSaveToMemory={saveMomentToMemory} onThreadsChange={handleForumChange} />}
+      {!phoneDraft && phoneTab === 'moments' && <Forum characters={characters} conversations={conversations} userName={identity.name} userAvatar={identity.avatar} api={api} seed={momentSeed} onSeedUsed={clearMomentSeed} onSaveToMemory={saveMomentToMemory} onThreadsChange={handleForumChange} onShare={shareForumToChat} />}
       {!phoneDraft && phoneTab === 'dms' && <>
         <div className="privacy-note">一对一私聊：TA 看得到自己所在群最近的聊天和论坛，可以私下跟你吐槽；群里的人看不到私聊。</div>
         {(() => {
@@ -3742,7 +3749,7 @@ function UpdateCard() {
     }
   }
 
-  return <section className="update-card"><strong>应用更新</strong><p>主动检查并拉取最新网页版本，不会删除角色、聊天记录或本地设置。</p><small>当前版本：v69 · 2026.10.14 新人报到和服刑积分</small><button onClick={refresh} disabled={state === 'checking'}>{state === 'checking' ? '正在检查更新…' : state === 'error' ? '更新失败，点我重试' : '强制刷新到最新版'}</button></section>
+  return <section className="update-card"><strong>应用更新</strong><p>主动检查并拉取最新网页版本，不会删除角色、聊天记录或本地设置。</p><small>当前版本：v70 · 2026.10.14 论坛举报投诉分享和@</small><button onClick={refresh} disabled={state === 'checking'}>{state === 'checking' ? '正在检查更新…' : state === 'error' ? '更新失败，点我重试' : '强制刷新到最新版'}</button></section>
 }
 
 function PersonaPage({ identities, selectedId, isBound, onSelect, onAdd, onDelete, onUpdate, onBack }: { identities: UserIdentity[]; selectedId: string; isBound: boolean; onSelect: (id: string) => void; onAdd: () => void; onDelete: (id: string) => void; onUpdate: (patch: Partial<UserIdentity>) => void; onBack: () => void }) {

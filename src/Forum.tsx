@@ -7,10 +7,11 @@ import { prepareChatImage, type ChatImage } from './chatImages'
 import { durableGet, durableSet } from './persistentStore'
 import { characterBrief, communityMemberIds, findMentionIds, type Moment } from './moments'
 import {
-  FORUM_BOARDS, FORUM_FLOOR_IMAGE_LIMIT, FORUM_THREAD_IMAGE_LIMIT, FORUM_USER, forumPromptPixels, buildFloorsPrompt, buildThreadPrompt, floorNumber, floorsText, forumThreadLine, parseFloors, parseThreadDraft,
+  FORUM_BOARDS, FORUM_FLOOR_IMAGE_LIMIT, FORUM_REPORT_REASONS, FORUM_SYSTEM, FORUM_THREAD_IMAGE_LIMIT, FORUM_USER, forumPromptPixels, buildFloorsPrompt, buildThreadPrompt, floorNumber, floorsText, forumThreadLine, parseFloors, parseThreadDraft,
   pickForumReaders, sortThreads, threadsFromMoments, type ForumBoard, type ForumFloor, type ForumThread,
 } from './forum'
 import type { MomentSeed } from './Moments'
+import { addPoints, readPoints, writePoints } from './phonePoints'
 
 type Props = {
   characters: Character[]
@@ -22,6 +23,7 @@ type Props = {
   onSeedUsed: () => void
   onSaveToMemory: (groupIds: string[], title: string, content: string) => void
   onThreadsChange?: (threads: ForumThread[]) => void
+  onShare?: (conversationId: string, text: string) => void
 }
 
 const STORE_KEY = 'weijing.forum'
@@ -43,7 +45,7 @@ const timeLabel = (at: number) => {
   return `${date.getMonth() + 1}月${date.getDate()}日`
 }
 
-export function Forum({ characters, conversations, userName, userAvatar, api, seed, onSeedUsed, onSaveToMemory, onThreadsChange }: Props) {
+export function Forum({ characters, conversations, userName, userAvatar, api, seed, onSeedUsed, onSaveToMemory, onThreadsChange, onShare }: Props) {
   const [threads, setThreads] = useState<ForumThread[]>([])
   const [ready, setReady] = useState(false)
   const [busy, setBusy] = useState('')
@@ -66,6 +68,9 @@ export function Forum({ characters, conversations, userName, userAvatar, api, se
   const [composeImages, setComposeImages] = useState<ChatImage[]>([])
   const [replyImages, setReplyImages] = useState<ChatImage[]>([])
   const [viewer, setViewer] = useState('')
+  const [sheet, setSheet] = useState<{ kind: 'report' | 'complain' | 'share'; floor: number } | null>(null)
+  const [complaint, setComplaint] = useState('')
+  useEffect(() => { if (sheet) (window as Window & { __weijingApplyAppHeight?: () => void }).__weijingApplyAppHeight?.() }, [sheet])
   const threadsRef = useRef(threads)
   threadsRef.current = threads
 
@@ -110,7 +115,7 @@ export function Forum({ characters, conversations, userName, userAvatar, api, se
   const phoneGroups = conversations.filter((item) => item.phone)
   const memberIds = communityMemberIds(conversations)
   const members = memberIds.map((id) => characters.find((item) => item.id === id)).filter(Boolean) as Character[]
-  const nameOf = (id: string) => id === FORUM_USER ? userName : characters.find((item) => item.id === id)?.name || '已离开的角色'
+  const nameOf = (id: string) => id === FORUM_USER ? userName : id === FORUM_SYSTEM ? '整改中心管理处' : characters.find((item) => item.id === id)?.name || '已离开的角色'
   const avatarOf = (id: string) => id === FORUM_USER ? userAvatar : characters.find((item) => item.id === id)?.avatar
   const people = members.map((item) => ({ id: item.id, name: item.name }))
   const visible = useMemo(() => sortThreads(threads.filter((item) => board === 'all' || item.board === board), sortMode), [threads, board, sortMode])
@@ -241,6 +246,63 @@ export function Forum({ characters, conversations, userName, userAvatar, api, se
     await gatherFloors(thread.id, `${replyAnonymous ? '一位匿名网友' : userName}刚刚回帖了${target ? `（回复${target}楼）` : ''}${images.length ? `，贴了 ${images.length} 张图` : ''}。相关角色接着回应，不相关的可以不说话。`, mentioned)
   }
 
+  /** floor: 1 = 楼主，2+ = 楼层号 */
+  const targetOf = (thread: ForumThread, floor: number) => {
+    const item = floor <= 1 ? null : thread.floors[floor - 2]
+    return { authorId: item ? item.authorId : thread.authorId, anonymous: item ? item.anonymous : thread.anonymous, text: item ? item.text : `《${thread.title}》${thread.body}` }
+  }
+
+  const report = async (thread: ForumThread, floor: number, reason: string) => {
+    setSheet(null)
+    const target = targetOf(thread, floor)
+    const now = Date.now()
+    const penalized = target.authorId !== FORUM_USER && target.authorId !== FORUM_SYSTEM
+    if (penalized) writePoints(addPoints(readPoints(), target.authorId, -5, `被举报：${reason}`, now))
+    const who = target.anonymous ? '匿名用户' : nameOf(target.authorId)
+    const notice: ForumFloor = { id: uid(), authorId: FORUM_SYSTEM, text: `⚠️ ${floor}楼（${who}）被举报：${reason}。${penalized ? `已扣 5 服刑积分${target.anonymous ? '，管理处知道你是谁' : ''}。` : '经核实为造物主本人，举报驳回。'}`, replyToFloor: floor, createdAt: now }
+    update(thread.id, (item) => floor <= 1
+      ? { ...item, reports: [...(item.reports || []), { reason, at: now }], floors: [...item.floors, notice], updatedAt: now }
+      : { ...item, floors: [...item.floors.map((entry, index) => index === floor - 2 ? { ...entry, reports: [...(entry.reports || []), { reason, at: now }] } : entry), notice], updatedAt: now })
+    if (penalized) await gatherFloors(thread.id, `${floor}楼${who}刚被人举报「${reason}」，管理处扣了 5 分（举报人是谁没公开）。被举报的人会喊冤、辩解、怀疑是谁举报的、反咬一口；其他人起哄、站队或幸灾乐祸。`, [target.authorId])
+  }
+
+  const complain = async (thread: ForumThread, floor: number) => {
+    const text = complaint.trim()
+    if (!text) return
+    setSheet(null); setComplaint('')
+    const target = targetOf(thread, floor)
+    const who = target.anonymous ? '匿名用户' : nameOf(target.authorId)
+    const now = Date.now()
+    const created: ForumThread = { id: uid(), board: '投诉信箱', title: `【投诉】${who}${floor > 1 ? `在《${thread.title.slice(0, 16)}》${floor}楼` : `发帖《${thread.title.slice(0, 16)}》`}`, authorId: FORUM_USER, anonymous: true, body: `${text}\n\n被投诉内容：“${target.text.slice(0, 120)}${target.text.length > 120 ? '…' : ''}”`, createdAt: now, updatedAt: now, floors: [], likes: [] }
+    threadsRef.current = [created, ...threadsRef.current]
+    setThreads(threadsRef.current)
+    setOpenId(created.id)
+    await gatherFloors(created.id, `有人在投诉信箱匿名投诉了${who}。被投诉的人会来申辩或嘴硬，其他人围观、猜投诉人、拱火或补刀。`, target.authorId === FORUM_USER ? [] : [target.authorId])
+  }
+
+  const share = async (thread: ForumThread, floor: number, conversationId: string) => {
+    setSheet(null)
+    const target = targetOf(thread, floor)
+    const who = target.anonymous ? '匿名用户' : nameOf(target.authorId)
+    const text = floor > 1
+      ? `【分享论坛楼层】《${thread.title}》${floor}楼 ${who}：${target.text.slice(0, 200)}`
+      : `【分享论坛帖子】《${thread.title}》（${thread.board}·${who}）\n${thread.body.slice(0, 200)}${thread.body.length > 200 ? '…' : ''}${thread.floors.length ? `\n已有 ${thread.floors.length} 层回复` : ''}`
+    if (conversationId === 'system') {
+      try { if (navigator.share) await navigator.share({ text }); else { await navigator.clipboard.writeText(text); window.alert('已复制，可以粘贴给别人。') } } catch { /* 取消分享 */ }
+      return
+    }
+    onShare?.(conversationId, text)
+  }
+
+  const mentionPicker = (text: string, setText: (value: string) => void) => {
+    const match = text.match(/[@＠]([^\s@＠]{0,8})$/)
+    if (!match) return null
+    const query = match[1]
+    const options = members.filter((item) => !query || item.name.includes(query))
+    if (!options.length) return null
+    return <div className="forum-mention-row">{options.map((item) => <button key={item.id} type="button" onPointerDown={(event) => event.preventDefault()} onClick={() => setText(`${text.slice(0, text.length - match[0].length)}@${item.name} `)}>@{item.name}</button>)}</div>
+  }
+
   const saveToMemory = (thread: ForumThread) => {
     const groupIds = phoneGroups.filter((group) => thread.authorId === FORUM_USER || group.participantIds?.includes(thread.authorId)).map((group) => group.id)
     const floors = floorsText(thread, nameOf, 12)
@@ -275,6 +337,12 @@ export function Forum({ characters, conversations, userName, userAvatar, api, se
         <button className="danger" onClick={() => { if (window.confirm('删除这个帖子和全部楼层？')) { setThreads((current) => current.filter((item) => item.id !== thread.id)); setOpenId(''); setMenuOpen(false) } }}>删除帖子</button>
       </div>}
       {status}
+      {sheet && <div className="forum-sheet-layer"><button className="drawer-backdrop" aria-label="关闭" onClick={() => setSheet(null)} /><section className="forum-sheet">
+        <header><strong>{sheet.kind === 'report' ? `举报 ${sheet.floor}楼` : sheet.kind === 'complain' ? `投诉 ${sheet.floor}楼` : `分享${sheet.floor > 1 ? ` ${sheet.floor}楼` : '帖子'}`}</strong><button onClick={() => setSheet(null)}>×</button></header>
+        {sheet.kind === 'report' && <><p>匿名举报，被举报的角色扣 5 服刑积分，管理处会在楼里通报。</p><div className="forum-sheet-grid">{FORUM_REPORT_REASONS.map((reason) => <button key={reason} disabled={Boolean(busy)} onClick={() => void report(thread, sheet.floor, reason)}>{reason}</button>)}</div></>}
+        {sheet.kind === 'complain' && <><p>匿名写进「投诉信箱」，单独开一帖，被投诉的人会来申辩。</p><textarea onFocus={revealOnFocus} rows={3} value={complaint} onChange={(event) => setComplaint(event.target.value)} placeholder="投诉内容，比如：锁我手机还让我拍空碗" /><button className="primary" disabled={Boolean(busy) || !complaint.trim()} onClick={() => void complain(thread, sheet.floor)}>提交投诉</button></>}
+        {sheet.kind === 'share' && <div className="forum-sheet-list">{phoneGroups.map((group) => <button key={group.id} onClick={() => void share(thread, sheet.floor, group.id)}>{group.phone?.dm ? '私聊 · ' : '群 · '}{group.title}</button>)}<button onClick={() => void share(thread, sheet.floor, 'system')}>分享到别的 App / 复制</button></div>}
+      </section></div>}
       <article className="forum-op">
         <h3>{thread.pinned ? '📌 ' : ''}{thread.title}</h3>
         <header>{avatarNode(thread.authorId, thread.anonymous)}<div><strong>{thread.anonymous ? '匿名用户' : nameOf(thread.authorId)} <em>楼主</em></strong><small>1楼 · {timeLabel(thread.createdAt)}</small></div></header>
@@ -283,7 +351,7 @@ export function Forum({ characters, conversations, userName, userAvatar, api, se
         {thread.imageNote && <div className="moment-image">📷 {thread.imageNote}</div>}
         {thread.sourceExcerpt && <button className="moment-source" onClick={() => setSourceOpen(!sourceOpen)}>出处：{conversations.find((item) => item.id === thread.sourceConversationId)?.title || '原剧情'} {sourceOpen ? '收起' : '查看'}</button>}
         {sourceOpen && thread.sourceExcerpt && <blockquote className="moment-source-text">{thread.sourceExcerpt}</blockquote>}
-        <div className="moment-actions"><button className={thread.likes.includes(FORUM_USER) ? 'liked' : ''} onClick={() => update(thread.id, (item) => ({ ...item, likes: item.likes.includes(FORUM_USER) ? item.likes.filter((id) => id !== FORUM_USER) : [...item.likes, FORUM_USER] }))}>♡ {thread.likes.length || ''}</button>{!thread.locked && <button onClick={() => setReplyTo(1)}>回复楼主</button>}</div>
+        <div className="moment-actions"><button className={thread.likes.includes(FORUM_USER) ? 'liked' : ''} onClick={() => update(thread.id, (item) => ({ ...item, likes: item.likes.includes(FORUM_USER) ? item.likes.filter((id) => id !== FORUM_USER) : [...item.likes, FORUM_USER] }))}>♡ {thread.likes.length || ''}</button><button onClick={() => setSheet({ kind: 'report', floor: 1 })}>举报{thread.reports?.length ? ` ${thread.reports.length}` : ''}</button><button onClick={() => setSheet({ kind: 'complain', floor: 1 })}>投诉</button><button onClick={() => setSheet({ kind: 'share', floor: 1 })}>分享</button>{!thread.locked && <button onClick={() => setReplyTo(1)}>回复楼主</button>}</div>
         {thread.likes.length > 0 && <div className="moment-likes">♡ {thread.likes.map(nameOf).join('、')}</div>}
       </article>
       {thread.floors.map((floor, index) => {
@@ -295,6 +363,7 @@ export function Forum({ characters, conversations, userName, userAvatar, api, se
           {target && <blockquote className="forum-quote">回复 {floor.replyToFloor}楼 {target.name}：{target.text.slice(0, 40)}{target.text.length > 40 ? '…' : ''}</blockquote>}
           {floor.text && <p className="moment-text">{floor.text}</p>}
           {imageGrid(floor.images)}
+          {floor.authorId !== FORUM_SYSTEM && <div className="forum-floor-actions"><button className={floor.likes?.includes(FORUM_USER) ? 'liked' : ''} onClick={() => update(thread.id, (item) => ({ ...item, floors: item.floors.map((entry) => entry.id === floor.id ? { ...entry, likes: entry.likes?.includes(FORUM_USER) ? entry.likes.filter((id) => id !== FORUM_USER) : [...(entry.likes || []), FORUM_USER] } : entry) }))}>♡ {floor.likes?.length || ''}</button><button onClick={() => setSheet({ kind: 'report', floor: number })}>举报{floor.reports?.length ? ` ${floor.reports.length}` : ''}</button><button onClick={() => setSheet({ kind: 'complain', floor: number })}>投诉</button><button onClick={() => setSheet({ kind: 'share', floor: number })}>分享</button></div>}
         </article>
       })}
       {thread.locked ? <div className="moment-closed">帖子已锁，不能再回</div> : <>
@@ -302,6 +371,7 @@ export function Forum({ characters, conversations, userName, userAvatar, api, se
         <div className="forum-reply-box">
           {replyTo > 0 && <div className="moment-source-chip">回复 {replyTo}楼<button onClick={() => setReplyTo(0)}>×</button></div>}
           <textarea onFocus={revealOnFocus} rows={2} value={replyText} onChange={(event) => setReplyText(event.target.value)} placeholder="回帖……可以 @角色" />
+          {mentionPicker(replyText, setReplyText)}
           {imagePicker(replyImages, FORUM_FLOOR_IMAGE_LIMIT, setReplyImages)}
           <div className="forum-reply-actions"><label className="forum-anon"><input type="checkbox" checked={replyAnonymous} onChange={(event) => setReplyAnonymous(event.target.checked)} />匿名</label><button className="primary" disabled={Boolean(busy) || (!replyText.trim() && !replyImages.length)} onClick={() => void sendReply(thread)}>回帖</button></div>
         </div>
@@ -320,6 +390,7 @@ export function Forum({ characters, conversations, userName, userAvatar, api, se
       <label>版块<select value={composeBoard} onChange={(event) => setComposeBoard(event.target.value as ForumBoard)}>{FORUM_BOARDS.map((item) => <option key={item} value={item}>{item}</option>)}</select></label>
       <input className="forum-title-input" onFocus={revealOnFocus} value={composeTitle} onChange={(event) => setComposeTitle(event.target.value)} maxLength={40} placeholder={composeAuthor === FORUM_USER ? '标题' : '标题（留空让 TA 自己起）'} />
       <textarea onFocus={revealOnFocus} value={composeBody} onChange={(event) => setComposeBody(event.target.value)} rows={4} placeholder={composeAuthor === FORUM_USER ? '正文……可以 @角色' : '留空就让 TA 自己写；写一句话就是给 TA 的主题方向'} />
+      {mentionPicker(composeBody, setComposeBody)}
       {imagePicker(composeImages, FORUM_THREAD_IMAGE_LIMIT, setComposeImages)}
       {composeSource && <div className="moment-source-chip">关联原剧情：{composeSource.excerpt.slice(0, 40)}…<button onClick={() => setComposeSource(null)}>×</button></div>}
       {composeAuthor === FORUM_USER && <label className="forum-anon"><input type="checkbox" checked={composeAnonymous} onChange={(event) => setComposeAnonymous(event.target.checked)} />匿名发帖</label>}

@@ -5,10 +5,14 @@ import type { Moment } from './moments'
 /** 戏外社区·论坛：角色和她都能开帖、一楼一楼盖楼。独立保存，只把当前帖子相关的少量内容送进模型。 */
 export const FORUM_USER = 'user'
 
-export const FORUM_BOARDS = ['日常', '吐槽', '剧情讨论', '八卦', '求助', '整活', '新人报到'] as const
+export const FORUM_BOARDS = ['日常', '吐槽', '剧情讨论', '八卦', '求助', '整活', '新人报到', '投诉信箱'] as const
 export type ForumBoard = typeof FORUM_BOARDS[number]
 
-export type ForumFloor = { id: string; authorId: string; text: string; replyToFloor?: number; anonymous?: boolean; createdAt: number; likes?: string[]; images?: ChatImage[] }
+export type ForumReport = { reason: string; at: number }
+export const FORUM_REPORT_REASONS = ['人身攻击', '造谣传谣', '私聊争宠', '违规锁机', '引战拱火', '欺负造物主'] as const
+export const FORUM_SYSTEM = '__forum_system__'
+
+export type ForumFloor = { id: string; authorId: string; text: string; replyToFloor?: number; anonymous?: boolean; createdAt: number; likes?: string[]; images?: ChatImage[]; reports?: ForumReport[] }
 
 export const FORUM_THREAD_IMAGE_LIMIT = 9
 export const FORUM_FLOOR_IMAGE_LIMIT = 3
@@ -30,6 +34,7 @@ export type ForumThread = {
   pinned?: boolean
   locked?: boolean
   savedToMemory?: boolean
+  reports?: ForumReport[]
   sourceConversationId?: string
   sourceExcerpt?: string
 }
