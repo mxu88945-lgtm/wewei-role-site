@@ -12,6 +12,7 @@ import MentionPicker from './MentionPicker'
 import { prewarmAvatarThumbnails } from './avatarThumbnail'
 import MessageContent from './MessageContent'
 import { createBlankCharacter, importCharacterCard, normalizeStoredCharacter, LIBRARY_ROLES, type Character, type LibraryRole } from './characterCard'
+import { buildPhoneArchive, buildPhoneGroupBackground, phoneBindingCandidates, phoneCharacter, phoneModeRules } from './phoneGroup'
 import { assignChatGroup, chatGroupNames, groupConversations, setChatGroupMembers } from './chatGroups'
 import { assignLibraryGroup, setLibraryGroupMembers, effectiveLibraryRole, groupLibraryCharacters, LIBRARY_ROLE_LABELS, libraryGroupNames } from './characterLibraryGroups'
 import { activeCharacterMemory, characterMemoryEntryFromConversation, characterMemoryExtractionPrompt, characterMemorySummaryProtocol, parseCharacterMemoryCandidates, splitCharacterMemorySummary } from './characterMemory'
@@ -58,7 +59,7 @@ import { buildStatusFallback, getStatusProtocol, latestStatusContent } from './s
 import { dismissComposerKeyboard } from './composerKeyboard'
 import { createKeyboardScrollPin, VIEWPORT_CHANGE_EVENT, VIEWPORT_WILL_CHANGE_EVENT } from './keyboardScrollPin'
 
-type Page = 'home' | 'story-projects' | 'characters' | 'create' | 'character-workshop' | 'group-create' | 'director-template' | 'group-greeting-picker' | 'import-preview' | 'character-detail' | 'card-data' | 'card-worldbook' | 'card-regex' | 'card-memory' | 'greeting-picker' | 'chat' | 'more' | 'api' | 'reply-helper-api' | 'model' | 'settings' | 'appearance' | 'font' | 'display-reply' | 'identity' | 'worldbook' | 'theater-world' | 'temporary-plot' | 'story-scripts' | 'chat-search' | 'request-preview' | 'preset' | 'memory' | 'memory-api' | 'memory-list'
+type Page = 'home' | 'phone' | 'story-projects' | 'characters' | 'create' | 'character-workshop' | 'group-create' | 'director-template' | 'group-greeting-picker' | 'import-preview' | 'character-detail' | 'card-data' | 'card-worldbook' | 'card-regex' | 'card-memory' | 'greeting-picker' | 'chat' | 'more' | 'api' | 'reply-helper-api' | 'model' | 'settings' | 'appearance' | 'font' | 'display-reply' | 'identity' | 'worldbook' | 'theater-world' | 'temporary-plot' | 'story-scripts' | 'chat-search' | 'request-preview' | 'preset' | 'memory' | 'memory-api' | 'memory-list'
 type MessageEditor = { mode: 'assistant' | 'resend'; messageId: number; text: string }
 type AssistantRequestOptions = { continueWithoutUser?: boolean; explicitlyMentioned?: boolean; replacement?: Message; rollbackConversation?: Conversation; contextOverride?: ConversationContextSnapshot }
 type Drawer = 'left' | 'right'
@@ -392,6 +393,7 @@ function App() {
   const [characterSelectionMode, setCharacterSelectionMode] = useState(false)
   const [selectedCharacterIds, setSelectedCharacterIds] = useState<string[]>([])
   const [collapsedLibraryGroups, setCollapsedLibraryGroups] = useState<string[]>(() => read<string[]>('weijing.libraryCollapsed', []))
+  const [phoneDraft, setPhoneDraft] = useState<{ editingId?: string; title: string; memberIds: string[]; bindings: Record<string, string> } | null>(null)
   const [collapsedChatGroups, setCollapsedChatGroups] = useState<string[]>(() => read<string[]>('weijing.chatCollapsed', []))
   const [chatGroupSheet, setChatGroupSheet] = useState<{ id: string; group: string } | null>(null)
   const [chatGroupEditor, setChatGroupEditor] = useState<{ original: string; name: string; memberIds: string[] } | null>(null)
@@ -1711,6 +1713,62 @@ function App() {
     setConversations((current) => setChatGroupMembers(current, chatGroupEditor.original, chatGroupEditor.name, chatGroupEditor.memberIds))
     setChatGroupEditor(null)
   }
+  const phoneMembersPool = characters.filter((item) => item.creator !== '惟境内置导演模板' && !item.directorTemplateConfig)
+  const openPhonePage = (editing?: Conversation) => {
+    setPhoneDraft(editing ? { editingId: editing.id, title: editing.title, memberIds: [...(editing.participantIds || [])], bindings: { ...(editing.phone?.bindings || {}) } } : null)
+    navigate('phone')
+  }
+  const togglePhoneMember = (id: string) => setPhoneDraft((current) => {
+    if (!current) return current
+    if (current.memberIds.includes(id)) {
+      const bindings = { ...current.bindings }
+      delete bindings[id]
+      return { ...current, memberIds: current.memberIds.filter((item) => item !== id), bindings }
+    }
+    const latest = phoneBindingCandidates(conversations, id)[0]
+    return { ...current, memberIds: [...current.memberIds, id], bindings: latest ? { ...current.bindings, [id]: latest.id } : current.bindings }
+  })
+  const savePhoneGroup = () => {
+    if (!phoneDraft) return
+    const members = phoneDraft.memberIds.map((id) => characters.find((item) => item.id === id)).filter(Boolean) as Character[]
+    if (members.length < 2) { window.alert('小手机群至少拉两张角色卡进来。'); return }
+    const now = Date.now()
+    const bindings = Object.fromEntries(Object.entries(phoneDraft.bindings).filter(([id, conversationId]) => phoneDraft.memberIds.includes(id) && conversationId))
+    const apiIds = Object.fromEntries(members.map((member) => [member.id, api.id]))
+    const modelNames = Object.fromEntries(members.map((member) => [member.id, api.modelName]))
+    const title = phoneDraft.title.trim() || '戏外小手机'
+    if (phoneDraft.editingId) {
+      const editingId = phoneDraft.editingId
+      setConversations((current) => current.map((item) => {
+        if (item.id !== editingId) return item
+        const sameMembers = (item.participantIds || []).join('|') === members.map((member) => member.id).join('|')
+        return {
+          ...item, title, characterId: members[0].id, participantIds: members.map((member) => member.id),
+          participantApiIds: { ...apiIds, ...Object.fromEntries(Object.entries(item.participantApiIds || {}).filter(([id]) => phoneDraft.memberIds.includes(id))) },
+          participantModelNames: { ...modelNames, ...Object.fromEntries(Object.entries(item.participantModelNames || {}).filter(([id]) => phoneDraft.memberIds.includes(id))) },
+          phone: { bindings },
+          theaterWorldBackground: sameMembers && item.theaterWorldBackground?.trim() ? item.theaterWorldBackground : buildPhoneGroupBackground(members),
+          updatedAt: now,
+        }
+      }))
+      setPhoneDraft(null)
+      goBack()
+      return
+    }
+    const conversation: Conversation = {
+      id: `group-phone-${now}-${Math.random().toString(36).slice(2, 8)}`,
+      kind: 'group', characterId: members[0].id,
+      participantIds: members.map((member) => member.id),
+      participantApiIds: apiIds, participantModelNames: modelNames,
+      title, messages: [], createdAt: now, updatedAt: now, personaId: activePersonaId,
+      phone: { bindings },
+      theaterWorldBackground: buildPhoneGroupBackground(members),
+    }
+    setConversations((current) => [...current, conversation])
+    setPhoneDraft(null)
+    setActiveId(members[0].id); setActiveConversationId(conversation.id)
+    replacePage('chat')
+  }
   const openGroupEditor = (name: string) => setGroupEditor({ original: name, name, memberIds: characters.filter((item) => item.libraryGroup === name).map((item) => item.id) })
   const saveGroupEditor = () => {
     if (!groupEditor) return
@@ -2116,15 +2174,16 @@ function App() {
 
   const prepareAssistantRequest = (conversation: Conversation, nextMessages: Message[], speaker: Character, requestOptions: AssistantRequestOptions = {}) => {
     const capturedTemporaryPlot = captureTemporaryPlot(conversation, Boolean(requestOptions.explicitlyMentioned), speaker.id)
+    const isPhone = Boolean(conversation.phone)
     const capturedCharacter = {
-      ...speaker,
+      ...(isPhone ? phoneCharacter(speaker) : speaker),
       characterMemory: memoriesForConversationCharacter(conversation, speaker),
     }
     const capturedMemoryConfig = memoryConfigFor(capturedCharacter.id)
     const capturedMemories = (requestOptions.contextOverride?.memories ?? memoriesForConversation(memoryEntries, conversation.id, capturedCharacter.id, conversation.historyRevision || 0)) as MemoryEntry[]
     const isGroup = conversation.kind === 'group'
     const isDirector = Boolean(conversation.directorCharacterId && speaker.id === conversation.directorCharacterId)
-    const statusProtocol = !isDirector ? getStatusProtocol(capturedCharacter) : { tag: '', fields: [] }
+    const statusProtocol = !isDirector && !isPhone ? getStatusProtocol(capturedCharacter) : { tag: '', fields: [] }
     const statusTag = statusProtocol.tag
     const requiresCharacterStatus = Boolean(statusTag)
     const groupNames = (conversation.participantIds || []).map((id) => characters.find((item) => item.id === id)?.name).filter((name): name is string => Boolean(name))
@@ -2134,8 +2193,23 @@ function App() {
       : storyProject && !storyProject.autoContinuity.needsReview
       ? buildStoryProjectPrompt({ project: storyProject, speakerId: speaker.id, characters })
       : projectContextFromSnapshot(conversation.projectContextSnapshot, speaker.id)
-    const sceneContinuityAnchor = findLatestSceneContinuityAnchor(nextMessages)
-    const actorContinuityAnchor = isGroup ? findLatestActorContinuityAnchor(nextMessages, speaker.id, speaker.name) : ''
+    const sceneContinuityAnchor = isPhone ? '' : findLatestSceneContinuityAnchor(nextMessages)
+    const actorContinuityAnchor = isGroup && !isPhone ? findLatestActorContinuityAnchor(nextMessages, speaker.id, speaker.name) : ''
+    const phonePreset = isPhone ? (() => {
+      const members = (conversation.participantIds || []).map((id) => characters.find((item) => item.id === id)).filter(Boolean) as Character[]
+      const sources = members.map((member) => {
+        const boundId = conversation.phone?.bindings[member.id]
+        const bound = boundId ? conversations.find((item) => item.id === boundId) : undefined
+        return {
+          character: member,
+          conversation: bound,
+          characterMemories: bound ? memoriesForConversationCharacter(bound, member) : [],
+          longMemories: bound ? memoriesForConversation(memoryEntries, bound.id, member.id, bound.historyRevision || 0) as MemoryEntry[] : [],
+        }
+      })
+      const nameOf = (message: Message) => characters.find((item) => item.id === message.characterId)?.name || members[0]?.name || '角色'
+      return [phoneModeRules(speaker.name, members.map((member) => member.name), identity.name), buildPhoneArchive(sources, speaker.id, identity.name, (message) => message.characterId ? nameOf(message) : sources.find((source) => source.conversation?.messages.includes(message))?.character.name || '角色')].join('\n\n')
+    })() : ''
     const sanitizedHistory = nextMessages.flatMap((message) => {
       const fromDirector = message.role === 'assistant' && message.characterId === conversation.directorCharacterId
       const text = fromDirector ? sanitizeAssistantOutput(message.text, { director: true }) : message.text
@@ -2156,10 +2230,10 @@ function App() {
         if (message.characterId === speaker.id) return message
         return { ...message, promptRole: 'user' as const, text: `【${messageCharacterName(message, conversation)}｜其他成员的发言，不是你写的，不要接着演他】\n${message.text}` }
       }),
-      preset: [enabledPresetText(presetSections), isGroup && `【群聊发言边界｜最高优先级】\n本轮你只能扮演 ${speaker.name}。群聊成员为：${groupNames.join('、')}。不得替用户发言、行动或思考；不得代替其他群聊角色说话、行动或决定。你可以观察并回应其他成员，但本轮输出只能属于 ${speaker.name}。`].filter(Boolean).join('\n\n'),
+      preset: isPhone ? phonePreset : [enabledPresetText(presetSections), isGroup && `【群聊发言边界｜最高优先级】\n本轮你只能扮演 ${speaker.name}。群聊成员为：${groupNames.join('、')}。不得替用户发言、行动或思考；不得代替其他群聊角色说话、行动或决定。你可以观察并回应其他成员，但本轮输出只能属于 ${speaker.name}。`].filter(Boolean).join('\n\n'),
       globalWorldbook: worldbook,
       theaterWorldBackground: conversation.theaterWorldBackground || '',
-      storyProjectContext,
+      storyProjectContext: isPhone ? '' : storyProjectContext,
       sceneContinuityAnchor,
       actorContinuityAnchor,
       memory: { entries: capturedMemories, injectPosition: capturedMemoryConfig.injectPosition, injectPrompt: capturedMemoryConfig.injectPrompt },
@@ -2559,7 +2633,7 @@ function App() {
         return
       }
       const lastSpeakerId = [...baseMessages].reverse().find((item) => item.role === 'assistant')?.characterId
-      const speakerIds = selectGroupSpeakerIds({ participantIds, mentionedIds, mode: groupReplyMode, directorCharacterId: conversation.directorCharacterId, lastSpeakerId, text })
+      const speakerIds = selectGroupSpeakerIds({ participantIds, mentionedIds, mode: conversation.phone ? 'contextual' : groupReplyMode, directorCharacterId: conversation.directorCharacterId, lastSpeakerId, text })
       if (!speakerIds.length) {
         // Specified mode waits silently until the user explicitly chooses a speaker with @.
         setChatError('')
@@ -3074,6 +3148,7 @@ function App() {
         <button onClick={() => navigate('story-projects')}><span className="home-icon">◈</span><strong>剧本项目</strong><small>{storyProjects.some((project) => project.status === 'active') ? `${storyProjects.filter((project) => project.status === 'active').length} 部戏正在进行` : '组织角色、对话与世界背景'}</small><i>›</i></button>
         <button onClick={() => navigate('characters')}><span className="home-icon">◉</span><strong>角色库</strong><small>导入、创建与管理角色</small><i>›</i></button>
         <button onClick={() => navigate('group-create')}><span className="home-icon">◎</span><strong>群聊共演</strong><small>多个角色 · 独立模型 · 共享剧情</small><i>›</i></button>
+        <button onClick={() => openPhonePage()}><span className="home-icon">▢</span><strong>小手机</strong><small>{conversations.some((item) => item.phone) ? `${conversations.filter((item) => item.phone).length} 个戏外群 · 日常吐槽` : '把角色们拉进群，戏外聊天日常'}</small><i>›</i></button>
         <button onClick={() => navigate('more')}><span className="home-icon">⌘</span><strong>设置</strong><small>API、模型、身份与应用</small><i>›</i></button>
       </div>
     </section>}
@@ -3095,6 +3170,30 @@ function App() {
 
     {page === 'character-workshop' && <CharacterWorkshop channels={apiChannels} characters={characters} defaultChannelId={activeApiId} onBack={goBack} onAvatar={imageThumbnail} onExport={(character) => downloadJson(`${character.name}-character-card-v3.json`, exportableCharacter(character))} onSave={(character) => { localStorage.removeItem('weijing.characterWorkshop'); addImportedCharacter(character) }} />}
 
+    {page === 'phone' && <><BackHeader title={phoneDraft?.editingId ? '小手机群设置' : '小手机'} onBack={() => { setPhoneDraft(null); goBack() }} /><section className="content-stack phone-page">
+      {!phoneDraft && <>
+        <div className="privacy-note">戏外日常群：角色们知道自己是惟境里的角色，你是陪他们对戏、演女主的人。聊天是微信式短句，可以 @ 谁就谁回，也会有人自然接话。</div>
+        {conversations.filter((item) => item.phone).sort((a, b) => b.updatedAt - a.updatedAt).map((item) => {
+          const names = (item.participantIds || []).map((id) => characters.find((character) => character.id === id)?.name).filter(Boolean).join('、')
+          const last = item.messages[item.messages.length - 1]?.text || '还没有消息，去说第一句吧'
+          return <button key={item.id} className="phone-group-row" onClick={() => openConversation(item)}><strong>{item.title}</strong><small>{names}</small><span>{last.slice(0, 36)}</span></button>
+        })}
+        <button className="library-sheet-save" onClick={() => setPhoneDraft({ title: '', memberIds: [], bindings: {} })}>＋ 新建小手机群</button>
+      </>}
+      {phoneDraft && <>
+        <label className="group-title-field">群名<input value={phoneDraft.title} maxLength={40} onChange={(event) => setPhoneDraft({ ...phoneDraft, title: event.target.value })} placeholder="例如：亲密关系重大过错整改中心" /></label>
+        <div className="privacy-note">选至少两张角色卡。每张卡可以绑定一段自己演过的对话，他的剧情摘要和记忆会带进群里；所有成员的人设与世界观会自动拼进这个群的综合世界观，之后可在聊天设置里修改。</div>
+        <div className="phone-member-list">{phoneMembersPool.map((character) => {
+          const selected = phoneDraft.memberIds.includes(character.id)
+          const candidates = phoneBindingCandidates(conversations, character.id)
+          return <div key={character.id} className={`phone-member${selected ? ' selected' : ''}`}>
+            <button className="phone-member-toggle" aria-pressed={selected} onClick={() => togglePhoneMember(character.id)}><i>{selected ? '✓' : ''}</i>{character.avatar ? <img src={character.avatar} alt="" /> : <span>{character.name.slice(-1)}</span>}<strong>{character.name}</strong><small>{character.libraryGroup || character.tagline}</small></button>
+            {selected && <label className="phone-binding">绑定过往对话<select value={phoneDraft.bindings[character.id] || ''} onChange={(event) => setPhoneDraft({ ...phoneDraft, bindings: { ...phoneDraft.bindings, [character.id]: event.target.value } })}><option value="">不绑定</option>{candidates.map((item) => <option key={item.id} value={item.id}>{item.title}（{item.messages.length} 条）</option>)}</select></label>}
+          </div>
+        })}</div>
+        <button className="library-sheet-save" onClick={savePhoneGroup}>{phoneDraft.editingId ? '保存' : `建群（${phoneDraft.memberIds.length} 人）`}</button>
+      </>}
+    </section></>}
     {page === 'group-create' && <><BackHeader title="新建群聊" onBack={goBack} action={<span className="saved-label">{groupDraft.participantIds.length + (groupDirectorDraft.enabled ? 1 : 0)} 位成员</span>} /><section className="content-stack group-create-page"><label className="group-title-field">群聊名称<input value={groupDraft.title} onChange={(event) => setGroupDraft({ ...groupDraft, title: event.target.value })} placeholder="例如：雨夜重逢" /></label>
       <article className={`director-template-card ${groupDirectorDraft.enabled ? 'enabled' : ''}`}>
         <div className="director-template-heading"><div><strong>内置共演导演</strong><small>每个群聊生成独立导演与私有世界书</small></div><button className={groupDirectorDraft.enabled ? 'toggle active' : 'toggle'} onClick={() => setGroupDirectorDraft((current) => ({ ...current, enabled: !current.enabled }))}><i /></button></div>
@@ -3125,7 +3224,7 @@ function App() {
 
     {page === 'group-greeting-picker' && <GroupGreetingPicker characters={groupGreetingCharacters} userName={groupGreetingUserName} onCancel={() => { const creatingFromConversation = Boolean(newConversationSourceId); setNewConversationSourceId(null); if (creatingFromConversation) replacePage('chat'); else goBack() }} onConfirm={beginGroupWithGreeting} />}
 
-    {page === 'chat' && <section className="chat-page"><header className="chat-header"><button className="icon-button drawer-trigger" aria-label="打开对话列表" onClick={() => setDrawer('left')}>☰</button><button className="chat-identity" onClick={() => navigate('character-detail')}>{activeCharacter.avatar ? <img src={activeCharacter.avatar} alt="" /> : <span>{activeCharacter.name.slice(-1)}</span>}<div><strong>{activeConversation?.kind === 'group' ? activeConversation.title : activeCharacter.name}</strong><small>{isGenerating ? '正在回应…' : activeConversation?.title || `${identity.name} · 沉浸共演中`}</small></div></button><button className="more-button" aria-label="打开聊天设置" onClick={() => setDrawer('right')}>•••</button></header>{chatError && <div className="chat-error" role="alert"><button className="chat-error-action" onClick={() => navigate(chatErrorIsPlot ? 'temporary-plot' : 'api')}><span>{chatErrorIsPlot ? '剧情安排提示' : '连接提示'}</span>{chatError}<i>{chatErrorIsPlot ? '查看幕后安排 ›' : '前往 API 设置 ›'}</i></button>{chatErrorIsPlot && activeConversation?.temporaryPlot && <button className="chat-error-end-plot" onClick={() => { const id = activeConversation.id; setConversations((current) => current.map((item) => item.id === id ? { ...item, temporaryPlot: undefined, updatedAt: Date.now() } : item)); setChatError('') }}>已落实，结束安排</button>}<button className="chat-error-close" aria-label="关闭提示" title="关闭提示" onClick={() => setChatError('')}>×</button></div>}<div ref={messageListRef} className="message-list" onScroll={updateChatJump}>{earlierChatCount > 0 && <button type="button" className="chat-load-earlier" onClick={loadEarlierChatMessages}>加载更早 {earlierChatCount} 条</button>}{renderedChatMessages.map((message, offset) => contextSummaryBoundary > 0 && chatWindowStart + offset === contextSummaryBoundary && contextSummaryBoundary < messages.length ? [<div key="context-summary-divider" className="context-summary-divider" role="note">以上 {contextSummaryBoundary} 条已在后台整理进上下文摘要</div>, renderChatMessage(message)] : renderChatMessage(message))}<div ref={messageListLayoutMarkerRef} className="message-list-layout-marker" aria-hidden="true" /></div>{(chatJump.up || chatJump.down) && <nav className={`chat-jump-controls ${chatJump.visible ? 'visible' : ''}`} aria-label="快速浏览对话" aria-hidden={!chatJump.visible}>{chatJump.up && <button tabIndex={chatJump.visible ? 0 : -1} onClick={() => jumpChat('top')} aria-label="回到对话顶部">↑</button>}{chatJump.down && <button tabIndex={chatJump.visible ? 0 : -1} onClick={() => jumpChat('bottom')} aria-label="跳到最新消息">↓</button>}</nav>}<div ref={composerDockRef} className={`${composerExpanded ? 'composer has-expanded' : 'composer'}${composerCanExpand ? ' can-expand' : ''}${pendingImages.length || imageBusy ? ' has-images' : ''}`}>{(pendingImages.length > 0 || imageBusy) && <div className="composer-images" aria-label="待发送图片">{pendingImages.map((image) => <div key={image.id}><img src={image.dataUrl} alt="" /><button type="button" aria-label="移除图片" onClick={() => setPendingImages((current) => current.filter((item) => item.id !== image.id))}>×</button></div>)}{imageBusy && <span className="composer-images-busy">处理中…</span>}</div>}<button className="composer-plus" aria-label="打开输入工具" onClick={() => setComposerToolsOpen(true)}>{replyHelperState === 'generating' ? '…' : '＋'}</button><textarea ref={composerRef} rows={1} value={draft} onChange={(event) => { const value = event.target.value; setDraft(value); if (activeConversation?.kind === 'group' && /[@＠]$/.test(value) && value.length > draft.length) { event.currentTarget.blur(); setMentionPickerOpen(true) } }} placeholder={replyHelperState === 'generating' ? 'AI 帮答正在起草…' : isGenerating ? '可以先写下一条，停止后再发送' : groupReplyMode === 'specified' && activeConversation?.kind === 'group' ? '输入 @ 选择回答的角色……' : '写下你的回应……'} />{composerCanExpand && <button className="composer-expand" aria-label="展开长消息编辑器" title="展开编辑" onClick={() => setComposerExpanded(true)}>⛶</button>}<button className={`send-button ${isGenerating ? 'stop' : ''}`} aria-label={isGenerating ? '停止生成' : '发送'} onClick={() => isGenerating && activeConversation ? abortConversation(activeConversation.id) : sendMessage()}>{isGenerating ? '■' : '↑'}</button></div>{composerExpanded && <div className="composer-expanded-layer" role="dialog" aria-modal="true" aria-label="长消息编辑器"><header><button className="expanded-collapse" aria-label="收起编辑器" onClick={() => { setComposerExpanded(false); window.requestAnimationFrame(() => composerRef.current?.focus()) }}>‹</button><div><strong>长消息编辑</strong><small>{draft.length} 字 · 草稿实时保留</small></div><button className="expanded-tools" aria-label="打开输入工具" onClick={() => setComposerToolsOpen(true)}>＋</button></header><textarea ref={expandedComposerRef} value={draft} onChange={(event) => { const value = event.target.value; setDraft(value); if (activeConversation?.kind === 'group' && /[@＠]$/.test(value) && value.length > draft.length) { event.currentTarget.blur(); setMentionPickerOpen(true) } }} placeholder={replyHelperState === 'generating' ? 'AI 帮答正在起草…' : '在这里慢慢写完整段落……'} /><footer><button className="expanded-done" onClick={() => { setComposerExpanded(false); window.requestAnimationFrame(() => composerRef.current?.focus()) }}>收起</button><button className={isGenerating ? 'expanded-send stop' : 'expanded-send'} disabled={!draft.trim() && !pendingImages.length && !isGenerating} onClick={() => { if (isGenerating && activeConversation) { abortConversation(activeConversation.id); return } setComposerExpanded(false); void sendMessage() }}>{isGenerating ? '停止生成' : '发送'}</button></footer></div>}</section>}
+    {page === 'chat' && <section className={`chat-page${activeConversation?.phone ? ' phone-chat' : ''}`}><header className="chat-header"><button className="icon-button drawer-trigger" aria-label="打开对话列表" onClick={() => setDrawer('left')}>☰</button><button className="chat-identity" onClick={() => navigate('character-detail')}>{activeCharacter.avatar ? <img src={activeCharacter.avatar} alt="" /> : <span>{activeCharacter.name.slice(-1)}</span>}<div><strong>{activeConversation?.kind === 'group' ? activeConversation.title : activeCharacter.name}</strong><small>{isGenerating ? '正在回应…' : activeConversation?.title || `${identity.name} · 沉浸共演中`}</small></div></button><button className="more-button" aria-label="打开聊天设置" onClick={() => setDrawer('right')}>•••</button></header>{chatError && <div className="chat-error" role="alert"><button className="chat-error-action" onClick={() => navigate(chatErrorIsPlot ? 'temporary-plot' : 'api')}><span>{chatErrorIsPlot ? '剧情安排提示' : '连接提示'}</span>{chatError}<i>{chatErrorIsPlot ? '查看幕后安排 ›' : '前往 API 设置 ›'}</i></button>{chatErrorIsPlot && activeConversation?.temporaryPlot && <button className="chat-error-end-plot" onClick={() => { const id = activeConversation.id; setConversations((current) => current.map((item) => item.id === id ? { ...item, temporaryPlot: undefined, updatedAt: Date.now() } : item)); setChatError('') }}>已落实，结束安排</button>}<button className="chat-error-close" aria-label="关闭提示" title="关闭提示" onClick={() => setChatError('')}>×</button></div>}<div ref={messageListRef} className="message-list" onScroll={updateChatJump}>{earlierChatCount > 0 && <button type="button" className="chat-load-earlier" onClick={loadEarlierChatMessages}>加载更早 {earlierChatCount} 条</button>}{renderedChatMessages.map((message, offset) => contextSummaryBoundary > 0 && chatWindowStart + offset === contextSummaryBoundary && contextSummaryBoundary < messages.length ? [<div key="context-summary-divider" className="context-summary-divider" role="note">以上 {contextSummaryBoundary} 条已在后台整理进上下文摘要</div>, renderChatMessage(message)] : renderChatMessage(message))}<div ref={messageListLayoutMarkerRef} className="message-list-layout-marker" aria-hidden="true" /></div>{(chatJump.up || chatJump.down) && <nav className={`chat-jump-controls ${chatJump.visible ? 'visible' : ''}`} aria-label="快速浏览对话" aria-hidden={!chatJump.visible}>{chatJump.up && <button tabIndex={chatJump.visible ? 0 : -1} onClick={() => jumpChat('top')} aria-label="回到对话顶部">↑</button>}{chatJump.down && <button tabIndex={chatJump.visible ? 0 : -1} onClick={() => jumpChat('bottom')} aria-label="跳到最新消息">↓</button>}</nav>}<div ref={composerDockRef} className={`${composerExpanded ? 'composer has-expanded' : 'composer'}${composerCanExpand ? ' can-expand' : ''}${pendingImages.length || imageBusy ? ' has-images' : ''}`}>{(pendingImages.length > 0 || imageBusy) && <div className="composer-images" aria-label="待发送图片">{pendingImages.map((image) => <div key={image.id}><img src={image.dataUrl} alt="" /><button type="button" aria-label="移除图片" onClick={() => setPendingImages((current) => current.filter((item) => item.id !== image.id))}>×</button></div>)}{imageBusy && <span className="composer-images-busy">处理中…</span>}</div>}<button className="composer-plus" aria-label="打开输入工具" onClick={() => setComposerToolsOpen(true)}>{replyHelperState === 'generating' ? '…' : '＋'}</button><textarea ref={composerRef} rows={1} value={draft} onChange={(event) => { const value = event.target.value; setDraft(value); if (activeConversation?.kind === 'group' && /[@＠]$/.test(value) && value.length > draft.length) { event.currentTarget.blur(); setMentionPickerOpen(true) } }} placeholder={replyHelperState === 'generating' ? 'AI 帮答正在起草…' : isGenerating ? '可以先写下一条，停止后再发送' : groupReplyMode === 'specified' && activeConversation?.kind === 'group' ? '输入 @ 选择回答的角色……' : '写下你的回应……'} />{composerCanExpand && <button className="composer-expand" aria-label="展开长消息编辑器" title="展开编辑" onClick={() => setComposerExpanded(true)}>⛶</button>}<button className={`send-button ${isGenerating ? 'stop' : ''}`} aria-label={isGenerating ? '停止生成' : '发送'} onClick={() => isGenerating && activeConversation ? abortConversation(activeConversation.id) : sendMessage()}>{isGenerating ? '■' : '↑'}</button></div>{composerExpanded && <div className="composer-expanded-layer" role="dialog" aria-modal="true" aria-label="长消息编辑器"><header><button className="expanded-collapse" aria-label="收起编辑器" onClick={() => { setComposerExpanded(false); window.requestAnimationFrame(() => composerRef.current?.focus()) }}>‹</button><div><strong>长消息编辑</strong><small>{draft.length} 字 · 草稿实时保留</small></div><button className="expanded-tools" aria-label="打开输入工具" onClick={() => setComposerToolsOpen(true)}>＋</button></header><textarea ref={expandedComposerRef} value={draft} onChange={(event) => { const value = event.target.value; setDraft(value); if (activeConversation?.kind === 'group' && /[@＠]$/.test(value) && value.length > draft.length) { event.currentTarget.blur(); setMentionPickerOpen(true) } }} placeholder={replyHelperState === 'generating' ? 'AI 帮答正在起草…' : '在这里慢慢写完整段落……'} /><footer><button className="expanded-done" onClick={() => { setComposerExpanded(false); window.requestAnimationFrame(() => composerRef.current?.focus()) }}>收起</button><button className={isGenerating ? 'expanded-send stop' : 'expanded-send'} disabled={!draft.trim() && !pendingImages.length && !isGenerating} onClick={() => { if (isGenerating && activeConversation) { abortConversation(activeConversation.id); return } setComposerExpanded(false); void sendMessage() }}>{isGenerating ? '停止生成' : '发送'}</button></footer></div>}</section>}
 
     {page === 'more' && <><BackHeader title="设置" onBack={goBack} /><section className="settings-stack compact-settings">{[[['API 连接', 'api'], ['用户身份', 'identity']], [['模型设置', 'model'], ['全局预设', 'preset'], ['全局世界书', 'worldbook'], ['长记忆', 'memory']], [['应用设置', 'settings']]].map((group, index) => <div className="settings-group" key={index}>{group.map(([label, target]) => <button key={label} onClick={() => navigate(target as Page)}><span>{label}</span><span>›</span></button>)}</div>)}</section></>}
 
@@ -3240,6 +3339,7 @@ function App() {
           {activeConversation?.fork && <section className="drawer-compact-group"><div className="drawer-section-title"><strong>独立剧情分线</strong></div><p className="branch-context-note">只沿这条分线的正文与记忆继续，不同步原线后来的事实。项目场记沿用分叉时快照；另行绑定剧本项目后使用新项目。</p><button disabled={isGenerating || !conversations.some((item) => item.id === activeConversation.fork?.parentId)} onClick={returnToParentConversation}><span>{conversations.some((item) => item.id === activeConversation.fork?.parentId) ? '返回原剧情（原线已保留）' : '原剧情已删除，分线仍独立保留'}</span><i>↩</i></button></section>}
           <section className="conversation-stats-card" aria-label="本次共演统计"><div className="conversation-stats-heading"><strong>本次共演</strong><small>你每发送一次计一轮</small></div><div className="conversation-stats-grid"><div><strong>{conversationStats.rounds}</strong><span>对话轮数</span></div><div><strong>{conversationStats.replies}</strong><span>角色回复</span></div><div><strong>{conversationStats.total}</strong><span>消息总数</span></div></div></section>
           <section className="drawer-members-section"><div className="drawer-section-title"><strong>成员（{conversationMemberIds().length}）</strong><button onClick={() => { setDrawer(null); setMemberPickerOpen(true) }}>＋ 添加 / 配置 API</button></div><div className="drawer-member-row">{conversationMemberIds().map((id) => { const member = characters.find((item) => item.id === id); if (!member) return null; return <div className="drawer-member-chip" key={id}>{member.avatar ? <img src={member.avatar} alt="" /> : <span>{member.name.slice(-1)}</span>}<small>{member.name}</small>{conversationMemberIds().length > 1 && <button aria-label={`移除${member.name}`} onClick={() => removeConversationMember(id)}>×</button>}</div> })}</div></section>
+          {activeConversation?.phone && <section className="drawer-compact-group"><div className="drawer-section-title"><strong>小手机</strong></div><button onClick={() => { setDrawer(null); openPhonePage(activeConversation) }}><span>成员与绑定的过往对话</span><i>›</i></button></section>}
           <section className="drawer-compact-group"><div className="drawer-section-title"><strong>聊天设置</strong></div>{activeConversation?.directorCharacterId ? <button onClick={() => { setDirectorEditorTarget('conversation'); navigate('director-template', 'right') }}><span>共演导演资料 · 已启用</span><i>›</i></button> : <button onClick={openConversationDirectorCreator}><span>添加共演导演 · 保留当前剧情</span><i>＋</i></button>}{activeConversation?.directorCharacterId && activeConversation.directorConfig && <button disabled={!persistenceReady} onClick={() => saveDirectorToLibrary()}><span>保存导演卡到角色库</span><i>＋</i></button>}{[['剧情搜索与书签', 'chat-search'], ['模型发送内容', 'request-preview'], [`临时剧情 · ${activeConversation?.temporaryPlot?.text.trim() ? '待使用' : '未填写'}`, 'temporary-plot'], ['剧情脚本与变量', 'story-scripts'], ['情景与角色资料', 'card-data'], [`本剧场世界观背景 · ${activeConversation?.theaterWorldBackground?.trim() ? '已填写' : '未填写'}`, 'theater-world'], ['用户身份', 'identity'], ['主题与背景', 'appearance'], ['字体与文字颜色', 'font'], ['显示与回复', 'display-reply']].map(([label, target]) => <button key={label} onClick={() => target === 'request-preview' ? openRequestPreview() : navigate(target as Page, 'right')}><span>{label}</span><i>›</i></button>)}</section>
           <section className="drawer-compact-group"><div className="drawer-section-title"><strong>角色与高级设置</strong></div>{[['世界书', 'card-worldbook'], ['正则与美化', 'card-regex'], ['长期记忆', 'memory'], [`AI 帮答 · ${(apiChannels.find((item) => item.id === replyHelperApiId) || api).name || '未配置'}`, 'reply-helper-api'], [`API · ${api.name || '当前渠道'}`, 'api'], ['模型设置', 'model'], ['预设', 'preset'], ['应用设置', 'settings']].map(([label, target]) => <button key={label} onClick={() => navigate(target as Page, 'right')}><span>{label}</span><i>›</i></button>)}</section>
           <section className="drawer-compact-group drawer-actions-group"><button onClick={() => navigate('character-detail', 'right')}><span>查看角色详情</span><i>›</i></button><button onClick={compressOldContext} disabled={compressingContext || messages.length < 16}><span>{compressingContext ? '正在压缩旧上下文…' : activeConversation?.contextSummary && (activeConversation.contextSummaryRevision || 0) === (activeConversation.historyRevision || 0) ? `更新上下文摘要 · 已压缩 ${activeConversation.compressedUntil || 0} 条` : '压缩旧上下文'}</span><i>⌁</i></button><button onClick={exportConversationTxt}><span>导出当前对话 TXT</span><i>↓</i></button><button onClick={() => conversationTxtInputRef.current?.click()}><span>导入对话 TXT · 新建副本</span><i>↑</i></button></section>

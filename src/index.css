@@ -619,3 +619,22 @@ button { cursor: pointer; }
 .library-member:active { background: #eee9f1; }
 .chat-group { display: grid; gap: 6px; margin-bottom: 8px; }
 .chat-group .library-group-header, .chat-group .library-group-edit { min-height: 40px; }
+
+/* 小手机 */
+.phone-group-row { width: 100%; border: 0; border-radius: 22px; padding: 15px 16px; display: grid; gap: 4px; text-align: left; color: #3b3440; background: #efedf0; }
+.phone-group-row strong { font-size: 16px; }
+.phone-group-row small { color: var(--theme-accent); font-size: 12px; font-weight: 700; }
+.phone-group-row span { color: #9d97a1; font-size: 13px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.phone-member-list { display: grid; gap: 8px; }
+.phone-member { border-radius: 18px; background: #efedf0; overflow: hidden; }
+.phone-member.selected { background: var(--theme-accent-soft); }
+.phone-member-toggle { width: 100%; min-height: 58px; border: 0; padding: 8px 12px; display: grid; grid-template-columns: 24px 40px 1fr; grid-template-rows: auto auto; column-gap: 10px; align-items: center; text-align: left; color: #3b3440; background: transparent; }
+.phone-member-toggle i { grid-row: 1 / 3; width: 24px; height: 24px; border-radius: 50%; display: grid; place-items: center; font-style: normal; font-size: 13px; color: #fff; border: 1.5px solid rgba(74,56,84,.22); }
+.phone-member.selected .phone-member-toggle i { border-color: transparent; background: var(--theme-accent); }
+.phone-member-toggle img, .phone-member-toggle > span { grid-row: 1 / 3; width: 40px; height: 40px; border-radius: 13px; object-fit: cover; display: grid; place-items: center; background: #fff; }
+.phone-member-toggle strong { font-size: 15px; }
+.phone-member-toggle small { color: #9d97a1; font-size: 11px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.phone-binding { display: grid; gap: 6px; padding: 0 12px 12px 46px; color: #7d7583; font-size: 12px; font-weight: 700; }
+.phone-binding select { width: 100%; min-height: 40px; border: 1px solid rgba(71,55,80,.1); border-radius: 12px; padding: 0 10px; font-size: 14px; color: #37313a; background: #fff; }
+.phone-chat .message-row .message-bubble, .phone-chat .message-row .message-content { font-size: calc(var(--chat-font-size, 16px) * .94); line-height: 1.55; }
+.phone-chat .message-row .message-bubble { padding: 9px 13px; border-radius: 16px; }
