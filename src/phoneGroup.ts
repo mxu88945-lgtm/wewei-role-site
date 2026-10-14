@@ -139,3 +139,33 @@ export function pickPhoneChatters(participantIds: string[], lastSpeakerId: strin
   if (lastSpeakerId && participantIds.includes(lastSpeakerId)) ordered.push(lastSpeakerId)
   return ordered.slice(0, count)
 }
+
+export type PhoneReplyMode = 'named' | 'at' | 'free'
+export const PHONE_REPLY_MODES: Array<{ id: PhoneReplyMode; label: string; hint: string }> = [
+  { id: 'named', label: '点名', hint: '提到谁（@或直接叫名字）谁回' },
+  { id: 'at', label: '只@', hint: '只有被 @ 的人回' },
+  { id: 'free', label: '自由聊', hint: '大家自然接话、互相聊' },
+]
+
+/** Names said plainly count in 点名 mode: full name, or the given name of a three-character name (谢聿衡 → 聿衡). */
+export function findNamedParticipantIds(text: string, participants: Array<{ id: string; name: string }>) {
+  return participants.filter(({ name }) => {
+    if (!name) return false
+    if (text.includes(name)) return true
+    const given = name.length === 3 ? name.slice(1) : ''
+    return Boolean(given) && text.includes(given)
+  }).map(({ id }) => id)
+}
+
+export function selectPhoneSpeakers(input: { mode: PhoneReplyMode; participantIds: string[]; mentionedIds: string[]; namedIds: string[]; lastSpeakerId?: string; text: string; random?: () => number }) {
+  const { mode, participantIds, mentionedIds, namedIds } = input
+  const at = participantIds.filter((id) => mentionedIds.includes(id))
+  if (mode === 'at') return at
+  const named = participantIds.filter((id) => mentionedIds.includes(id) || namedIds.includes(id))
+  if (mode === 'named') return named
+  if (named.length) {
+    const extra = pickPhoneRepliers(participantIds.filter((id) => !named.includes(id)), input.lastSpeakerId, '', input.random).slice(0, 1)
+    return [...named, ...extra]
+  }
+  return pickPhoneRepliers(participantIds, input.lastSpeakerId, input.text, input.random)
+}

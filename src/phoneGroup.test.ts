@@ -69,3 +69,23 @@ describe('phone output and turn taking', () => {
     expect(new Set(chatters).size).toBe(chatters.length)
   })
 })
+
+describe('phone reply modes', () => {
+  const people = [{ id: 'xie', name: '谢聿衡' }, { id: 'fu', name: '傅承砚' }, { id: 'shen', name: '沈衍' }]
+  const ids = people.map((p) => p.id)
+  it('点名 answers @ and plain names, including given names', async () => {
+    const { findNamedParticipantIds, selectPhoneSpeakers } = await import('./phoneGroup')
+    const named = findNamedParticipantIds('聿衡你过来，沈衍也是', people)
+    expect(named).toEqual(['xie', 'shen'])
+    expect(selectPhoneSpeakers({ mode: 'named', participantIds: ids, mentionedIds: [], namedIds: named, text: '' })).toEqual(['xie', 'shen'])
+    expect(selectPhoneSpeakers({ mode: 'named', participantIds: ids, mentionedIds: [], namedIds: [], text: '咳咳' })).toEqual([])
+  })
+  it('只@ ignores plain names; 自由聊 adds one more voice to named people', async () => {
+    const { selectPhoneSpeakers } = await import('./phoneGroup')
+    expect(selectPhoneSpeakers({ mode: 'at', participantIds: ids, mentionedIds: ['fu'], namedIds: ['xie'], text: '' })).toEqual(['fu'])
+    const free = selectPhoneSpeakers({ mode: 'free', participantIds: ids, mentionedIds: [], namedIds: ['xie'], text: '', random: () => 0 })
+    expect(free[0]).toBe('xie')
+    expect(free).toHaveLength(2)
+    expect(selectPhoneSpeakers({ mode: 'free', participantIds: ids, mentionedIds: [], namedIds: [], text: '咳咳', random: () => 0 })).toHaveLength(2)
+  })
+})
