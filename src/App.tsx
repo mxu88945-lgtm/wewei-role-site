@@ -562,7 +562,7 @@ function App() {
     conversation.participantModelNames?.[characterId],
   )
   const activeConversation = (explicitConversation?.kind === 'group' ? explicitConversation : conversations.find((item) => item.id === activeConversationId && item.characterId === activeCharacter.id))
-    || conversations.filter((item) => item.characterId === activeCharacter.id).sort((a, b) => b.updatedAt - a.updatedAt)[0]
+    || conversations.filter((item) => !item.phone && item.characterId === activeCharacter.id).sort((a, b) => b.updatedAt - a.updatedAt)[0]
   // Older installs never stored a default id: fall back to the theme of the most
   // recently used themed chat so the look the user last picked carries over.
   const effectiveDefaultThemeId = defaultThemePresetId || [...conversations].filter((item) => item.themePresetId).sort((x, y) => (y.updatedAt || 0) - (x.updatedAt || 0))[0]?.themePresetId || ''
@@ -1856,7 +1856,7 @@ function App() {
   }
 
   const continueConversation = (character = activeCharacter) => {
-    let conversation = conversations.filter((item) => item.characterId === character.id).sort((a, b) => b.updatedAt - a.updatedAt)[0]
+    let conversation = conversations.filter((item) => !item.phone && item.characterId === character.id).sort((a, b) => b.updatedAt - a.updatedAt)[0]
     if (!conversation) {
       conversation = { ...createConversation(character), personaId: activePersonaId }
       setConversations((current) => [...current, conversation!])
@@ -3146,7 +3146,9 @@ function App() {
         : <button className="character-card-more" aria-label={`管理${item.name}`} onClick={() => setCharacterMenuId(item.id)}>•••</button>}
     </div>
   }
-  const sortedConversations = conversations.slice().sort((a, b) => b.updatedAt - a.updatedAt)
+  // 小手机群的聊天记录只在小手机里出现，不和长剧情列表混在一起。
+  const inPhoneChat = Boolean(activeConversation?.phone)
+  const sortedConversations = conversations.filter((item) => Boolean(item.phone) === inPhoneChat).sort((a, b) => b.updatedAt - a.updatedAt)
   const menuConversation = conversations.find((item) => item.id === conversationMenuId)
   const menuMessage = messages.find((item) => item.id === messageMenuId)
   const menuCharacter = characters.find((item) => item.id === characterMenuId)
@@ -3419,7 +3421,7 @@ function App() {
     {drawer && <div className="drawer-layer" role="presentation">
       <button className="drawer-backdrop" aria-label="关闭抽屉" onClick={() => { setDrawer(null); setConversationMenuId(null) }} />
       {drawer === 'left' && <aside className="app-drawer left-drawer" aria-label="对话列表">
-        <header className="drawer-header"><div><small>惟境</small><h2>全部聊天</h2></div><button onClick={goHome}>回首页</button></header>
+        <header className="drawer-header"><div><small>惟境</small><h2>{inPhoneChat ? '小手机聊天' : '全部聊天'}</h2></div>{inPhoneChat ? <button onClick={() => { setDrawer(null); openPhonePage() }}>回小手机</button> : <button onClick={goHome}>回首页</button>}</header>
         <div className="conversation-list">{sortedConversations.length ? (() => {
           const renderRow = (conversation: Conversation) => {
           const character = characters.find((item) => item.id === conversation.characterId) || demoCharacter
@@ -3555,7 +3557,7 @@ function UpdateCard() {
     }
   }
 
-  return <section className="update-card"><strong>应用更新</strong><p>主动检查并拉取最新网页版本，不会删除角色、聊天记录或本地设置。</p><small>当前版本：v61 · 2026.10.14 小手机联网</small><button onClick={refresh} disabled={state === 'checking'}>{state === 'checking' ? '正在检查更新…' : state === 'error' ? '更新失败，点我重试' : '强制刷新到最新版'}</button></section>
+  return <section className="update-card"><strong>应用更新</strong><p>主动检查并拉取最新网页版本，不会删除角色、聊天记录或本地设置。</p><small>当前版本：v62 · 2026.10.14 小手机聊天单独列表</small><button onClick={refresh} disabled={state === 'checking'}>{state === 'checking' ? '正在检查更新…' : state === 'error' ? '更新失败，点我重试' : '强制刷新到最新版'}</button></section>
 }
 
 function PersonaPage({ identities, selectedId, isBound, onSelect, onAdd, onDelete, onUpdate, onBack }: { identities: UserIdentity[]; selectedId: string; isBound: boolean; onSelect: (id: string) => void; onAdd: () => void; onDelete: (id: string) => void; onUpdate: (patch: Partial<UserIdentity>) => void; onBack: () => void }) {
