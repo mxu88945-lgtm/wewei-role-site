@@ -847,3 +847,16 @@ button { cursor: pointer; }
 .phone-group-toggle > button.switch { width: 50px; min-height: 30px; height: 30px; padding: 3px; flex: 0 0 50px; }
 .phone-group-toggle .switch span { width: 24px; height: 24px; }
 .phone-group-toggle .switch.on span { transform: translateX(20px); }
+
+/* ---- 小手机「引用回复」 ---- */
+.composer.has-modes.has-quote { grid-template-areas: "modes modes modes" "quote quote quote" "plus input send"; }
+.composer.has-modes.has-quote.has-images { grid-template-areas: "modes modes modes" "thumbs thumbs thumbs" "quote quote quote" "plus input send"; }
+.composer-quote { grid-area: quote; display: flex; align-items: center; gap: 6px; min-width: 0; margin: 0 2px 2px; padding: 5px 6px 5px 10px; border-radius: 10px; color: #7d7583; background: rgba(239,235,241,.85); font-size: 12px; line-height: 1.4; }
+.composer-quote span { flex: 1; min-width: 0; overflow: hidden; white-space: nowrap; text-overflow: ellipsis; }
+.composer-quote b { font-weight: 700; color: #6c6371; }
+.composer-quote button { flex: none; width: 22px; height: 22px; padding: 0; border: 0; border-radius: 50%; color: #fff; background: rgba(40,32,46,.45); font-size: 14px; line-height: 22px; }
+.message-quote { display: block; max-width: 100%; margin-top: 4px; padding: 4px 9px; border: 0; border-radius: 8px; text-align: left; color: #8a818e; background: rgba(120,110,128,.12); font: inherit; font-size: 12px; font-weight: 400; line-height: 1.45; overflow: hidden; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow-wrap: anywhere; }
+.message-quote b { font-weight: 600; }
+.message-quote.missing { opacity: .6; }
+.message-quote:disabled { cursor: default; }
+.message-row.user .message-flat-body .message-quote { margin-left: auto; }

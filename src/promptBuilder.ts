@@ -6,12 +6,13 @@ import { selectRelevantMemories, type LongMemoryEntry } from './memoryEngine'
 import { stripStageGateMetadata } from './actorContinuity'
 import { uncompressedMessages } from './contextCompression'
 import { modelVisibleMessageText, stripUiOnlyStatusBlocks } from './modelContext'
+import { withQuotePrefix, type MessageQuote } from './quoteReply'
 import { getStatusProtocol } from './statusProtocol'
 import { characterMemoryContinuityGuard, characterMemoryPrompt } from './characterMemory'
 
 // promptRole: how the turn is sent to the model. In a group chat another
 // member's reply goes out as 'user' so the model never reads it as its own.
-type SourceMessage = { role: 'user' | 'assistant'; promptRole?: 'user' | 'assistant'; text: string; characterId?: string; images?: ChatImage[] }
+type SourceMessage = { role: 'user' | 'assistant'; promptRole?: 'user' | 'assistant'; text: string; characterId?: string; images?: ChatImage[]; quote?: MessageQuote }
 type MemoryInput = { entries: LongMemoryEntry[]; injectPosition: string; injectPrompt: string }
 
 type PromptInput = {
@@ -228,7 +229,7 @@ ${stripStageGateMetadata(input.actorContinuityAnchor || '')}`,
 
   const imageTurns = imagePromptIndices(recent)
   const history = recent.map<ChatApiMessage>((message, index) => {
-    const text = applyRegexScripts(
+    const scripted = applyRegexScripts(
       message.role === 'assistant' ? stripStageGateMetadata(stripPresentationalHtmlForPrompt(message.text)) : message.text,
       character.regexScripts,
       character,
@@ -236,6 +237,8 @@ ${stripStageGateMetadata(input.actorContinuityAnchor || '')}`,
       message.role === 'user' ? 1 : 2,
       'prompt',
     )
+    // 小手机引用回复：只在发出的请求里加前缀，存储的原文、记忆扫描都不受影响。
+    const text = message.role === 'user' ? withQuotePrefix(scripted, message.quote) : scripted
     return { role: message.promptRole || message.role, content: message.role === 'user' ? userContentWithImages(text, message.images, imageTurns.has(index)) : text }
   }).filter((message) => Array.isArray(message.content) || String(message.content).trim())
   result.push(...history)
