@@ -89,3 +89,12 @@ describe('phone reply modes', () => {
     expect(selectPhoneSpeakers({ mode: 'free', participantIds: ids, mentionedIds: [], namedIds: [], text: '咳咳', random: () => 0 })).toHaveLength(2)
   })
 })
+
+describe('cleanPhoneOutput status leaks', () => {
+  it('drops copied status monitors and field lines but keeps chat', async () => {
+    const { cleanPhoneOutput } = await import('./phoneGroup')
+    const raw = '大清早挺热闹。\n@周惟惟 别催她。\n<monitor>STATUS MONITOR // SHEN YAN\n沈衍当前状态：心境：自持</monitor>\n傅承砚：衣着：深灰西装｜状态：已完成本轮回应｜内心想法：尽兴\nSTATUS MONITOR // SHEN YAN\n心境：欲望浓烈｜衣着：黑色衬衫'
+    expect(cleanPhoneOutput(raw)).toBe('大清早挺热闹。\n@周惟惟 别催她。')
+    expect(cleanPhoneOutput('今天周末，你们谁也别催她。')).toBe('今天周末，你们谁也别催她。')
+  })
+})

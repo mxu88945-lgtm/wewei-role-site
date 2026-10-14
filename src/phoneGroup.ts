@@ -59,7 +59,7 @@ export type PhoneArchiveSource = {
 const tail = (messages: Message[], names: (message: Message) => string, count: number) => messages
   .filter((message) => message.text?.trim())
   .slice(-count)
-  .map((message) => `${names(message)}：${clip(message.text.replace(/<[^>]+>/g, ' ').replace(/\s+/g, ' '), 160)}`)
+  .map((message) => `${names(message)}：${clip(cleanPhoneOutput(message.text).replace(/<[^>]+>/g, ' ').replace(/\s+/g, ' '), 160)}`)
   .join('\n')
 
 /** 每位成员绑定的“过往戏份档案”：对话摘要、长期记忆、角色记忆和最近几句。 */
@@ -105,12 +105,25 @@ export function phoneFinalGuard(speakerName: string, userName: string) {
 }
 
 /** Safety net: whatever the model still emits, a phone message never carries status/scene panels or tags. */
+const STATUS_FIELD = /(衣着|状态|心境|内心(?:想法|独白)?|对.{1,8}(?:态度|认知)|当前(?:进度|状态)|好感|场景|时间|地点)\s*[:：]/
+const isStatusLine = (line: string) => {
+  const t = line.trim()
+  if (!t) return false
+  if (/^(?:【?状态(?:栏|更新)】?|STATUS\b|内心[:：]|对你的态度[:：])/i.test(t)) return true
+  if (/^[^\s：:]{1,8}[:：]\s*(?:衣着|状态|心境)[:：]/.test(t)) return true
+  const fields = (t.match(new RegExp(STATUS_FIELD.source, 'g')) || []).length
+  return fields >= 2 || (fields >= 1 && /[|｜]/.test(t))
+}
+
+/** 小手机最终清理：任何 HTML/标签块、状态栏、场景栏、内心字段都不保留。 */
 export function cleanPhoneOutput(text: string) {
-  return text
-    .replace(/<(status|[a-z][\w-]*_status|scene|plot|statusbar|state)\b[^>]*>[\s\S]*?<\/\1\s*>/gi, '')
-    .replace(/<(status|[a-z][\w-]*_status|scene|plot|statusbar|state)\b[^>]*>[\s\S]*$/gi, '')
-    .replace(/<\/?[a-z][\w-]*\b[^>]*>/gi, '')
-    .replace(/^\s*(?:【?状态(?:栏|更新)】?|内心[:：]|对你的态度[:：]).*$/gm, '')
+  let out = text
+  for (let i = 0; i < 3; i += 1) out = out.replace(/<([A-Za-z\u4e00-\u9fa5][\w\u4e00-\u9fa5-]*)\b[^>]*>[\s\S]*?<\/\1\s*>/g, '')
+  out = out
+    .replace(/<([A-Za-z\u4e00-\u9fa5][\w\u4e00-\u9fa5-]*(?:status|state|scene|plot)[\w-]*|status|state|scene|plot|statusbar)\b[^>]*>[\s\S]*$/gi, '')
+    .replace(/```[\s\S]*?```/g, '')
+    .replace(/<\/?[A-Za-z\u4e00-\u9fa5][\w\u4e00-\u9fa5-]*\b[^>]*>/g, '')
+  return out.split('\n').filter((line) => !isStatusLine(line) && !/^\s*[-—=─_]{3,}\s*$/.test(line)).join('\n')
     .replace(/\n{3,}/g, '\n\n')
     .trim()
 }
