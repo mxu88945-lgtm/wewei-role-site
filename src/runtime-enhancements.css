@@ -110,7 +110,7 @@
   font-weight: var(--ui-font-weight, 500) !important;
 }
 
-.phone-canvas button:not(.icon-button):not(.avatar-button):not(.composer-plus):not(.composer-expand):not(.send-button):not(.switch):not(.message-action-trigger):not(.chat-jump-controls button):not(.message-content *):not(.message-quote) {
+.phone-canvas button:not(.icon-button):not(.avatar-button):not(.composer-plus):not(.composer-expand):not(.send-button):not(.switch):not(.message-action-trigger):not(.chat-jump-controls button):not(.message-content *):not(.message-quote):not(.phone-message-quote) {
   font-size: calc(13px * var(--ui-font-scale, 1)) !important;
   font-weight: var(--ui-heading-font-weight, 600) !important;
 }
