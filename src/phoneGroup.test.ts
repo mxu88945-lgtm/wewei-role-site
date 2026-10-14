@@ -77,8 +77,10 @@ describe('phone reply modes', () => {
     const { findNamedParticipantIds, selectPhoneSpeakers } = await import('./phoneGroup')
     const named = findNamedParticipantIds('聿衡你过来，沈衍也是', people)
     expect(named).toEqual(['xie', 'shen'])
-    expect(selectPhoneSpeakers({ mode: 'named', participantIds: ids, mentionedIds: [], namedIds: named, text: '' })).toEqual(['xie', 'shen'])
-    expect(selectPhoneSpeakers({ mode: 'named', participantIds: ids, mentionedIds: [], namedIds: [], text: '咳咳' })).toEqual([])
+    expect(selectPhoneSpeakers({ mode: 'named', participantIds: ids, mentionedIds: [], namedIds: named, text: '' }).slice(0, 2)).toEqual(['xie', 'shen'])
+    const all = selectPhoneSpeakers({ mode: 'all', participantIds: ids, mentionedIds: [], namedIds: ['shen'], text: '', random: () => 0 })
+    expect(all[0]).toBe('shen')
+    expect([...all].sort()).toEqual([...ids].sort())
   })
   it('只@ ignores plain names; 自由聊 adds one more voice to named people', async () => {
     const { selectPhoneSpeakers } = await import('./phoneGroup')
@@ -108,5 +110,15 @@ describe('phone display has no card status', () => {
     const html = renderToStaticMarkup(React.createElement(MessageContent, { text: '散心就免了。', role: 'assistant', character, userName: '周惟惟', noStatus: true }))
     expect(html).not.toContain('status')
     expect(html).toContain('散心就免了')
+  })
+})
+
+describe('情境发言 parsing', () => {
+  it('keeps the order the model named', async () => {
+    const { parseSmartPick, pickPhoneChatters } = await import('./phoneGroup')
+    const people = [{ id: 'xie', name: '谢聿衡' }, { id: 'fu', name: '傅承砚' }, { id: 'shen', name: '沈衍' }]
+    expect(parseSmartPick('沈衍、谢聿衡', people)).toEqual(['shen', 'xie'])
+    expect(parseSmartPick('没人', people)).toEqual([])
+    expect(pickPhoneChatters(['a', 'b', 'c', 'd'], 'a', () => 0, true)).toHaveLength(4)
   })
 })

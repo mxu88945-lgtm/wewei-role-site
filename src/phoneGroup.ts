@@ -145,19 +145,20 @@ export function pickPhoneRepliers(participantIds: string[], lastSpeakerId: strin
 }
 
 /** 用户不说话时：两到三个人轮流聊，开头不是上一个说话的人。 */
-export function pickPhoneChatters(participantIds: string[], lastSpeakerId: string | undefined, random: () => number = Math.random) {
+export function pickPhoneChatters(participantIds: string[], lastSpeakerId: string | undefined, random: () => number = Math.random, everyone = false) {
   if (!participantIds.length) return []
-  const count = Math.min(participantIds.length, 2 + Math.floor(random() * 2))
+  const count = everyone ? participantIds.length : Math.min(participantIds.length, 2 + Math.floor(random() * 2))
   const ordered = shuffle(participantIds.filter((id) => id !== lastSpeakerId), random)
   if (lastSpeakerId && participantIds.includes(lastSpeakerId)) ordered.push(lastSpeakerId)
   return ordered.slice(0, count)
 }
 
-export type PhoneReplyMode = 'named' | 'at' | 'free'
+export type PhoneReplyMode = 'free' | 'smart' | 'all' | 'at' | 'named'
 export const PHONE_REPLY_MODES: Array<{ id: PhoneReplyMode; label: string; hint: string }> = [
-  { id: 'named', label: '点名', hint: '提到谁（@或直接叫名字）谁回' },
-  { id: 'at', label: '只@', hint: '只有被 @ 的人回' },
-  { id: 'free', label: '自由聊', hint: '大家自然接话、互相聊' },
+  { id: 'free', label: '自然聊天', hint: '被提到的优先，否则随机两人接话' },
+  { id: 'smart', label: '情境发言', hint: '看聊天内容决定一个或多个人回' },
+  { id: 'all', label: '全员回复', hint: '所有人都会回你' },
+  { id: 'at', label: '指定发言', hint: '只有被 @ 的人回' },
 ]
 
 /** Names said plainly count in 点名 mode: full name, or the given name of a three-character name (谢聿衡 → 聿衡). */
@@ -171,14 +172,35 @@ export function findNamedParticipantIds(text: string, participants: Array<{ id: 
 }
 
 export function selectPhoneSpeakers(input: { mode: PhoneReplyMode; participantIds: string[]; mentionedIds: string[]; namedIds: string[]; lastSpeakerId?: string; text: string; random?: () => number }) {
-  const { mode, participantIds, mentionedIds, namedIds } = input
+  const { participantIds, mentionedIds, namedIds } = input
+  const mode = input.mode === 'named' ? 'free' : input.mode
   const at = participantIds.filter((id) => mentionedIds.includes(id))
   if (mode === 'at') return at
   const named = participantIds.filter((id) => mentionedIds.includes(id) || namedIds.includes(id))
-  if (mode === 'named') return named
+  if (mode === 'all') return [...named, ...shuffle(participantIds.filter((id) => !named.includes(id)), input.random || Math.random)]
   if (named.length) {
     const extra = pickPhoneRepliers(participantIds.filter((id) => !named.includes(id)), input.lastSpeakerId, '', input.random).slice(0, 1)
     return [...named, ...extra]
   }
   return pickPhoneRepliers(participantIds, input.lastSpeakerId, input.text, input.random)
+}
+
+/** 情境发言：让模型只读最近几条，判断谁该回。只回名字，花费很小。 */
+export function buildSmartPickPrompt(memberNames: string[], recentLines: string[], userName: string, text: string) {
+  return `你是群聊调度，只负责判断这一轮谁该说话，不写任何台词。
+群成员：${memberNames.join('、')}。
+最近聊天：
+${recentLines.join('\n') || '（暂无）'}
+${userName}刚刚说：${text || '（没说话，让大家自己聊）'}
+
+规则：被点名或被问到的人必须回；话题跟谁有关谁回；明显是对所有人说的可以多人；一般 1—3 人，最多 ${memberNames.length} 人。
+只输出要回复的成员名字，按回复顺序，用顿号分隔，不要解释。`
+}
+
+export function parseSmartPick(raw: string, participants: Array<{ id: string; name: string }>) {
+  const hits = participants
+    .map(({ id, name }) => ({ id, index: name ? raw.indexOf(name) : -1 }))
+    .filter((item) => item.index >= 0)
+    .sort((a, b) => a.index - b.index)
+  return hits.map((item) => item.id)
 }
