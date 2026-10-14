@@ -27,7 +27,7 @@ import { FORUM_UPDATED_EVENT, dueRunAt, forumAutoTick, forumWelcomeThread, isQui
 import type { Moment } from './moments'
 import { USER_AUTHOR, communityMemberIds, excerptFromMessage } from './moments'
 import { buildDmGroupPeek, phoneDmRules } from './phoneGroup'
-import { PHONE_REPLY_MODES, NOTICE_DURATIONS, lurkFallback, activeNotice, noticeRemaining, buildNoticeNote, findAtMentionIds, queueSummons, parsePhoneQuit, parsePhoneKick, parsePhoneVote, kickPassed, findNamedParticipantIds, selectPhoneSpeakers, pickPhoneChatters, cleanPhoneOutput, containsPhoneReasoning, phoneFinalGuard, buildSmartPickPrompt, parseSmartPick, buildPhoneArchive, buildPhoneGroupBackground, phoneBindingCandidates, buildPhoneRealWorldNote, parsePhoneLockCommand, buildPhoneLockBreachNote, type PhoneLockState, type PhoneLockBreach, phoneCharacter, phoneModeRules, stripPhoneQuitTag, stripPhoneKickTag, computeStoryUpdates, resetStorySeenForBindingChanges, storyUpdateNotice, buildStoryUpdateNote } from './phoneGroup'
+import { PHONE_REPLY_MODES, NOTICE_DURATIONS, lurkFallback, activeNotice, noticeRemaining, buildNoticeNote, findAtMentionIds, queueSummons, parsePhoneQuit, parsePhoneKick, parsePhoneVote, kickPassed, findNamedParticipantIds, selectPhoneSpeakers, pickPhoneChatters, cleanPhoneOutput, phoneStreamPreview, containsPhoneReasoning, phoneFinalGuard, buildSmartPickPrompt, parseSmartPick, buildPhoneArchive, buildPhoneGroupBackground, phoneBindingCandidates, buildPhoneRealWorldNote, parsePhoneLockCommand, buildPhoneLockBreachNote, type PhoneLockState, type PhoneLockBreach, phoneCharacter, phoneModeRules, stripPhoneQuitTag, stripPhoneKickTag, computeStoryUpdates, resetStorySeenForBindingChanges, storyUpdateNotice, buildStoryUpdateNote } from './phoneGroup'
 import { assignChatGroup, chatGroupNames, groupConversations, setChatGroupMembers } from './chatGroups'
 import { assignLibraryGroup, setLibraryGroupMembers, effectiveLibraryRole, groupLibraryCharacters, LIBRARY_ROLE_LABELS, libraryGroupNames } from './characterLibraryGroups'
 import { activeCharacterMemory, characterMemoryEntryFromConversation, characterMemoryExtractionPrompt, characterMemorySummaryProtocol, parseCharacterMemoryCandidates, splitCharacterMemorySummary } from './characterMemory'
@@ -2625,6 +2625,10 @@ function App() {
         streaming,
         signal: controller.signal,
         onActivity: (activity) => {
+          if (conversation.phone && !stagedVisibleOutput && !finitePlot) {
+            if (activity === 'thinking' && !thinkingIndicatorShown) { thinkingIndicatorShown = true; showPhase('模型正在思考…') }
+            return
+          }
           if (activity !== 'thinking' || output || thinkingIndicatorShown || phaseTimer !== null) return
           thinkingIndicatorShown = true
           setConversations((current) => current.map((item) => item.id === conversationId ? {
@@ -2638,9 +2642,11 @@ function App() {
           // an ignored first draft cannot briefly look like the final reply.
           if (capturedTemporaryPlot && capturedTemporaryPlot.mode !== 'persistent') return
           const staged = sanitizeAssistantOutput(output, { director: isDirector })
-          // Small-phone replies are short; reveal them only after the complete
-          // response passes the reasoning guard so a partial heading cannot flash.
-          stagedVisibleOutput = conversation.phone ? '' : stripStatusBlocksForStreaming(staged)
+          // Keep partial analysis headings private, but show completed chat sentences
+          // while the model is still generating the rest of its reply.
+          const preview = conversation.phone ? phoneStreamPreview(staged) : stripStatusBlocksForStreaming(staged)
+          if (conversation.phone && (!preview || preview === stagedVisibleOutput)) return
+          stagedVisibleOutput = preview
           // About 20 visual updates per second still looks fluid, while avoiding a full
           // React + regex + HTML sanitization pass for every tiny network chunk.
           if (streamRenderTimer === null) streamRenderTimer = window.setTimeout(commitStreamOutput, 48)
@@ -2649,6 +2655,7 @@ function App() {
       }
       const finitePlot = Boolean(capturedTemporaryPlot && capturedTemporaryPlot.mode !== 'persistent')
       if (finitePlot) showPhase('幕后安排 1/3 · 正在写第一稿')
+      else if (conversation.phone) showPhase('正在等待模型回复…')
       let completion = await runCompletion()
       cancelQueuedStreamRender()
       if (!output.trim()) throw new Error('模型没有返回内容')
@@ -2660,6 +2667,7 @@ function App() {
         stagedVisibleOutput = ''
         thinkingIndicatorShown = false
         if (finitePlot) showPhase('幕后安排 1/3 · 第一稿不完整，正在补全正文')
+        else if (conversation.phone) showPhase(phoneReasoningLeak ? '已拦截内部分析，正在重新生成消息…' : '正在重新生成消息…')
         else setConversations((current) => current.map((item) => item.id === conversationId ? { ...item, messages: item.messages.map((message) => message.id === assistantMessage.id ? { ...message, text: '正在补全正文…' } : message) } : item))
         promptMessages = withAssistantRetryInstruction(promptMessages, phoneReasoningLeak
           ? `刚才输出了人设分析、反应分析或回复思路，已全部作废。不要解释你如何理解「${speaker.name}」，不要列提纲、步骤或草稿；现在第一行就直接输出「${speaker.name}」要发出的 1—4 行微信短消息。`
@@ -2817,7 +2825,8 @@ function App() {
         return rollback.messages
       }
       if (controller.signal.aborted) {
-        const partialOutput = sanitizeAssistantOutput(output, { director: Boolean(conversation.directorCharacterId && speaker.id === conversation.directorCharacterId) })
+        const sanitizedPartial = sanitizeAssistantOutput(output, { director: Boolean(conversation.directorCharacterId && speaker.id === conversation.directorCharacterId) })
+        const partialOutput = conversation.phone ? phoneStreamPreview(sanitizedPartial) : sanitizedPartial
         setConversations((current) => current.map((item) => item.id === conversationId ? {
           ...item,
           messages: partialOutput
@@ -2828,7 +2837,8 @@ function App() {
       } else {
         const message = error instanceof Error ? error.message : '聊天请求失败'
         const requestContext = error instanceof ChatApiError ? `（请求：${apiRequestContext(resolvedSpeakerApi)}）` : ''
-        const partialOutput = sanitizeAssistantOutput(output, { director: Boolean(conversation.directorCharacterId && speaker.id === conversation.directorCharacterId) })
+        const sanitizedPartial = sanitizeAssistantOutput(output, { director: Boolean(conversation.directorCharacterId && speaker.id === conversation.directorCharacterId) })
+        const partialOutput = conversation.phone ? phoneStreamPreview(sanitizedPartial) : sanitizedPartial
         setChatError(`${message}${requestContext}`)
         if (partialOutput) {
           setConversations((current) => current.map((item) => item.id === conversationId ? {
@@ -4004,7 +4014,7 @@ function UpdateCard() {
     }
   }
 
-  return <section className="update-card"><strong>应用更新</strong><p>主动检查并拉取最新网页版本，不会删除角色、聊天记录或本地设置。</p><small>当前版本：v79 · 2026.10.14 小手机思考链拦截</small><button onClick={refresh} disabled={state === 'checking'}>{state === 'checking' ? '正在检查更新…' : state === 'error' ? '更新失败，点我重试' : '强制刷新到最新版'}</button></section>
+  return <section className="update-card"><strong>应用更新</strong><p>主动检查并拉取最新网页版本，不会删除角色、聊天记录或本地设置。</p><small>当前版本：v80 · 2026.10.14 小手机流式回复修复</small><button onClick={refresh} disabled={state === 'checking'}>{state === 'checking' ? '正在检查更新…' : state === 'error' ? '更新失败，点我重试' : '强制刷新到最新版'}</button></section>
 }
 
 function PersonaPage({ identities, selectedId, isBound, onSelect, onAdd, onDelete, onUpdate, onBack }: { identities: UserIdentity[]; selectedId: string; isBound: boolean; onSelect: (id: string) => void; onAdd: () => void; onDelete: (id: string) => void; onUpdate: (patch: Partial<UserIdentity>) => void; onBack: () => void }) {

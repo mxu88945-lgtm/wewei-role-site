@@ -177,6 +177,19 @@ export function cleanPhoneOutput(text: string) {
   return stripPhoneReasoning(cleaned)
 }
 
+/** Reveal completed chat sentences without flashing partial analysis headings or panels. */
+export function phoneStreamPreview(text: string) {
+  let candidate = text
+    .replace(/<([A-Za-z\u4e00-\u9fa5][\w\u4e00-\u9fa5-]*)\b[^>]*>[\s\S]*?<\/\1\s*>/g, '')
+    .replace(/```[\s\S]*?```/g, '')
+  // An unfinished tag/fence may contain private reasoning, not just markup.
+  const opening = candidate.search(/<|```|【锁屏|\[锁屏/)
+  if (opening >= 0) candidate = candidate.slice(0, opening)
+  const boundary = Array.from(candidate.matchAll(/[。！？!?\n]/g)).pop()
+  if (!boundary || boundary.index === undefined) return ''
+  return cleanPhoneOutput(candidate.slice(0, boundary.index + 1))
+}
+
 const shuffle = <T,>(items: T[], random: () => number) => {
   const copy = [...items]
   for (let index = copy.length - 1; index > 0; index -= 1) {

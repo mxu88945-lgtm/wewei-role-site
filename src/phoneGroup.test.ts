@@ -50,6 +50,22 @@ describe('phone group', () => {
 })
 
 describe('phone output and turn taking', () => {
+  it('streams complete chat sentences before completion but never partial reasoning', async () => {
+    const { phoneStreamPreview } = await import('./phoneGroup')
+    expect(phoneStreamPreview('你最喜欢')).toBe('')
+    expect(phoneStreamPreview('你最喜欢谁？\n先说清楚')).toBe('你最喜欢谁？')
+    expect(phoneStreamPreview('我看你就是欠管。少跟他们起哄')).toBe('我看你就是欠管。')
+    const reasoning = '沈衍人设立场与反应分析：\n1. 她说她最喜欢谁。\n2. 语言风格：低沉。'
+    for (let length = 1; length <= reasoning.length; length += 1) {
+      expect(phoneStreamPreview(reasoning.slice(0, length))).toBe('')
+    }
+    expect(phoneStreamPreview(`${reasoning}\n最终回复：你最喜欢谁？\n说来听听`)).toBe('你最喜欢谁？')
+    expect(phoneStreamPreview('<think>她这句话该怎么回？')).toBe('')
+    expect(phoneStreamPreview('别熬夜。\n<gts_status>内心：别让她听出来。')).toBe('别熬夜。')
+    expect(phoneStreamPreview('```analysis\n她最喜欢谁？')).toBe('')
+    expect(phoneStreamPreview('去吃饭。\n【锁屏 30分钟：先吃饭。')).toBe('去吃饭。')
+  })
+
   it('strips status panels, scene tags and inner-thought lines', async () => {
     const { cleanPhoneOutput } = await import('./phoneGroup')
     expect(cleanPhoneOutput('嗓子不舒服？\n有什么指示直接说。\n<gts_status>对你的态度：……｜内心：别让她听出来</gts_status>')).toBe('嗓子不舒服？\n有什么指示直接说。')
