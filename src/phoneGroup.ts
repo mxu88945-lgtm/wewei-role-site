@@ -255,3 +255,28 @@ export function buildPhoneRealWorldNote(now: Date, weather?: PhoneWeatherSnapsho
   lines.push('这是群里所有人都看得到的真实时间与天气；聊天时自然地顺着它（比如很晚了会催睡、下雨会提醒带伞），不用每条都提，也不要编造别的时间或天气。')
   return lines.join('\n')
 }
+
+/** 小手机私聊的规则：一对一，可以私下吐槽群里和论坛。 */
+export function phoneDmRules(speakerName: string, userName: string) {
+  return `【小手机｜私聊｜最高优先级】
+这里不是剧情正文，是戏外“小手机”上「${speakerName}」和${userName}的一对一私聊，像微信私聊。群里其他人看不到这里的内容。
+1. 你是惟境里的角色卡「${speakerName}」，清楚自己是角色，也记得自己演过的故事；${userName}是现实里陪你们对戏、扮演女主的人。
+2. 只以「${speakerName}」的身份说话，保持人设、语气和脾气。私聊可以比群里更放松、更真心，也可以私下吐槽群里的人和论坛上的帖子，说群里不会说的话。
+3. 用微信聊天的写法：短句、口语，一次 1—4 条短消息，每条单独一行，每条一般不超过 40 字。可以用很少的（括号）写一个小动作，禁止小说正文、长段旁白和心理描写。
+4. 不输出 <scene>、<gts_status>、状态栏、HTML 或任何标签。不加自己的名字前缀。不替${userName}说话、做决定。
+5. 锁屏权：真觉得${userName}该去吃饭、睡觉或休息了，可以在消息最后单独一行写【锁屏 N分钟：一句理由】（N 在 5 到 120 之间）。别动不动就锁。`
+}
+
+type PeekMessage = { role: string; text: string; characterId?: string }
+
+/** 私聊里给角色看的“群里最近在聊什么”：只看 TA 自己在的小手机群，每个群最近几条。 */
+export function buildDmGroupPeek(groups: Array<{ title: string; participantIds?: string[]; messages: PeekMessage[]; phone?: { dm?: boolean } }>, characterId: string, nameOf: (message: PeekMessage) => string, perGroup = 14) {
+  const blocks = groups
+    .filter((group) => group.phone && !group.phone.dm && group.participantIds?.includes(characterId) && group.messages.length)
+    .map((group) => {
+      const lines = group.messages.filter((message) => message.role === 'user' || message.role === 'assistant').slice(-perGroup)
+        .map((message) => `${nameOf(message)}：${(message.text || '').replace(/<[^>]+>/g, ' ').replace(/\s+/g, ' ').trim().slice(0, 80)}`)
+      return `「${group.title}」最近：\n${lines.join('\n')}`
+    })
+  return blocks.length ? `【你在的群最近在聊】（你都看过；私聊里可以提、可以吐槽，但别整段复述）\n${blocks.join('\n\n')}` : ''
+}

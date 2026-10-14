@@ -155,3 +155,21 @@ describe('phone lock', () => {
     expect(buildPhoneLockBreachNote(breach, 1000 + 16 * 60000, '周惟惟')).toBe('')
   })
 })
+
+describe('phone dm', () => {
+  it('peeks only at the groups the character is in, never other dms', async () => {
+    const { buildDmGroupPeek, phoneDmRules } = await import('./phoneGroup')
+    const groups = [
+      { title: '群A', participantIds: ['a', 'b'], phone: {}, messages: [{ role: 'user', text: '在吗' }, { role: 'assistant', characterId: 'b', text: '<b>在</b>' }] },
+      { title: '群B', participantIds: ['b'], phone: {}, messages: [{ role: 'user', text: '秘密' }] },
+      { title: 'a的私聊', participantIds: ['a'], phone: { dm: true }, messages: [{ role: 'user', text: '私聊内容' }] },
+    ]
+    const peek = buildDmGroupPeek(groups, 'a', (message) => message.role === 'user' ? '周' : message.characterId || '?')
+    expect(peek).toContain('「群A」')
+    expect(peek).toContain('b： 在 '.trim().slice(0, 2))
+    expect(peek).not.toContain('秘密')
+    expect(peek).not.toContain('私聊内容')
+    expect(buildDmGroupPeek([], 'a', () => '')).toBe('')
+    expect(phoneDmRules('沈衍', '周')).toContain('私聊')
+  })
+})

@@ -23,6 +23,7 @@ import PhoneAutoSettingsCard from './PhoneAutoSettings'
 import { FORUM_UPDATED_EVENT, dueRunAt, forumAutoTick, isQuietHour, pickAutoGroup, readPhoneAuto, writePhoneAuto } from './phoneAuto'
 import type { Moment } from './moments'
 import { USER_AUTHOR, communityMemberIds, excerptFromMessage } from './moments'
+import { buildDmGroupPeek, phoneDmRules } from './phoneGroup'
 import { PHONE_REPLY_MODES, findNamedParticipantIds, selectPhoneSpeakers, pickPhoneChatters, cleanPhoneOutput, phoneFinalGuard, buildSmartPickPrompt, parseSmartPick, buildPhoneArchive, buildPhoneGroupBackground, phoneBindingCandidates, buildPhoneRealWorldNote, parsePhoneLockCommand, buildPhoneLockBreachNote, type PhoneLockState, type PhoneLockBreach, phoneCharacter, phoneModeRules } from './phoneGroup'
 import { assignChatGroup, chatGroupNames, groupConversations, setChatGroupMembers } from './chatGroups'
 import { assignLibraryGroup, setLibraryGroupMembers, effectiveLibraryRole, groupLibraryCharacters, LIBRARY_ROLE_LABELS, libraryGroupNames } from './characterLibraryGroups'
@@ -428,7 +429,7 @@ function App() {
   const [characterSelectionMode, setCharacterSelectionMode] = useState(false)
   const [selectedCharacterIds, setSelectedCharacterIds] = useState<string[]>([])
   const [collapsedLibraryGroups, setCollapsedLibraryGroups] = useState<string[]>(() => read<string[]>('weijing.libraryCollapsed', []))
-  const [phoneTab, setPhoneTab] = useState<'groups' | 'moments'>('groups')
+  const [phoneTab, setPhoneTab] = useState<'groups' | 'dms' | 'moments'>('groups')
   const [momentSeed, setMomentSeed] = useState<MomentSeed | null>(null)
   const clearMomentSeed = useCallback(() => setMomentSeed(null), [])
   const [phoneDraft, setPhoneDraft] = useState<{ editingId?: string; title: string; memberIds: string[]; bindings: Record<string, string> } | null>(null)
@@ -1831,6 +1832,43 @@ function App() {
     setActiveId(members[0].id); setActiveConversationId(conversation.id)
     replacePage('chat')
   }
+  const openPhoneDm = (characterId: string) => {
+    const existing = conversations.filter((item) => item.phone?.dm && item.participantIds?.[0] === characterId).sort((a, b) => b.updatedAt - a.updatedAt)[0]
+    if (existing) { openConversation(existing); return }
+    const character = characters.find((item) => item.id === characterId)
+    if (!character) return
+    const now = Date.now()
+    const binding = conversations.map((item) => item.phone && !item.phone.dm ? item.phone.bindings[characterId] : undefined).find(Boolean)
+    const conversation: Conversation = {
+      id: `group-phone-dm-${now}-${Math.random().toString(36).slice(2, 8)}`,
+      kind: 'group', characterId,
+      participantIds: [characterId],
+      participantApiIds: { [characterId]: api.id }, participantModelNames: { [characterId]: api.modelName },
+      title: character.name, messages: [], createdAt: now, updatedAt: now, personaId: activePersonaId,
+      phone: { bindings: binding ? { [characterId]: binding } : {}, dm: true },
+      theaterWorldBackground: buildPhoneGroupBackground([character]),
+    }
+    setConversations((current) => [...current, conversation])
+    setActiveId(characterId); setActiveConversationId(conversation.id)
+    navigate('chat')
+  }
+  const forwardDmToGroup = (message: Message) => {
+    const dm = activeConversation
+    const characterId = dm?.participantIds?.[0]
+    if (!dm?.phone?.dm || !characterId) return
+    const groups = conversations.filter((item) => item.phone && !item.phone.dm && item.participantIds?.includes(characterId)).sort((a, b) => b.updatedAt - a.updatedAt)
+    if (!groups.length) { window.alert('TA 不在任何小手机群里。'); return }
+    const target = groups.length === 1 ? groups[0] : (() => {
+      const answer = window.prompt(`转到哪个群？输入序号：\n${groups.map((group, index) => `${index + 1}. ${group.title}`).join('\n')}`, '1')
+      return answer ? groups[Number(answer) - 1] : undefined
+    })()
+    if (!target) return
+    const who = message.role === 'user' ? identity.name : characters.find((item) => item.id === message.characterId)?.name || '私聊'
+    const text = `【转发私聊】${who}：${cleanPhoneOutput(message.text) || message.text}`
+    setConversations((current) => current.map((item) => item.id === target.id ? { ...item, messages: [...item.messages, { id: nextMessageId(item.messages), role: 'user', text }], updatedAt: Date.now() } : item))
+    setMessageMenuId(null)
+    window.alert(`已转到「${target.title}」，下次群里有人说话时大家就看到了。`)
+  }
   const openGroupEditor = (name: string) => setGroupEditor({ original: name, name, memberIds: characters.filter((item) => item.libraryGroup === name).map((item) => item.id) })
   const saveGroupEditor = () => {
     if (!groupEditor) return
@@ -2271,7 +2309,8 @@ function App() {
       })
       const nameOf = (message: Message) => characters.find((item) => item.id === message.characterId)?.name || members[0]?.name || '角色'
       const realWorld = [(() => { try { return buildPhoneRealWorldNote(new Date(), JSON.parse(localStorage.getItem('weijing.phoneWeather') || 'null')) } catch { return buildPhoneRealWorldNote(new Date()) } })(), (() => { const web = phoneWebNoteRef.current; return web && web.conversationId === conversation.id && Date.now() - web.at < 5 * 60 * 1000 ? web.note : '' })(), buildForumRecapNote(forumThreadsRef.current, members.map((member) => member.id), (id) => id === 'user' ? identity.name : characters.find((item) => item.id === id)?.name || '已离开的角色', identity.name), (() => { try { return buildPhoneLockBreachNote(JSON.parse(localStorage.getItem('weijing.phoneLockBreach') || 'null'), Date.now(), identity.name) } catch { return '' } })()].filter(Boolean).join('\n')
-      return [phoneModeRules(speaker.name, members.map((member) => member.name), identity.name), realWorld, buildPhoneArchive(sources, speaker.id, identity.name, (message) => message.characterId ? nameOf(message) : sources.find((source) => source.conversation?.messages.includes(message))?.character.name || '角色')].join('\n\n')
+      const dmPeek = conversation.phone?.dm ? buildDmGroupPeek(conversations, speaker.id, (message) => message.role === 'user' ? identity.name : characters.find((item) => item.id === message.characterId)?.name || '群友') : ''
+      return [conversation.phone?.dm ? phoneDmRules(speaker.name, identity.name) : phoneModeRules(speaker.name, members.map((member) => member.name), identity.name), realWorld, dmPeek, buildPhoneArchive(sources, speaker.id, identity.name, (message) => message.characterId ? nameOf(message) : sources.find((source) => source.conversation?.messages.includes(message))?.character.name || '角色')].join('\n\n')
     })() : ''
     const sanitizedHistory = (isPhone ? nextMessages.map((message) => message.role === 'assistant' ? { ...message, text: cleanPhoneOutput(message.text) || message.text } : message) : nextMessages).flatMap((message) => {
       const fromDirector = message.role === 'assistant' && message.characterId === conversation.directorCharacterId
@@ -2659,7 +2698,7 @@ function App() {
     const participantIds = conversation.participantIds || []
     let groupMessages = conversation.messages
     const lastSpeakerId = [...groupMessages].reverse().find((item) => item.role === 'assistant')?.characterId
-    const speakerIds = pickPhoneChatters(participantIds, lastSpeakerId, Math.random, conversation.phone?.mode === 'all')
+    const speakerIds = conversation.phone?.dm ? participantIds.slice(0, 1) : pickPhoneChatters(participantIds, lastSpeakerId, Math.random, conversation.phone?.mode === 'all')
     setChatError('')
     for (const speakerId of speakerIds) {
       if ((conversationStopRevisions.current.get(conversation.id) || 0) !== stopRevision) break
@@ -2778,7 +2817,7 @@ function App() {
       const phoneMode = conversation.phone?.mode || 'free'
       const phoneNamedIds = conversation.phone ? findNamedParticipantIds(visibleText, participants) : []
       const smartIds = conversation.phone && phoneMode === 'smart' ? await pickSmartSpeakers(conversation, baseMessages, participants, visibleText) : []
-      const speakerIds = conversation.phone
+      const speakerIds = conversation.phone?.dm ? participantIds.slice(0, 1) : conversation.phone
         ? smartIds.length ? smartIds : selectPhoneSpeakers({ mode: phoneMode, participantIds, mentionedIds, namedIds: phoneNamedIds, lastSpeakerId, text: visibleText })
         : selectGroupSpeakerIds({ participantIds, mentionedIds, mode: groupReplyMode, directorCharacterId: conversation.directorCharacterId, lastSpeakerId, text })
       if (!speakerIds.length) {
@@ -3341,11 +3380,29 @@ function App() {
       {!phoneDraft && <PhoneStatusWidget />}
       {!phoneDraft && <PhoneWebSettings />}
       {!phoneDraft && <PhoneAutoSettingsCard status={phoneAutoStatus} />}
-      {!phoneDraft && <div className="phone-tabs" role="tablist"><button role="tab" aria-selected={phoneTab === 'groups'} className={phoneTab === 'groups' ? 'active' : ''} onClick={() => setPhoneTab('groups')}>群聊</button><button role="tab" aria-selected={phoneTab === 'moments'} className={phoneTab === 'moments' ? 'active' : ''} onClick={() => setPhoneTab('moments')}>论坛</button></div>}
+      {!phoneDraft && <div className="phone-tabs" role="tablist"><button role="tab" aria-selected={phoneTab === 'groups'} className={phoneTab === 'groups' ? 'active' : ''} onClick={() => setPhoneTab('groups')}>群聊</button><button role="tab" aria-selected={phoneTab === 'dms'} className={phoneTab === 'dms' ? 'active' : ''} onClick={() => setPhoneTab('dms')}>私聊</button><button role="tab" aria-selected={phoneTab === 'moments'} className={phoneTab === 'moments' ? 'active' : ''} onClick={() => setPhoneTab('moments')}>论坛</button></div>}
       {!phoneDraft && phoneTab === 'moments' && <Forum characters={characters} conversations={conversations} userName={identity.name} userAvatar={identity.avatar} api={api} seed={momentSeed} onSeedUsed={clearMomentSeed} onSaveToMemory={saveMomentToMemory} onThreadsChange={handleForumChange} />}
+      {!phoneDraft && phoneTab === 'dms' && <>
+        <div className="privacy-note">一对一私聊：TA 看得到自己所在群最近的聊天和论坛，可以私下跟你吐槽；群里的人看不到私聊。</div>
+        {(() => {
+          const memberIds = [...new Set(conversations.filter((item) => item.phone && !item.phone.dm).flatMap((item) => item.participantIds || []))]
+          if (!memberIds.length) return <div className="privacy-note">先建一个小手机群，群里的人就能私聊了。</div>
+          const dmOf = (id: string) => conversations.filter((item) => item.phone?.dm && item.participantIds?.[0] === id).sort((a, b) => b.updatedAt - a.updatedAt)[0]
+          return memberIds.map((id) => characters.find((item) => item.id === id)).filter((item): item is Character => Boolean(item))
+            .sort((a, b) => (dmOf(b.id)?.updatedAt || 0) - (dmOf(a.id)?.updatedAt || 0))
+            .map((character) => {
+              const dm = dmOf(character.id)
+              const last = dm?.messages[dm.messages.length - 1]?.text
+              return <button key={character.id} className="phone-group-row phone-dm-row" onClick={() => openPhoneDm(character.id)}>
+                {character.avatar ? <img src={character.avatar} alt="" /> : <i>{character.name.slice(-1)}</i>}
+                <strong>{character.name}</strong><span>{last ? last.replace(/<[^>]+>/g, ' ').slice(0, 36) : '还没私聊过，点开说第一句'}</span>
+              </button>
+            })
+        })()}
+      </>}
       {!phoneDraft && phoneTab === 'groups' && <>
         <div className="privacy-note">戏外日常群：角色们知道自己是惟境里的角色，你是陪他们对戏、演女主的人。聊天是微信式短句，可以 @ 谁就谁回，也会有人自然接话。</div>
-        {conversations.filter((item) => item.phone).sort((a, b) => b.updatedAt - a.updatedAt).map((item) => {
+        {conversations.filter((item) => item.phone && !item.phone.dm).sort((a, b) => b.updatedAt - a.updatedAt).map((item) => {
           const names = (item.participantIds || []).map((id) => characters.find((character) => character.id === id)?.name).filter(Boolean).join('、')
           const last = item.messages[item.messages.length - 1]?.text || '还没有消息，去说第一句吧'
           return <button key={item.id} className="phone-group-row" onClick={() => openConversation(item)}><strong>{item.title}</strong><small>{names}</small><span>{last.slice(0, 36)}</span></button>
@@ -3537,7 +3594,7 @@ function App() {
       return <article className={joined ? 'joined' : ''} key={character.id} onClick={() => { if (!joined) addConversationMember(character.id) }}><div className="member-picker-main"><CharacterPortrait item={character} /><div><strong>{character.name}</strong><small>{joined ? '已在当前会话' : character.tagline}</small></div><button onClick={(event) => { event.stopPropagation(); if (joined) { if (canRemove) removeConversationMember(character.id) } else addConversationMember(character.id) }} disabled={joined && !canRemove}>{joined ? canRemove ? '移除' : '保留' : '＋ 加入'}</button></div>{joined && <div onClick={(event) => event.stopPropagation()}><MemberApiBinding channels={apiChannels} channelId={channel.id} modelName={activeConversation.participantModelNames?.[character.id] || channel.modelName} onChannelChange={(nextChannelId) => updateConversationMemberApi(character.id, nextChannelId)} onModelChange={(modelName) => updateConversationMemberModel(character.id, modelName)} /></div>}</article>
     })}</div><div className="privacy-note">同一渠道可以给不同成员指定不同模型；不单独修改时使用该渠道的默认模型。已有消息与署名不会丢失。</div></section></div>}
 
-    {menuMessage && <div className="message-menu-layer"><button className="drawer-backdrop" aria-label="关闭消息菜单" onClick={() => setMessageMenuId(null)} /><section className="message-action-sheet"><header><div><small>{menuMessage.role === 'assistant' ? '模型消息' : '用户消息'}</small><strong>消息操作</strong></div><button onClick={() => setMessageMenuId(null)}>×</button></header><button onClick={() => createStoryBranch(menuMessage)} disabled={isGenerating}>从这里另开剧情分线</button>{!activeConversation?.phone && <button onClick={() => postMessageToMoments(menuMessage)}>发到戏外论坛</button>}{menuMessage.role === 'assistant' ? <><button onClick={() => regenerateMessage(menuMessage)} disabled={isGenerating}>重新生成（保留旧版）</button><button onClick={() => editAssistantMessage(menuMessage)} disabled={isGenerating}>编辑改写</button><button onClick={() => copyMessage(menuMessage)}>复制文本</button><button className="danger" onClick={() => withdrawMessage(menuMessage)} disabled={isGenerating}>撤回到这里</button><button className="danger" onClick={() => deleteMessage(menuMessage)} disabled={isGenerating}>仅删除此句</button></> : <><button onClick={() => editAndResendUserMessage(menuMessage)} disabled={isGenerating}>编辑并重新发送</button><button onClick={() => copyMessage(menuMessage)}>复制文本</button><button className="danger" onClick={() => deleteMessage(menuMessage)} disabled={isGenerating}>仅删除此句</button></>}</section></div>}
+    {menuMessage && <div className="message-menu-layer"><button className="drawer-backdrop" aria-label="关闭消息菜单" onClick={() => setMessageMenuId(null)} /><section className="message-action-sheet"><header><div><small>{menuMessage.role === 'assistant' ? '模型消息' : '用户消息'}</small><strong>消息操作</strong></div><button onClick={() => setMessageMenuId(null)}>×</button></header><button onClick={() => createStoryBranch(menuMessage)} disabled={isGenerating}>从这里另开剧情分线</button>{!activeConversation?.phone && <button onClick={() => postMessageToMoments(menuMessage)}>发到戏外论坛</button>}{activeConversation?.phone?.dm && <button onClick={() => forwardDmToGroup(menuMessage)}>转到群里</button>}{menuMessage.role === 'assistant' ? <><button onClick={() => regenerateMessage(menuMessage)} disabled={isGenerating}>重新生成（保留旧版）</button><button onClick={() => editAssistantMessage(menuMessage)} disabled={isGenerating}>编辑改写</button><button onClick={() => copyMessage(menuMessage)}>复制文本</button><button className="danger" onClick={() => withdrawMessage(menuMessage)} disabled={isGenerating}>撤回到这里</button><button className="danger" onClick={() => deleteMessage(menuMessage)} disabled={isGenerating}>仅删除此句</button></> : <><button onClick={() => editAndResendUserMessage(menuMessage)} disabled={isGenerating}>编辑并重新发送</button><button onClick={() => copyMessage(menuMessage)}>复制文本</button><button className="danger" onClick={() => deleteMessage(menuMessage)} disabled={isGenerating}>仅删除此句</button></>}</section></div>}
     {exportRange && (() => {
       const total = messages.length
       const clamp = (value: string) => Math.min(total, Math.max(1, Math.floor(Number(value)) || 1))
@@ -3618,7 +3675,7 @@ function UpdateCard() {
     }
   }
 
-  return <section className="update-card"><strong>应用更新</strong><p>主动检查并拉取最新网页版本，不会删除角色、聊天记录或本地设置。</p><small>当前版本：v66 · 2026.10.14 小手机自动活跃</small><button onClick={refresh} disabled={state === 'checking'}>{state === 'checking' ? '正在检查更新…' : state === 'error' ? '更新失败，点我重试' : '强制刷新到最新版'}</button></section>
+  return <section className="update-card"><strong>应用更新</strong><p>主动检查并拉取最新网页版本，不会删除角色、聊天记录或本地设置。</p><small>当前版本：v67 · 2026.10.14 小手机私聊</small><button onClick={refresh} disabled={state === 'checking'}>{state === 'checking' ? '正在检查更新…' : state === 'error' ? '更新失败，点我重试' : '强制刷新到最新版'}</button></section>
 }
 
 function PersonaPage({ identities, selectedId, isBound, onSelect, onAdd, onDelete, onUpdate, onBack }: { identities: UserIdentity[]; selectedId: string; isBound: boolean; onSelect: (id: string) => void; onAdd: () => void; onDelete: (id: string) => void; onUpdate: (patch: Partial<UserIdentity>) => void; onBack: () => void }) {
