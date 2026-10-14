@@ -36,3 +36,16 @@ describe('forum', () => {
     expect(migrated.updatedAt).toBe(2)
   })
 })
+
+describe('forum images', () => {
+  it('attaches pixels to the floors prompt and marks image floors', async () => {
+    const { buildFloorsPrompt, forumPromptPixels } = await import('./forum')
+    const img = { id: 'i', dataUrl: 'data:image/jpeg;base64,AA', width: 1, height: 1 }
+    const t = thread({ images: [img], floors: [{ id: 'f', authorId: 'user', text: '', images: [img, img], createdAt: 1 }] })
+    expect(forumPromptPixels(t)).toHaveLength(3)
+    const messages = buildFloorsPrompt({ thread: t, pixels: [img], nameOf: (id) => id, briefs: [], candidateNames: ['a'], mentionedNames: [], userName: '周', recent: [], trigger: 'go' })
+    expect(Array.isArray(messages[1].content)).toBe(true)
+    expect(JSON.stringify(messages[1].content)).toContain('[2张图]')
+    expect(parseThreadDraft('{"title":"t","body":"b","image":"一张猫"}')?.image).toBe('一张猫')
+  })
+})

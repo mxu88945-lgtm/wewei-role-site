@@ -775,3 +775,22 @@ button { cursor: pointer; }
 .forum-reply-actions button { min-height: 38px; padding: 0 18px; border: 0; border-radius: 12px; font-weight: 800; color: #fff; background: var(--theme-accent); }
 .forum-reply-actions button:disabled { opacity: .5; }
 .forum-anon { display: flex; align-items: center; gap: 6px; font-size: 13px; color: #7d7583; font-weight: 700; }
+.moment-compose label.forum-anon, .forum-anon { display: flex; flex-direction: row; align-items: center; gap: 8px; font-size: 14px; }
+.forum-anon input { width: 20px; height: 20px; margin: 0; accent-color: var(--theme-accent); }
+.forum-image-picks { display: flex; flex-wrap: wrap; gap: 8px; }
+.forum-image-pick { position: relative; width: 64px; height: 64px; }
+.forum-image-pick img { width: 100%; height: 100%; object-fit: cover; border-radius: 12px; }
+.forum-image-pick button { position: absolute; top: -6px; right: -6px; width: 22px; height: 22px; padding: 0; border: 0; border-radius: 50%; background: rgba(40,30,45,.72); color: #fff; font-size: 14px; line-height: 22px; }
+.forum-image-add { position: relative; width: 64px; height: 64px; display: grid; place-items: center; border: 1.5px dashed rgba(71,55,80,.18); border-radius: 12px; font-size: 22px; background: #f6f5f7; cursor: pointer; }
+.forum-image-add input { position: absolute; inset: 0; opacity: 0; width: 100%; height: 100%; }
+.forum-images { display: grid; gap: 4px; grid-template-columns: repeat(3, 1fr); }
+.forum-images.count-1 { grid-template-columns: minmax(0, 72%); }
+.forum-images.count-2 { grid-template-columns: repeat(2, 1fr); }
+.forum-images button { padding: 0; border: 0; background: transparent; aspect-ratio: 1; overflow: hidden; border-radius: 10px; }
+.forum-images.count-1 button { aspect-ratio: auto; max-height: 360px; }
+.forum-images img { width: 100%; height: 100%; object-fit: cover; display: block; }
+.forum-row-thumbs { display: flex; gap: 4px; align-items: center; }
+.forum-row-thumbs img { width: 64px; height: 64px; object-fit: cover; border-radius: 10px; }
+.forum-row-thumbs em { font-style: normal; font-size: 12px; color: #a39ca8; }
+.forum-viewer { position: fixed; inset: 0; z-index: 400; display: grid; place-items: center; padding: 0; border: 0; background: rgba(12,8,16,.92); }
+.forum-viewer img { max-width: 100%; max-height: 100%; object-fit: contain; }

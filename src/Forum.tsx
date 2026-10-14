@@ -2,11 +2,12 @@ import type React from 'react'
 import { useEffect, useMemo, useRef, useState } from 'react'
 import type { Character } from './characterCard'
 import type { Conversation } from './conversationLifecycle'
-import { completeChat, type ApiConfig } from './chatApi'
+import { completeChat, type ApiConfig, type ChatApiMessage } from './chatApi'
+import { prepareChatImage, type ChatImage } from './chatImages'
 import { durableGet, durableSet } from './persistentStore'
 import { characterBrief, communityMemberIds, findMentionIds, type Moment } from './moments'
 import {
-  FORUM_BOARDS, FORUM_USER, buildFloorsPrompt, buildThreadPrompt, floorNumber, floorsText, forumThreadLine, parseFloors, parseThreadDraft,
+  FORUM_BOARDS, FORUM_FLOOR_IMAGE_LIMIT, FORUM_THREAD_IMAGE_LIMIT, FORUM_USER, forumPromptPixels, buildFloorsPrompt, buildThreadPrompt, floorNumber, floorsText, forumThreadLine, parseFloors, parseThreadDraft,
   pickForumReaders, sortThreads, threadsFromMoments, type ForumBoard, type ForumFloor, type ForumThread,
 } from './forum'
 import type { MomentSeed } from './Moments'
@@ -61,6 +62,9 @@ export function Forum({ characters, conversations, userName, userAvatar, api, se
   const [replyAnonymous, setReplyAnonymous] = useState(false)
   const [menuOpen, setMenuOpen] = useState(false)
   const [sourceOpen, setSourceOpen] = useState(false)
+  const [composeImages, setComposeImages] = useState<ChatImage[]>([])
+  const [replyImages, setReplyImages] = useState<ChatImage[]>([])
+  const [viewer, setViewer] = useState('')
   const threadsRef = useRef(threads)
   threadsRef.current = threads
 
@@ -103,7 +107,25 @@ export function Forum({ characters, conversations, userName, userAvatar, api, se
     setThreads(threadsRef.current)
   }
 
-  const callModel = async (messages: Array<{ role: 'system' | 'user'; content: string }>, maxTokens: number) => {
+  const addImages = async (files: FileList | null, current: ChatImage[], limit: number, set: (images: ChatImage[]) => void) => {
+    const picked = Array.from(files || []).slice(0, Math.max(0, limit - current.length))
+    if (!picked.length) { if (files?.length) setError(`最多 ${limit} 张图`); return }
+    try {
+      const images = await Promise.all(picked.map((file) => prepareChatImage(file)))
+      set([...current, ...images].slice(0, limit))
+    } catch (cause) {
+      setError(cause instanceof Error ? cause.message : '图片读取失败')
+    }
+  }
+
+  const imagePicker = (current: ChatImage[], limit: number, set: (images: ChatImage[]) => void) => <div className="forum-image-picks">
+    {current.map((image) => <span key={image.id} className="forum-image-pick"><img src={image.dataUrl} alt="" /><button aria-label="移除图片" onClick={() => set(current.filter((item) => item.id !== image.id))}>×</button></span>)}
+    {current.length < limit && <label className="forum-image-add" aria-label="加图片">📷<input type="file" accept="image/*" multiple onChange={(event) => { void addImages(event.target.files, current, limit, set); event.target.value = '' }} /></label>}
+  </div>
+
+  const imageGrid = (images: ChatImage[] | undefined) => images?.length ? <div className={`forum-images count-${Math.min(images.length, 3)}`}>{images.map((image) => <button key={image.id} onClick={() => setViewer(image.dataUrl)}><img src={image.dataUrl} alt="" loading="lazy" /></button>)}</div> : null
+
+  const callModel = async (messages: ChatApiMessage[], maxTokens: number) => {
     let output = ''
     await completeChat({ api, messages, temperature: .95, topP: .95, maxTokens, streaming: false, signal: new AbortController().signal, onDelta: (delta) => { output += delta } })
     return output
@@ -117,13 +139,22 @@ export function Forum({ characters, conversations, userName, userAvatar, api, se
     setBusy('大家正在盖楼…')
     setError('')
     try {
-      const raw = await callModel(buildFloorsPrompt({
+      const promptInput = {
         thread, nameOf, userName, trigger,
         briefs: readers.map((character) => characterBrief(character, conversations)),
         candidateNames: readers.map((character) => character.name),
         mentionedNames: mentionedIds.map(nameOf),
         recent: recentLines(threadId).slice(0, 4),
-      }), 1800)
+      }
+      const pixels = forumPromptPixels(thread)
+      let raw: string
+      try {
+        raw = await callModel(buildFloorsPrompt({ ...promptInput, pixels }), 1800)
+      } catch (cause) {
+        // 模型不支持看图时退回纯文字，大家照样能盖楼。
+        if (!pixels.length) throw cause
+        raw = await callModel(buildFloorsPrompt(promptInput), 1800)
+      }
       const parsed = parseFloors(raw, floorNumber(thread.floors.length) + 6)
       const byName = (name: string) => readers.find((character) => character.name === name)?.id
       const now = Date.now()
@@ -141,7 +172,7 @@ export function Forum({ characters, conversations, userName, userAvatar, api, se
     }
   }
 
-  const resetCompose = () => { setComposeOpen(false); setComposeTitle(''); setComposeBody(''); setComposeSource(null); setComposeAuthor(FORUM_USER); setComposeAnonymous(false) }
+  const resetCompose = () => { setComposeImages([]); setComposeOpen(false); setComposeTitle(''); setComposeBody(''); setComposeSource(null); setComposeAuthor(FORUM_USER); setComposeAnonymous(false) }
 
   const publish = async (randomAuthor = false) => {
     let authorId = composeAuthor
@@ -149,6 +180,8 @@ export function Forum({ characters, conversations, userName, userAvatar, api, se
     let body = composeBody.trim()
     let threadBoard = composeBoard
     let anonymous = composeAnonymous
+    let imageNote: string | undefined
+    const images = randomAuthor ? [] : composeImages
     if (randomAuthor) {
       if (!members.length) return
       authorId = members[Math.floor(Math.random() * members.length)].id
@@ -163,7 +196,7 @@ export function Forum({ characters, conversations, userName, userAvatar, api, se
         const raw = await callModel(buildThreadPrompt({ authorName: author.name, brief: characterBrief(author, conversations), userName, recent: recentLines(), board: randomAuthor ? undefined : composeBoard, sourceExcerpt: randomAuthor ? undefined : composeSource?.excerpt, hint: randomAuthor ? '' : [title, body].filter(Boolean).join('：') }), 600)
         const draft = parseThreadDraft(raw)
         if (!draft) throw new Error('模型没写出完整的标题和正文')
-        title = draft.title; body = draft.body; anonymous = draft.anonymous
+        title = draft.title; body = draft.body; anonymous = draft.anonymous; imageNote = images.length ? undefined : draft.image
         if (randomAuthor && draft.board) threadBoard = draft.board
       } catch (cause) {
         setError(`开帖失败：${cause instanceof Error ? cause.message : '请稍后再试'}`)
@@ -172,9 +205,9 @@ export function Forum({ characters, conversations, userName, userAvatar, api, se
       }
       setBusy('')
     }
-    if (!title || !body) return
+    if (!title || (!body && !images.length)) return
     const now = Date.now()
-    const thread: ForumThread = { id: uid(), board: threadBoard, title, authorId, anonymous: anonymous || undefined, body, createdAt: now, updatedAt: now, floors: [], likes: [], ...(!randomAuthor && composeSource ? { sourceConversationId: composeSource.conversationId, sourceExcerpt: composeSource.excerpt } : {}) }
+    const thread: ForumThread = { id: uid(), board: threadBoard, title, authorId, anonymous: anonymous || undefined, body, ...(images.length ? { images } : {}), ...(imageNote ? { imageNote } : {}), createdAt: now, updatedAt: now, floors: [], likes: [], ...(!randomAuthor && composeSource ? { sourceConversationId: composeSource.conversationId, sourceExcerpt: composeSource.excerpt } : {}) }
     threadsRef.current = [thread, ...threadsRef.current]
     setThreads(threadsRef.current)
     resetCompose()
@@ -184,14 +217,15 @@ export function Forum({ characters, conversations, userName, userAvatar, api, se
 
   const sendReply = async (thread: ForumThread) => {
     const text = replyText.trim()
-    if (!text) return
+    const images = replyImages
+    if (!text && !images.length) return
     const target = replyTo
-    update(thread.id, (item) => ({ ...item, floors: [...item.floors, { id: uid(), authorId: FORUM_USER, text, replyToFloor: target || undefined, anonymous: replyAnonymous || undefined, createdAt: Date.now() }], updatedAt: Date.now() }))
-    setReplyText(''); setReplyTo(0)
+    update(thread.id, (item) => ({ ...item, floors: [...item.floors, { id: uid(), authorId: FORUM_USER, text, ...(images.length ? { images } : {}), replyToFloor: target || undefined, anonymous: replyAnonymous || undefined, createdAt: Date.now() }], updatedAt: Date.now() }))
+    setReplyText(''); setReplyTo(0); setReplyImages([])
     const targetFloor = target >= 2 ? thread.floors[target - 2] : undefined
     const targetAuthor = target === 1 ? thread.authorId : targetFloor?.authorId
     const mentioned = [...new Set([...(targetAuthor && targetAuthor !== FORUM_USER ? [targetAuthor] : []), ...findMentionIds(text, people)])]
-    await gatherFloors(thread.id, `${replyAnonymous ? '一位匿名网友' : userName}刚刚回帖了${target ? `（回复${target}楼）` : ''}。相关角色接着回应，不相关的可以不说话。`, mentioned)
+    await gatherFloors(thread.id, `${replyAnonymous ? '一位匿名网友' : userName}刚刚回帖了${target ? `（回复${target}楼）` : ''}${images.length ? `，贴了 ${images.length} 张图` : ''}。相关角色接着回应，不相关的可以不说话。`, mentioned)
   }
 
   const saveToMemory = (thread: ForumThread) => {
@@ -211,6 +245,7 @@ export function Forum({ characters, conversations, userName, userAvatar, api, se
   }
 
   const status = <>
+    {viewer && <button className="forum-viewer" aria-label="关闭大图" onClick={() => setViewer('')}><img src={viewer} alt="" /></button>}
     {busy && <div className="moments-busy">{busy}</div>}
     {error && <div className="moments-error" role="alert">{error}<button aria-label="关闭" onClick={() => setError('')}>×</button></div>}
   </>
@@ -230,7 +265,9 @@ export function Forum({ characters, conversations, userName, userAvatar, api, se
       <article className="forum-op">
         <h3>{thread.pinned ? '📌 ' : ''}{thread.title}</h3>
         <header>{avatarNode(thread.authorId, thread.anonymous)}<div><strong>{thread.anonymous ? '匿名用户' : nameOf(thread.authorId)} <em>楼主</em></strong><small>1楼 · {timeLabel(thread.createdAt)}</small></div></header>
-        <p className="moment-text">{thread.body}</p>
+        {thread.body && <p className="moment-text">{thread.body}</p>}
+        {imageGrid(thread.images)}
+        {thread.imageNote && <div className="moment-image">📷 {thread.imageNote}</div>}
         {thread.sourceExcerpt && <button className="moment-source" onClick={() => setSourceOpen(!sourceOpen)}>出处：{conversations.find((item) => item.id === thread.sourceConversationId)?.title || '原剧情'} {sourceOpen ? '收起' : '查看'}</button>}
         {sourceOpen && thread.sourceExcerpt && <blockquote className="moment-source-text">{thread.sourceExcerpt}</blockquote>}
         <div className="moment-actions"><button className={thread.likes.includes(FORUM_USER) ? 'liked' : ''} onClick={() => update(thread.id, (item) => ({ ...item, likes: item.likes.includes(FORUM_USER) ? item.likes.filter((id) => id !== FORUM_USER) : [...item.likes, FORUM_USER] }))}>♡ {thread.likes.length || ''}</button>{!thread.locked && <button onClick={() => setReplyTo(1)}>回复楼主</button>}</div>
@@ -243,7 +280,8 @@ export function Forum({ characters, conversations, userName, userAvatar, api, se
         return <article key={floor.id} className="forum-floor">
           <header>{avatarNode(floor.authorId, floor.anonymous)}<div><strong>{floor.anonymous ? '匿名用户' : nameOf(floor.authorId)}{isOp && <em>楼主</em>}</strong><small>{number}楼 · {timeLabel(floor.createdAt)}</small></div>{!thread.locked && <button className="forum-reply-button" onClick={() => setReplyTo(number)}>回复</button>}</header>
           {target && <blockquote className="forum-quote">回复 {floor.replyToFloor}楼 {target.name}：{target.text.slice(0, 40)}{target.text.length > 40 ? '…' : ''}</blockquote>}
-          <p className="moment-text">{floor.text}</p>
+          {floor.text && <p className="moment-text">{floor.text}</p>}
+          {imageGrid(floor.images)}
         </article>
       })}
       {thread.locked ? <div className="moment-closed">帖子已锁，不能再回</div> : <>
@@ -251,7 +289,8 @@ export function Forum({ characters, conversations, userName, userAvatar, api, se
         <div className="forum-reply-box">
           {replyTo > 0 && <div className="moment-source-chip">回复 {replyTo}楼<button onClick={() => setReplyTo(0)}>×</button></div>}
           <textarea onFocus={revealOnFocus} rows={2} value={replyText} onChange={(event) => setReplyText(event.target.value)} placeholder="回帖……可以 @角色" />
-          <div className="forum-reply-actions"><label className="forum-anon"><input type="checkbox" checked={replyAnonymous} onChange={(event) => setReplyAnonymous(event.target.checked)} />匿名</label><button className="primary" disabled={Boolean(busy) || !replyText.trim()} onClick={() => void sendReply(thread)}>回帖</button></div>
+          {imagePicker(replyImages, FORUM_FLOOR_IMAGE_LIMIT, setReplyImages)}
+          <div className="forum-reply-actions"><label className="forum-anon"><input type="checkbox" checked={replyAnonymous} onChange={(event) => setReplyAnonymous(event.target.checked)} />匿名</label><button className="primary" disabled={Boolean(busy) || (!replyText.trim() && !replyImages.length)} onClick={() => void sendReply(thread)}>回帖</button></div>
         </div>
       </>}
     </div>
@@ -268,9 +307,10 @@ export function Forum({ characters, conversations, userName, userAvatar, api, se
       <label>版块<select value={composeBoard} onChange={(event) => setComposeBoard(event.target.value as ForumBoard)}>{FORUM_BOARDS.map((item) => <option key={item} value={item}>{item}</option>)}</select></label>
       <input className="forum-title-input" onFocus={revealOnFocus} value={composeTitle} onChange={(event) => setComposeTitle(event.target.value)} maxLength={40} placeholder={composeAuthor === FORUM_USER ? '标题' : '标题（留空让 TA 自己起）'} />
       <textarea onFocus={revealOnFocus} value={composeBody} onChange={(event) => setComposeBody(event.target.value)} rows={4} placeholder={composeAuthor === FORUM_USER ? '正文……可以 @角色' : '留空就让 TA 自己写；写一句话就是给 TA 的主题方向'} />
+      {imagePicker(composeImages, FORUM_THREAD_IMAGE_LIMIT, setComposeImages)}
       {composeSource && <div className="moment-source-chip">关联原剧情：{composeSource.excerpt.slice(0, 40)}…<button onClick={() => setComposeSource(null)}>×</button></div>}
       {composeAuthor === FORUM_USER && <label className="forum-anon"><input type="checkbox" checked={composeAnonymous} onChange={(event) => setComposeAnonymous(event.target.checked)} />匿名发帖</label>}
-      <div className="moment-compose-actions"><button onClick={resetCompose}>取消</button><button className="primary" disabled={Boolean(busy) || (composeAuthor === FORUM_USER && (!composeTitle.trim() || !composeBody.trim()))} onClick={() => void publish()}>发布</button></div>
+      <div className="moment-compose-actions"><button onClick={resetCompose}>取消</button><button className="primary" disabled={Boolean(busy) || (composeAuthor === FORUM_USER && (!composeTitle.trim() || (!composeBody.trim() && !composeImages.length)))} onClick={() => void publish()}>发布</button></div>
     </article>}
     <div className="forum-boards" role="tablist">{(['all', ...FORUM_BOARDS] as const).map((item) => <button key={item} role="tab" aria-selected={board === item} className={board === item ? 'active' : ''} onClick={() => setBoard(item)}>{item === 'all' ? '全部' : item}</button>)}</div>
     <div className="forum-sort"><button className={sortMode === 'new' ? 'active' : ''} onClick={() => setSortMode('new')}>最新回复</button><button className={sortMode === 'hot' ? 'active' : ''} onClick={() => setSortMode('hot')}>最热</button></div>
@@ -279,7 +319,8 @@ export function Forum({ characters, conversations, userName, userAvatar, api, se
       const last = thread.floors[thread.floors.length - 1]
       return <button key={thread.id} className={`forum-row${thread.pinned ? ' pinned' : ''}`} onClick={() => { setOpenId(thread.id); setReplyTo(0); setSourceOpen(false) }}>
         <strong>{thread.pinned && <span className="forum-pin">置顶</span>}<span className="forum-board-tag">{thread.board}</span>{thread.title}</strong>
-        <span className="forum-row-body">{thread.body.slice(0, 50)}</span>
+        <span className="forum-row-body">{thread.body.slice(0, 50) || (thread.images?.length ? '[图片]' : '')}</span>
+        {thread.images?.length ? <span className="forum-row-thumbs">{thread.images.slice(0, 3).map((image) => <img key={image.id} src={image.dataUrl} alt="" loading="lazy" />)}{thread.images.length > 3 && <em>+{thread.images.length - 3}</em>}</span> : null}
         <small>{thread.anonymous ? '匿名用户' : nameOf(thread.authorId)} · 💬 {thread.floors.length} · ♡ {thread.likes.length}{thread.locked ? ' · 已锁' : ''} · {last ? `${last.anonymous ? '匿名' : nameOf(last.authorId)} ${timeLabel(last.createdAt)}回复` : timeLabel(thread.createdAt)}</small>
       </button>
     })}
