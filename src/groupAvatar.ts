@@ -3,6 +3,8 @@ const SIZE = 256
 
 const loadImage = (src: string) => new Promise<HTMLImageElement>((resolve, reject) => {
   const image = new Image()
+  // 远程头像按 CORS 读，读不到就退回首字，避免画布被污染导致整张拼图静默失败。
+  if (!/^(data|blob):/.test(src)) image.crossOrigin = 'anonymous'
   image.onload = () => resolve(image)
   image.onerror = reject
   image.src = src
@@ -65,5 +67,14 @@ export async function collageAvatar(members: Array<{ name: string; avatar?: stri
       ctx.fillText(member.name.slice(-1), cell.x + cell.size / 2, cell.y + cell.size / 2)
     }
   }
-  return canvas.toDataURL('image/jpeg', 0.85)
+  try { return canvas.toDataURL('image/jpeg', 0.85) } catch {
+    // 某张远程图把画布污染了：全部改用首字重拼一次。
+    return collageAvatar(list.map((member) => ({ name: member.name })))
+  }
+}
+
+/** 头像变化的轻量指纹：长度 + 头尾片段，避免把整段 data URL 拼进依赖。 */
+export function phoneAvatarSignature(avatar?: string) {
+  if (!avatar) return '-'
+  return `${avatar.length}.${avatar.slice(-24)}.${avatar.slice(0, 48)}`
 }

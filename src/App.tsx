@@ -21,7 +21,7 @@ import { Forum } from './Forum'
 import { buildForumRecapNote, threadsFromMoments, type ForumThread } from './forum'
 import PhoneAutoSettingsCard from './PhoneAutoSettings'
 import PhonePointsCard from './PhonePointsCard'
-import { collageAvatar, squareAvatarFromFile } from './groupAvatar'
+import { collageAvatar, phoneAvatarSignature, squareAvatarFromFile } from './groupAvatar'
 import { addPoints, applyMessagePoints, buildPointsNote, readPoints, writePoints } from './phonePoints'
 import { FORUM_UPDATED_EVENT, dueRunAt, forumAutoTick, forumWelcomeThread, isQuietHour, pickAutoGroup, readPhoneAuto, writePhoneAuto } from './phoneAuto'
 import type { Moment } from './moments'
@@ -447,7 +447,7 @@ function App() {
   const [phoneTab, setPhoneTab] = useState<'groups' | 'dms' | 'moments'>('groups')
   const [momentSeed, setMomentSeed] = useState<MomentSeed | null>(null)
   const clearMomentSeed = useCallback(() => setMomentSeed(null), [])
-  const [phoneDraft, setPhoneDraft] = useState<{ editingId?: string; title: string; memberIds: string[]; bindings: Record<string, string>; avatar?: string; noticeText?: string; noticeHours?: number; allowQuit?: boolean; allowKick?: boolean } | null>(null)
+  const [phoneDraft, setPhoneDraft] = useState<{ editingId?: string; title: string; memberIds: string[]; bindings: Record<string, string>; avatar?: string; avatarCollage?: boolean; noticeText?: string; noticeHours?: number; allowQuit?: boolean; allowKick?: boolean } | null>(null)
   const [collapsedChatGroups, setCollapsedChatGroups] = useState<string[]>(() => read<string[]>('weijing.chatCollapsed', []))
   const [chatGroupSheet, setChatGroupSheet] = useState<{ id: string; group: string } | null>(null)
   const [chatGroupEditor, setChatGroupEditor] = useState<{ original: string; name: string; memberIds: string[] } | null>(null)
@@ -1841,9 +1841,39 @@ function App() {
     if (!editing && previous?.page === 'chat' && activeConversation?.phone) { goHome(); return }
     goBack()
   }
+  // 「拼成员」群头像跟着成员走：设置页里加减成员时立刻重拼。
+  const phoneDraftCollageKey = phoneDraft?.avatarCollage ? phoneDraft.memberIds.map((id) => `${id}:${phoneAvatarSignature(characters.find((item) => item.id === id)?.avatar)}`).join('|') : ''
+  useEffect(() => {
+    if (!phoneDraftCollageKey || !phoneDraft) return
+    let cancelled = false
+    const members = phoneDraft.memberIds.map((id) => characters.find((item) => item.id === id)).filter((item): item is Character => Boolean(item))
+    if (!members.length) return
+    void collageAvatar(members).then((avatar) => { if (!cancelled) setPhoneDraft((draft) => draft?.avatarCollage ? { ...draft, avatar } : draft) }).catch(() => undefined)
+    return () => { cancelled = true }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [phoneDraftCollageKey])
+  // 已保存的拼图群头像：成员换了头像（或旧数据成员变了）时在后台重拼。
+  const savedCollageKey = conversations.filter((item) => item.phone?.avatarCollage).map((item) => `${item.id}=${(item.participantIds || []).map((id) => `${id}:${phoneAvatarSignature(characters.find((entry) => entry.id === id)?.avatar)}`).join(',')}`).join('|')
+  const savedCollageSeen = useRef<Record<string, string>>({})
+  useEffect(() => {
+    if (!savedCollageKey) return
+    let cancelled = false
+    for (const entry of savedCollageKey.split('|')) {
+      const [id, signature] = [entry.slice(0, entry.indexOf('=')), entry.slice(entry.indexOf('=') + 1)]
+      const previous = savedCollageSeen.current[id]
+      savedCollageSeen.current[id] = signature
+      if (previous === undefined || previous === signature) continue
+      const conversation = conversations.find((item) => item.id === id)
+      const members = (conversation?.participantIds || []).map((memberId) => characters.find((item) => item.id === memberId)).filter((item): item is Character => Boolean(item))
+      if (!members.length) continue
+      void collageAvatar(members).then((avatar) => { if (!cancelled) setConversations((current) => current.map((item) => item.id === id && item.phone?.avatarCollage ? { ...item, phone: { ...item.phone, avatar } } : item)) }).catch(() => undefined)
+    }
+    return () => { cancelled = true }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [savedCollageKey])
   const phoneMembersPool = characters.filter((item) => item.creator !== '惟境内置导演模板' && !item.directorTemplateConfig)
   const openPhonePage = (editing?: Conversation) => {
-    setPhoneDraft(editing ? { editingId: editing.id, title: editing.title, memberIds: [...(editing.participantIds || [])], bindings: { ...(editing.phone?.bindings || {}) }, avatar: editing.phone?.avatar, noticeText: activeNotice(editing.phone?.notice)?.text || '', noticeHours: -1, allowQuit: editing.phone?.allowQuit !== false, allowKick: editing.phone?.allowKick !== false } : null)
+    setPhoneDraft(editing ? { editingId: editing.id, title: editing.title, memberIds: [...(editing.participantIds || [])], bindings: { ...(editing.phone?.bindings || {}) }, avatar: editing.phone?.avatar, avatarCollage: Boolean(editing.phone?.avatar && editing.phone?.avatarCollage), noticeText: activeNotice(editing.phone?.notice)?.text || '', noticeHours: -1, allowQuit: editing.phone?.allowQuit !== false, allowKick: editing.phone?.allowKick !== false } : null)
     navigate('phone')
   }
   const togglePhoneMember = (id: string) => setPhoneDraft((current) => {
@@ -1886,7 +1916,7 @@ function App() {
           ...item, title, characterId: members[0].id, participantIds: members.map((member) => member.id),
           participantApiIds: { ...apiIds, ...Object.fromEntries(Object.entries(item.participantApiIds || {}).filter(([id]) => phoneDraft.memberIds.includes(id))) },
           participantModelNames: { ...modelNames, ...Object.fromEntries(Object.entries(item.participantModelNames || {}).filter(([id]) => phoneDraft.memberIds.includes(id))) },
-          phone: { ...item.phone, bindings, avatar: phoneDraft.avatar, notice, allowQuit: phoneDraft.allowQuit !== false, allowKick: phoneDraft.allowKick !== false, storySeen: resetStorySeenForBindingChanges(item.phone?.storySeen, item.phone?.bindings || {}, bindings), left: Object.fromEntries(Object.entries(item.phone?.left || {}).filter(([id]) => !phoneDraft.memberIds.includes(id))) },
+          phone: { ...item.phone, bindings, avatar: phoneDraft.avatar, avatarCollage: Boolean(phoneDraft.avatar && phoneDraft.avatarCollage), notice, allowQuit: phoneDraft.allowQuit !== false, allowKick: phoneDraft.allowKick !== false, storySeen: resetStorySeenForBindingChanges(item.phone?.storySeen, item.phone?.bindings || {}, bindings), left: Object.fromEntries(Object.entries(item.phone?.left || {}).filter(([id]) => !phoneDraft.memberIds.includes(id))) },
           theaterWorldBackground: sameMembers && item.theaterWorldBackground?.trim() ? item.theaterWorldBackground : buildPhoneGroupBackground(members),
           updatedAt: now,
         }
@@ -1901,7 +1931,7 @@ function App() {
       participantIds: members.map((member) => member.id),
       participantApiIds: apiIds, participantModelNames: modelNames,
       title, messages: [], createdAt: now, updatedAt: now,
-      phone: { bindings, avatar: phoneDraft.avatar, notice, allowQuit: phoneDraft.allowQuit !== false, allowKick: phoneDraft.allowKick !== false },
+      phone: { bindings, avatar: phoneDraft.avatar, avatarCollage: Boolean(phoneDraft.avatar && phoneDraft.avatarCollage), notice, allowQuit: phoneDraft.allowQuit !== false, allowKick: phoneDraft.allowKick !== false },
       theaterWorldBackground: buildPhoneGroupBackground(members),
     }
     setConversations((current) => [...current, conversation])
@@ -3770,10 +3800,10 @@ function App() {
         <label className="group-title-field">群名<input value={phoneDraft.title} maxLength={40} onChange={(event) => setPhoneDraft({ ...phoneDraft, title: event.target.value })} placeholder="例如：亲密关系重大过错整改中心" /></label>
         <div className="phone-group-avatar-field">
           {phoneDraft.avatar ? <img src={phoneDraft.avatar} alt="" /> : <i>默认</i>}
-          <div><strong>群头像</strong><small>{phoneDraft.avatar ? '已设置' : '默认用第一个成员的头像'}</small></div>
-          <label className="soft-button">相册<input type="file" accept="image/*" hidden onChange={(event) => { const file = event.target.files?.[0]; event.target.value = ''; if (file) void squareAvatarFromFile(file).then((avatar) => setPhoneDraft((draft) => draft ? { ...draft, avatar } : draft)).catch(() => window.alert('这张图读不出来，换一张试试。')) }} /></label>
-          <button type="button" className="soft-button" disabled={!phoneDraft.memberIds.length} onClick={() => void collageAvatar(phoneDraft.memberIds.map((id) => characters.find((item) => item.id === id)).filter((item): item is Character => Boolean(item))).then((avatar) => setPhoneDraft((draft) => draft ? { ...draft, avatar } : draft))}>拼成员</button>
-          {phoneDraft.avatar && <button type="button" className="soft-button" onClick={() => setPhoneDraft({ ...phoneDraft, avatar: undefined })}>默认</button>}
+          <div><strong>群头像</strong><small>{phoneDraft.avatar ? phoneDraft.avatarCollage ? '成员拼图 · 换人或换头像会自动更新' : '已设置' : '默认用第一个成员的头像'}</small></div>
+          <label className="soft-button">相册<input type="file" accept="image/*" hidden onChange={(event) => { const file = event.target.files?.[0]; event.target.value = ''; if (file) void squareAvatarFromFile(file).then((avatar) => setPhoneDraft((draft) => draft ? { ...draft, avatar, avatarCollage: false } : draft)).catch(() => window.alert('这张图读不出来，换一张试试。')) }} /></label>
+          <button type="button" className="soft-button" disabled={!phoneDraft.memberIds.length} onClick={() => void collageAvatar(phoneDraft.memberIds.map((id) => characters.find((item) => item.id === id)).filter((item): item is Character => Boolean(item))).then((avatar) => setPhoneDraft((draft) => draft ? { ...draft, avatar, avatarCollage: true } : draft)).catch(() => window.alert('成员头像拼不出来，换个头像或用相册图试试。'))}>拼成员</button>
+          {phoneDraft.avatar && <button type="button" className="soft-button" onClick={() => setPhoneDraft({ ...phoneDraft, avatar: undefined, avatarCollage: false })}>默认</button>}
         </div>
         <label className="group-title-field phone-notice-field">群公告<textarea rows={2} maxLength={200} value={phoneDraft.noticeText || ''} onChange={(event) => setPhoneDraft({ ...phoneDraft, noticeText: event.target.value })} placeholder="例如：今天谁再锁我手机，直接投票踢出" /></label>
         {(phoneDraft.noticeText || '').trim() && <div className="phone-notice-hours">{(phoneDraft.noticeHours ?? -1) < 0 && phoneDraft.editingId && activeNotice(conversations.find((item) => item.id === phoneDraft.editingId)?.phone?.notice)?.text === (phoneDraft.noticeText || '').trim() ? <small>{noticeRemaining(activeNotice(conversations.find((item) => item.id === phoneDraft.editingId)?.phone?.notice)?.until)} · 重选时长会重新计时</small> : <small>挂多久</small>}<div>{NOTICE_DURATIONS.map((option) => <button key={option.hours} type="button" className={((phoneDraft.noticeHours ?? -1) < 0 ? (phoneDraft.editingId && activeNotice(conversations.find((item) => item.id === phoneDraft.editingId)?.phone?.notice)?.text === (phoneDraft.noticeText || '').trim() ? -1 : 24) : phoneDraft.noticeHours) === option.hours ? 'active' : ''} onClick={() => setPhoneDraft({ ...phoneDraft, noticeHours: option.hours })}>{option.label}</button>)}</div></div>}
@@ -4043,7 +4073,7 @@ function UpdateCard() {
     }
   }
 
-  return <section className="update-card"><strong>应用更新</strong><p>主动检查并拉取最新网页版本，不会删除角色、聊天记录或本地设置。</p><small>当前版本：v84 · 2026.10.14 小手机返回首页修复</small><button onClick={refresh} disabled={state === 'checking'}>{state === 'checking' ? '正在检查更新…' : state === 'error' ? '更新失败，点我重试' : '强制刷新到最新版'}</button></section>
+  return <section className="update-card"><strong>应用更新</strong><p>主动检查并拉取最新网页版本，不会删除角色、聊天记录或本地设置。</p><small>当前版本：v85 · 2026.10.14 拼图群头像自动更新</small><button onClick={refresh} disabled={state === 'checking'}>{state === 'checking' ? '正在检查更新…' : state === 'error' ? '更新失败，点我重试' : '强制刷新到最新版'}</button></section>
 }
 
 function PersonaPage({ identities, selectedId, isBound, onSelect, onAdd, onDelete, onUpdate, onBack }: { identities: UserIdentity[]; selectedId: string; isBound: boolean; onSelect: (id: string) => void; onAdd: () => void; onDelete: (id: string) => void; onUpdate: (patch: Partial<UserIdentity>) => void; onBack: () => void }) {
