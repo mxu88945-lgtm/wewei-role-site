@@ -13,6 +13,8 @@ import { prewarmAvatarThumbnails } from './avatarThumbnail'
 import MessageContent, { isPendingAssistantText } from './MessageContent'
 import PhoneStatusWidget from './PhoneStatusWidget'
 import PhoneLockScreen from './PhoneLockScreen'
+import PhoneWebSettings from './PhoneWebSettings'
+import { TAVILY_KEY_STORAGE, needsWebSearch, tavilySearch } from './phoneWeb'
 import { createBlankCharacter, importCharacterCard, normalizeStoredCharacter, LIBRARY_ROLES, type Character, type LibraryRole } from './characterCard'
 import { Moments, type MomentSeed } from './Moments'
 import { USER_AUTHOR, communityMemberIds, excerptFromMessage } from './moments'
@@ -400,6 +402,7 @@ function App() {
     try { localStorage.setItem('weijing.phoneLockBreach', JSON.stringify(breach)) } catch { /* ignore */ }
     setPhoneLock(null)
   }
+  const phoneWebNoteRef = useRef<{ conversationId: string; note: string; at: number } | null>(null)
   const [exportRange, setExportRange] = useState<{ start: string; end: string } | null>(null)
   const [characterMenuId, setCharacterMenuId] = useState<string | null>(null)
   const [characterQuery, setCharacterQuery] = useState('')
@@ -2248,7 +2251,7 @@ function App() {
         }
       })
       const nameOf = (message: Message) => characters.find((item) => item.id === message.characterId)?.name || members[0]?.name || '角色'
-      const realWorld = [(() => { try { return buildPhoneRealWorldNote(new Date(), JSON.parse(localStorage.getItem('weijing.phoneWeather') || 'null')) } catch { return buildPhoneRealWorldNote(new Date()) } })(), (() => { try { return buildPhoneLockBreachNote(JSON.parse(localStorage.getItem('weijing.phoneLockBreach') || 'null'), Date.now(), identity.name) } catch { return '' } })()].filter(Boolean).join('\n')
+      const realWorld = [(() => { try { return buildPhoneRealWorldNote(new Date(), JSON.parse(localStorage.getItem('weijing.phoneWeather') || 'null')) } catch { return buildPhoneRealWorldNote(new Date()) } })(), (() => { const web = phoneWebNoteRef.current; return web && web.conversationId === conversation.id && Date.now() - web.at < 5 * 60 * 1000 ? web.note : '' })(), (() => { try { return buildPhoneLockBreachNote(JSON.parse(localStorage.getItem('weijing.phoneLockBreach') || 'null'), Date.now(), identity.name) } catch { return '' } })()].filter(Boolean).join('\n')
       return [phoneModeRules(speaker.name, members.map((member) => member.name), identity.name), realWorld, buildPhoneArchive(sources, speaker.id, identity.name, (message) => message.characterId ? nameOf(message) : sources.find((source) => source.conversation?.messages.includes(message))?.character.name || '角色')].join('\n\n')
     })() : ''
     const sanitizedHistory = (isPhone ? nextMessages.map((message) => message.role === 'assistant' ? { ...message, text: cleanPhoneOutput(message.text) || message.text } : message) : nextMessages).flatMap((message) => {
@@ -2724,6 +2727,16 @@ function App() {
         return
       }
       setChatError('')
+      if (conversation.phone) {
+        const webKey = localStorage.getItem(TAVILY_KEY_STORAGE)
+        phoneWebNoteRef.current = null
+        if (webKey && needsWebSearch(visibleText)) {
+          try {
+            const note = await tavilySearch(webKey, visibleText)
+            if (note) phoneWebNoteRef.current = { conversationId: conversation.id, note, at: Date.now() }
+          } catch (error) { setChatError(error instanceof Error ? `${error.message}，这轮先不联网回复` : '联网失败，这轮先不联网回复') }
+        }
+      }
       let groupMessages = baseMessages
       for (const speakerId of speakerIds) {
         if ((conversationStopRevisions.current.get(conversation.id) || 0) !== stopRevision) break
@@ -3264,6 +3277,7 @@ function App() {
 
     {page === 'phone' && <><BackHeader title={phoneDraft?.editingId ? '小手机群设置' : '小手机'} onBack={() => { setPhoneDraft(null); goBack() }} /><section className="content-stack phone-page">
       {!phoneDraft && <PhoneStatusWidget />}
+      {!phoneDraft && <PhoneWebSettings />}
       {!phoneDraft && <div className="phone-tabs" role="tablist"><button role="tab" aria-selected={phoneTab === 'groups'} className={phoneTab === 'groups' ? 'active' : ''} onClick={() => setPhoneTab('groups')}>群聊</button><button role="tab" aria-selected={phoneTab === 'moments'} className={phoneTab === 'moments' ? 'active' : ''} onClick={() => setPhoneTab('moments')}>动态</button></div>}
       {!phoneDraft && phoneTab === 'moments' && <Moments characters={characters} conversations={conversations} userName={identity.name} userAvatar={identity.avatar} api={api} seed={momentSeed} onSeedUsed={clearMomentSeed} onSaveToMemory={saveMomentToMemory} />}
       {!phoneDraft && phoneTab === 'groups' && <>
@@ -3541,7 +3555,7 @@ function UpdateCard() {
     }
   }
 
-  return <section className="update-card"><strong>应用更新</strong><p>主动检查并拉取最新网页版本，不会删除角色、聊天记录或本地设置。</p><small>当前版本：v60 · 2026.10.14 小手机锁屏</small><button onClick={refresh} disabled={state === 'checking'}>{state === 'checking' ? '正在检查更新…' : state === 'error' ? '更新失败，点我重试' : '强制刷新到最新版'}</button></section>
+  return <section className="update-card"><strong>应用更新</strong><p>主动检查并拉取最新网页版本，不会删除角色、聊天记录或本地设置。</p><small>当前版本：v61 · 2026.10.14 小手机联网</small><button onClick={refresh} disabled={state === 'checking'}>{state === 'checking' ? '正在检查更新…' : state === 'error' ? '更新失败，点我重试' : '强制刷新到最新版'}</button></section>
 }
 
 function PersonaPage({ identities, selectedId, isBound, onSelect, onAdd, onDelete, onUpdate, onBack }: { identities: UserIdentity[]; selectedId: string; isBound: boolean; onSelect: (id: string) => void; onAdd: () => void; onDelete: (id: string) => void; onUpdate: (patch: Partial<UserIdentity>) => void; onBack: () => void }) {

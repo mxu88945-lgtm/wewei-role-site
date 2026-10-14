@@ -724,3 +724,14 @@ button { cursor: pointer; }
 .phone-lock-actions { width: 100%; display: grid; grid-template-columns: 1fr 1fr; gap: 9px; margin-top: 8px; }
 .phone-lock-actions button { min-height: 46px; border: 0; border-radius: 15px; background: #eeebf0; color: #756e79; font-weight: 800; }
 .phone-lock-actions button.danger { background: #f6dde3; color: #b0475f; }
+.phone-web-settings { border-radius: 18px; background: #f6f3f8; overflow: hidden; }
+.phone-web-row { width: 100%; display: grid; grid-template-columns: auto 1fr auto; align-items: center; gap: 10px; min-height: 50px; padding: 0 16px; border: 0; background: transparent; color: #3b3440; text-align: left; font-weight: 800; }
+.phone-web-row small { color: #8f8894; font-size: 12px; font-weight: 600; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.phone-web-row i { font-style: normal; color: #a39aa8; }
+.phone-web-form { display: flex; flex-direction: column; gap: 10px; padding: 0 16px 16px; }
+.phone-web-form p { margin: 0; color: #8f8894; font-size: 12px; line-height: 1.6; }
+.phone-web-form input { min-height: 46px; padding: 0 14px; border: 1px solid rgba(91,68,104,.12); border-radius: 14px; background: #fff; font-size: 16px; }
+.phone-web-actions { display: flex; justify-content: flex-end; gap: 8px; }
+.phone-web-actions button { min-height: 40px; padding: 0 18px; border: 0; border-radius: 13px; background: #eeebf0; color: #756e79; font-weight: 800; }
+.phone-web-actions button.primary { background: linear-gradient(135deg,#8150e7,#ce7fc4); color: #fff; }
+.phone-web-actions button:disabled { opacity: .5; }
