@@ -692,3 +692,8 @@ button { cursor: pointer; }
 .phone-mode-bar button { flex: none; min-height: 26px; padding: 0 8px; border: 0; border-radius: 999px; font-size: 12px; font-weight: 700; color: #8f8894; background: rgba(255,255,255,.55); }
 .phone-mode-bar button.active { color: #fff; background: var(--theme-accent); }
 .phone-mode-bar small { min-width: 0; margin-left: 4px; overflow: hidden; font-size: 11px; color: #9d97a1; white-space: nowrap; text-overflow: ellipsis; }
+.export-range-field { display: flex; align-items: center; gap: 8px; color: #5d5562; font-weight: 700; }
+.export-range-field input { width: 92px; min-height: 44px; padding: 0 12px; border: 1px solid rgba(91,68,104,.12); border-radius: 14px; outline: 0; background: #f2eef4; color: #3e3842; font-size: 16px; text-align: center; }
+.export-range-field input:focus { border-color: rgba(139,87,199,.55); }
+.export-range-field button { margin-left: auto; min-height: 36px; padding: 0 12px; border: 0; border-radius: 12px; background: #eeeaf0; color: #77707b; font-weight: 700; }
+.export-range-preview { margin: -6px 0 0; padding: 9px 12px; border-radius: 12px; background: #f6f3f7; color: #8a8190; font-size: 12px; line-height: 1.5; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }

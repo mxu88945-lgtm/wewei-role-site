@@ -390,6 +390,7 @@ function App() {
   const [conversationMenuId, setConversationMenuId] = useState<string | null>(null)
   const [messageMenuId, setMessageMenuId] = useState<number | null>(null)
   const [messageEditor, setMessageEditor] = useState<MessageEditor | null>(null)
+  const [exportRange, setExportRange] = useState<{ start: string; end: string } | null>(null)
   const [characterMenuId, setCharacterMenuId] = useState<string | null>(null)
   const [characterQuery, setCharacterQuery] = useState('')
   const [characterSelectionMode, setCharacterSelectionMode] = useState(false)
@@ -2878,12 +2879,18 @@ function App() {
     await sendMessage(text, nextMessages, rewritten)
   }
 
-  const exportConversationTxt = () => {
+  const exportConversationTxt = (range?: { start: number; end: number }) => {
     if (!activeConversation) return
-    const body = messages.map((message) => `${message.role === 'user' ? identity.name : messageCharacterName(message)}\n${message.text}`).join('\n\n--------------------\n\n')
+    const total = messages.length
+    const start = range ? Math.min(total, Math.max(1, Math.min(range.start, range.end))) : 1
+    const end = range ? Math.min(total, Math.max(1, Math.max(range.start, range.end))) : total
+    const selected = range ? messages.slice(start - 1, end) : messages
+    const rangeLabel = range && (start > 1 || end < total) ? `\n范围：第 ${start}–${end} 条（共 ${total} 条）` : ''
+    const body = selected.map((message) => `${message.role === 'user' ? identity.name : messageCharacterName(message)}\n${message.text}`).join('\n\n--------------------\n\n')
     const participantNames = activeConversation.kind === 'group' ? (activeConversation.participantIds || []).map((id) => characters.find((item) => item.id === id)?.name).filter(Boolean).join('、') : activeCharacter.name
-    const blob = new Blob([`${activeConversation.title}\n角色：${participantNames}\n用户：${identity.name}\n导出时间：${new Date().toLocaleString()}\n\n${body}`], { type: 'text/plain;charset=utf-8' })
-    const url = URL.createObjectURL(blob); const anchor = document.createElement('a'); anchor.href = url; anchor.download = `${activeConversation.title.replace(/[\\/:*?"<>|]/g, '_')}.txt`; anchor.click(); URL.revokeObjectURL(url)
+    const blob = new Blob([`${activeConversation.title}\n角色：${participantNames}\n用户：${identity.name}${rangeLabel}\n导出时间：${new Date().toLocaleString()}\n\n${body}`], { type: 'text/plain;charset=utf-8' })
+    const url = URL.createObjectURL(blob); const anchor = document.createElement('a'); anchor.href = url; anchor.download = `${activeConversation.title.replace(/[\\/:*?"<>|]/g, '_')}${rangeLabel ? `_${start}-${end}` : ''}.txt`; anchor.click(); URL.revokeObjectURL(url)
+    setExportRange(null)
     setDrawer(null)
   }
 
@@ -3416,7 +3423,7 @@ function App() {
           {activeConversation?.phone && <section className="drawer-compact-group"><div className="drawer-section-title"><strong>小手机</strong></div><button onClick={() => { setDrawer(null); openPhonePage(activeConversation) }}><span>成员与绑定的过往对话</span><i>›</i></button></section>}
           <section className="drawer-compact-group"><div className="drawer-section-title"><strong>聊天设置</strong></div>{activeConversation?.directorCharacterId ? <button onClick={() => { setDirectorEditorTarget('conversation'); navigate('director-template', 'right') }}><span>共演导演资料 · 已启用</span><i>›</i></button> : <button onClick={openConversationDirectorCreator}><span>添加共演导演 · 保留当前剧情</span><i>＋</i></button>}{activeConversation?.directorCharacterId && activeConversation.directorConfig && <button disabled={!persistenceReady} onClick={() => saveDirectorToLibrary()}><span>保存导演卡到角色库</span><i>＋</i></button>}{[['剧情搜索与书签', 'chat-search'], ['模型发送内容', 'request-preview'], [`临时剧情 · ${activeConversation?.temporaryPlot?.text.trim() ? '待使用' : '未填写'}`, 'temporary-plot'], ['剧情脚本与变量', 'story-scripts'], ['情景与角色资料', 'card-data'], [`本剧场世界观背景 · ${activeConversation?.theaterWorldBackground?.trim() ? '已填写' : '未填写'}`, 'theater-world'], ['用户身份', 'identity'], ['主题与背景', 'appearance'], ['字体与文字颜色', 'font'], ['显示与回复', 'display-reply']].map(([label, target]) => <button key={label} onClick={() => target === 'request-preview' ? openRequestPreview() : navigate(target as Page, 'right')}><span>{label}</span><i>›</i></button>)}</section>
           <section className="drawer-compact-group"><div className="drawer-section-title"><strong>角色与高级设置</strong></div>{[['世界书', 'card-worldbook'], ['正则与美化', 'card-regex'], ['长期记忆', 'memory'], [`AI 帮答 · ${(apiChannels.find((item) => item.id === replyHelperApiId) || api).name || '未配置'}`, 'reply-helper-api'], [`API · ${api.name || '当前渠道'}`, 'api'], ['模型设置', 'model'], ['预设', 'preset'], ['应用设置', 'settings']].map(([label, target]) => <button key={label} onClick={() => navigate(target as Page, 'right')}><span>{label}</span><i>›</i></button>)}</section>
-          <section className="drawer-compact-group drawer-actions-group"><button onClick={() => navigate('character-detail', 'right')}><span>查看角色详情</span><i>›</i></button><button onClick={compressOldContext} disabled={compressingContext || messages.length < 16}><span>{compressingContext ? '正在压缩旧上下文…' : activeConversation?.contextSummary && (activeConversation.contextSummaryRevision || 0) === (activeConversation.historyRevision || 0) ? `更新上下文摘要 · 已压缩 ${activeConversation.compressedUntil || 0} 条` : '压缩旧上下文'}</span><i>⌁</i></button><button onClick={exportConversationTxt}><span>导出当前对话 TXT</span><i>↓</i></button><button onClick={() => conversationTxtInputRef.current?.click()}><span>导入对话 TXT · 新建副本</span><i>↑</i></button></section>
+          <section className="drawer-compact-group drawer-actions-group"><button onClick={() => navigate('character-detail', 'right')}><span>查看角色详情</span><i>›</i></button><button onClick={compressOldContext} disabled={compressingContext || messages.length < 16}><span>{compressingContext ? '正在压缩旧上下文…' : activeConversation?.contextSummary && (activeConversation.contextSummaryRevision || 0) === (activeConversation.historyRevision || 0) ? `更新上下文摘要 · 已压缩 ${activeConversation.compressedUntil || 0} 条` : '压缩旧上下文'}</span><i>⌁</i></button><button onClick={() => setExportRange({ start: '1', end: String(messages.length) })}><span>导出当前对话 TXT</span><i>↓</i></button><button onClick={() => conversationTxtInputRef.current?.click()}><span>导入对话 TXT · 新建副本</span><i>↑</i></button></section>
         </div>
       </aside>}
 
@@ -3440,6 +3447,18 @@ function App() {
     })}</div><div className="privacy-note">同一渠道可以给不同成员指定不同模型；不单独修改时使用该渠道的默认模型。已有消息与署名不会丢失。</div></section></div>}
 
     {menuMessage && <div className="message-menu-layer"><button className="drawer-backdrop" aria-label="关闭消息菜单" onClick={() => setMessageMenuId(null)} /><section className="message-action-sheet"><header><div><small>{menuMessage.role === 'assistant' ? '模型消息' : '用户消息'}</small><strong>消息操作</strong></div><button onClick={() => setMessageMenuId(null)}>×</button></header><button onClick={() => createStoryBranch(menuMessage)} disabled={isGenerating}>从这里另开剧情分线</button>{!activeConversation?.phone && <button onClick={() => postMessageToMoments(menuMessage)}>发到戏外动态</button>}{menuMessage.role === 'assistant' ? <><button onClick={() => regenerateMessage(menuMessage)} disabled={isGenerating}>重新生成（保留旧版）</button><button onClick={() => editAssistantMessage(menuMessage)} disabled={isGenerating}>编辑改写</button><button onClick={() => copyMessage(menuMessage)}>复制文本</button><button className="danger" onClick={() => withdrawMessage(menuMessage)} disabled={isGenerating}>撤回到这里</button><button className="danger" onClick={() => deleteMessage(menuMessage)} disabled={isGenerating}>仅删除此句</button></> : <><button onClick={() => editAndResendUserMessage(menuMessage)} disabled={isGenerating}>编辑并重新发送</button><button onClick={() => copyMessage(menuMessage)}>复制文本</button><button className="danger" onClick={() => deleteMessage(menuMessage)} disabled={isGenerating}>仅删除此句</button></>}</section></div>}
+    {exportRange && (() => {
+      const total = messages.length
+      const clamp = (value: string) => Math.min(total, Math.max(1, Math.floor(Number(value)) || 1))
+      const startNo = clamp(exportRange.start), endNo = clamp(exportRange.end)
+      const preview = (no: number) => { const entry = messages[no - 1]; if (!entry) return ''; const who = entry.role === 'user' ? identity.name : messageCharacterName(entry); return `${who}：${cleanPhoneOutput(entry.text || '').replace(/\s+/g, ' ').slice(0, 36)}` }
+      return <div className="message-editor-layer" role="dialog" aria-modal="true" aria-label="导出对话"><button className="drawer-backdrop" aria-label="取消导出" onClick={() => setExportRange(null)} /><form className="message-editor-sheet export-range-sheet" onSubmit={(event) => { event.preventDefault(); exportConversationTxt({ start: startNo, end: endNo }) }}><header><div><small>共 {total} 条消息</small><strong>导出对话 TXT</strong></div><button type="button" aria-label="关闭" onClick={() => setExportRange(null)}>×</button></header>
+        <label className="export-range-field"><span>从第</span><input type="number" inputMode="numeric" min={1} max={total} value={exportRange.start} onChange={(event) => setExportRange({ ...exportRange, start: event.target.value })} /><span>条</span><button type="button" onClick={() => setExportRange({ ...exportRange, start: '1' })}>开头</button></label>
+        <p className="export-range-preview">{preview(startNo)}</p>
+        <label className="export-range-field"><span>到第</span><input type="number" inputMode="numeric" min={1} max={total} value={exportRange.end} onChange={(event) => setExportRange({ ...exportRange, end: event.target.value })} /><span>条</span><button type="button" onClick={() => setExportRange({ ...exportRange, end: String(total) })}>最新</button></label>
+        <p className="export-range-preview">{preview(endNo)}</p>
+        <footer><button type="button" onClick={() => exportConversationTxt()}>导出整份</button><button type="submit" className="primary" disabled={!total}>导出第 {Math.min(startNo, endNo)}–{Math.max(startNo, endNo)} 条</button></footer></form></div>
+    })()}
     {messageEditor && <div className="message-editor-layer" role="dialog" aria-modal="true" aria-label={messageEditor.mode === 'assistant' ? '编辑模型消息' : '编辑后重新发送'}><button className="drawer-backdrop" aria-label="取消编辑" onClick={() => setMessageEditor(null)} /><form className="message-editor-sheet" onSubmit={(event) => { event.preventDefault(); void saveMessageEditor() }}><header><div><small>{messageEditor.mode === 'assistant' ? '模型消息' : '用户消息'}</small><strong>{messageEditor.mode === 'assistant' ? '编辑改写' : '编辑后重新发送'}</strong></div><button type="button" aria-label="关闭编辑框" onClick={() => setMessageEditor(null)}>×</button></header><textarea autoFocus value={messageEditor.text} onChange={(event) => setMessageEditor({ ...messageEditor, text: event.target.value })} /><footer><button type="button" onClick={() => setMessageEditor(null)}>取消</button><button type="submit" className="primary" disabled={!messageEditor.text.trim() || (messageEditor.mode === 'resend' && isGenerating)}>{messageEditor.mode === 'assistant' ? '保存修改' : '重新发送'}</button></footer></form></div>}
     <Pet enabled={petEnabled} variant={petVariant} position={petPosition} onPositionChange={setPetPosition} containerRef={phoneCanvasRef} messageCount={messages.length} />
   </main></div>
@@ -3508,7 +3527,7 @@ function UpdateCard() {
     }
   }
 
-  return <section className="update-card"><strong>应用更新</strong><p>主动检查并拉取最新网页版本，不会删除角色、聊天记录或本地设置。</p><small>当前版本：v55 · 2026.10.14 停止后不留“正在回应”</small><button onClick={refresh} disabled={state === 'checking'}>{state === 'checking' ? '正在检查更新…' : state === 'error' ? '更新失败，点我重试' : '强制刷新到最新版'}</button></section>
+  return <section className="update-card"><strong>应用更新</strong><p>主动检查并拉取最新网页版本，不会删除角色、聊天记录或本地设置。</p><small>当前版本：v56 · 2026.10.14 导出可选范围</small><button onClick={refresh} disabled={state === 'checking'}>{state === 'checking' ? '正在检查更新…' : state === 'error' ? '更新失败，点我重试' : '强制刷新到最新版'}</button></section>
 }
 
 function PersonaPage({ identities, selectedId, isBound, onSelect, onAdd, onDelete, onUpdate, onBack }: { identities: UserIdentity[]; selectedId: string; isBound: boolean; onSelect: (id: string) => void; onAdd: () => void; onDelete: (id: string) => void; onUpdate: (patch: Partial<UserIdentity>) => void; onBack: () => void }) {
