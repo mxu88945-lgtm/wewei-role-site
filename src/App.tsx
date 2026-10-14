@@ -20,7 +20,9 @@ import { type MomentSeed } from './Moments'
 import { Forum } from './Forum'
 import { buildForumRecapNote, threadsFromMoments, type ForumThread } from './forum'
 import PhoneAutoSettingsCard from './PhoneAutoSettings'
-import { FORUM_UPDATED_EVENT, dueRunAt, forumAutoTick, isQuietHour, pickAutoGroup, readPhoneAuto, writePhoneAuto } from './phoneAuto'
+import PhonePointsCard from './PhonePointsCard'
+import { applyMessagePoints, buildPointsNote, readPoints, writePoints } from './phonePoints'
+import { FORUM_UPDATED_EVENT, dueRunAt, forumAutoTick, forumWelcomeThread, isQuietHour, pickAutoGroup, readPhoneAuto, writePhoneAuto } from './phoneAuto'
 import type { Moment } from './moments'
 import { USER_AUTHOR, communityMemberIds, excerptFromMessage } from './moments'
 import { buildDmGroupPeek, phoneDmRules } from './phoneGroup'
@@ -73,7 +75,7 @@ import { createKeyboardScrollPin, VIEWPORT_CHANGE_EVENT, VIEWPORT_WILL_CHANGE_EV
 
 type Page = 'home' | 'phone' | 'story-projects' | 'characters' | 'create' | 'character-workshop' | 'group-create' | 'director-template' | 'group-greeting-picker' | 'import-preview' | 'character-detail' | 'card-data' | 'card-worldbook' | 'card-regex' | 'card-memory' | 'greeting-picker' | 'chat' | 'more' | 'api' | 'reply-helper-api' | 'model' | 'settings' | 'appearance' | 'font' | 'display-reply' | 'identity' | 'worldbook' | 'theater-world' | 'temporary-plot' | 'story-scripts' | 'chat-search' | 'request-preview' | 'preset' | 'memory' | 'memory-api' | 'memory-list'
 type MessageEditor = { mode: 'assistant' | 'resend'; messageId: number; text: string }
-type AssistantRequestOptions = { continueWithoutUser?: boolean; explicitlyMentioned?: boolean; replacement?: Message; rollbackConversation?: Conversation; contextOverride?: ConversationContextSnapshot }
+type AssistantRequestOptions = { continueWithoutUser?: boolean; phoneNudge?: string; explicitlyMentioned?: boolean; replacement?: Message; rollbackConversation?: Conversation; contextOverride?: ConversationContextSnapshot }
 type Drawer = 'left' | 'right'
 type HistoryEntry = { page: Page; reopenDrawer?: Drawer }
 type LegacySessionMap = Record<string, Message[]>
@@ -409,6 +411,9 @@ function App() {
     setPhoneLock(null)
   }
   const forumThreadsRef = useRef<ForumThread[]>([])
+  const pendingWelcomeRef = useRef<{ conversationId: string; ids: string[] } | null>(null)
+  const welcomeRunning = useRef(false)
+  const phoneWelcomeLatest = useRef<() => Promise<void>>(async () => undefined)
   const [phoneAutoStatus, setPhoneAutoStatus] = useState('')
   const phoneAutoRunning = useRef(false)
   const phoneAutoLatest = useRef<() => Promise<void>>(async () => undefined)
@@ -1802,6 +1807,9 @@ function App() {
     const title = phoneDraft.title.trim() || '戏外小手机'
     if (phoneDraft.editingId) {
       const editingId = phoneDraft.editingId
+      const before = conversations.find((item) => item.id === editingId)?.participantIds || []
+      const added = members.map((member) => member.id).filter((id) => !before.includes(id))
+      if (added.length) pendingWelcomeRef.current = { conversationId: editingId, ids: added.slice(0, 3) }
       setConversations((current) => current.map((item) => {
         if (item.id !== editingId) return item
         const sameMembers = (item.participantIds || []).join('|') === members.map((member) => member.id).join('|')
@@ -1828,6 +1836,7 @@ function App() {
       theaterWorldBackground: buildPhoneGroupBackground(members),
     }
     setConversations((current) => [...current, conversation])
+    pendingWelcomeRef.current = { conversationId: conversation.id, ids: members.map((member) => member.id).slice(0, 3) }
     setPhoneDraft(null)
     setActiveId(members[0].id); setActiveConversationId(conversation.id)
     replacePage('chat')
@@ -2317,7 +2326,8 @@ function App() {
       const mateBackground = missingMates.length ? `【补充成员人设】\n${buildPhoneGroupBackground(missingMates).split('\n\n').slice(1).join('\n\n')}` : ''
       const dmBackground = dmMates.length ? `【群友们的人设与世界观】（大家互相透明，你都知道）\n${buildPhoneGroupBackground(dmMates).split('\n\n').slice(1).join('\n\n')}` : ''
       const dmPeek = conversation.phone?.dm ? buildDmGroupPeek(conversations, speaker.id, (message) => message.role === 'user' ? identity.name : characters.find((item) => item.id === message.characterId)?.name || '群友') : ''
-      return [conversation.phone?.dm ? phoneDmRules(speaker.name, identity.name) : phoneModeRules(speaker.name, members.map((member) => member.name), identity.name), realWorld, mateBackground, dmBackground, dmPeek, buildPhoneArchive(sources, speaker.id, identity.name, (message) => message.characterId ? nameOf(message) : sources.find((source) => source.conversation?.messages.includes(message))?.character.name || '角色')].join('\n\n')
+      const pointsNote = buildPointsNote(readPoints(), [...members, ...dmMates].map((member) => ({ id: member.id, name: member.name })), identity.name)
+      return [conversation.phone?.dm ? phoneDmRules(speaker.name, identity.name) : phoneModeRules(speaker.name, members.map((member) => member.name), identity.name), realWorld, pointsNote, mateBackground, dmBackground, dmPeek, buildPhoneArchive(sources, speaker.id, identity.name, (message) => message.characterId ? nameOf(message) : sources.find((source) => source.conversation?.messages.includes(message))?.character.name || '角色')].join('\n\n')
     })() : ''
     const sanitizedHistory = (isPhone ? nextMessages.map((message) => message.role === 'assistant' ? { ...message, text: cleanPhoneOutput(message.text) || message.text } : message) : nextMessages).flatMap((message) => {
       const fromDirector = message.role === 'assistant' && message.characterId === conversation.directorCharacterId
@@ -2368,7 +2378,7 @@ function App() {
       // visible transcript, long-term memory or later user-authored turns.
       promptMessages.push({
         role: 'user',
-        content: isPhone ? `${identity.name}现在没说话。请以「${speaker.name}」的身份在群里接着聊：接上一位成员的话头，或自然挑起一个日常话题、吐槽、互怼。不要提及本条指令。` : `请让${speaker.name}从上一条回复的结束处自然续演并推进当前剧情。不要复述已经写过的内容，不要替用户新增台词、动作、心理或关键选择，不要提及本条续演指令。`,
+        content: isPhone && requestOptions.phoneNudge ? requestOptions.phoneNudge : isPhone ? `${identity.name}现在没说话。请以「${speaker.name}」的身份在群里接着聊：接上一位成员的话头，或自然挑起一个日常话题、吐槽、互怼。不要提及本条指令。` : `请让${speaker.name}从上一条回复的结束处自然续演并推进当前剧情。不要复述已经写过的内容，不要替用户新增台词、动作、心理或关键选择，不要提及本条续演指令。`,
       })
     }
     const variablesPrompt = buildStoryVariablesPrompt(requestOptions.contextOverride ? requestOptions.contextOverride.storyVariables : conversation.storyVariables, speaker.id)
@@ -2600,10 +2610,24 @@ function App() {
 
       if (!cleanOutput && containsHiddenReasoning(output, isDirector)) throw new Error('模型只返回了内部分析，惟境已拦截且没有写入剧情。请重试或换一个更遵守指令的模型。')
       const phoneLockCommand = conversation.phone ? parsePhoneLockCommand(cleanOutput || output) : null
-      const visibleOutput = isDirector
+      let visibleOutput = isDirector
         ? normalizeDirectorStatusOutput(cleanOutput || output)
         : conversation.phone ? cleanPhoneOutput(cleanOutput || output) || phoneLockCommand?.text || cleanOutput || output
         : cleanOutput || output
+      if (conversation.phone && !isDirector && visibleOutput.trim()) {
+        const points = applyMessagePoints(readPoints(), speaker.id, visibleOutput, Date.now())
+        writePoints(points.state)
+        visibleOutput = points.text
+        if (points.redeemed.includes('论坛置顶')) {
+          const mine = [...forumThreadsRef.current].filter((thread) => thread.authorId === speaker.id).sort((a, b) => b.createdAt - a.createdAt)[0]
+          if (mine) {
+            const threads = forumThreadsRef.current.map((thread) => thread.id === mine.id ? { ...thread, pinned: true } : thread)
+            forumThreadsRef.current = threads
+            void durableSet('weijing.forum', threads.slice(0, 300))
+            window.dispatchEvent(new CustomEvent(FORUM_UPDATED_EVENT, { detail: threads }))
+          }
+        }
+      }
       const statusFallback = requiresCharacterStatus
         ? buildStatusFallback(capturedCharacter, identity.name, {
           output: visibleOutput,
@@ -2759,6 +2783,41 @@ function App() {
     }
   }
   phoneAutoLatest.current = runPhoneAuto
+
+  phoneWelcomeLatest.current = async () => {
+    const pending = pendingWelcomeRef.current
+    if (!pending || welcomeRunning.current) return
+    const conversation = conversations.find((item) => item.id === pending.conversationId)
+    if (!conversation || !pending.ids.every((id) => conversation.participantIds?.includes(id))) return
+    pendingWelcomeRef.current = null
+    welcomeRunning.current = true
+    try {
+      let groupMessages = conversation.messages
+      for (const id of pending.ids) {
+        const speaker = characters.find((item) => item.id === id)
+        if (!speaker) continue
+        const nudge = `「${speaker.name}」刚被${identity.name}拉进这个小手机群。请以「${speaker.name}」的身份发新人报到：打招呼、说自己是从哪个故事来的、一句话介绍自己，可以带点人设脾气，也可以顺手跟已经认识的人搭话。像真人进群那样短，1—3 行。不要提及本条指令。`
+        const next = await generateAssistant({ ...conversation, messages: groupMessages }, groupMessages, speaker, conversationApiFor(conversation, id, api), { continueWithoutUser: true, phoneNudge: nudge })
+        if (next.length === groupMessages.length) break
+        groupMessages = next
+      }
+      if (isApiChannelComplete(api)) {
+        let threads = forumThreadsRef.current.length ? forumThreadsRef.current : await durableGet<ForumThread[]>('weijing.forum') || []
+        for (const id of pending.ids) {
+          const newcomer = characters.find((item) => item.id === id)
+          if (!newcomer || threads.some((thread) => thread.board === '新人报到' && thread.authorId === id)) continue
+          try { threads = await forumWelcomeThread({ threads, newcomer, characters, conversations, api, userName: identity.name, at: Date.now() }) } catch { /* 报到帖失败不影响群聊 */ }
+        }
+        forumThreadsRef.current = threads
+        await durableSet('weijing.forum', threads.slice(0, 300))
+        window.dispatchEvent(new CustomEvent(FORUM_UPDATED_EVENT, { detail: threads }))
+      }
+    } finally {
+      welcomeRunning.current = false
+    }
+  }
+
+  useEffect(() => { if (pendingWelcomeRef.current) void phoneWelcomeLatest.current() }, [conversations])
 
   const continueSingleTurn = async () => {
     if (!activeConversation || activeConversation.kind === 'group' || isGenerating) return
@@ -3387,6 +3446,7 @@ function App() {
       {!phoneDraft && <PhoneStatusWidget />}
       {!phoneDraft && <PhoneWebSettings />}
       {!phoneDraft && <PhoneAutoSettingsCard status={phoneAutoStatus} />}
+      {!phoneDraft && <PhonePointsCard members={[...new Set(conversations.filter((item) => item.phone && !item.phone.dm).flatMap((item) => item.participantIds || []))].map((id) => characters.find((item) => item.id === id)).filter((item): item is Character => Boolean(item))} />}
       {!phoneDraft && <div className="phone-tabs" role="tablist"><button role="tab" aria-selected={phoneTab === 'groups'} className={phoneTab === 'groups' ? 'active' : ''} onClick={() => setPhoneTab('groups')}>群聊</button><button role="tab" aria-selected={phoneTab === 'dms'} className={phoneTab === 'dms' ? 'active' : ''} onClick={() => setPhoneTab('dms')}>私聊</button><button role="tab" aria-selected={phoneTab === 'moments'} className={phoneTab === 'moments' ? 'active' : ''} onClick={() => setPhoneTab('moments')}>论坛</button></div>}
       {!phoneDraft && phoneTab === 'moments' && <Forum characters={characters} conversations={conversations} userName={identity.name} userAvatar={identity.avatar} api={api} seed={momentSeed} onSeedUsed={clearMomentSeed} onSaveToMemory={saveMomentToMemory} onThreadsChange={handleForumChange} />}
       {!phoneDraft && phoneTab === 'dms' && <>
@@ -3682,7 +3742,7 @@ function UpdateCard() {
     }
   }
 
-  return <section className="update-card"><strong>应用更新</strong><p>主动检查并拉取最新网页版本，不会删除角色、聊天记录或本地设置。</p><small>当前版本：v68 · 2026.10.14 小手机互相透明</small><button onClick={refresh} disabled={state === 'checking'}>{state === 'checking' ? '正在检查更新…' : state === 'error' ? '更新失败，点我重试' : '强制刷新到最新版'}</button></section>
+  return <section className="update-card"><strong>应用更新</strong><p>主动检查并拉取最新网页版本，不会删除角色、聊天记录或本地设置。</p><small>当前版本：v69 · 2026.10.14 新人报到和服刑积分</small><button onClick={refresh} disabled={state === 'checking'}>{state === 'checking' ? '正在检查更新…' : state === 'error' ? '更新失败，点我重试' : '强制刷新到最新版'}</button></section>
 }
 
 function PersonaPage({ identities, selectedId, isBound, onSelect, onAdd, onDelete, onUpdate, onBack }: { identities: UserIdentity[]; selectedId: string; isBound: boolean; onSelect: (id: string) => void; onAdd: () => void; onDelete: (id: string) => void; onUpdate: (patch: Partial<UserIdentity>) => void; onBack: () => void }) {

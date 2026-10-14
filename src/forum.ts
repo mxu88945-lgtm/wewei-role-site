@@ -5,7 +5,7 @@ import type { Moment } from './moments'
 /** 戏外社区·论坛：角色和她都能开帖、一楼一楼盖楼。独立保存，只把当前帖子相关的少量内容送进模型。 */
 export const FORUM_USER = 'user'
 
-export const FORUM_BOARDS = ['日常', '吐槽', '剧情讨论', '八卦', '求助', '整活'] as const
+export const FORUM_BOARDS = ['日常', '吐槽', '剧情讨论', '八卦', '求助', '整活', '新人报到'] as const
 export type ForumBoard = typeof FORUM_BOARDS[number]
 
 export type ForumFloor = { id: string; authorId: string; text: string; replyToFloor?: number; anonymous?: boolean; createdAt: number; likes?: string[]; images?: ChatImage[] }

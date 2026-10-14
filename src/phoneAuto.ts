@@ -3,7 +3,7 @@ import type { Conversation } from './conversationLifecycle'
 import { completeChat, type ApiConfig, type ChatApiMessage } from './chatApi'
 import { characterBrief, communityMemberIds } from './moments'
 import {
-  FORUM_USER, buildFloorsPrompt, buildThreadPrompt, floorNumber, forumThreadLine, parseFloors, parseThreadDraft, pickForumReaders, sortThreads,
+  FORUM_RULES, FORUM_USER, buildFloorsPrompt, buildThreadPrompt, floorNumber, forumThreadLine, parseFloors, parseThreadDraft, pickForumReaders, sortThreads,
   type ForumFloor, type ForumThread,
 } from './forum'
 
@@ -91,4 +91,42 @@ export function pickAutoGroup(conversations: Conversation[], random = Math.rando
   let roll = random() * weighted.reduce((sum, item) => sum + item.weight, 0)
   for (const item of weighted) { roll -= item.weight; if (roll <= 0) return item.group }
   return groups[groups.length - 1]
+}
+
+/** 新人报到帖：新角色按“入监登记表”格式自报家门，老成员在楼下欢迎兼审判。 */
+export async function forumWelcomeThread(input: { threads: ForumThread[]; newcomer: Character; characters: Character[]; conversations: Conversation[]; api: ApiConfig; userName: string; at: number }): Promise<ForumThread[]> {
+  const { newcomer } = input
+  const nameOf = (id: string) => id === FORUM_USER ? input.userName : input.characters.find((item) => item.id === id)?.name || '已离开的角色'
+  const raw = await callModel(input.api, [
+    { role: 'system', content: `${FORUM_RULES(input.userName)}\n\n${characterBrief(newcomer, input.conversations)}` },
+    { role: 'user', content: `「${newcomer.name}」刚被${input.userName}拉进惟境整改中心（小手机），要在论坛「新人报到」版发报到帖。用他自己的口吻填“入监登记”，可以嘴硬、可以装、可以认怂，按人设来：
+标题固定以【新人报到】开头。正文按这个格式，每项一行：
+姓名：
+所属世界：
+当前罪名：（他在自己剧情里干过的最该被审判的事，按档案来，别编）
+当前剧情进度：
+最不想被群友知道的事：（系统已自动公开，写出来）
+一句报到感言：
+只输出 JSON：{"title":"【新人报到】...","body":"正文"}` },
+  ], 700)
+  const draft = parseThreadDraft(raw)
+  if (!draft) throw new Error('报到帖没写出来')
+  const thread: ForumThread = { id: uid(), board: '新人报到', title: draft.title.startsWith('【新人报到】') ? draft.title : `【新人报到】${draft.title}`, authorId: newcomer.id, body: draft.body, createdAt: input.at, updatedAt: input.at, floors: [], likes: [] }
+  const memberIds = communityMemberIds(input.conversations).filter((id) => id !== newcomer.id)
+  const readers = pickForumReaders(memberIds, thread, [], 6).map((id) => input.characters.find((item) => item.id === id)).filter(Boolean) as Character[]
+  if (!readers.length) return [thread, ...input.threads]
+  const floorsRaw = await callModel(input.api, buildFloorsPrompt({
+    thread, nameOf, userName: input.userName,
+    trigger: `新人「${newcomer.name}」刚报到。老成员在楼下“欢迎兼审判”：拿他的罪名和黑历史开涮、给下马威、拉帮结派，也可以有人假装热情。楼主可以回怼。`,
+    briefs: readers.map((character) => characterBrief(character, input.conversations)),
+    candidateNames: [...readers.map((character) => character.name), newcomer.name], mentionedNames: [],
+    recent: [],
+  }), 1600)
+  const everyone = [...readers, newcomer]
+  const parsed = parseFloors(floorsRaw, 8)
+  const floors: ForumFloor[] = parsed.floors.flatMap((floor, index) => {
+    const authorId = everyone.find((character) => character.name === floor.author)?.id
+    return authorId ? [{ id: uid(), authorId, text: floor.text, replyToFloor: floor.replyToFloor || undefined, anonymous: floor.anonymous || undefined, createdAt: input.at + (index + 1) * 30000 }] : []
+  })
+  return [{ ...thread, floors, updatedAt: floors.length ? floors[floors.length - 1].createdAt : thread.updatedAt }, ...input.threads]
 }
