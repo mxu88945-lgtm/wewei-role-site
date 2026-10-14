@@ -168,3 +168,17 @@ export function forumPromptPixels(thread: ForumThread, max = 4) {
   const latest = [...thread.floors].reverse().find((floor) => floor.images?.length)
   return [...(thread.images || []), ...(latest?.images || [])].slice(0, max)
 }
+
+/** 小手机群里每次回话都带上的“论坛近况”：最近几天活跃的帖子，本群成员参与过的优先。 */
+export function buildForumRecapNote(threads: ForumThread[], memberIds: string[], nameOf: (id: string) => string, userName: string, now = Date.now(), maxThreads = 4) {
+  const recent = threads.filter((thread) => now - thread.updatedAt < 3 * 24 * 3600000)
+  if (!recent.length) return ''
+  const involved = (thread: ForumThread) => [thread.authorId, ...thread.floors.map((floor) => floor.authorId)].some((id) => id === FORUM_USER || memberIds.includes(id))
+  const picked = [...recent].sort((a, b) => Number(involved(b)) - Number(involved(a)) || b.updatedAt - a.updatedAt).slice(0, maxThreads)
+  const who = (id: string, anonymous?: boolean) => anonymous ? (id === FORUM_USER ? `匿名（其实是${userName}，大家不确定）` : '匿名') : nameOf(id)
+  const blocks = picked.map((thread) => {
+    const floors = thread.floors.slice(-4).map((floor) => `  ${who(floor.authorId, floor.anonymous)}：${floor.images?.length ? '[图] ' : ''}${clip(floor.text, 50)}`).join('\n')
+    return `· [${thread.board}]《${clip(thread.title, 30)}》楼主 ${who(thread.authorId, thread.anonymous)}：${thread.images?.length ? `[${thread.images.length}张图] ` : ''}${clip(thread.body, 80)}（${thread.floors.length} 回复）${floors ? `\n${floors}` : ''}`
+  })
+  return `【论坛近况】大家都逛过戏外论坛，下面是最近几天的帖子。群聊里可以自然提起、接着吵、翻旧帖，但别逐字复述，也别每句都扯论坛。\n${blocks.join('\n')}`
+}

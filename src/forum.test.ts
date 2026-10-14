@@ -49,3 +49,19 @@ describe('forum images', () => {
     expect(parseThreadDraft('{"title":"t","body":"b","image":"一张猫"}')?.image).toBe('一张猫')
   })
 })
+
+describe('forum recap for phone groups', () => {
+  it('lists recent threads, members first, and skips stale ones', async () => {
+    const { buildForumRecapNote } = await import('./forum')
+    const now = 10 * 24 * 3600000
+    const note = buildForumRecapNote([
+      thread({ id: 'x', title: '别群的帖', authorId: 'z', updatedAt: now - 1000 }),
+      thread({ id: 'y', title: '本群的帖', authorId: 'a', updatedAt: now - 5000, floors: [{ id: 'f', authorId: 'b', text: '笑死', createdAt: 1 }] }),
+      thread({ id: 'old', title: '老帖', authorId: 'a', updatedAt: 0 }),
+    ], ['a', 'b'], (id) => id.toUpperCase(), '周', now)
+    expect(note.indexOf('本群的帖')).toBeLessThan(note.indexOf('别群的帖'))
+    expect(note).toContain('B：笑死')
+    expect(note).not.toContain('老帖')
+    expect(buildForumRecapNote([], ['a'], (id) => id, '周', now)).toBe('')
+  })
+})

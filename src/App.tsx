@@ -18,6 +18,7 @@ import { TAVILY_KEY_STORAGE, needsWebSearch, tavilySearch } from './phoneWeb'
 import { createBlankCharacter, importCharacterCard, normalizeStoredCharacter, LIBRARY_ROLES, type Character, type LibraryRole } from './characterCard'
 import { type MomentSeed } from './Moments'
 import { Forum } from './Forum'
+import { buildForumRecapNote, type ForumThread } from './forum'
 import { USER_AUTHOR, communityMemberIds, excerptFromMessage } from './moments'
 import { PHONE_REPLY_MODES, findNamedParticipantIds, selectPhoneSpeakers, pickPhoneChatters, cleanPhoneOutput, phoneFinalGuard, buildSmartPickPrompt, parseSmartPick, buildPhoneArchive, buildPhoneGroupBackground, phoneBindingCandidates, buildPhoneRealWorldNote, parsePhoneLockCommand, buildPhoneLockBreachNote, type PhoneLockState, type PhoneLockBreach, phoneCharacter, phoneModeRules } from './phoneGroup'
 import { assignChatGroup, chatGroupNames, groupConversations, setChatGroupMembers } from './chatGroups'
@@ -403,6 +404,9 @@ function App() {
     try { localStorage.setItem('weijing.phoneLockBreach', JSON.stringify(breach)) } catch { /* ignore */ }
     setPhoneLock(null)
   }
+  const forumThreadsRef = useRef<ForumThread[]>([])
+  useEffect(() => { durableGet<ForumThread[]>('weijing.forum').then((stored) => { if (stored && !forumThreadsRef.current.length) forumThreadsRef.current = stored }).catch(() => undefined) }, [])
+  const handleForumChange = useCallback((threads: ForumThread[]) => { forumThreadsRef.current = threads }, [])
   const phoneWebNoteRef = useRef<{ conversationId: string; note: string; at: number } | null>(null)
   const [exportRange, setExportRange] = useState<{ start: string; end: string } | null>(null)
   const [characterMenuId, setCharacterMenuId] = useState<string | null>(null)
@@ -2252,7 +2256,7 @@ function App() {
         }
       })
       const nameOf = (message: Message) => characters.find((item) => item.id === message.characterId)?.name || members[0]?.name || '角色'
-      const realWorld = [(() => { try { return buildPhoneRealWorldNote(new Date(), JSON.parse(localStorage.getItem('weijing.phoneWeather') || 'null')) } catch { return buildPhoneRealWorldNote(new Date()) } })(), (() => { const web = phoneWebNoteRef.current; return web && web.conversationId === conversation.id && Date.now() - web.at < 5 * 60 * 1000 ? web.note : '' })(), (() => { try { return buildPhoneLockBreachNote(JSON.parse(localStorage.getItem('weijing.phoneLockBreach') || 'null'), Date.now(), identity.name) } catch { return '' } })()].filter(Boolean).join('\n')
+      const realWorld = [(() => { try { return buildPhoneRealWorldNote(new Date(), JSON.parse(localStorage.getItem('weijing.phoneWeather') || 'null')) } catch { return buildPhoneRealWorldNote(new Date()) } })(), (() => { const web = phoneWebNoteRef.current; return web && web.conversationId === conversation.id && Date.now() - web.at < 5 * 60 * 1000 ? web.note : '' })(), buildForumRecapNote(forumThreadsRef.current, members.map((member) => member.id), (id) => id === 'user' ? identity.name : characters.find((item) => item.id === id)?.name || '已离开的角色', identity.name), (() => { try { return buildPhoneLockBreachNote(JSON.parse(localStorage.getItem('weijing.phoneLockBreach') || 'null'), Date.now(), identity.name) } catch { return '' } })()].filter(Boolean).join('\n')
       return [phoneModeRules(speaker.name, members.map((member) => member.name), identity.name), realWorld, buildPhoneArchive(sources, speaker.id, identity.name, (message) => message.characterId ? nameOf(message) : sources.find((source) => source.conversation?.messages.includes(message))?.character.name || '角色')].join('\n\n')
     })() : ''
     const sanitizedHistory = (isPhone ? nextMessages.map((message) => message.role === 'assistant' ? { ...message, text: cleanPhoneOutput(message.text) || message.text } : message) : nextMessages).flatMap((message) => {
@@ -3282,7 +3286,7 @@ function App() {
       {!phoneDraft && <PhoneStatusWidget />}
       {!phoneDraft && <PhoneWebSettings />}
       {!phoneDraft && <div className="phone-tabs" role="tablist"><button role="tab" aria-selected={phoneTab === 'groups'} className={phoneTab === 'groups' ? 'active' : ''} onClick={() => setPhoneTab('groups')}>群聊</button><button role="tab" aria-selected={phoneTab === 'moments'} className={phoneTab === 'moments' ? 'active' : ''} onClick={() => setPhoneTab('moments')}>论坛</button></div>}
-      {!phoneDraft && phoneTab === 'moments' && <Forum characters={characters} conversations={conversations} userName={identity.name} userAvatar={identity.avatar} api={api} seed={momentSeed} onSeedUsed={clearMomentSeed} onSaveToMemory={saveMomentToMemory} />}
+      {!phoneDraft && phoneTab === 'moments' && <Forum characters={characters} conversations={conversations} userName={identity.name} userAvatar={identity.avatar} api={api} seed={momentSeed} onSeedUsed={clearMomentSeed} onSaveToMemory={saveMomentToMemory} onThreadsChange={handleForumChange} />}
       {!phoneDraft && phoneTab === 'groups' && <>
         <div className="privacy-note">戏外日常群：角色们知道自己是惟境里的角色，你是陪他们对戏、演女主的人。聊天是微信式短句，可以 @ 谁就谁回，也会有人自然接话。</div>
         {conversations.filter((item) => item.phone).sort((a, b) => b.updatedAt - a.updatedAt).map((item) => {
@@ -3558,7 +3562,7 @@ function UpdateCard() {
     }
   }
 
-  return <section className="update-card"><strong>应用更新</strong><p>主动检查并拉取最新网页版本，不会删除角色、聊天记录或本地设置。</p><small>当前版本：v64 · 2026.10.14 论坛发图</small><button onClick={refresh} disabled={state === 'checking'}>{state === 'checking' ? '正在检查更新…' : state === 'error' ? '更新失败，点我重试' : '强制刷新到最新版'}</button></section>
+  return <section className="update-card"><strong>应用更新</strong><p>主动检查并拉取最新网页版本，不会删除角色、聊天记录或本地设置。</p><small>当前版本：v65 · 2026.10.14 群里记得论坛</small><button onClick={refresh} disabled={state === 'checking'}>{state === 'checking' ? '正在检查更新…' : state === 'error' ? '更新失败，点我重试' : '强制刷新到最新版'}</button></section>
 }
 
 function PersonaPage({ identities, selectedId, isBound, onSelect, onAdd, onDelete, onUpdate, onBack }: { identities: UserIdentity[]; selectedId: string; isBound: boolean; onSelect: (id: string) => void; onAdd: () => void; onDelete: (id: string) => void; onUpdate: (patch: Partial<UserIdentity>) => void; onBack: () => void }) {

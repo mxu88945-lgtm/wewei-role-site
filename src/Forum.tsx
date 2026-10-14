@@ -21,6 +21,7 @@ type Props = {
   seed: MomentSeed | null
   onSeedUsed: () => void
   onSaveToMemory: (groupIds: string[], title: string, content: string) => void
+  onThreadsChange?: (threads: ForumThread[]) => void
 }
 
 const STORE_KEY = 'weijing.forum'
@@ -42,7 +43,7 @@ const timeLabel = (at: number) => {
   return `${date.getMonth() + 1}月${date.getDate()}日`
 }
 
-export function Forum({ characters, conversations, userName, userAvatar, api, seed, onSeedUsed, onSaveToMemory }: Props) {
+export function Forum({ characters, conversations, userName, userAvatar, api, seed, onSeedUsed, onSaveToMemory, onThreadsChange }: Props) {
   const [threads, setThreads] = useState<ForumThread[]>([])
   const [ready, setReady] = useState(false)
   const [busy, setBusy] = useState('')
@@ -80,7 +81,7 @@ export function Forum({ characters, conversations, userName, userAvatar, api, se
       .catch(() => setReady(true))
     return () => { cancelled = true }
   }, [])
-  useEffect(() => { if (ready) void durableSet(STORE_KEY, threads.slice(0, MAX_THREADS)) }, [threads, ready])
+  useEffect(() => { if (ready) { void durableSet(STORE_KEY, threads.slice(0, MAX_THREADS)); onThreadsChange?.(threads) } }, [threads, ready, onThreadsChange])
 
   useEffect(() => {
     if (!seed) return
