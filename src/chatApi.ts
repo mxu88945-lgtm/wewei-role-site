@@ -3,7 +3,7 @@ export type ChatApiContentPart =
   | { type: 'text'; text: string }
   | { type: 'image_url'; image_url: { url: string; detail?: 'auto' | 'low' | 'high' } }
 export type ChatApiMessage = { role: 'system' | 'user' | 'assistant'; content: string | ChatApiContentPart[] }
-export type CompletionActivity = 'thinking' | 'content'
+export type CompletionActivity = 'connecting' | 'retrying' | 'thinking' | 'content'
 export type CompletionResult = { finishReason: string | null }
 export type ConnectionTestResult = { method: 'models' | 'chat'; modelListError?: string }
 
@@ -33,6 +33,8 @@ type CompletionOptions = {
   signal: AbortSignal
   onDelta: (delta: string) => void
   onActivity?: (activity: CompletionActivity) => void
+  /** Bound the entire completion, including reconnects and JSON bodies. */
+  timeoutMs?: number
 }
 
 const CONNECT_TIMEOUT_MS = 45_000
@@ -62,11 +64,15 @@ function transportError(error: unknown) {
   return error instanceof Error ? error : new Error('API 请求失败')
 }
 
-async function requestApi(input: RequestInfo | URL, init: RequestInit = {}, timeoutMs = CONNECT_TIMEOUT_MS) {
+async function requestApi(input: RequestInfo | URL, init: RequestInit = {}, timeoutMs = CONNECT_TIMEOUT_MS, keepBodyAbort = false) {
   const controller = new AbortController()
   const externalSignal = init.signal
   let timedOut = false
-  const forwardAbort = () => controller.abort(externalSignal?.reason)
+  let responseReceived = false
+  const forwardAbort = () => {
+    controller.abort(externalSignal?.reason)
+    externalSignal?.removeEventListener('abort', forwardAbort)
+  }
   if (externalSignal?.aborted) forwardAbort()
   else externalSignal?.addEventListener('abort', forwardAbort, { once: true })
   const timer = setTimeout(() => {
@@ -74,14 +80,16 @@ async function requestApi(input: RequestInfo | URL, init: RequestInit = {}, time
     controller.abort(new DOMException('Timed out', 'TimeoutError'))
   }, timeoutMs)
   try {
-    return await fetch(input, { ...init, signal: controller.signal })
+    const response = await fetch(input, { ...init, signal: controller.signal })
+    responseReceived = true
+    return response
   } catch (error) {
     if (externalSignal?.aborted) throw new DOMException('Aborted', 'AbortError')
     if (timedOut) throw new ChatApiError(`API 连接超时（${Math.round(timeoutMs / 1000)} 秒内没有建立响应），请检查网络/VPN 或稍后重试。`, 'connect', true)
     throw transportError(error)
   } finally {
     clearTimeout(timer)
-    externalSignal?.removeEventListener('abort', forwardAbort)
+    if (!keepBodyAbort || !responseReceived) externalSignal?.removeEventListener('abort', forwardAbort)
   }
 }
 
@@ -452,7 +460,39 @@ function openAiCompatibleMessages(messages: ChatApiMessage[]) {
   return [...messages.slice(0, bridgeAt), { role: 'user' as const, content: '请根据以上对话继续回应。' }, ...messages.slice(bridgeAt)]
 }
 
-export async function completeChat(options: CompletionOptions) {
+export async function completeChat(options: CompletionOptions): Promise<CompletionResult> {
+  if (!options.timeoutMs || options.timeoutMs <= 0) return completeChatRequest(options)
+  const controller = new AbortController()
+  let timer: ReturnType<typeof setTimeout> | undefined
+  let onAbort = () => {}
+  const deadline = new Promise<never>((_resolve, reject) => {
+    onAbort = () => {
+      controller.abort()
+      reject(new DOMException('Aborted', 'AbortError'))
+    }
+    options.signal.addEventListener('abort', onAbort, { once: true })
+    if (options.signal.aborted) onAbort()
+    timer = setTimeout(() => {
+      controller.abort()
+      reject(new ChatApiError(`本次模型回复超过 ${Math.round(options.timeoutMs! / 1000)} 秒，已结束等待。可以重试这位成员。`, 'response'))
+    }, options.timeoutMs)
+  })
+  try {
+    return await Promise.race([deadline, completeChatRequest({
+      ...options,
+      signal: controller.signal,
+      onDelta: (delta) => { if (!controller.signal.aborted) options.onDelta(delta) },
+      onActivity: (activity) => { if (!controller.signal.aborted) options.onActivity?.(activity) },
+    })])
+  } finally {
+    clearTimeout(timer)
+    options.signal.removeEventListener('abort', onAbort)
+    // Release fetch/body listeners even when the relay keeps its response open.
+    controller.abort()
+  }
+}
+
+async function completeChatRequest(options: CompletionOptions) {
   const { api, messages, temperature, topP, maxTokens, streaming, signal, onDelta, onActivity } = options
   const anthropic = api.protocol === 'anthropic'
   const compatibility: RequestCompatibility = {
@@ -465,6 +505,7 @@ export async function completeChat(options: CompletionOptions) {
     let lastError: unknown
     for (let attempt = 1; attempt <= 3; attempt += 1) {
       try {
+        onActivity?.(attempt === 1 ? 'connecting' : 'retrying')
         const response = await requestApi(endpoint(api.baseUrl, anthropic ? 'messages' : 'chat/completions'), {
           method: 'POST',
           headers: { 'Content-Type': 'application/json', ...apiHeaders(api) },
@@ -477,7 +518,7 @@ export async function completeChat(options: CompletionOptions) {
             stream: streaming,
           }),
           signal,
-        }, streaming ? CONNECT_TIMEOUT_MS : NON_STREAM_RESPONSE_TIMEOUT_MS)
+        }, streaming ? CONNECT_TIMEOUT_MS : NON_STREAM_RESPONSE_TIMEOUT_MS, Boolean(options.timeoutMs))
         if (!TRANSIENT_COMPLETION_STATUSES.has(response.status) || attempt === 3) return response
         const delay = retryDelay(response, attempt)
         void response.body?.cancel().catch(() => {})
@@ -544,6 +585,7 @@ export async function completeChat(options: CompletionOptions) {
       return await consumeJson(response, onDelta, onActivity)
     } catch (error) {
       if (!(error instanceof ChatApiError) || !error.retryable || streamAttempt === 2 || signal.aborted) throw error
+      onActivity?.('retrying')
       await waitForRetry(signal, 700)
     }
   }

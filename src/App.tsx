@@ -26,7 +26,7 @@ import { addPoints, applyMessagePoints, buildPointsNote, readPoints, writePoints
 import { FORUM_UPDATED_EVENT, dueRunAt, forumAutoTick, forumWelcomeThread, isQuietHour, pickAutoGroup, readPhoneAuto, writePhoneAuto } from './phoneAuto'
 import type { Moment } from './moments'
 import { USER_AUTHOR, communityMemberIds, excerptFromMessage } from './moments'
-import { buildDmGroupPeek, phoneDmRules } from './phoneGroup'
+import { buildDmGroupPeek, phoneDmRules, phonePromptHistory, PHONE_COMPLETION_TIMEOUT_MS } from './phoneGroup'
 import { PHONE_REPLY_MODES, NOTICE_DURATIONS, lurkFallback, activeNotice, noticeRemaining, buildNoticeNote, findAtMentionIds, queueSummons, parsePhoneQuit, parsePhoneKick, parsePhoneVote, kickPassed, findNamedParticipantIds, selectPhoneSpeakers, pickPhoneChatters, cleanPhoneOutput, phoneStreamPreview, containsPhoneReasoning, phoneFinalGuard, buildSmartPickPrompt, parseSmartPick, buildPhoneArchive, buildPhoneGroupBackground, phoneBindingCandidates, buildPhoneRealWorldNote, parsePhoneLockCommand, buildPhoneLockBreachNote, type PhoneLockState, type PhoneLockBreach, phoneCharacter, phoneModeRules, stripPhoneQuitTag, stripPhoneKickTag, computeStoryUpdates, resetStorySeenForBindingChanges, storyUpdateNotice, buildStoryUpdateNote } from './phoneGroup'
 import { assignChatGroup, chatGroupNames, groupConversations, setChatGroupMembers } from './chatGroups'
 import { assignLibraryGroup, setLibraryGroupMembers, effectiveLibraryRole, groupLibraryCharacters, LIBRARY_ROLE_LABELS, libraryGroupNames } from './characterLibraryGroups'
@@ -2397,11 +2397,7 @@ function App() {
       const pointsNote = buildPointsNote(readPoints(), [...members, ...dmMates].map((member) => ({ id: member.id, name: member.name })), identity.name)
       return [conversation.phone?.dm ? phoneDmRules(speaker.name, identity.name) : phoneModeRules(speaker.name, members.map((member) => member.name), identity.name, { allowQuit: conversation.phone?.allowQuit, allowKick: conversation.phone?.allowKick }), realWorld, noticeNote, pointsNote, mateBackground, dmBackground, dmPeek, buildPhoneArchive(sources, speaker.id, identity.name, (message) => message.characterId ? nameOf(message) : sources.find((source) => source.conversation?.messages.includes(message))?.character.name || '角色')].join('\n\n')
     })() : ''
-    const sanitizedHistory = (isPhone ? nextMessages.filter((message) => !message.phoneNotice).map((message) => {
-      if (message.role !== 'assistant') return message
-      const cleaned = cleanPhoneOutput(message.text)
-      return { ...message, text: cleaned || (containsPhoneReasoning(message.text) ? '' : message.text) }
-    }) : nextMessages).flatMap((message) => {
+    const sanitizedHistory = (isPhone ? phonePromptHistory(nextMessages, memoryLength) : nextMessages).flatMap((message) => {
       const fromDirector = message.role === 'assistant' && message.characterId === conversation.directorCharacterId
       const text = fromDirector ? sanitizeAssistantOutput(message.text, { director: true }) : message.text
       if ((fromDirector || (isPhone && message.role === 'assistant')) && !text.trim()) return []
@@ -2410,6 +2406,7 @@ function App() {
     const hasValidContextSummary = Boolean(conversation.contextSummary && (conversation.contextSummaryRevision || 0) === (conversation.historyRevision || 0))
     let promptStats = { memoryCount: 0, historyCount: 0 }
     let promptMessages = buildChatPrompt({
+      mode: isPhone ? 'phone' : 'story',
       onDiagnostics: (stats) => { promptStats = stats },
       character: capturedCharacter,
       user: identity,
@@ -2431,8 +2428,9 @@ function App() {
       actorContinuityAnchor,
       memory: { entries: capturedMemories, injectPosition: capturedMemoryConfig.injectPosition, injectPrompt: capturedMemoryConfig.injectPrompt },
       memoryLength,
-      contextSummary: hasValidContextSummary ? conversation.contextSummary : undefined,
-      compressedUntil: hasValidContextSummary ? conversation.compressedUntil : undefined,
+      contextSummary: hasValidContextSummary ? (isPhone ? conversation.contextSummary?.slice(0, 4000) : conversation.contextSummary) : undefined,
+      // Phone history is already a tail slice: its indices no longer match the saved transcript.
+      compressedUntil: !isPhone && hasValidContextSummary ? conversation.compressedUntil : undefined,
     })
     const storedRelationshipStage: RelationshipStage | 0 = capturedCharacter.name === '顾霆深' && !isPhone
       ? Math.max(conversation.relationshipStages?.[capturedCharacter.id] || 0, highestRelationshipStage(nextMessages, capturedCharacter.id) || 0) as RelationshipStage
@@ -2622,11 +2620,15 @@ function App() {
         temperature,
         topP,
         maxTokens,
-        streaming,
+        streaming: conversation.phone ? true : streaming,
+        timeoutMs: conversation.phone ? Math.max(1, PHONE_COMPLETION_TIMEOUT_MS - (Date.now() - generationStartedAt)) : undefined,
         signal: controller.signal,
         onActivity: (activity) => {
           if (conversation.phone && !stagedVisibleOutput && !finitePlot) {
-            if (activity === 'thinking' && !thinkingIndicatorShown) { thinkingIndicatorShown = true; showPhase('模型正在思考…') }
+            if (activity === 'retrying') showPhase('渠道暂未返回，正在重连…')
+            else if (activity === 'connecting') showPhase('正在连接模型…')
+            else if (activity === 'thinking' && !thinkingIndicatorShown) { thinkingIndicatorShown = true; showPhase('模型正在思考…') }
+            else if (activity === 'content' && !output) showPhase('已收到数据，正在生成消息…')
             return
           }
           if (activity !== 'thinking' || output || thinkingIndicatorShown || phaseTimer !== null) return
@@ -2848,6 +2850,11 @@ function App() {
           } : item))
           return [...nextMessages, { ...assistantMessage, text: partialOutput, finishReason: 'connection_interrupted' }]
         }
+        if (conversation.phone && !conversation.phone.dm) {
+          const failedMessage: Message = { ...assistantMessage, text: `⚠️ ${speaker.name}这次没连上：${message}`, phoneNotice: true, finishReason: 'request_failed' }
+          setConversations((current) => current.map((item) => item.id === conversationId ? { ...item, messages: item.messages.map((entry) => entry.id === assistantMessage.id ? failedMessage : entry) } : item))
+          return [...nextMessages, failedMessage]
+        }
         setConversations((current) => current.map((item) => item.id === conversationId ? { ...item, messages: item.messages.filter((entry) => entry.id !== assistantMessage.id) } : item))
         return nextMessages
       }
@@ -2870,7 +2877,7 @@ function App() {
       const recent = history.filter((message) => message.text?.trim() && !message.phoneNotice).slice(-12).map((message) => `${nameOf(message)}：${cleanPhoneOutput(message.text).replace(/\s+/g, ' ').slice(0, 80)}`)
       const channel = conversationApiFor(conversation, participants[0]?.id || '', api)
       let output = ''
-      await completeChat({ api: channel, messages: [{ role: 'user', content: buildSmartPickPrompt(participants.map((item) => item.name), recent, identity.name, text, participants.map((item) => { const character = characters.find((entry) => entry.id === item.id); const from = character?.libraryGroup || character?.tagline || ''; return from ? `${item.name}（${from.slice(0, 24)}）` : item.name }), storyUpdatedNames) }], temperature: .3, topP: 1, maxTokens: 60, streaming: false, signal: new AbortController().signal, onDelta: (delta) => { output += delta } })
+      await completeChat({ api: channel, messages: [{ role: 'user', content: buildSmartPickPrompt(participants.map((item) => item.name), recent, identity.name, text, participants.map((item) => { const character = characters.find((entry) => entry.id === item.id); const from = character?.libraryGroup || character?.tagline || ''; return from ? `${item.name}（${from.slice(0, 24)}）` : item.name }), storyUpdatedNames) }], temperature: .3, topP: 1, maxTokens: 60, streaming: true, timeoutMs: 15_000, signal: new AbortController().signal, onDelta: (delta) => { output += delta } })
       return parseSmartPick(output, participants)
     } catch {
       return []
@@ -2895,9 +2902,9 @@ function App() {
       const caller = summonedBy.get(speakerId)
       const next = await generateAssistant(conversation, groupMessages, speaker, conversationApiFor(conversation, speakerId, api), { continueWithoutUser: true, ...(caller ? { phoneNudge: `${caller}刚在群里 @ 了你，先回他那条。`, explicitlyMentioned: true } : {}) })
       if ((conversationStopRevisions.current.get(conversation.id) || 0) !== stopRevision) break
-      if (next.length === groupMessages.length) break
-      if (next[next.length - 1]?.finishReason === 'connection_interrupted') break
+      if (next.length === groupMessages.length) continue
       groupMessages = next
+      if (['request_failed', 'connection_interrupted'].includes(next[next.length - 1]?.finishReason || '')) continue
       if (phoneKickRef.current) groupMessages = await runPhoneKickVote(conversation, groupMessages, stopRevision)
       if (summonBudget > 0) {
         const summoned = findAtMentionIds(next[next.length - 1]?.text || '', participantIds.map((id) => ({ id, name: characters.find((item) => item.id === id)?.name || '' })), speakerId)
@@ -3156,9 +3163,13 @@ function App() {
         const caller = summonedBy.get(speakerId)
         const nextGroupMessages = await generateAssistant(conversation, groupMessages, speaker, channel, { explicitlyMentioned: mentionedIds.includes(speakerId) || Boolean(caller), ...(caller ? { phoneNudge: `${caller}刚在群里 @ 了你，先回他那条。` } : {}) })
         if ((conversationStopRevisions.current.get(conversation.id) || 0) !== stopRevision) break
-        if (nextGroupMessages.length === groupMessages.length) break
-        if (nextGroupMessages[nextGroupMessages.length - 1]?.finishReason === 'connection_interrupted') break
+        if (nextGroupMessages.length === groupMessages.length) {
+          if (conversation.phone) continue
+          break
+        }
+        if (!conversation.phone && nextGroupMessages[nextGroupMessages.length - 1]?.finishReason === 'connection_interrupted') break
         groupMessages = nextGroupMessages
+        if (conversation.phone && ['request_failed', 'connection_interrupted'].includes(nextGroupMessages[nextGroupMessages.length - 1]?.finishReason || '')) continue
         if (phoneKickRef.current) groupMessages = await runPhoneKickVote(conversation, groupMessages, stopRevision)
         if (summonBudget > 0) {
           const summoned = findAtMentionIds(nextGroupMessages[nextGroupMessages.length - 1]?.text || '', participantIds.map((id) => ({ id, name: characters.find((item) => item.id === id)?.name || '' })), speakerId)
@@ -4014,7 +4025,7 @@ function UpdateCard() {
     }
   }
 
-  return <section className="update-card"><strong>应用更新</strong><p>主动检查并拉取最新网页版本，不会删除角色、聊天记录或本地设置。</p><small>当前版本：v81 · 2026.10.14 台词气泡自适应</small><button onClick={refresh} disabled={state === 'checking'}>{state === 'checking' ? '正在检查更新…' : state === 'error' ? '更新失败，点我重试' : '强制刷新到最新版'}</button></section>
+  return <section className="update-card"><strong>应用更新</strong><p>主动检查并拉取最新网页版本，不会删除角色、聊天记录或本地设置。</p><small>当前版本：v82 · 2026.10.14 小手机群聊请求修复</small><button onClick={refresh} disabled={state === 'checking'}>{state === 'checking' ? '正在检查更新…' : state === 'error' ? '更新失败，点我重试' : '强制刷新到最新版'}</button></section>
 }
 
 function PersonaPage({ identities, selectedId, isBound, onSelect, onAdd, onDelete, onUpdate, onBack }: { identities: UserIdentity[]; selectedId: string; isBound: boolean; onSelect: (id: string) => void; onAdd: () => void; onDelete: (id: string) => void; onUpdate: (patch: Partial<UserIdentity>) => void; onBack: () => void }) {

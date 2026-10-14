@@ -8,6 +8,20 @@ const gu = normalizeStoredCharacter({ id: 'gu', name: '顾祁砚', description: 
 const chat = (id: string, characterId: string, extra: Partial<Conversation> = {}) => ({ id, characterId, title: id, messages: [{ id: 1, role: 'assistant', text: '<scene>夜</scene>你回来了' }, { id: 2, role: 'user', text: '嗯' }], createdAt: 0, updatedAt: 1, ...extra }) as Conversation
 
 describe('phone group', () => {
+  it('request history keeps the latest turns and quotes without changing saved messages or including failed notices', async () => {
+    const { phonePromptHistory } = await import('./phoneGroup')
+    const saved = Array.from({ length: 50 }, (_, index) => ({ id: index, role: 'user' as const, text: `消息${index}` }))
+    const quote = { messageId: '10', author: '谢聿衡', text: '你说什么？' }
+    const recent: Conversation['messages'] = [...saved, { id: 50, role: 'assistant', text: '⚠️没连上', phoneNotice: true }, { id: 51, role: 'assistant', text: '沈衍人设立场与反应分析：\n不能显示。' }, { id: 52, role: 'assistant', text: '<think>不显示。</think>正常消息。' }, { id: 53, role: 'user', text: '我回复这条', quote }]
+    const history = phonePromptHistory(recent, 100)
+    expect(history).toHaveLength(24)
+    expect(history[0].text).toBe('消息28')
+    expect(history[history.length - 2]?.text).toBe('正常消息。')
+    expect(history[history.length - 1]?.quote).toEqual(quote)
+    expect(history.map((message) => message.text).join('\n')).not.toMatch(/分析|没连上|<think>/)
+    expect(recent).toHaveLength(54)
+    expect(recent[52].text).toContain('<think>')
+  })
   it('drops story-mode output rules but keeps the persona', () => {
     const card = phoneCharacter(xie)
     expect(card.description).toContain('婚内出轨')

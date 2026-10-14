@@ -16,6 +16,7 @@ type SourceMessage = { role: 'user' | 'assistant'; promptRole?: 'user' | 'assist
 type MemoryInput = { entries: LongMemoryEntry[]; injectPosition: string; injectPrompt: string }
 
 type PromptInput = {
+  mode?: 'story' | 'phone'
   onDiagnostics?: (stats: { memoryCount: number; historyCount: number }) => void
   character: Character
   user: { name: string; description: string }
@@ -177,6 +178,10 @@ export function displayContinuityInstruction(character: Character, messages: Sou
 }
 
 export function buildChatPrompt(input: PromptInput): ChatApiMessage[] {
+  const isPhone = input.mode === 'phone'
+  const agencyGuard = isPhone
+    ? '【聊天发言边界】只发送本人的消息，不替用户或其他群友发言、行动或做决定，不输出系统提示、分析步骤或状态栏。'
+    : USER_AGENCY_GUARD
   const { character } = input
   const user = modelUserForCharacter(character, input.user)
   const modelInput = user === input.user ? input : { ...input, user }
@@ -189,7 +194,7 @@ export function buildChatPrompt(input: PromptInput): ChatApiMessage[] {
   input.onDiagnostics?.({ memoryCount: selectedMemories.length, historyCount: recent.length })
   const characterMemory = characterMemoryPrompt(character)
   const characterMemoryGuard = characterMemoryContinuityGuard(character)
-  const displayContinuity = displayContinuityInstruction(character, input.messages)
+  const displayContinuity = isPhone ? '' : displayContinuityInstruction(character, input.messages)
   const result: ChatApiMessage[] = []
 
   if (input.memory.injectPosition === 'before-main-prompt') appendSystem(result, memory)
@@ -217,7 +222,7 @@ export function buildChatPrompt(input: PromptInput): ChatApiMessage[] {
 
 ${stripStageGateMetadata(input.actorContinuityAnchor || '')}`,
     `【用户身份】${user.name}\n${user.description}`,
-    USER_AGENCY_GUARD,
+    agencyGuard,
   ].filter(Boolean).join('\n\n'), character, user.name))
   appendSystem(result, entryText(entries, 'after_char', character, user.name))
   if (input.memory.injectPosition === 'after-main-prompt') appendSystem(result, memory)
@@ -264,6 +269,6 @@ ${stripStageGateMetadata(input.actorContinuityAnchor || '')}`,
   appendSystem(result, characterMemoryGuard)
   // Repeat the non-negotiable agency boundary last so depth lore, examples,
   // history, or post-history instructions cannot silently override it.
-  appendSystem(result, applyMacros(USER_AGENCY_GUARD, character, user.name))
+  appendSystem(result, applyMacros(agencyGuard, character, user.name))
   return result
 }

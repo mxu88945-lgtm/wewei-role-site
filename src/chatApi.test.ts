@@ -1,9 +1,61 @@
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { completeChat, testApiConnection } from './chatApi'
 
-afterEach(() => vi.unstubAllGlobals())
+afterEach(() => { vi.unstubAllGlobals(); vi.useRealTimers() })
 
 describe('chatApi', () => {
+  it('总时限结束仍未完成的 JSON 回复，不重试且不显示迟到的内容', async () => {
+    vi.useFakeTimers()
+    let deliver!: (data: unknown) => void
+    let bodySignal: AbortSignal | null | undefined
+    const onDelta = vi.fn()
+    const fetchMock = vi.fn(async (_url: string, init?: RequestInit) => {
+      bodySignal = init?.signal
+      return { ok: true, headers: new Headers({ 'content-type': 'application/json' }), json: () => new Promise((resolve) => { deliver = resolve }) } as Response
+    })
+    vi.stubGlobal('fetch', fetchMock)
+    const request = completeChat({ api: { baseUrl: 'https://relay.example/v1', apiKey: 'test', modelName: 'model' }, messages: [{ role: 'user', content: '你们好' }], temperature: 1, topP: 1, maxTokens: 100, streaming: true, timeoutMs: 1000, signal: new AbortController().signal, onDelta }).catch((error) => error)
+    await vi.advanceTimersByTimeAsync(1000)
+    expect((await request).message).toContain('已结束等待')
+    expect(fetchMock).toHaveBeenCalledTimes(1)
+    expect(bodySignal?.aborted).toBe(true)
+    deliver({ choices: [{ message: { content: '迟到的回复。' } }] })
+    await vi.advanceTimersByTimeAsync(1)
+    expect(onDelta).not.toHaveBeenCalled()
+    expect(vi.getTimerCount()).toBe(0)
+  })
+
+  it('持续有思考活动的数据流也受总时限限制，保留已收到的正文', async () => {
+    vi.useFakeTimers()
+    let stream!: ReadableStreamDefaultController<Uint8Array>
+    const cancelled = vi.fn()
+    vi.stubGlobal('fetch', vi.fn(async () => new Response(new ReadableStream<Uint8Array>({ start(controller) { stream = controller }, cancel: cancelled }), { headers: { 'content-type': 'text/event-stream' } })))
+    let output = ''
+    const request = completeChat({ api: { baseUrl: 'https://relay.example/v1', apiKey: 'test', modelName: 'model' }, messages: [{ role: 'user', content: '你们好' }], temperature: 1, topP: 1, maxTokens: 100, streaming: true, timeoutMs: 1000, signal: new AbortController().signal, onDelta: (delta) => { output += delta } }).catch((error) => error)
+    await vi.advanceTimersByTimeAsync(0)
+    stream.enqueue(new TextEncoder().encode('data: {"choices":[{"delta":{"content":"先说一句。"}}]}\n\n'))
+    await vi.advanceTimersByTimeAsync(500)
+    stream.enqueue(new TextEncoder().encode('data: {"choices":[{"delta":{"reasoning_content":"内部分析"}}]}\n\n'))
+    await vi.advanceTimersByTimeAsync(500)
+    expect((await request).message).toContain('已结束等待')
+    expect(output).toBe('先说一句。')
+    expect(cancelled).toHaveBeenCalled()
+    expect(vi.getTimerCount()).toBe(0)
+  })
+
+  it('用户停止会立即中断等待，成功完成后清除总时限计时器', async () => {
+    vi.useFakeTimers()
+    const controller = new AbortController()
+    vi.stubGlobal('fetch', vi.fn((_url: string, init?: RequestInit) => new Promise<Response>((_resolve, reject) => { init?.signal?.addEventListener('abort', () => reject(new DOMException('Aborted', 'AbortError')), { once: true }) })))
+    const options = { api: { baseUrl: 'https://relay.example/v1', apiKey: 'test', modelName: 'model' }, messages: [{ role: 'user' as const, content: '你们好' }], temperature: 1, topP: 1, maxTokens: 100, streaming: true, timeoutMs: 1000, signal: controller.signal, onDelta: vi.fn() }
+    const request = completeChat(options).catch((error) => error)
+    controller.abort()
+    expect((await request).name).toBe('AbortError')
+    vi.stubGlobal('fetch', vi.fn(async () => new Response(JSON.stringify({ choices: [{ message: { content: '正常回复。' } }] }), { headers: { 'content-type': 'application/json' } })))
+    await completeChat({ ...options, signal: new AbortController().signal })
+    expect(options.onDelta).toHaveBeenCalledWith('正常回复。')
+    expect(vi.getTimerCount()).toBe(0)
+  })
   it('原样发送 OpenAI 兼容的图文消息数组', async () => {
     let requestBody: { messages?: unknown[] } = {}
     vi.stubGlobal('fetch', vi.fn(async (_url: string, init?: RequestInit) => {
@@ -363,7 +415,7 @@ describe('chatApi', () => {
       onDelta: (delta) => { output += delta },
     })
     expect(output).toBe('正文来了。')
-    expect(activities).toEqual(['thinking', 'content'])
+    expect(activities).toEqual(['connecting', 'thinking', 'content'])
   })
 
   it('模型拒绝 temperature 时自动移除参数重试', async () => {

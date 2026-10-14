@@ -22,6 +22,7 @@ export function buildPhoneLockBreachNote(breach: PhoneLockBreach | null | undefi
 import type { Character } from './characterCard'
 import type { Conversation, Message } from './conversationLifecycle'
 import type { LongMemoryEntry } from './memoryEngine'
+import { sanitizeAssistantOutput } from './outputSanitizer'
 
 /**
  * 小手机：戏外日常群。角色卡们知道自己是惟境里的角色，用户是现实中陪他们
@@ -35,6 +36,18 @@ export type PhoneGroupConfig = {
 const clip = (value: string | undefined, max: number) => {
   const text = (value || '').trim()
   return text.length > max ? `${text.slice(0, max)}……（后略）` : text
+}
+
+export const PHONE_COMPLETION_TIMEOUT_MS = 90_000
+export const PHONE_HISTORY_LIMIT = 24
+
+/** Bound request history only; saved chats and shared story archives stay intact. */
+export function phonePromptHistory(messages: Message[], requestedLength: number) {
+  return messages.filter((message) => !message.phoneNotice).flatMap((message) => {
+    if (message.role === 'user') return [message]
+    const text = cleanPhoneOutput(sanitizeAssistantOutput(message.text))
+    return text ? [{ ...message, text: clip(text, 1800) }] : []
+  }).slice(-Math.max(1, Math.min(requestedLength, PHONE_HISTORY_LIMIT)))
 }
 
 /** The card as it should speak in the phone group: persona kept, every story-mode output rule dropped. */
@@ -90,7 +103,7 @@ export function buildPhoneArchive(sources: PhoneArchiveSource[], speakerId: stri
     const memories = [
       ...characterMemories.filter((entry) => entry.enabled !== false).map((entry) => `${entry.title ? `${entry.title}：` : ''}${entry.content}`),
       ...longMemories.map((entry) => `${entry.title ? `${entry.title}：` : ''}${entry.content}`),
-    ].map((line) => `· ${clip(line, 400)}`).slice(0, 24).join('\n')
+    ].filter((line, index, lines) => lines.indexOf(line) === index).map((line) => `· ${clip(line, 400)}`).slice(0, 24).join('\n')
     const own = character.id === speakerId
     return [
       `【${character.name}的剧情档案｜来自对话「${conversation.title}」${own ? '｜这是你自己演过的戏' : ''}】`,

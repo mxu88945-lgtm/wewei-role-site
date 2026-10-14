@@ -34,6 +34,17 @@ const character: Character = {
 }
 
 describe('buildChatPrompt', () => {
+  it('phone mode keeps persona, public archives and user message without reintroducing story output guards', () => {
+    const result = buildChatPrompt({ mode: 'phone', character: { ...character, beautificationProtocol: '', regexScripts: [], systemPrompt: '', postHistoryInstructions: '' }, user: { name: '惟惟', description: '' }, messages: [{ role: 'user', text: '你们知道我最喜欢谁吗？' }], preset: '微信聊天。\n【成员剧情档案】傅承砚解除了婚约。', globalWorldbook: '现代都市。', theaterWorldBackground: '【傅承砚】自负。', memory: { entries: [], injectPosition: 'after-main-prompt', injectPrompt: '' }, memoryLength: 24 })
+    const prompt = result.map((message) => message.content).join('\n')
+    expect(prompt).toContain('乐队主唱。')
+    expect(prompt).toContain('傅承砚解除了婚约。')
+    expect(prompt).toContain('【傅承砚】自负。')
+    expect(prompt).toContain('你们知道我最喜欢谁吗？')
+    expect(prompt).not.toContain('只输出实际角色扮演内容和要求的最终状态栏')
+    expect(prompt).not.toContain('角色消息美化连续性')
+    expect(prompt).toContain('只发送本人的消息')
+  })
   it('组装角色、世界书、长期记忆并执行提示词正则', () => {
     const result = buildChatPrompt({
       character,
