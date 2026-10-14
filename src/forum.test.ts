@@ -65,3 +65,51 @@ describe('forum recap for phone groups', () => {
     expect(buildForumRecapNote([], ['a'], (id) => id, '周', now)).toBe('')
   })
 })
+
+describe('robust forum parsing', () => {
+  it('parses floors with trailing commas and text around the JSON', async () => {
+    const { parseFloors } = await import('./forum')
+    const out = parseFloors('好的，下面是回帖：\n```json\n{"likes":["沈衍",],"floors":[{"author":"沈衍","reply_to_floor":0,"text":"沙发","anonymous":false},]}\n```\n希望满意', 9)
+    expect(out.likes).toEqual(['沈衍'])
+    expect(out.floors).toEqual([{ author: '沈衍', replyToFloor: 0, text: '沙发', anonymous: false }])
+  })
+
+  it('handles curly quotes and full-width colons used as JSON punctuation, keeps quotes in text', async () => {
+    const { parseFloors } = await import('./forum')
+    const out = parseFloors('{“likes”：[],“floors”：[{“author”：“沈衍”，“reply_to_floor”：2，“text”：“他说“别闹”我就笑了”}]}', 9)
+    expect(out.floors).toHaveLength(1)
+    expect(out.floors[0].author).toBe('沈衍')
+    expect(out.floors[0].replyToFloor).toBe(2)
+    expect(out.floors[0].text).toContain('别闹')
+  })
+
+  it('salvages complete floors from truncated output', async () => {
+    const { parseFloors } = await import('./forum')
+    const out = parseFloors('{"likes":["顾祁砚"],"floors":[{"author":"沈衍","reply_to_floor":0,"text":"第一"},{"author":"顾祁砚","reply_to_floor":2,"text":"楼上别抢"},{"author":"谢聿衡","text":"我还没写', 9)
+    expect(out.floors.map((floor) => floor.author)).toEqual(['沈衍', '顾祁砚'])
+    expect(out.likes).toEqual(['顾祁砚'])
+  })
+
+  it('accepts content/name aliases', async () => {
+    const { parseFloors } = await import('./forum')
+    expect(parseFloors('{"floors":[{"name":"沈衍","content":"来了"}]}', 9).floors[0]).toMatchObject({ author: '沈衍', text: '来了' })
+  })
+
+  it('matches messy author names to readers, then members, then by substring', async () => {
+    const { matchForumAuthor } = await import('./forum')
+    const readers = [{ id: 'shen', name: '沈衍' }, { id: 'gu', name: '顾祁砚' }]
+    const members = [...readers, { id: 'xie', name: '谢聿衡' }]
+    expect(matchForumAuthor('沈衍（楼主）', readers, members)).toBe('shen')
+    expect(matchForumAuthor('@沈衍', readers, members)).toBe('shen')
+    expect(matchForumAuthor(' 顾 祁砚 ', readers, members)).toBe('gu')
+    expect(matchForumAuthor('谢聿衡', readers, members)).toBe('xie')
+    expect(matchForumAuthor('祁砚', readers, members)).toBe('gu')
+    expect(matchForumAuthor('路人甲', readers, members)).toBeUndefined()
+  })
+
+  it('rescues a thread draft from trailing commas or truncation', async () => {
+    const { parseThreadDraft } = await import('./forum')
+    expect(parseThreadDraft('{"board":"日常","title":"今天","body":"天气很好",}')).toMatchObject({ title: '今天', body: '天气很好' })
+    expect(parseThreadDraft('{"title":"截断帖","body":"写到一半')).toMatchObject({ title: '截断帖', body: '写到一半' })
+  })
+})

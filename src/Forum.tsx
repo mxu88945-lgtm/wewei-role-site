@@ -9,6 +9,7 @@ import { characterBrief, communityMemberIds, findMentionIds, type Moment } from 
 import {
   FORUM_BOARDS, FORUM_FLOOR_IMAGE_LIMIT, FORUM_REPORT_REASONS, FORUM_SYSTEM, FORUM_THREAD_IMAGE_LIMIT, FORUM_USER, forumPromptPixels, buildFloorsPrompt, buildThreadPrompt, floorNumber, floorsText, forumThreadLine, parseFloors, parseThreadDraft,
   pickForumReaders, sortThreads, threadsFromMoments, type ForumBoard, type ForumFloor, type ForumThread,
+  matchForumAuthor,
 } from './forum'
 import type { MomentSeed } from './Moments'
 import { addPoints, readPoints, writePoints } from './phonePoints'
@@ -173,15 +174,20 @@ export function Forum({ characters, conversations, userName, userAvatar, api, se
         if (!pixels.length) throw cause
         raw = await callModel(buildFloorsPrompt(promptInput), 1800)
       }
-      const parsed = parseFloors(raw, floorNumber(thread.floors.length) + 6)
-      const byName = (name: string) => readers.find((character) => character.name === name)?.id
+      const byName = (name: string) => matchForumAuthor(name, readers, members)
       const now = Date.now()
-      const floors: ForumFloor[] = parsed.floors.flatMap((floor, index) => {
-        const authorId = byName(floor.author)
-        return authorId ? [{ id: uid(), authorId, text: floor.text, replyToFloor: floor.replyToFloor || undefined, anonymous: floor.anonymous || undefined, createdAt: now + index }] : []
-      })
-      const likes = parsed.likes.map(byName).filter((id): id is string => Boolean(id))
-      if (!floors.length && !likes.length) throw new Error('模型没有给出可用的回帖')
+      const usable = (text: string) => {
+        const parsed = parseFloors(text, floorNumber(thread.floors.length) + 6)
+        const floors: ForumFloor[] = parsed.floors.flatMap((floor, index) => {
+          const authorId = byName(floor.author)
+          return authorId ? [{ id: uid(), authorId, text: floor.text, replyToFloor: floor.replyToFloor || undefined, anonymous: floor.anonymous || undefined, createdAt: now + index }] : []
+        })
+        return { floors, likes: [...new Set(parsed.likes.map(byName).filter((id): id is string => Boolean(id)))] }
+      }
+      let { floors, likes } = usable(raw)
+      // 格式乱了或被截断：纯文字、多给点长度，再试一次。
+      if (!floors.length && !likes.length) ({ floors, likes } = usable(await callModel(buildFloorsPrompt(promptInput), 2400)))
+      if (!floors.length && !likes.length) throw new Error('模型没有给出可用的回帖（可能是格式不对或被截断），可以再点一次')
       update(threadId, (item) => ({ ...item, likes: [...new Set([...item.likes, ...likes])], floors: [...item.floors, ...floors], updatedAt: floors.length ? now + floors.length : item.updatedAt }))
     } catch (cause) {
       setError(`盖楼失败：${cause instanceof Error ? cause.message : '请稍后再试'}`)

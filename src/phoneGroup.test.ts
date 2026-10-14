@@ -173,3 +173,69 @@ describe('phone dm', () => {
     expect(phoneDmRules('沈衍', '周')).toContain('私聊')
   })
 })
+
+describe('phone group toggles and story-update alerts', () => {
+  it('omits the quit and kick rules when disabled and renumbers', async () => {
+    const { phoneModeRules } = await import('./phoneGroup')
+    const all = phoneModeRules('谢聿衡', ['谢聿衡', '顾祁砚'], '惟惟')
+    expect(all).toContain('7. 退群权')
+    expect(all).toContain('8. 投票踢人')
+    const noQuit = phoneModeRules('谢聿衡', ['谢聿衡'], '惟惟', { allowQuit: false })
+    expect(noQuit).not.toContain('退群')
+    expect(noQuit).toContain('7. 投票踢人')
+    const noKick = phoneModeRules('谢聿衡', ['谢聿衡'], '惟惟', { allowKick: false })
+    expect(noKick).not.toContain('踢人')
+    expect(noKick).toContain('7. 退群权')
+    const none = phoneModeRules('谢聿衡', ['谢聿衡'], '惟惟', { allowQuit: false, allowKick: false })
+    expect(none).not.toMatch(/退群|踢人|\n7\./)
+    expect(none).toContain('6. 锁屏权')
+  })
+
+  it('strips quit and kick tags without effects', async () => {
+    const { stripPhoneQuitTag, stripPhoneKickTag } = await import('./phoneGroup')
+    expect(stripPhoneQuitTag('受不了了\n【退群：烦死了】')).toBe('受不了了')
+    expect(stripPhoneKickTag('他太过分\n【踢人：顾祁砚：刷屏】')).toBe('他太过分')
+  })
+
+  it('records the first sighting silently, then alerts on growth', async () => {
+    const { computeStoryUpdates } = await import('./phoneGroup')
+    const counts: Record<string, number> = { c1: 10, c2: 4 }
+    const first = computeStoryUpdates({ xie: 'c1', gu: 'c2' }, undefined, (id) => counts[id])
+    expect(first.updates).toEqual([])
+    expect(first.seen).toEqual({ xie: 10, gu: 4 })
+    expect(first.changed).toBe(true)
+    counts.c1 = 13
+    const next = computeStoryUpdates({ xie: 'c1', gu: 'c2' }, first.seen, (id) => counts[id])
+    expect(next.updates).toEqual([{ characterId: 'xie', count: 3 }])
+    expect(next.seen).toEqual({ xie: 13, gu: 4 })
+    const same = computeStoryUpdates({ xie: 'c1', gu: 'c2' }, next.seen, (id) => counts[id])
+    expect(same.changed).toBe(false)
+    counts.c2 = 2
+    const shrunk = computeStoryUpdates({ xie: 'c1', gu: 'c2' }, next.seen, (id) => counts[id])
+    expect(shrunk.updates).toEqual([])
+    expect(shrunk.seen.gu).toBe(2)
+    expect(computeStoryUpdates({ xie: 'c1', gu: 'missing' }, next.seen, (id) => counts[id]).seen).toEqual({ xie: 13 })
+  })
+
+  it('resets storySeen for members whose binding changed', async () => {
+    const { resetStorySeenForBindingChanges } = await import('./phoneGroup')
+    expect(resetStorySeenForBindingChanges({ xie: 5, gu: 7, lin: 2 }, { xie: 'a', gu: 'b', lin: 'c' }, { xie: 'a', gu: 'z' })).toEqual({ xie: 5 })
+  })
+
+  it('builds the notice line, prompt note and smart-pick hint', async () => {
+    const { storyUpdateNotice, buildStoryUpdateNote, buildSmartPickPrompt } = await import('./phoneGroup')
+    expect(storyUpdateNotice('谢聿衡', 3)).toBe('📖 谢聿衡的剧情更新了 3 条')
+    const note = buildStoryUpdateNote([{ name: '谢聿衡', count: 3 }])
+    expect(note).toContain('【剧情刚更新】谢聿衡的长剧情刚更新了 3 条')
+    expect(note).toContain('不必每个人都提')
+    expect(buildSmartPickPrompt(['谢聿衡'], [], '惟惟', '在吗', [], ['谢聿衡'])).toContain('剧情刚更新：谢聿衡')
+    expect(buildSmartPickPrompt(['谢聿衡'], [], '惟惟', '在吗')).not.toContain('剧情刚更新')
+  })
+
+  it('keeps notice messages out of the DM group peek', async () => {
+    const { buildDmGroupPeek } = await import('./phoneGroup')
+    const peek = buildDmGroupPeek([{ title: '群', participantIds: ['xie'], phone: {}, messages: [{ role: 'assistant', text: '📖 谢聿衡的剧情更新了 3 条', phoneNotice: true }, { role: 'user', text: '晚上好' }] }], 'xie', () => '惟惟')
+    expect(peek).toContain('晚上好')
+    expect(peek).not.toContain('📖')
+  })
+})

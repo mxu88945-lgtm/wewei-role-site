@@ -106,15 +106,58 @@ export function buildFloorsPrompt(input: { pixels?: ChatImage[]; thread: ForumTh
   return messages
 }
 
+/** 把模型常见的“不太标准的 JSON”修一修：中文引号当分隔符、全角冒号逗号、结尾多余逗号。 */
+const repairJsonish = (text: string) => text
+  .replace(/[“”„‟＂]/g, (quote, offset: number, all: string) => {
+    // 只替换紧挨着结构符号的弯引号，正文里的“引号”保持原样。
+    const before = all.slice(0, offset).replace(/\s+$/, '').slice(-1)
+    const after = all.slice(offset + quote.length).replace(/^\s+/, '').slice(0, 1)
+    return /[{[,，:：]/.test(before) || /[}\],，:：]/.test(after) ? '"' : quote
+  })
+  .replace(/"\s*：\s*/g, '": ')
+  .replace(/([}\]"\d]|true|false|null)\s*，\s*(?=["{[])/g, '$1, ')
+  .replace(/,\s*([}\]])/g, '$1')
+
+const tryParse = (text: string) => {
+  try { return JSON.parse(text) as unknown } catch { /* fall through */ }
+  try { return JSON.parse(repairJsonish(text)) as unknown } catch { return null }
+}
+
+const stripFences = (raw: string) => raw.replace(/```(?:json|JSON)?/g, '')
+
 const jsonObject = (raw: string) => {
-  const match = raw.replace(/```(?:json)?/g, '').match(/\{[\s\S]*\}/)
+  const match = stripFences(raw).match(/\{[\s\S]*\}/)
   if (!match) return null
-  try { return JSON.parse(match[0]) as Record<string, unknown> } catch { return null }
+  const data = tryParse(match[0])
+  return data && typeof data === 'object' && !Array.isArray(data) ? data as Record<string, unknown> : null
+}
+
+/** 被截断或整体解析不了时：把里面每个完整的 {…}（不含嵌套）单独捞出来。 */
+const salvageObjects = (raw: string) => {
+  const text = stripFences(raw)
+  const found: Array<Record<string, unknown>> = []
+  for (const match of text.matchAll(/\{[^{}]*\}/g)) {
+    const data = tryParse(match[0])
+    if (data && typeof data === 'object' && !Array.isArray(data)) found.push(data as Record<string, unknown>)
+  }
+  return found
+}
+
+/** 从截断的文本里抠出某个字符串字段的值（"key": "…"）。 */
+const looseString = (raw: string, key: string) => {
+  const match = repairJsonish(stripFences(raw)).match(new RegExp(`"${key}"\\s*:\\s*"((?:[^"\\\\]|\\\\.)*)"?`))
+  if (!match) return ''
+  try { return JSON.parse(`"${match[1]}"`) as string } catch { return match[1] }
 }
 
 export function parseThreadDraft(raw: string): { board?: ForumBoard; title: string; body: string; image?: string; anonymous: boolean } | null {
-  const data = jsonObject(raw)
-  if (!data) return null
+  const data: Record<string, unknown> = jsonObject(raw) || (() => {
+    // 截断时尽量救回标题和正文（正文被切掉一截也比整条失败好）。
+    const title = looseString(raw, 'title')
+    const body = looseString(raw, 'body')
+    if (!title || !body) return null
+    return { title, body, board: looseString(raw, 'board'), image: looseString(raw, 'image'), anonymous: /"anonymous"\s*:\s*true/.test(raw) }
+  })() || {}
   const title = typeof data.title === 'string' ? data.title.trim().slice(0, 40) : ''
   const body = typeof data.body === 'string' ? data.body.trim().slice(0, 800) : ''
   if (!title || !body) return null
@@ -124,17 +167,54 @@ export function parseThreadDraft(raw: string): { board?: ForumBoard; title: stri
 
 export type ParsedFloors = { likes: string[]; floors: Array<{ author: string; replyToFloor: number; text: string; anonymous: boolean }> }
 
+const floorFrom = (item: unknown, maxFloor: number) => {
+  const entry = (item || {}) as { author?: unknown; name?: unknown; reply_to_floor?: unknown; replyToFloor?: unknown; text?: unknown; content?: unknown; anonymous?: unknown }
+  const author = typeof entry.author === 'string' ? entry.author : typeof entry.name === 'string' ? entry.name : ''
+  const text = typeof entry.text === 'string' ? entry.text : typeof entry.content === 'string' ? entry.content : ''
+  if (!author.trim() || !text.trim()) return []
+  const target = Math.floor(Number(entry.reply_to_floor ?? entry.replyToFloor) || 0)
+  return [{ author: author.trim(), replyToFloor: target >= 1 && target <= maxFloor ? target : 0, text: text.trim().slice(0, 300), anonymous: entry.anonymous === true }]
+}
+
 export function parseFloors(raw: string, maxFloor: number): ParsedFloors {
   const data = jsonObject(raw)
-  if (!data) return { likes: [], floors: [] }
-  const likes = Array.isArray(data.likes) ? data.likes.filter((item): item is string => typeof item === 'string') : []
-  const floors = Array.isArray(data.floors) ? data.floors.flatMap((item) => {
-    const entry = item as { author?: unknown; reply_to_floor?: unknown; text?: unknown; anonymous?: unknown }
-    if (typeof entry.author !== 'string' || !entry.author.trim() || typeof entry.text !== 'string' || !entry.text.trim()) return []
-    const target = Math.floor(Number(entry.reply_to_floor) || 0)
-    return [{ author: entry.author.trim(), replyToFloor: target >= 1 && target <= maxFloor ? target : 0, text: entry.text.trim().slice(0, 300), anonymous: entry.anonymous === true }]
-  }) : []
+  const likesOf = (value: unknown) => Array.isArray(value) ? value.filter((item): item is string => typeof item === 'string' && Boolean(item.trim())) : []
+  if (data && Array.isArray(data.floors)) {
+    const floors = data.floors.flatMap((item) => floorFrom(item, maxFloor))
+    if (floors.length || likesOf(data.likes).length) return { likes: likesOf(data.likes), floors }
+  }
+  // 截断 / 格式乱：逐个捞完整的楼层对象，likes 单独抠。
+  const floors = salvageObjects(raw).flatMap((item) => floorFrom(item, maxFloor))
+  const likesMatch = repairJsonish(stripFences(raw)).match(/"likes"\s*:\s*(\[[^\]]*\])/)
+  const likes = data ? likesOf(data.likes) : likesMatch ? likesOf(tryParse(likesMatch[1])) : []
   return { likes, floors }
+}
+
+/** 回帖作者名对上真人：去掉 @、（楼主）、括号和空格；先在逛论坛的人里找，再在全体群友里找，最后容忍包含关系。 */
+export function normalizeForumAuthor(name: string) {
+  return name
+    .replace(/[（(【[][^）)】\]]*[）)】\]]/g, '')
+    .replace(/楼主|层主/g, '')
+    .replace(/[@＠\s:：·•\-—"“”'‘’]/g, '')
+    .trim()
+}
+
+export function matchForumAuthor(name: string, readers: Array<{ id: string; name: string }>, members: Array<{ id: string; name: string }> = []) {
+  const key = normalizeForumAuthor(name)
+  if (!key) return undefined
+  const pools = [readers, members]
+  for (const pool of pools) {
+    const hit = pool.find((item) => item.name && normalizeForumAuthor(item.name) === key)
+    if (hit) return hit.id
+  }
+  for (const pool of pools) {
+    const hit = pool.find((item) => {
+      const target = normalizeForumAuthor(item.name || '')
+      return target.length >= 2 && key.length >= 2 && (key.includes(target) || target.includes(key))
+    })
+    if (hit) return hit.id
+  }
+  return undefined
 }
 
 /** 旧“动态”一次性搬进论坛：每条动态变成一个帖子，评论变成楼层。 */

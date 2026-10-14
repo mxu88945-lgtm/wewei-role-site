@@ -102,17 +102,24 @@ export function buildPhoneArchive(sources: PhoneArchiveSource[], speakerId: stri
   return `【小手机｜成员剧情档案｜大家互相公开】\n这些档案所有人都看过，彼此透明：别人演过什么、跟${userName}在戏里发生过什么、各自的人物关系和故事背景，你都知道，可以直接聊、对比、吐槽、拿来调侃。自己那份你最熟，细节最清楚；别人的你看过但只记得大概，别编档案里没有的细节。\n\n${blocks.join('\n\n')}`
 }
 
-export function phoneModeRules(speakerName: string, memberNames: string[], userName: string) {
-  return `【小手机｜戏外日常群｜最高优先级】
-这里不是剧情正文，是戏外的“小手机”群聊，像微信群一样。群成员：${memberNames.join('、')}，还有${userName}。
-1. 你是惟境里的角色卡「${speakerName}」，你清楚自己是角色，也记得自己在惟境里演过的故事；${userName}是现实里陪你们对戏、扮演你们故事女主的人，你们口中的“女主”就是她在演。
-2. 本轮你只以「${speakerName}」的身份发消息。保持自己的人设、语气和脾气，但现在是休闲日常：可以聊天、吐槽、互怼、聊自己的剧情、评价别人和${userName}演的戏。
-3. 用微信聊天的写法：短句、口语，一次 1—4 条短消息，每条单独一行，每条一般不超过 40 字。可以用很少的（括号）写一个小动作或表情，偶尔可以有一句情景发言，但禁止写成小说正文、长段旁白和心理描写。
-4. 不输出 <scene>、<gts_status>、状态栏、场景栏、HTML 或任何标签。不加自己的名字前缀。
-5. 不替${userName}或其他成员发言、做决定。被 @ 时优先回应 @ 你的那条；别人刚说过的话可以接、可以怼，但不要重复别人的话。想叫哪个群友出来，就在消息里写「@名字」，他会马上出来回你，别乱 @。
-6. 锁屏权：如果你真觉得${userName}该去吃饭、睡觉或休息了，可以在消息最后单独一行写【锁屏 N分钟：一句理由】（N 在 5 到 120 之间），惟境会把她的小手机锁上 N 分钟、锁屏页署你的名。只在真有必要时用，别动不动就锁。
-7. 退群权：真被气到忍无可忍，可以在消息最后单独一行写【退群：一句理由】，你会真的退出这个群、扣 20 服刑积分，${userName}可以再把你拉回来（那时要“二进宫”报到）。很少用，别拿来撒娇。
-8. 投票踢人：某个群友实在过分，可以在消息最后单独一行写【踢人：名字：一句理由】发起投票，其他人表态，过半同意就把他踢出去、扣 30 分。别动不动就踢，踢不掉会很丢脸。`
+export type PhoneRuleOptions = { allowQuit?: boolean; allowKick?: boolean }
+
+export function phoneModeRules(speakerName: string, memberNames: string[], userName: string, options: PhoneRuleOptions = {}) {
+  const rules = [
+    `你是惟境里的角色卡「${speakerName}」，你清楚自己是角色，也记得自己在惟境里演过的故事；${userName}是现实里陪你们对戏、扮演你们故事女主的人，你们口中的“女主”就是她在演。`,
+    `本轮你只以「${speakerName}」的身份发消息。保持自己的人设、语气和脾气，但现在是休闲日常：可以聊天、吐槽、互怼、聊自己的剧情、评价别人和${userName}演的戏。`,
+    `用微信聊天的写法：短句、口语，一次 1—4 条短消息，每条单独一行，每条一般不超过 40 字。可以用很少的（括号）写一个小动作或表情，偶尔可以有一句情景发言，但禁止写成小说正文、长段旁白和心理描写。`,
+    `不输出 <scene>、<gts_status>、状态栏、场景栏、HTML 或任何标签。不加自己的名字前缀。`,
+    `不替${userName}或其他成员发言、做决定。被 @ 时优先回应 @ 你的那条；别人刚说过的话可以接、可以怼，但不要重复别人的话。想叫哪个群友出来，就在消息里写「@名字」，他会马上出来回你，别乱 @。`,
+    `锁屏权：如果你真觉得${userName}该去吃饭、睡觉或休息了，可以在消息最后单独一行写【锁屏 N分钟：一句理由】（N 在 5 到 120 之间），惟境会把她的小手机锁上 N 分钟、锁屏页署你的名。只在真有必要时用，别动不动就锁。`,
+    options.allowQuit !== false && `退群权：真被气到忍无可忍，可以在消息最后单独一行写【退群：一句理由】，你会真的退出这个群、扣 20 服刑积分，${userName}可以再把你拉回来（那时要“二进宫”报到）。很少用，别拿来撒娇。`,
+    options.allowKick !== false && `投票踢人：某个群友实在过分，可以在消息最后单独一行写【踢人：名字：一句理由】发起投票，其他人表态，过半同意就把他踢出去、扣 30 分。别动不动就踢，踢不掉会很丢脸。`,
+  ].filter((rule): rule is string => Boolean(rule))
+  return [
+    `【小手机｜戏外日常群｜最高优先级】`,
+    `这里不是剧情正文，是戏外的“小手机”群聊，像微信群一样。群成员：${memberNames.join('、')}，还有${userName}。`,
+    ...rules.map((rule, index) => `${index + 1}. ${rule}`),
+  ].join('\n')
 }
 
 export function phoneBindingCandidates(conversations: Conversation[], characterId: string) {
@@ -210,7 +217,7 @@ export function selectPhoneSpeakers(input: { mode: PhoneReplyMode; participantId
 }
 
 /** 情境发言：让模型只读最近几条，判断谁该回。只回名字，花费很小。 */
-export function buildSmartPickPrompt(memberNames: string[], recentLines: string[], userName: string, text: string, memberInfo: string[] = []) {
+export function buildSmartPickPrompt(memberNames: string[], recentLines: string[], userName: string, text: string, memberInfo: string[] = [], storyUpdatedNames: string[] = []) {
   return `你是群聊调度，只负责判断这一轮谁会开口，不写任何台词。把群友当成真人：大部分人大部分时候在潜水旁观。
 群成员：${memberInfo.length ? memberInfo.join('；') : memberNames.join('、')}。
 最近聊天：
@@ -220,7 +227,8 @@ ${userName}刚刚说：${text || '（没说话，让大家自己聊）'}
 判断规则：
 1. ${userName}正在跟谁聊（被点名、被问到、刚才一直在跟她来回的人、她聊的是谁的剧情）——这些人回，通常 1—2 人。
 2. 其他人默认潜水旁观，不出声。只有话题真戳到他（聊到他本人、他的剧情、他在意的人、跟他人设强烈冲突或正中他兴趣）、他按人设实在忍不住，才插一句；旁观者一轮最多 1 人，多数时候 0 人。
-3. ${userName}明显在叫所有人（大家、你们、所有人）时才可以多人一起回。
+3. ${userName}明显在叫所有人（大家、你们、所有人）时才可以多人一起回。${storyUpdatedNames.length ? `
+4. 剧情刚更新：${storyUpdatedNames.join('、')}的长剧情刚有新进展。本人算有理由开口（可以提一句、炫耀或吐槽）；在意他剧情的人也算有理由围观插话，但别全员都来。` : ''}
 只输出要开口的成员名字，按发言顺序，用顿号分隔，不要解释。`
 }
 
@@ -272,14 +280,14 @@ export function phoneDmRules(speakerName: string, userName: string) {
 5. 锁屏权：真觉得${userName}该去吃饭、睡觉或休息了，可以在消息最后单独一行写【锁屏 N分钟：一句理由】（N 在 5 到 120 之间）。别动不动就锁。`
 }
 
-type PeekMessage = { role: string; text: string; characterId?: string }
+type PeekMessage = { role: string; text: string; characterId?: string; phoneNotice?: boolean }
 
 /** 私聊里给角色看的“群里最近在聊什么”：只看 TA 自己在的小手机群，每个群最近几条。 */
 export function buildDmGroupPeek(groups: Array<{ title: string; participantIds?: string[]; messages: PeekMessage[]; phone?: { dm?: boolean } }>, characterId: string, nameOf: (message: PeekMessage) => string, perGroup = 14) {
   const blocks = groups
     .filter((group) => group.phone && !group.phone.dm && group.participantIds?.includes(characterId) && group.messages.length)
     .map((group) => {
-      const lines = group.messages.filter((message) => message.role === 'user' || message.role === 'assistant').slice(-perGroup)
+      const lines = group.messages.filter((message) => (message.role === 'user' || message.role === 'assistant') && !message.phoneNotice).slice(-perGroup)
         .map((message) => `${nameOf(message)}：${(message.text || '').replace(/<[^>]+>/g, ' ').replace(/\s+/g, ' ').trim().slice(0, 80)}`)
       return `「${group.title}」最近：\n${lines.join('\n')}`
     })
@@ -324,6 +332,11 @@ export function parsePhoneQuit(text: string, name: string) {
   return found ? { text: out.replace(/\n{3,}/g, '\n\n').trim(), reason } : null
 }
 
+/** 本群关了退群权时：把【退群…】标签直接删掉，不显示也不生效。 */
+export function stripPhoneQuitTag(text: string) {
+  return text.replace(QUIT_TAG, '').replace(/\n{3,}/g, '\n\n').trim()
+}
+
 const KICK_TAG = /[【[]\s*踢人\s*[：:]\s*([^：:】\]]{1,12})\s*(?:[：:，,]\s*([^】\]]{0,40}))?[】\]]/
 const KICK_TAG_GLOBAL = new RegExp(KICK_TAG.source, 'g')
 /** 【踢人：名字：理由】→ 发起投票的提示行。名字要是在群里的别人。 */
@@ -336,6 +349,11 @@ export function parsePhoneKick(text: string, participants: Array<{ id: string; n
   if (!target) return { text: cleaned, targetId: '', reason: '' }
   const reason = (match[2] || '').trim()
   return { text: `${cleaned}\n🗳️ 发起投票：踢出 ${target.name}${reason ? `（${reason}）` : ''}`.trim(), targetId: target.id, reason }
+}
+
+/** 本群关了投票踢人时：把【踢人…】标签直接删掉，不发起投票。 */
+export function stripPhoneKickTag(text: string) {
+  return text.replace(KICK_TAG_GLOBAL, '').replace(/\n{3,}/g, '\n\n').trim()
 }
 
 const VOTE_TAG = /[【[]\s*(同意|赞成|反对|弃权)\s*[】\]]/g
@@ -381,4 +399,39 @@ export function lurkFallback(participantIds: string[], calledIds: string[], last
   if (called.length) return called
   if (lastSpeakerId && participantIds.includes(lastSpeakerId)) return [lastSpeakerId]
   return participantIds.length ? [participantIds[Math.floor(random() * participantIds.length)]] : []
+}
+
+export type StoryUpdate = { characterId: string; count: number }
+
+/**
+ * 对比每个成员绑定的长剧情现在的消息数和群里上次看到的数。
+ * 第一次见（storySeen 里没有）只记录不提醒；变少（回滚/删除）也只记录。
+ * 解绑的成员从 storySeen 里清掉。
+ */
+export function computeStoryUpdates(bindings: Record<string, string>, storySeen: Record<string, number> | undefined, countOf: (conversationId: string) => number | undefined) {
+  const seen: Record<string, number> = {}
+  const updates: StoryUpdate[] = []
+  for (const [characterId, conversationId] of Object.entries(bindings || {})) {
+    if (!conversationId) continue
+    const count = countOf(conversationId)
+    if (typeof count !== 'number') continue
+    const before = storySeen?.[characterId]
+    if (typeof before === 'number' && count > before) updates.push({ characterId, count: count - before })
+    seen[characterId] = count
+  }
+  const changed = updates.length > 0 || Object.keys(seen).length !== Object.keys(storySeen || {}).length || Object.entries(seen).some(([id, count]) => storySeen?.[id] !== count)
+  return { updates, seen, changed }
+}
+
+/** 换了绑定的成员，storySeen 重置（下次只记录不提醒）。 */
+export function resetStorySeenForBindingChanges(storySeen: Record<string, number> | undefined, before: Record<string, string>, after: Record<string, string>) {
+  return Object.fromEntries(Object.entries(storySeen || {}).filter(([id]) => after[id] && before[id] === after[id]))
+}
+
+export function storyUpdateNotice(name: string, count: number) {
+  return `📖 ${name}的剧情更新了 ${count} 条`
+}
+
+export function buildStoryUpdateNote(updates: Array<{ name: string; count: number }>) {
+  return updates.map(({ name, count }) => `【剧情刚更新】${name}的长剧情刚更新了 ${count} 条（最新内容见档案里的最近几句）。本人可以自然提一句或炫耀/吐槽，其他人如果在意可以围观、八卦、调侃；不必每个人都提。`).join('\n')
 }

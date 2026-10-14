@@ -27,7 +27,7 @@ import { FORUM_UPDATED_EVENT, dueRunAt, forumAutoTick, forumWelcomeThread, isQui
 import type { Moment } from './moments'
 import { USER_AUTHOR, communityMemberIds, excerptFromMessage } from './moments'
 import { buildDmGroupPeek, phoneDmRules } from './phoneGroup'
-import { PHONE_REPLY_MODES, NOTICE_DURATIONS, lurkFallback, activeNotice, noticeRemaining, buildNoticeNote, findAtMentionIds, queueSummons, parsePhoneQuit, parsePhoneKick, parsePhoneVote, kickPassed, findNamedParticipantIds, selectPhoneSpeakers, pickPhoneChatters, cleanPhoneOutput, phoneFinalGuard, buildSmartPickPrompt, parseSmartPick, buildPhoneArchive, buildPhoneGroupBackground, phoneBindingCandidates, buildPhoneRealWorldNote, parsePhoneLockCommand, buildPhoneLockBreachNote, type PhoneLockState, type PhoneLockBreach, phoneCharacter, phoneModeRules } from './phoneGroup'
+import { PHONE_REPLY_MODES, NOTICE_DURATIONS, lurkFallback, activeNotice, noticeRemaining, buildNoticeNote, findAtMentionIds, queueSummons, parsePhoneQuit, parsePhoneKick, parsePhoneVote, kickPassed, findNamedParticipantIds, selectPhoneSpeakers, pickPhoneChatters, cleanPhoneOutput, phoneFinalGuard, buildSmartPickPrompt, parseSmartPick, buildPhoneArchive, buildPhoneGroupBackground, phoneBindingCandidates, buildPhoneRealWorldNote, parsePhoneLockCommand, buildPhoneLockBreachNote, type PhoneLockState, type PhoneLockBreach, phoneCharacter, phoneModeRules, stripPhoneQuitTag, stripPhoneKickTag, computeStoryUpdates, resetStorySeenForBindingChanges, storyUpdateNotice, buildStoryUpdateNote } from './phoneGroup'
 import { assignChatGroup, chatGroupNames, groupConversations, setChatGroupMembers } from './chatGroups'
 import { assignLibraryGroup, setLibraryGroupMembers, effectiveLibraryRole, groupLibraryCharacters, LIBRARY_ROLE_LABELS, libraryGroupNames } from './characterLibraryGroups'
 import { activeCharacterMemory, characterMemoryEntryFromConversation, characterMemoryExtractionPrompt, characterMemorySummaryProtocol, parseCharacterMemoryCandidates, splitCharacterMemorySummary } from './characterMemory'
@@ -414,6 +414,8 @@ function App() {
   const forumThreadsRef = useRef<ForumThread[]>([])
   const pendingWelcomeRef = useRef<{ conversationId: string; ids: string[]; returning?: Record<string, string> } | null>(null)
   const phoneQuitRef = useRef(new Set<string>())
+  /** 本轮用户发言时发现的长剧情更新，写进这一轮所有人的提示里。 */
+  const phoneStoryNoteRef = useRef<{ conversationId: string; note: string } | null>(null)
   /** 本轮刚发起的踢人投票，由说话循环接着跑表决。 */
   const phoneKickRef = useRef<{ conversationId: string; targetId: string; byId: string; reason: string } | null>(null)
   const phoneVotingRef = useRef(false)
@@ -443,7 +445,7 @@ function App() {
   const [phoneTab, setPhoneTab] = useState<'groups' | 'dms' | 'moments'>('groups')
   const [momentSeed, setMomentSeed] = useState<MomentSeed | null>(null)
   const clearMomentSeed = useCallback(() => setMomentSeed(null), [])
-  const [phoneDraft, setPhoneDraft] = useState<{ editingId?: string; title: string; memberIds: string[]; bindings: Record<string, string>; avatar?: string; noticeText?: string; noticeHours?: number } | null>(null)
+  const [phoneDraft, setPhoneDraft] = useState<{ editingId?: string; title: string; memberIds: string[]; bindings: Record<string, string>; avatar?: string; noticeText?: string; noticeHours?: number; allowQuit?: boolean; allowKick?: boolean } | null>(null)
   const [collapsedChatGroups, setCollapsedChatGroups] = useState<string[]>(() => read<string[]>('weijing.chatCollapsed', []))
   const [chatGroupSheet, setChatGroupSheet] = useState<{ id: string; group: string } | null>(null)
   const [chatGroupEditor, setChatGroupEditor] = useState<{ original: string; name: string; memberIds: string[] } | null>(null)
@@ -1789,7 +1791,7 @@ function App() {
   }
   const phoneMembersPool = characters.filter((item) => item.creator !== '惟境内置导演模板' && !item.directorTemplateConfig)
   const openPhonePage = (editing?: Conversation) => {
-    setPhoneDraft(editing ? { editingId: editing.id, title: editing.title, memberIds: [...(editing.participantIds || [])], bindings: { ...(editing.phone?.bindings || {}) }, avatar: editing.phone?.avatar, noticeText: activeNotice(editing.phone?.notice)?.text || '', noticeHours: -1 } : null)
+    setPhoneDraft(editing ? { editingId: editing.id, title: editing.title, memberIds: [...(editing.participantIds || [])], bindings: { ...(editing.phone?.bindings || {}) }, avatar: editing.phone?.avatar, noticeText: activeNotice(editing.phone?.notice)?.text || '', noticeHours: -1, allowQuit: editing.phone?.allowQuit !== false, allowKick: editing.phone?.allowKick !== false } : null)
     navigate('phone')
   }
   const togglePhoneMember = (id: string) => setPhoneDraft((current) => {
@@ -1832,7 +1834,7 @@ function App() {
           ...item, title, characterId: members[0].id, participantIds: members.map((member) => member.id),
           participantApiIds: { ...apiIds, ...Object.fromEntries(Object.entries(item.participantApiIds || {}).filter(([id]) => phoneDraft.memberIds.includes(id))) },
           participantModelNames: { ...modelNames, ...Object.fromEntries(Object.entries(item.participantModelNames || {}).filter(([id]) => phoneDraft.memberIds.includes(id))) },
-          phone: { ...item.phone, bindings, avatar: phoneDraft.avatar, notice, left: Object.fromEntries(Object.entries(item.phone?.left || {}).filter(([id]) => !phoneDraft.memberIds.includes(id))) },
+          phone: { ...item.phone, bindings, avatar: phoneDraft.avatar, notice, allowQuit: phoneDraft.allowQuit !== false, allowKick: phoneDraft.allowKick !== false, storySeen: resetStorySeenForBindingChanges(item.phone?.storySeen, item.phone?.bindings || {}, bindings), left: Object.fromEntries(Object.entries(item.phone?.left || {}).filter(([id]) => !phoneDraft.memberIds.includes(id))) },
           theaterWorldBackground: sameMembers && item.theaterWorldBackground?.trim() ? item.theaterWorldBackground : buildPhoneGroupBackground(members),
           updatedAt: now,
         }
@@ -1847,7 +1849,7 @@ function App() {
       participantIds: members.map((member) => member.id),
       participantApiIds: apiIds, participantModelNames: modelNames,
       title, messages: [], createdAt: now, updatedAt: now, personaId: activePersonaId,
-      phone: { bindings, avatar: phoneDraft.avatar, notice },
+      phone: { bindings, avatar: phoneDraft.avatar, notice, allowQuit: phoneDraft.allowQuit !== false, allowKick: phoneDraft.allowKick !== false },
       theaterWorldBackground: buildPhoneGroupBackground(members),
     }
     setConversations((current) => [...current, conversation])
@@ -2348,11 +2350,11 @@ function App() {
       const mateBackground = missingMates.length ? `【补充成员人设】\n${buildPhoneGroupBackground(missingMates).split('\n\n').slice(1).join('\n\n')}` : ''
       const dmBackground = dmMates.length ? `【群友们的人设与世界观】（大家互相透明，你都知道）\n${buildPhoneGroupBackground(dmMates).split('\n\n').slice(1).join('\n\n')}` : ''
       const dmPeek = conversation.phone?.dm ? buildDmGroupPeek(conversations, speaker.id, (message) => message.role === 'user' ? identity.name : characters.find((item) => item.id === message.characterId)?.name || '群友') : ''
-      const noticeNote = conversation.phone?.dm ? '' : buildNoticeNote(activeNotice(conversation.phone?.notice), identity.name)
+      const noticeNote = conversation.phone?.dm ? '' : [buildNoticeNote(activeNotice(conversation.phone?.notice), identity.name), (() => { const story = phoneStoryNoteRef.current; return story && story.conversationId === conversation.id ? story.note : '' })()].filter(Boolean).join('\n\n')
       const pointsNote = buildPointsNote(readPoints(), [...members, ...dmMates].map((member) => ({ id: member.id, name: member.name })), identity.name)
-      return [conversation.phone?.dm ? phoneDmRules(speaker.name, identity.name) : phoneModeRules(speaker.name, members.map((member) => member.name), identity.name), realWorld, noticeNote, pointsNote, mateBackground, dmBackground, dmPeek, buildPhoneArchive(sources, speaker.id, identity.name, (message) => message.characterId ? nameOf(message) : sources.find((source) => source.conversation?.messages.includes(message))?.character.name || '角色')].join('\n\n')
+      return [conversation.phone?.dm ? phoneDmRules(speaker.name, identity.name) : phoneModeRules(speaker.name, members.map((member) => member.name), identity.name, { allowQuit: conversation.phone?.allowQuit, allowKick: conversation.phone?.allowKick }), realWorld, noticeNote, pointsNote, mateBackground, dmBackground, dmPeek, buildPhoneArchive(sources, speaker.id, identity.name, (message) => message.characterId ? nameOf(message) : sources.find((source) => source.conversation?.messages.includes(message))?.character.name || '角色')].join('\n\n')
     })() : ''
-    const sanitizedHistory = (isPhone ? nextMessages.map((message) => message.role === 'assistant' ? { ...message, text: cleanPhoneOutput(message.text) || message.text } : message) : nextMessages).flatMap((message) => {
+    const sanitizedHistory = (isPhone ? nextMessages.filter((message) => !message.phoneNotice).map((message) => message.role === 'assistant' ? { ...message, text: cleanPhoneOutput(message.text) || message.text } : message) : nextMessages).flatMap((message) => {
       const fromDirector = message.role === 'assistant' && message.characterId === conversation.directorCharacterId
       const text = fromDirector ? sanitizeAssistantOutput(message.text, { director: true }) : message.text
       if (fromDirector && !text.trim()) return []
@@ -2643,6 +2645,8 @@ function App() {
           const voted = parsePhoneVote(visibleOutput)
           visibleOutput = voted.text
           phoneLastVoteRef.current = voted.vote
+        } else if (conversation.phone.allowKick === false) {
+          visibleOutput = stripPhoneKickTag(visibleOutput)
         } else {
           const kick = parsePhoneKick(visibleOutput, (conversation.participantIds || []).map((id) => ({ id, name: characters.find((item) => item.id === id)?.name || '' })), speaker.id)
           if (kick) {
@@ -2651,7 +2655,8 @@ function App() {
           }
         }
       }
-      const phoneQuit = conversation.phone && !conversation.phone.dm && !isDirector ? parsePhoneQuit(visibleOutput, speaker.name) : null
+      if (conversation.phone && !conversation.phone.dm && !isDirector && conversation.phone.allowQuit === false) visibleOutput = stripPhoneQuitTag(visibleOutput)
+      const phoneQuit = conversation.phone && !conversation.phone.dm && !isDirector && conversation.phone.allowQuit !== false ? parsePhoneQuit(visibleOutput, speaker.name) : null
       if (phoneQuit) {
         visibleOutput = phoneQuit.text
         writePoints(addPoints(readPoints(), speaker.id, -20, `退群${phoneQuit.reason ? `：${phoneQuit.reason}` : ''}`, Date.now()))
@@ -2760,13 +2765,13 @@ function App() {
   }
 
   /** 小手机：用户不说话，让群里的角色自己聊几句。 */
-  const pickSmartSpeakers = async (conversation: Conversation, history: Message[], participants: Array<{ id: string; name: string }>, text: string) => {
+  const pickSmartSpeakers = async (conversation: Conversation, history: Message[], participants: Array<{ id: string; name: string }>, text: string, storyUpdatedNames: string[] = []) => {
     try {
       const nameOf = (message: Message) => message.role === 'user' ? identity.name : participants.find((item) => item.id === message.characterId)?.name || '角色'
-      const recent = history.filter((message) => message.text?.trim()).slice(-12).map((message) => `${nameOf(message)}：${cleanPhoneOutput(message.text).replace(/\s+/g, ' ').slice(0, 80)}`)
+      const recent = history.filter((message) => message.text?.trim() && !message.phoneNotice).slice(-12).map((message) => `${nameOf(message)}：${cleanPhoneOutput(message.text).replace(/\s+/g, ' ').slice(0, 80)}`)
       const channel = conversationApiFor(conversation, participants[0]?.id || '', api)
       let output = ''
-      await completeChat({ api: channel, messages: [{ role: 'user', content: buildSmartPickPrompt(participants.map((item) => item.name), recent, identity.name, text, participants.map((item) => { const character = characters.find((entry) => entry.id === item.id); const from = character?.libraryGroup || character?.tagline || ''; return from ? `${item.name}（${from.slice(0, 24)}）` : item.name })) }], temperature: .3, topP: 1, maxTokens: 60, streaming: false, signal: new AbortController().signal, onDelta: (delta) => { output += delta } })
+      await completeChat({ api: channel, messages: [{ role: 'user', content: buildSmartPickPrompt(participants.map((item) => item.name), recent, identity.name, text, participants.map((item) => { const character = characters.find((entry) => entry.id === item.id); const from = character?.libraryGroup || character?.tagline || ''; return from ? `${item.name}（${from.slice(0, 24)}）` : item.name }), storyUpdatedNames) }], temperature: .3, topP: 1, maxTokens: 60, streaming: false, signal: new AbortController().signal, onDelta: (delta) => { output += delta } })
       return parseSmartPick(output, participants)
     } catch {
       return []
@@ -2777,7 +2782,7 @@ function App() {
     const stopRevision = conversationStopRevisions.current.get(conversation.id) || 0
     const participantIds = conversation.participantIds || []
     let groupMessages = conversation.messages
-    const lastSpeakerId = [...groupMessages].reverse().find((item) => item.role === 'assistant')?.characterId
+    const lastSpeakerId = [...groupMessages].reverse().find((item) => item.role === 'assistant' && !item.phoneNotice)?.characterId
     const speakerIds = conversation.phone?.dm ? participantIds.slice(0, 1) : pickPhoneChatters(participantIds, lastSpeakerId, Math.random, conversation.phone?.mode === 'all')
     setChatError('')
     let queue = [...speakerIds]
@@ -2981,7 +2986,26 @@ function App() {
       const mentionedIds = findMentionedParticipantIds(text, participants)
       const visibleText = stripParticipantMentions(text, participants)
       const userMessage = visibleText || images.length ? { id: nextMessageId(sourceMessages), role: 'user' as const, text: visibleText, ...(images.length ? { images } : {}) } : null
-      const baseMessages: Message[] = userMessage ? [...sourceMessages, userMessage] : sourceMessages
+      let baseMessages: Message[] = userMessage ? [...sourceMessages, userMessage] : sourceMessages
+      let storyUpdatedNames: string[] = []
+      phoneStoryNoteRef.current = null
+      if (conversation.phone && !conversation.phone.dm && userMessage) {
+        const story = computeStoryUpdates(conversation.phone.bindings, conversation.phone.storySeen, (id) => conversations.find((item) => item.id === id)?.messages.length)
+        const updates = story.updates.filter((update) => participantIds.includes(update.characterId)).map((update) => ({ ...update, name: characters.find((item) => item.id === update.characterId)?.name || '' })).filter((update) => update.name)
+        if (updates.length) {
+          storyUpdatedNames = updates.map((update) => update.name)
+          phoneStoryNoteRef.current = { conversationId: conversation.id, note: buildStoryUpdateNote(updates) }
+          let noticeId = Math.max(nextMessageId(sourceMessages), Date.now())
+          const notices: Message[] = updates.map((update) => ({ id: noticeId++, role: 'assistant', text: storyUpdateNotice(update.name, update.count), phoneNotice: true }))
+          baseMessages = [...sourceMessages, ...notices, { ...userMessage, id: noticeId }]
+        }
+        if (story.changed) {
+          const seen = story.seen
+          conversation = { ...conversation, phone: { ...conversation.phone, storySeen: seen } }
+          const conversationId = conversation.id
+          setConversations((current) => current.map((item) => item.id === conversationId && item.phone ? { ...item, phone: { ...item.phone, storySeen: seen } } : item))
+        }
+      }
       setConversations((current) => current.map((item) => item.id === conversation.id ? { ...item, messages: baseMessages, updatedAt: Date.now() } : item))
       // “暂停角色扮演” is intentionally stored as a visible boundary in the
       // transcript, but it must never be routed to a character or director.
@@ -2990,10 +3014,10 @@ function App() {
         setChatError('')
         return
       }
-      const lastSpeakerId = [...baseMessages].reverse().find((item) => item.role === 'assistant')?.characterId
+      const lastSpeakerId = [...baseMessages].reverse().find((item) => item.role === 'assistant' && !item.phoneNotice)?.characterId
       const phoneMode = conversation.phone?.mode || 'free'
       const phoneNamedIds = conversation.phone ? findNamedParticipantIds(visibleText, participants) : []
-      const smartIds = conversation.phone && phoneMode === 'smart' ? await pickSmartSpeakers(conversation, baseMessages, participants, visibleText) : []
+      const smartIds = conversation.phone && phoneMode === 'smart' ? await pickSmartSpeakers(conversation, baseMessages, participants, visibleText, storyUpdatedNames) : []
       const speakerIds = conversation.phone?.dm ? participantIds.slice(0, 1) : conversation.phone
         ? smartIds.length ? smartIds : phoneMode === 'smart' ? lurkFallback(participantIds, [...mentionedIds, ...phoneNamedIds], lastSpeakerId) : selectPhoneSpeakers({ mode: phoneMode, participantIds, mentionedIds, namedIds: phoneNamedIds, lastSpeakerId, text: visibleText })
         : selectGroupSpeakerIds({ participantIds, mentionedIds, mode: groupReplyMode, directorCharacterId: conversation.directorCharacterId, lastSpeakerId, text })
@@ -3483,6 +3507,7 @@ function App() {
   }
   const isGenerating = Boolean(activeConversation && generatingIds.includes(activeConversation.id))
   const renderChatMessage = (message: Message) => {
+    if (message.phoneNotice) return <div key={message.id} data-message-id={message.id} className="phone-system-notice" role="note">{message.text}</div>
     const messageCharacter = resolveMessageCharacter(message)
     const isUser = message.role === 'user'
     const authorName = isUser ? identity.name : messageCharacter.name
@@ -3611,6 +3636,8 @@ function App() {
         </div>
         <label className="group-title-field phone-notice-field">群公告<textarea rows={2} maxLength={200} value={phoneDraft.noticeText || ''} onChange={(event) => setPhoneDraft({ ...phoneDraft, noticeText: event.target.value })} placeholder="例如：今天谁再锁我手机，直接投票踢出" /></label>
         {(phoneDraft.noticeText || '').trim() && <div className="phone-notice-hours">{(phoneDraft.noticeHours ?? -1) < 0 && phoneDraft.editingId && activeNotice(conversations.find((item) => item.id === phoneDraft.editingId)?.phone?.notice)?.text === (phoneDraft.noticeText || '').trim() ? <small>{noticeRemaining(activeNotice(conversations.find((item) => item.id === phoneDraft.editingId)?.phone?.notice)?.until)} · 重选时长会重新计时</small> : <small>挂多久</small>}<div>{NOTICE_DURATIONS.map((option) => <button key={option.hours} type="button" className={((phoneDraft.noticeHours ?? -1) < 0 ? (phoneDraft.editingId && activeNotice(conversations.find((item) => item.id === phoneDraft.editingId)?.phone?.notice)?.text === (phoneDraft.noticeText || '').trim() ? -1 : 24) : phoneDraft.noticeHours) === option.hours ? 'active' : ''} onClick={() => setPhoneDraft({ ...phoneDraft, noticeHours: option.hours })}>{option.label}</button>)}</div></div>}
+        <div className="settings-group toggle-row phone-group-toggle"><div><strong>允许角色退群</strong><small>关掉后角色不会被告知能退群，写了【退群】也不生效</small></div><button type="button" role="switch" aria-checked={phoneDraft.allowQuit !== false} aria-label="允许角色退群" className={`switch ${phoneDraft.allowQuit !== false ? 'on' : ''}`} onClick={() => setPhoneDraft({ ...phoneDraft, allowQuit: phoneDraft.allowQuit === false })}><span /></button></div>
+        <div className="settings-group toggle-row phone-group-toggle"><div><strong>允许投票踢人</strong><small>关掉后不会发起踢人投票，【踢人】标签直接隐藏</small></div><button type="button" role="switch" aria-checked={phoneDraft.allowKick !== false} aria-label="允许投票踢人" className={`switch ${phoneDraft.allowKick !== false ? 'on' : ''}`} onClick={() => setPhoneDraft({ ...phoneDraft, allowKick: phoneDraft.allowKick === false })}><span /></button></div>
         <div className="privacy-note">选至少两张角色卡。每张卡可以绑定一段自己演过的对话，他的剧情摘要和记忆会带进群里；所有成员的人设与世界观会自动拼进这个群的综合世界观，之后可在聊天设置里修改。</div>
         <div className="phone-member-list">{phoneMembersPool.map((character) => {
           const selected = phoneDraft.memberIds.includes(character.id)
@@ -3875,7 +3902,7 @@ function UpdateCard() {
     }
   }
 
-  return <section className="update-card"><strong>应用更新</strong><p>主动检查并拉取最新网页版本，不会删除角色、聊天记录或本地设置。</p><small>当前版本：v74 · 2026.10.14 旁观插话模式</small><button onClick={refresh} disabled={state === 'checking'}>{state === 'checking' ? '正在检查更新…' : state === 'error' ? '更新失败，点我重试' : '强制刷新到最新版'}</button></section>
+  return <section className="update-card"><strong>应用更新</strong><p>主动检查并拉取最新网页版本，不会删除角色、聊天记录或本地设置。</p><small>当前版本：v75 · 2026.10.14 退群/踢人开关 + 剧情更新提醒 + 盖楼修复</small><button onClick={refresh} disabled={state === 'checking'}>{state === 'checking' ? '正在检查更新…' : state === 'error' ? '更新失败，点我重试' : '强制刷新到最新版'}</button></section>
 }
 
 function PersonaPage({ identities, selectedId, isBound, onSelect, onAdd, onDelete, onUpdate, onBack }: { identities: UserIdentity[]; selectedId: string; isBound: boolean; onSelect: (id: string) => void; onAdd: () => void; onDelete: (id: string) => void; onUpdate: (patch: Partial<UserIdentity>) => void; onBack: () => void }) {
