@@ -12,6 +12,7 @@ import MentionPicker from './MentionPicker'
 import { prewarmAvatarThumbnails } from './avatarThumbnail'
 import MessageContent from './MessageContent'
 import { createBlankCharacter, importCharacterCard, normalizeStoredCharacter, LIBRARY_ROLES, type Character, type LibraryRole } from './characterCard'
+import { assignChatGroup, chatGroupNames, groupConversations, setChatGroupMembers } from './chatGroups'
 import { assignLibraryGroup, setLibraryGroupMembers, effectiveLibraryRole, groupLibraryCharacters, LIBRARY_ROLE_LABELS, libraryGroupNames } from './characterLibraryGroups'
 import { activeCharacterMemory, characterMemoryEntryFromConversation, characterMemoryExtractionPrompt, characterMemorySummaryProtocol, parseCharacterMemoryCandidates, splitCharacterMemorySummary } from './characterMemory'
 import { ChatApiError, completeChat, fetchApiModels, testApiConnection, type ApiConfig, type ApiModel } from './chatApi'
@@ -391,6 +392,9 @@ function App() {
   const [characterSelectionMode, setCharacterSelectionMode] = useState(false)
   const [selectedCharacterIds, setSelectedCharacterIds] = useState<string[]>([])
   const [collapsedLibraryGroups, setCollapsedLibraryGroups] = useState<string[]>(() => read<string[]>('weijing.libraryCollapsed', []))
+  const [collapsedChatGroups, setCollapsedChatGroups] = useState<string[]>(() => read<string[]>('weijing.chatCollapsed', []))
+  const [chatGroupSheet, setChatGroupSheet] = useState<{ id: string; group: string } | null>(null)
+  const [chatGroupEditor, setChatGroupEditor] = useState<{ original: string; name: string; memberIds: string[] } | null>(null)
   const [groupEditor, setGroupEditor] = useState<{ original: string; name: string; memberIds: string[] } | null>(null)
   const [librarySheet, setLibrarySheet] = useState<{ ids: string[]; group: string; role: LibraryRole | null | undefined } | null>(null)
   const [groupDraft, setGroupDraft] = useState<{ title: string; participantIds: string[]; apiIds: Record<string, string>; modelNames: Record<string, string> }>({ title: '', participantIds: [], apiIds: {}, modelNames: {} })
@@ -981,7 +985,7 @@ function App() {
   useLayoutEffect(() => {
     if (page !== 'chat') phoneCanvasRef.current?.scrollTo({ top: 0, left: 0 })
   }, [page])
-  const librarySheetOpen = librarySheet !== null || groupEditor !== null
+  const librarySheetOpen = librarySheet !== null || groupEditor !== null || chatGroupSheet !== null || chatGroupEditor !== null
   useLayoutEffect(() => {
     // iOS standalone: index.html sizes the layout boxes with inline heights; give
     // boxes React just mounted (expanded composer, a re-created canvas) the current value.
@@ -1692,6 +1696,20 @@ function App() {
     if (group) setCollapsedLibraryGroups((current) => current.filter((item) => item !== group))
     setLibrarySheet(null)
     if (characterSelectionMode) closeCharacterSelection()
+  }
+  useEffect(() => { write('weijing.chatCollapsed', collapsedChatGroups) }, [collapsedChatGroups])
+  const toggleChatGroup = (key: string) => setCollapsedChatGroups((current) => current.includes(key) ? current.filter((item) => item !== key) : [...current, key])
+  const saveChatGroupSheet = () => {
+    if (!chatGroupSheet) return
+    setConversations((current) => assignChatGroup(current, [chatGroupSheet.id], chatGroupSheet.group))
+    setChatGroupSheet(null)
+  }
+  const openChatGroupEditor = (name: string) => setChatGroupEditor({ original: name, name, memberIds: conversations.filter((item) => item.chatGroup === name).map((item) => item.id) })
+  const saveChatGroupEditor = () => {
+    if (!chatGroupEditor) return
+    if (!chatGroupEditor.name.trim()) { window.alert('组名不能为空。想解散这个组，就把聊天全部取消勾选。'); return }
+    setConversations((current) => setChatGroupMembers(current, chatGroupEditor.original, chatGroupEditor.name, chatGroupEditor.memberIds))
+    setChatGroupEditor(null)
   }
   const openGroupEditor = (name: string) => setGroupEditor({ original: name, name, memberIds: characters.filter((item) => item.libraryGroup === name).map((item) => item.id) })
   const saveGroupEditor = () => {
@@ -3164,6 +3182,18 @@ function App() {
 
     {mentionPickerOpen && activeConversation?.kind === 'group' && <MentionPicker members={groupParticipants} onPick={insertGroupMention} onClose={closeMentionPicker} />}
 
+    {chatGroupSheet && <div className="character-menu-layer library-sheet-layer"><button className="drawer-backdrop" aria-label="关闭分组" onClick={() => setChatGroupSheet(null)} /><section className="conversation-menu library-group-sheet"><header><div><small>聊天分组</small><strong>{conversations.find((item) => item.id === chatGroupSheet.id)?.title}</strong></div><button onClick={() => setChatGroupSheet(null)}>×</button></header>
+      <div className="library-sheet-block"><small>放进哪个组</small><input value={chatGroupSheet.group} maxLength={40} onChange={(event) => setChatGroupSheet({ ...chatGroupSheet, group: event.target.value })} placeholder="例如：谢聿衡篇（留空 = 不分组）" /><div className="library-chip-row">{chatGroupNames(conversations).map((name) => <button key={name} className={chatGroupSheet.group.trim() === name ? 'active' : ''} onClick={() => setChatGroupSheet({ ...chatGroupSheet, group: name })}>{name}</button>)}<button className={!chatGroupSheet.group.trim() ? 'active' : ''} onClick={() => setChatGroupSheet({ ...chatGroupSheet, group: '' })}>不分组</button></div></div>
+      <button className="library-sheet-save" onClick={saveChatGroupSheet}>保存</button></section></div>}
+    {chatGroupEditor && <div className="character-menu-layer library-sheet-layer"><button className="drawer-backdrop" aria-label="关闭成员管理" onClick={() => setChatGroupEditor(null)} /><section className="conversation-menu library-group-sheet"><header><div><small>管理分组里的聊天</small><strong>已选 {chatGroupEditor.memberIds.length} 个</strong></div><button onClick={() => setChatGroupEditor(null)}>×</button></header>
+      <div className="library-sheet-block"><small>组名</small><input value={chatGroupEditor.name} maxLength={40} onChange={(event) => setChatGroupEditor({ ...chatGroupEditor, name: event.target.value })} /></div>
+      <div className="library-member-list">{sortedConversations.slice().sort((a, b) => Number(chatGroupEditor.memberIds.includes(b.id)) - Number(chatGroupEditor.memberIds.includes(a.id))).map((item) => {
+        const checked = chatGroupEditor.memberIds.includes(item.id)
+        const elsewhere = item.chatGroup && item.chatGroup !== chatGroupEditor.original ? item.chatGroup : ''
+        const who = characters.find((character) => character.id === item.characterId)?.name || ''
+        return <button key={item.id} className={`library-member${checked ? ' checked' : ''}`} aria-pressed={checked} onClick={() => setChatGroupEditor({ ...chatGroupEditor, memberIds: checked ? chatGroupEditor.memberIds.filter((id) => id !== item.id) : [...chatGroupEditor.memberIds, item.id] })}><i>{checked ? '✓' : ''}</i><strong>{item.title}</strong><span>{who}{elsewhere ? ` · 现在在「${elsewhere}」` : ''}</span></button>
+      })}</div>
+      <button className="library-sheet-save" onClick={saveChatGroupEditor}>保存</button></section></div>}
     {groupEditor && <div className="character-menu-layer library-sheet-layer"><button className="drawer-backdrop" aria-label="关闭成员管理" onClick={() => setGroupEditor(null)} /><section className="conversation-menu library-group-sheet"><header><div><small>管理分组成员</small><strong>已选 {groupEditor.memberIds.length} 张</strong></div><button onClick={() => setGroupEditor(null)}>×</button></header>
       <div className="library-sheet-block"><small>组名</small><input value={groupEditor.name} maxLength={40} onChange={(event) => setGroupEditor({ ...groupEditor, name: event.target.value })} /></div>
       <div className="library-member-list">{characters.filter((item) => item.creator !== '惟境内置导演模板').slice().sort((a, b) => Number(groupEditor.memberIds.includes(b.id)) - Number(groupEditor.memberIds.includes(a.id))).map((item) => {
@@ -3182,14 +3212,25 @@ function App() {
       <button className="drawer-backdrop" aria-label="关闭抽屉" onClick={() => { setDrawer(null); setConversationMenuId(null) }} />
       {drawer === 'left' && <aside className="app-drawer left-drawer" aria-label="对话列表">
         <header className="drawer-header"><div><small>惟境</small><h2>全部聊天</h2></div><button onClick={goHome}>回首页</button></header>
-        <div className="conversation-list">{sortedConversations.length ? sortedConversations.map((conversation) => {
+        <div className="conversation-list">{sortedConversations.length ? (() => {
+          const renderRow = (conversation: Conversation) => {
           const character = characters.find((item) => item.id === conversation.characterId) || demoCharacter
           const preview = conversation.messages[conversation.messages.length - 1]?.text || character.greeting
           return <div className={`conversation-row ${conversation.id === activeConversation?.id ? 'active' : ''}`} key={conversation.id}>
             <button className="conversation-main" onClick={() => openConversation(conversation)}>{character.avatar ? <img src={character.avatar} alt="" /> : <span>{character.name.slice(-1)}</span>}<div><strong>{conversation.title}</strong><small>{character.name} · {preview.slice(0, 32)}</small></div></button>
             <button className="conversation-more" aria-label={`管理${conversation.title}`} onClick={() => setConversationMenuId(conversation.id)}>•••</button>
           </div>
-        }) : <div className="drawer-empty">还没有对话，从角色库选择一个角色开始吧。</div>}</div>
+          }
+          const sections = groupConversations(sortedConversations)
+          if (sections.length === 1 && sections[0].key === '__ungrouped__') return sections[0].items.map(renderRow)
+          return sections.map((section) => {
+            const collapsed = collapsedChatGroups.includes(section.key)
+            return <div className="chat-group" key={section.key}>
+              <div className="library-group-head"><button className={`library-group-header${collapsed ? ' collapsed' : ''}`} aria-expanded={!collapsed} onClick={() => toggleChatGroup(section.key)}><strong>{section.name}</strong><span>{section.items.length} 个</span><i>›</i></button>{section.key !== '__ungrouped__' && <button className="library-group-edit" onClick={() => openChatGroupEditor(section.name)}>成员</button>}</div>
+              {!collapsed && section.items.map(renderRow)}
+            </div>
+          })
+        })() : <div className="drawer-empty">还没有对话，从角色库选择一个角色开始吧。</div>}</div>
         <nav className="drawer-bottom-nav"><button onClick={() => navigate('api', 'left')}><span>⌁</span><small>API 连接</small></button><button onClick={() => navigate('characters', 'left')}><span>◉</span><small>角色</small></button><button onClick={() => navigate('more', 'left')}><span>•••</span><small>更多</small></button></nav>
       </aside>}
 
@@ -3208,6 +3249,7 @@ function App() {
       {menuConversation && <section className="conversation-menu" aria-label="会话操作">
         <header><div><small>会话操作</small><strong>{menuConversation.title}</strong></div><button onClick={() => setConversationMenuId(null)}>×</button></header>
         <button onClick={() => renameConversation(menuConversation)}>重命名</button>
+        <button onClick={() => { setChatGroupSheet({ id: menuConversation.id, group: menuConversation.chatGroup || '' }); setConversationMenuId(null) }}>分组{menuConversation.chatGroup ? ` · ${menuConversation.chatGroup}` : ''}</button>
         <button onClick={() => startNewConversation(menuConversation)}>新对话（保留旧聊天）</button>
         <button className="restart-action" onClick={() => restartConversation(menuConversation)}>重启剧情（回到开场白）</button>
         <button onClick={() => cloneConversation(menuConversation)}>克隆对话</button>

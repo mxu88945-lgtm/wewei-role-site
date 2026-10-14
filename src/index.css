@@ -617,3 +617,5 @@ button { cursor: pointer; }
 .library-member strong { font-size: 14px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .library-member span { margin-left: auto; color: #9d97a1; font-size: 11px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .library-member:active { background: #eee9f1; }
+.chat-group { display: grid; gap: 6px; margin-bottom: 8px; }
+.chat-group .library-group-header, .chat-group .library-group-edit { min-height: 40px; }

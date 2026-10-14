@@ -31,6 +31,8 @@ export type Conversation = {
   compressedUntil?: number
   historyRevision?: number
   kind?: 'single' | 'group'
+  /** 聊天记录分组（故事名），只在聊天列表里整理用。 */
+  chatGroup?: string
   participantIds?: string[]
   participantApiIds?: Record<string, string>
   participantModelNames?: Record<string, string>
@@ -147,6 +149,7 @@ export function createFreshConversationFrom(source: Conversation, greeting: stri
     historyRevision: 0,
     memorySummarizedCount: 0,
     kind: source.kind,
+    chatGroup: source.chatGroup,
     participantIds: source.participantIds ? [...source.participantIds] : undefined,
     participantApiIds: source.participantApiIds ? { ...source.participantApiIds } : undefined,
     participantModelNames: source.participantModelNames ? { ...source.participantModelNames } : undefined,
