@@ -980,11 +980,12 @@ function App() {
   useLayoutEffect(() => {
     if (page !== 'chat') phoneCanvasRef.current?.scrollTo({ top: 0, left: 0 })
   }, [page])
+  const librarySheetOpen = librarySheet !== null
   useLayoutEffect(() => {
     // iOS standalone: index.html sizes the layout boxes with inline heights; give
     // boxes React just mounted (expanded composer, a re-created canvas) the current value.
     (window as Window & { __weijingApplyAppHeight?: () => void }).__weijingApplyAppHeight?.()
-  }, [page, composerExpanded])
+  }, [page, composerExpanded, librarySheetOpen])
   useLayoutEffect(() => {
     if (page !== 'chat') return
     const list = messageListRef.current
@@ -3155,7 +3156,7 @@ function App() {
 
     {mentionPickerOpen && activeConversation?.kind === 'group' && <MentionPicker members={groupParticipants} onPick={insertGroupMention} onClose={closeMentionPicker} />}
 
-    {librarySheet && <div className="character-menu-layer"><button className="drawer-backdrop" aria-label="关闭分组" onClick={() => setLibrarySheet(null)} /><section className="conversation-menu library-group-sheet"><header><div><small>分组与身份</small><strong>{librarySheet.ids.length > 1 ? `${librarySheet.ids.length} 个角色` : characters.find((item) => item.id === librarySheet.ids[0])?.name}</strong></div><button onClick={() => setLibrarySheet(null)}>×</button></header>
+    {librarySheet && <div className="character-menu-layer library-sheet-layer"><button className="drawer-backdrop" aria-label="关闭分组" onClick={() => setLibrarySheet(null)} /><section className="conversation-menu library-group-sheet"><header><div><small>分组与身份</small><strong>{librarySheet.ids.length > 1 ? `${librarySheet.ids.length} 个角色` : characters.find((item) => item.id === librarySheet.ids[0])?.name}</strong></div><button onClick={() => setLibrarySheet(null)}>×</button></header>
       <div className="library-sheet-block"><small>属于哪个故事</small><input value={librarySheet.group} maxLength={40} onChange={(event) => setLibrarySheet({ ...librarySheet, group: event.target.value })} placeholder="例如：谢聿衡篇（留空 = 不分组）" /><div className="library-chip-row">{libraryGroupNames(characters).map((name) => <button key={name} className={librarySheet.group.trim() === name ? 'active' : ''} onClick={() => setLibrarySheet({ ...librarySheet, group: name })}>{name}</button>)}<button className={!librarySheet.group.trim() ? 'active' : ''} onClick={() => setLibrarySheet({ ...librarySheet, group: '' })}>不分组</button></div></div>
       <div className="library-sheet-block"><small>在故事里的身份</small><div className="library-chip-row">{LIBRARY_ROLES.map((role) => <button key={role} className={librarySheet.role === role ? 'active' : ''} onClick={() => setLibrarySheet({ ...librarySheet, role })}>{LIBRARY_ROLE_LABELS[role]}</button>)}<button className={librarySheet.role === null ? 'active' : ''} onClick={() => setLibrarySheet({ ...librarySheet, role: null })}>不标</button></div>{librarySheet.role === undefined && <p>这几张身份不一样，不点就各自保留。</p>}</div>
       <button className="library-sheet-save" onClick={saveLibrarySheet}>保存</button></section></div>}
