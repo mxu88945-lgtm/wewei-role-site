@@ -34,3 +34,12 @@ describe('phone kick vote', () => {
     expect(kickPassed(2, 4)).toBe(false)
   })
 })
+
+import { lurkFallback } from './phoneGroup'
+describe('lurk mode fallback', () => {
+  it('keeps everyone else quiet', () => {
+    expect(lurkFallback(['y', 'f', 's'], ['f'], 'y')).toEqual(['f'])
+    expect(lurkFallback(['y', 'f', 's'], [], 'y')).toEqual(['y'])
+    expect(lurkFallback(['y', 'f', 's'], [], undefined, () => 0)).toEqual(['y'])
+  })
+})

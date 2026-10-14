@@ -27,7 +27,7 @@ import { FORUM_UPDATED_EVENT, dueRunAt, forumAutoTick, forumWelcomeThread, isQui
 import type { Moment } from './moments'
 import { USER_AUTHOR, communityMemberIds, excerptFromMessage } from './moments'
 import { buildDmGroupPeek, phoneDmRules } from './phoneGroup'
-import { PHONE_REPLY_MODES, NOTICE_DURATIONS, activeNotice, noticeRemaining, buildNoticeNote, findAtMentionIds, queueSummons, parsePhoneQuit, parsePhoneKick, parsePhoneVote, kickPassed, findNamedParticipantIds, selectPhoneSpeakers, pickPhoneChatters, cleanPhoneOutput, phoneFinalGuard, buildSmartPickPrompt, parseSmartPick, buildPhoneArchive, buildPhoneGroupBackground, phoneBindingCandidates, buildPhoneRealWorldNote, parsePhoneLockCommand, buildPhoneLockBreachNote, type PhoneLockState, type PhoneLockBreach, phoneCharacter, phoneModeRules } from './phoneGroup'
+import { PHONE_REPLY_MODES, NOTICE_DURATIONS, lurkFallback, activeNotice, noticeRemaining, buildNoticeNote, findAtMentionIds, queueSummons, parsePhoneQuit, parsePhoneKick, parsePhoneVote, kickPassed, findNamedParticipantIds, selectPhoneSpeakers, pickPhoneChatters, cleanPhoneOutput, phoneFinalGuard, buildSmartPickPrompt, parseSmartPick, buildPhoneArchive, buildPhoneGroupBackground, phoneBindingCandidates, buildPhoneRealWorldNote, parsePhoneLockCommand, buildPhoneLockBreachNote, type PhoneLockState, type PhoneLockBreach, phoneCharacter, phoneModeRules } from './phoneGroup'
 import { assignChatGroup, chatGroupNames, groupConversations, setChatGroupMembers } from './chatGroups'
 import { assignLibraryGroup, setLibraryGroupMembers, effectiveLibraryRole, groupLibraryCharacters, LIBRARY_ROLE_LABELS, libraryGroupNames } from './characterLibraryGroups'
 import { activeCharacterMemory, characterMemoryEntryFromConversation, characterMemoryExtractionPrompt, characterMemorySummaryProtocol, parseCharacterMemoryCandidates, splitCharacterMemorySummary } from './characterMemory'
@@ -2763,10 +2763,10 @@ function App() {
   const pickSmartSpeakers = async (conversation: Conversation, history: Message[], participants: Array<{ id: string; name: string }>, text: string) => {
     try {
       const nameOf = (message: Message) => message.role === 'user' ? identity.name : participants.find((item) => item.id === message.characterId)?.name || '角色'
-      const recent = history.filter((message) => message.text?.trim()).slice(-8).map((message) => `${nameOf(message)}：${cleanPhoneOutput(message.text).replace(/\s+/g, ' ').slice(0, 80)}`)
+      const recent = history.filter((message) => message.text?.trim()).slice(-12).map((message) => `${nameOf(message)}：${cleanPhoneOutput(message.text).replace(/\s+/g, ' ').slice(0, 80)}`)
       const channel = conversationApiFor(conversation, participants[0]?.id || '', api)
       let output = ''
-      await completeChat({ api: channel, messages: [{ role: 'user', content: buildSmartPickPrompt(participants.map((item) => item.name), recent, identity.name, text) }], temperature: .3, topP: 1, maxTokens: 60, streaming: false, signal: new AbortController().signal, onDelta: (delta) => { output += delta } })
+      await completeChat({ api: channel, messages: [{ role: 'user', content: buildSmartPickPrompt(participants.map((item) => item.name), recent, identity.name, text, participants.map((item) => { const character = characters.find((entry) => entry.id === item.id); const from = character?.libraryGroup || character?.tagline || ''; return from ? `${item.name}（${from.slice(0, 24)}）` : item.name })) }], temperature: .3, topP: 1, maxTokens: 60, streaming: false, signal: new AbortController().signal, onDelta: (delta) => { output += delta } })
       return parseSmartPick(output, participants)
     } catch {
       return []
@@ -2995,7 +2995,7 @@ function App() {
       const phoneNamedIds = conversation.phone ? findNamedParticipantIds(visibleText, participants) : []
       const smartIds = conversation.phone && phoneMode === 'smart' ? await pickSmartSpeakers(conversation, baseMessages, participants, visibleText) : []
       const speakerIds = conversation.phone?.dm ? participantIds.slice(0, 1) : conversation.phone
-        ? smartIds.length ? smartIds : selectPhoneSpeakers({ mode: phoneMode, participantIds, mentionedIds, namedIds: phoneNamedIds, lastSpeakerId, text: visibleText })
+        ? smartIds.length ? smartIds : phoneMode === 'smart' ? lurkFallback(participantIds, [...mentionedIds, ...phoneNamedIds], lastSpeakerId) : selectPhoneSpeakers({ mode: phoneMode, participantIds, mentionedIds, namedIds: phoneNamedIds, lastSpeakerId, text: visibleText })
         : selectGroupSpeakerIds({ participantIds, mentionedIds, mode: groupReplyMode, directorCharacterId: conversation.directorCharacterId, lastSpeakerId, text })
       if (!speakerIds.length) {
         // Specified mode waits silently until the user explicitly chooses a speaker with @.
@@ -3875,7 +3875,7 @@ function UpdateCard() {
     }
   }
 
-  return <section className="update-card"><strong>应用更新</strong><p>主动检查并拉取最新网页版本，不会删除角色、聊天记录或本地设置。</p><small>当前版本：v73 · 2026.10.14 群头像和群公告</small><button onClick={refresh} disabled={state === 'checking'}>{state === 'checking' ? '正在检查更新…' : state === 'error' ? '更新失败，点我重试' : '强制刷新到最新版'}</button></section>
+  return <section className="update-card"><strong>应用更新</strong><p>主动检查并拉取最新网页版本，不会删除角色、聊天记录或本地设置。</p><small>当前版本：v74 · 2026.10.14 旁观插话模式</small><button onClick={refresh} disabled={state === 'checking'}>{state === 'checking' ? '正在检查更新…' : state === 'error' ? '更新失败，点我重试' : '强制刷新到最新版'}</button></section>
 }
 
 function PersonaPage({ identities, selectedId, isBound, onSelect, onAdd, onDelete, onUpdate, onBack }: { identities: UserIdentity[]; selectedId: string; isBound: boolean; onSelect: (id: string) => void; onAdd: () => void; onDelete: (id: string) => void; onUpdate: (patch: Partial<UserIdentity>) => void; onBack: () => void }) {

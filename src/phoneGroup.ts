@@ -180,7 +180,7 @@ export function pickPhoneChatters(participantIds: string[], lastSpeakerId: strin
 export type PhoneReplyMode = 'free' | 'smart' | 'all' | 'at' | 'named'
 export const PHONE_REPLY_MODES: Array<{ id: PhoneReplyMode; label: string; hint: string }> = [
   { id: 'free', label: '自然聊天', hint: '被提到的优先，否则随机两人接话' },
-  { id: 'smart', label: '情境发言', hint: '看聊天内容决定一个或多个人回' },
+  { id: 'smart', label: '旁观插话', hint: '聊谁谁回，其他人潜水，戳到才插嘴' },
   { id: 'all', label: '全员回复', hint: '所有人都会回你' },
   { id: 'at', label: '指定发言', hint: '只有被 @ 的人回' },
 ]
@@ -210,15 +210,18 @@ export function selectPhoneSpeakers(input: { mode: PhoneReplyMode; participantId
 }
 
 /** 情境发言：让模型只读最近几条，判断谁该回。只回名字，花费很小。 */
-export function buildSmartPickPrompt(memberNames: string[], recentLines: string[], userName: string, text: string) {
-  return `你是群聊调度，只负责判断这一轮谁该说话，不写任何台词。
-群成员：${memberNames.join('、')}。
+export function buildSmartPickPrompt(memberNames: string[], recentLines: string[], userName: string, text: string, memberInfo: string[] = []) {
+  return `你是群聊调度，只负责判断这一轮谁会开口，不写任何台词。把群友当成真人：大部分人大部分时候在潜水旁观。
+群成员：${memberInfo.length ? memberInfo.join('；') : memberNames.join('、')}。
 最近聊天：
 ${recentLines.join('\n') || '（暂无）'}
 ${userName}刚刚说：${text || '（没说话，让大家自己聊）'}
 
-规则：被点名或被问到的人必须回；话题跟谁有关谁回；明显是对所有人说的可以多人；一般 1—3 人，最多 ${memberNames.length} 人。
-只输出要回复的成员名字，按回复顺序，用顿号分隔，不要解释。`
+判断规则：
+1. ${userName}正在跟谁聊（被点名、被问到、刚才一直在跟她来回的人、她聊的是谁的剧情）——这些人回，通常 1—2 人。
+2. 其他人默认潜水旁观，不出声。只有话题真戳到他（聊到他本人、他的剧情、他在意的人、跟他人设强烈冲突或正中他兴趣）、他按人设实在忍不住，才插一句；旁观者一轮最多 1 人，多数时候 0 人。
+3. ${userName}明显在叫所有人（大家、你们、所有人）时才可以多人一起回。
+只输出要开口的成员名字，按发言顺序，用顿号分隔，不要解释。`
 }
 
 export function parseSmartPick(raw: string, participants: Array<{ id: string; name: string }>) {
@@ -370,4 +373,12 @@ export function noticeRemaining(until: number | null | undefined, now = Date.now
 
 export function buildNoticeNote(notice: { text: string } | null, userName: string) {
   return notice ? `【群公告】群主${userName}挂出的公告，全群置顶、人人都看得到：“${notice.text.trim()}”。可以遵守、表态、吐槽或阴阳怪气，但别当没看见；公告是她的规矩，违反了别人可以拿来举报。` : ''
+}
+
+/** 旁观模式调度失败时：点到谁谁回，否则刚才跟她聊的那位接着回，都没有就随机一人。其他人继续潜水。 */
+export function lurkFallback(participantIds: string[], calledIds: string[], lastSpeakerId?: string, random: () => number = Math.random) {
+  const called = participantIds.filter((id) => calledIds.includes(id))
+  if (called.length) return called
+  if (lastSpeakerId && participantIds.includes(lastSpeakerId)) return [lastSpeakerId]
+  return participantIds.length ? [participantIds[Math.floor(random() * participantIds.length)]] : []
 }
