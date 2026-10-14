@@ -2237,7 +2237,7 @@ function App() {
       const nameOf = (message: Message) => characters.find((item) => item.id === message.characterId)?.name || members[0]?.name || '角色'
       return [phoneModeRules(speaker.name, members.map((member) => member.name), identity.name), buildPhoneArchive(sources, speaker.id, identity.name, (message) => message.characterId ? nameOf(message) : sources.find((source) => source.conversation?.messages.includes(message))?.character.name || '角色')].join('\n\n')
     })() : ''
-    const sanitizedHistory = nextMessages.flatMap((message) => {
+    const sanitizedHistory = (isPhone ? nextMessages.map((message) => message.role === 'assistant' ? { ...message, text: cleanPhoneOutput(message.text) || message.text } : message) : nextMessages).flatMap((message) => {
       const fromDirector = message.role === 'assistant' && message.characterId === conversation.directorCharacterId
       const text = fromDirector ? sanitizeAssistantOutput(message.text, { director: true }) : message.text
       if (fromDirector && !text.trim()) return []
@@ -3156,6 +3156,7 @@ function App() {
         '裴成砚剧场·旁白导演',
       ])
     }
+    if (!isUser && activeConversation?.phone) displayText = cleanPhoneOutput(displayText) || displayText
     if (isUser && !displayText && !message.images?.length) return null
     const streaming = message.role === 'assistant' && isGenerating && message.id === messages[messages.length - 1]?.id
     const imageGrid = message.images?.length ? <div className={`message-images count-${Math.min(message.images.length, 4)}`}>{message.images.map((image) => <button type="button" key={image.id} aria-label="查看图片" onClick={() => setViewerImage(image)}><img src={image.dataUrl} alt="" loading="lazy" decoding="async" style={message.images!.length === 1 ? { aspectRatio: `${image.width} / ${image.height}` } : undefined} /></button>)}</div> : null
