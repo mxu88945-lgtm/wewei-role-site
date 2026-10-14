@@ -10,7 +10,7 @@ import CharacterCardManager from './CharacterCardManager'
 import { GreetingPicker, GroupGreetingPicker, ImportPreview, type GroupGreetingChoice } from './ImportFlow'
 import MentionPicker from './MentionPicker'
 import { prewarmAvatarThumbnails } from './avatarThumbnail'
-import MessageContent from './MessageContent'
+import MessageContent, { isPendingAssistantText } from './MessageContent'
 import { createBlankCharacter, importCharacterCard, normalizeStoredCharacter, LIBRARY_ROLES, type Character, type LibraryRole } from './characterCard'
 import { Moments, type MomentSeed } from './Moments'
 import { USER_AUTHOR, communityMemberIds, excerptFromMessage } from './moments'
@@ -335,7 +335,7 @@ const repairGuTingshenConversationStages = (source: Conversation[], characters: 
 
 const removeFailedTransportMessages = (source: Conversation[]) => source.map((conversation) => ({
   ...conversation,
-  messages: conversation.messages.filter((message) => !isFailedTransportAssistantMessage(message)),
+  messages: conversation.messages.filter((message) => !isFailedTransportAssistantMessage(message) && !(message.role === 'assistant' && isPendingAssistantText(message.text || ''))),
 }))
 
 const loadConversations = (characters: Character[]): Conversation[] => {
@@ -1259,6 +1259,8 @@ function App() {
     generationControllers.current.get(conversationId)?.abort()
     const rollback = generationRollbacks.current.get(conversationId)
     if (rollback) setConversations((current) => current.map((item) => item.id === conversationId ? { ...rollback.conversation, temporaryPlot: item.temporaryPlot } : item))
+    // 卡住或失败时点停止：没写出任何字的“正在回应…”占位不留在聊天里。
+    else setConversations((current) => current.map((item) => item.id === conversationId && item.messages.some((message) => message.role === 'assistant' && isPendingAssistantText(message.text || '')) ? { ...item, messages: item.messages.filter((message) => !(message.role === 'assistant' && isPendingAssistantText(message.text || ''))) } : item))
     generationRollbacks.current.delete(conversationId)
     generationControllers.current.delete(conversationId)
     setGeneratingIds((current) => current.filter((id) => id !== conversationId))
@@ -3174,6 +3176,7 @@ function App() {
     }
     if (!isUser && activeConversation?.phone) displayText = cleanPhoneOutput(displayText) || displayText
     if (isUser && !displayText && !message.images?.length) return null
+    if (!isUser && !isGenerating && isPendingAssistantText(message.text || '')) return null
     const streaming = message.role === 'assistant' && isGenerating && message.id === messages[messages.length - 1]?.id
     const imageGrid = message.images?.length ? <div className={`message-images count-${Math.min(message.images.length, 4)}`}>{message.images.map((image) => <button type="button" key={image.id} aria-label="查看图片" onClick={() => setViewerImage(image)}><img src={image.dataUrl} alt="" loading="lazy" decoding="async" style={message.images!.length === 1 ? { aspectRatio: `${image.width} / ${image.height}` } : undefined} /></button>)}</div> : null
     // Opening message of a solo chat: card home pages (Tavo / SillyTavern style) can
@@ -3505,7 +3508,7 @@ function UpdateCard() {
     }
   }
 
-  return <section className="update-card"><strong>应用更新</strong><p>主动检查并拉取最新网页版本，不会删除角色、聊天记录或本地设置。</p><small>当前版本：v54 · 2026.10.14 小手机四种回复模式</small><button onClick={refresh} disabled={state === 'checking'}>{state === 'checking' ? '正在检查更新…' : state === 'error' ? '更新失败，点我重试' : '强制刷新到最新版'}</button></section>
+  return <section className="update-card"><strong>应用更新</strong><p>主动检查并拉取最新网页版本，不会删除角色、聊天记录或本地设置。</p><small>当前版本：v55 · 2026.10.14 停止后不留“正在回应”</small><button onClick={refresh} disabled={state === 'checking'}>{state === 'checking' ? '正在检查更新…' : state === 'error' ? '更新失败，点我重试' : '强制刷新到最新版'}</button></section>
 }
 
 function PersonaPage({ identities, selectedId, isBound, onSelect, onAdd, onDelete, onUpdate, onBack }: { identities: UserIdentity[]; selectedId: string; isBound: boolean; onSelect: (id: string) => void; onAdd: () => void; onDelete: (id: string) => void; onUpdate: (patch: Partial<UserIdentity>) => void; onBack: () => void }) {
