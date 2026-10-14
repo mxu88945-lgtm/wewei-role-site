@@ -351,3 +351,23 @@ export function parsePhoneVote(text: string) {
 export function kickPassed(yes: number, eligible: number) {
   return eligible > 0 && yes * 2 > eligible
 }
+
+export const NOTICE_DURATIONS = [
+  { hours: 1, label: '1 小时' }, { hours: 6, label: '6 小时' }, { hours: 24, label: '1 天' }, { hours: 72, label: '3 天' }, { hours: 168, label: '7 天' }, { hours: 0, label: '一直挂着' },
+] as const
+
+export function activeNotice(notice: { text: string; at: number; until?: number | null } | undefined, now = Date.now()) {
+  return notice?.text.trim() && (!notice.until || notice.until > now) ? notice : null
+}
+
+export function noticeRemaining(until: number | null | undefined, now = Date.now()) {
+  if (!until) return '长期'
+  const minutes = Math.max(1, Math.round((until - now) / 60000))
+  if (minutes < 60) return `还剩 ${minutes} 分钟`
+  if (minutes < 1440) return `还剩 ${Math.round(minutes / 60)} 小时`
+  return `还剩 ${Math.round(minutes / 1440)} 天`
+}
+
+export function buildNoticeNote(notice: { text: string } | null, userName: string) {
+  return notice ? `【群公告】群主${userName}挂出的公告，全群置顶、人人都看得到：“${notice.text.trim()}”。可以遵守、表态、吐槽或阴阳怪气，但别当没看见；公告是她的规矩，违反了别人可以拿来举报。` : ''
+}

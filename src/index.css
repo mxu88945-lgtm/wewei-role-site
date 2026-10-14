@@ -822,3 +822,23 @@ button { cursor: pointer; }
 .forum-sheet-list { display: grid; gap: 8px; max-height: 50vh; overflow: auto; }
 .forum-mention-row { display: flex; gap: 6px; overflow-x: auto; padding: 4px 0; -webkit-overflow-scrolling: touch; }
 .forum-mention-row button { flex: none; min-height: 36px; padding: 0 12px; border: 0; border-radius: 18px; background: var(--theme-accent-soft); color: var(--theme-accent-text); font-size: 14px; font-weight: 700; }
+
+.phone-group-row.has-avatar { grid-template-columns: 48px 1fr; column-gap: 12px; row-gap: 2px; align-items: center; }
+.phone-group-row.has-avatar img, .phone-group-row.has-avatar i { grid-row: span 3; width: 48px; height: 48px; border-radius: 12px; object-fit: cover; display: grid; place-items: center; font-style: normal; font-weight: 800; color: #fff; background: var(--theme-accent); }
+.phone-group-avatar-field { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; padding: 12px 14px; border-radius: 18px; background: #f6f5f7; }
+.phone-group-avatar-field img, .phone-group-avatar-field > i { width: 52px; height: 52px; border-radius: 12px; object-fit: cover; display: grid; place-items: center; font-style: normal; font-size: 12px; color: #9a93a3; background: #e9e6ee; }
+.phone-group-avatar-field > div { display: grid; flex: 1; min-width: 90px; }
+.phone-group-avatar-field small { color: #9a93a3; font-size: 12px; }
+.phone-group-avatar-field .soft-button { min-height: 36px; padding: 0 12px; }
+.phone-notice-field textarea { width: 100%; box-sizing: border-box; margin-top: 6px; border: 1px solid #e6e2ea; border-radius: 12px; padding: 10px; font-size: 16px; resize: vertical; }
+.phone-notice-hours { display: grid; gap: 6px; }
+.phone-notice-hours small { color: #9a93a3; font-size: 12px; }
+.phone-notice-hours div { display: flex; flex-wrap: wrap; gap: 6px; }
+.phone-notice-hours button { min-height: 34px; padding: 0 12px; border: 0; border-radius: 17px; background: #f1eff4; color: #5b5262; font-size: 13px; }
+.phone-notice-hours button.active { background: var(--theme-accent); color: #fff; font-weight: 700; }
+.phone-notice-banner { position: absolute; z-index: 35; top: calc(64px + env(safe-area-inset-top)); left: 50%; transform: translateX(-50%); width: min(calc(100% - 28px), 460px); box-sizing: border-box; margin: 0; box-shadow: 0 6px 18px rgba(80, 60, 20, .08); padding: 8px 34px 8px 12px; border-radius: 14px; background: rgba(255, 248, 225, .94); color: #6b5a2e; display: grid; grid-template-columns: auto 1fr; column-gap: 8px; align-items: baseline; font-size: 13px; }
+.phone-notice-banner span { font-weight: 800; white-space: nowrap; }
+.phone-notice-banner p { margin: 0; overflow: hidden; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; }
+.phone-notice-banner small { grid-column: 2; color: #a08c5a; font-size: 11px; }
+.phone-notice-banner button { position: absolute; top: 4px; right: 6px; border: 0; background: none; color: #a08c5a; font-size: 18px; }
+.chat-page.has-notice .message-list { padding-top: calc(146px + env(safe-area-inset-top)); }
