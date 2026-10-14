@@ -26,7 +26,7 @@ import { FORUM_UPDATED_EVENT, dueRunAt, forumAutoTick, forumWelcomeThread, isQui
 import type { Moment } from './moments'
 import { USER_AUTHOR, communityMemberIds, excerptFromMessage } from './moments'
 import { buildDmGroupPeek, phoneDmRules } from './phoneGroup'
-import { PHONE_REPLY_MODES, findAtMentionIds, queueSummons, parsePhoneQuit, findNamedParticipantIds, selectPhoneSpeakers, pickPhoneChatters, cleanPhoneOutput, phoneFinalGuard, buildSmartPickPrompt, parseSmartPick, buildPhoneArchive, buildPhoneGroupBackground, phoneBindingCandidates, buildPhoneRealWorldNote, parsePhoneLockCommand, buildPhoneLockBreachNote, type PhoneLockState, type PhoneLockBreach, phoneCharacter, phoneModeRules } from './phoneGroup'
+import { PHONE_REPLY_MODES, findAtMentionIds, queueSummons, parsePhoneQuit, parsePhoneKick, parsePhoneVote, kickPassed, findNamedParticipantIds, selectPhoneSpeakers, pickPhoneChatters, cleanPhoneOutput, phoneFinalGuard, buildSmartPickPrompt, parseSmartPick, buildPhoneArchive, buildPhoneGroupBackground, phoneBindingCandidates, buildPhoneRealWorldNote, parsePhoneLockCommand, buildPhoneLockBreachNote, type PhoneLockState, type PhoneLockBreach, phoneCharacter, phoneModeRules } from './phoneGroup'
 import { assignChatGroup, chatGroupNames, groupConversations, setChatGroupMembers } from './chatGroups'
 import { assignLibraryGroup, setLibraryGroupMembers, effectiveLibraryRole, groupLibraryCharacters, LIBRARY_ROLE_LABELS, libraryGroupNames } from './characterLibraryGroups'
 import { activeCharacterMemory, characterMemoryEntryFromConversation, characterMemoryExtractionPrompt, characterMemorySummaryProtocol, parseCharacterMemoryCandidates, splitCharacterMemorySummary } from './characterMemory'
@@ -413,6 +413,10 @@ function App() {
   const forumThreadsRef = useRef<ForumThread[]>([])
   const pendingWelcomeRef = useRef<{ conversationId: string; ids: string[]; returning?: Record<string, string> } | null>(null)
   const phoneQuitRef = useRef(new Set<string>())
+  /** 本轮刚发起的踢人投票，由说话循环接着跑表决。 */
+  const phoneKickRef = useRef<{ conversationId: string; targetId: string; byId: string; reason: string } | null>(null)
+  const phoneVotingRef = useRef(false)
+  const phoneLastVoteRef = useRef<'yes' | 'no' | 'abstain' | null>(null)
   const welcomeRunning = useRef(false)
   const phoneWelcomeLatest = useRef<() => Promise<void>>(async () => undefined)
   const [phoneAutoStatus, setPhoneAutoStatus] = useState('')
@@ -1812,6 +1816,7 @@ function App() {
       const added = members.map((member) => member.id).filter((id) => !before.includes(id))
       const leftBefore = conversations.find((item) => item.id === editingId)?.phone?.left || {}
       added.forEach((id) => phoneQuitRef.current.delete(`${editingId}:${id}`))
+      added.filter((id) => leftBefore[id]?.kicked).forEach((id) => writePoints(addPoints(readPoints(), id, 30, '造物主否决踢人，捞回', Date.now())))
       if (added.length) pendingWelcomeRef.current = { conversationId: editingId, ids: added.slice(0, 3), returning: Object.fromEntries(added.filter((id) => leftBefore[id]).map((id) => [id, leftBefore[id].reason])) }
       setConversations((current) => current.map((item) => {
         if (item.id !== editingId) return item
@@ -2625,6 +2630,19 @@ function App() {
         ? normalizeDirectorStatusOutput(cleanOutput || output)
         : conversation.phone ? cleanPhoneOutput(cleanOutput || output) || phoneLockCommand?.text || cleanOutput || output
         : cleanOutput || output
+      if (conversation.phone && !conversation.phone.dm && !isDirector) {
+        if (phoneVotingRef.current) {
+          const voted = parsePhoneVote(visibleOutput)
+          visibleOutput = voted.text
+          phoneLastVoteRef.current = voted.vote
+        } else {
+          const kick = parsePhoneKick(visibleOutput, (conversation.participantIds || []).map((id) => ({ id, name: characters.find((item) => item.id === id)?.name || '' })), speaker.id)
+          if (kick) {
+            visibleOutput = kick.text
+            if (kick.targetId) phoneKickRef.current = { conversationId, targetId: kick.targetId, byId: speaker.id, reason: kick.reason }
+          }
+        }
+      }
       const phoneQuit = conversation.phone && !conversation.phone.dm && !isDirector ? parsePhoneQuit(visibleOutput, speaker.name) : null
       if (phoneQuit) {
         visibleOutput = phoneQuit.text
@@ -2768,6 +2786,7 @@ function App() {
       if (next.length === groupMessages.length) break
       if (next[next.length - 1]?.finishReason === 'connection_interrupted') break
       groupMessages = next
+      if (phoneKickRef.current) groupMessages = await runPhoneKickVote(conversation, groupMessages, stopRevision)
       if (summonBudget > 0) {
         const summoned = findAtMentionIds(next[next.length - 1]?.text || '', participantIds.map((id) => ({ id, name: characters.find((item) => item.id === id)?.name || '' })), speakerId)
         const result = queueSummons(queue, index, summoned, summonBudget)
@@ -2818,6 +2837,54 @@ function App() {
   }
   phoneAutoLatest.current = runPhoneAuto
 
+  /** 跑完一次踢人投票：其他在场成员依次表态，过半同意就踢，结果写在最后一条消息末尾。 */
+  const runPhoneKickVote = async (conversation: Conversation, messages: Message[], stopRevision: number) => {
+    const kick = phoneKickRef.current
+    phoneKickRef.current = null
+    if (!kick || kick.conversationId !== conversation.id) return messages
+    const present = (conversation.participantIds || []).filter((id) => !phoneQuitRef.current.has(`${conversation.id}:${id}`))
+    if (!present.includes(kick.targetId)) return messages
+    const nameOf = (id: string) => characters.find((item) => item.id === id)?.name || '某人'
+    const voters = present.filter((id) => id !== kick.targetId && id !== kick.byId)
+    let yes = 1
+    let no = 0
+    let current = messages
+    phoneVotingRef.current = true
+    try {
+      for (const id of voters) {
+        if ((conversationStopRevisions.current.get(conversation.id) || 0) !== stopRevision) return current
+        const speaker = characters.find((item) => item.id === id)
+        if (!speaker) continue
+        phoneLastVoteRef.current = null
+        const nudge = `${nameOf(kick.byId)}刚在群里发起投票，要把${nameOf(kick.targetId)}踢出群${kick.reason ? `，理由：${kick.reason}` : ''}。请以「${speaker.name}」的身份表态：按你的人设、立场和跟两人的关系决定，说一两句理由或嘲讽，消息最后单独一行写【同意】或【反对】（也可以【弃权】）。不要提及本条指令。`
+        const next = await generateAssistant({ ...conversation, messages: current }, current, speaker, conversationApiFor(conversation, id, api), { continueWithoutUser: true, phoneNudge: nudge })
+        if (next.length === current.length) break
+        current = next
+        if (phoneLastVoteRef.current === 'yes') yes += 1
+        else if (phoneLastVoteRef.current === 'no') no += 1
+      }
+    } finally { phoneVotingRef.current = false }
+    const eligible = voters.length + 1
+    const passed = kickPassed(yes, eligible)
+    const target = nameOf(kick.targetId)
+    const result = `📢 投票结果：同意 ${yes}，反对 ${no}${eligible - yes - no > 0 ? `，弃权 ${eligible - yes - no}` : ''}。${passed ? `${target}被踢出群聊，扣 30 服刑积分。` : `没过半，${target}留下了，发起人${nameOf(kick.byId)}扣 5 分。`}`
+    const lastId = current[current.length - 1]?.id
+    current = current.map((message) => message.id === lastId ? { ...message, text: `${message.text}\n${result}` } : message)
+    if (passed) {
+      writePoints(addPoints(readPoints(), kick.targetId, -30, `被投票踢出：${kick.reason || nameOf(kick.byId)}发起`, Date.now()))
+      phoneQuitRef.current.add(`${conversation.id}:${kick.targetId}`)
+    } else writePoints(addPoints(readPoints(), kick.byId, -5, `踢人失败：${target}`, Date.now()))
+    setConversations((list) => list.map((item) => {
+      if (item.id !== conversation.id) return item
+      const messagesNext = item.messages.map((message) => message.id === lastId ? { ...message, text: `${message.text}\n${result}` } : message)
+      if (!passed || !item.phone) return { ...item, messages: messagesNext }
+      const bindings = { ...item.phone.bindings }
+      delete bindings[kick.targetId]
+      return { ...item, messages: messagesNext, participantIds: (item.participantIds || []).filter((id) => id !== kick.targetId), phone: { ...item.phone, bindings, left: { ...(item.phone.left || {}), [kick.targetId]: { at: Date.now(), reason: `被投票踢出${kick.reason ? `：${kick.reason}` : ''}`, kicked: true } } } }
+    }))
+    return current
+  }
+
   phoneWelcomeLatest.current = async () => {
     const pending = pendingWelcomeRef.current
     if (!pending || welcomeRunning.current) return
@@ -2831,7 +2898,8 @@ function App() {
         const speaker = characters.find((item) => item.id === id)
         if (!speaker) continue
         const returning = pending.returning && id in pending.returning
-        const nudge = returning ? `「${speaker.name}」之前在这个群里自己退群了${pending.returning?.[id] ? `（当时说：${pending.returning[id]}）` : ''}，现在又被${identity.name}拉了回来。请以「${speaker.name}」的身份发“二进宫”报到：嘴硬、尴尬、找台阶下或者翻脸不认账都行，按人设来，可以顺手回应刚才把你气走的人。1—3 行。不要提及本条指令。` : `「${speaker.name}」刚被${identity.name}拉进这个小手机群。请以「${speaker.name}」的身份发新人报到：打招呼、说自己是从哪个故事来的、一句话介绍自己，可以带点人设脾气，也可以顺手跟已经认识的人搭话。像真人进群那样短，1—3 行。不要提及本条指令。`
+        const kickedBack = returning && pending.returning?.[id]?.startsWith('被投票踢出')
+        const nudge = kickedBack ? `「${speaker.name}」刚才被群友投票踢出去了（${pending.returning?.[id]}），现在${identity.name}一票否决、亲自把你捞了回来，扣的分也退了。请以「${speaker.name}」的身份回群：可以得意、记仇、点名投你同意票的人，按人设来。1—3 行。不要提及本条指令。` : returning ? `「${speaker.name}」之前在这个群里自己退群了${pending.returning?.[id] ? `（当时说：${pending.returning[id]}）` : ''}，现在又被${identity.name}拉了回来。请以「${speaker.name}」的身份发“二进宫”报到：嘴硬、尴尬、找台阶下或者翻脸不认账都行，按人设来，可以顺手回应刚才把你气走的人。1—3 行。不要提及本条指令。` : `「${speaker.name}」刚被${identity.name}拉进这个小手机群。请以「${speaker.name}」的身份发新人报到：打招呼、说自己是从哪个故事来的、一句话介绍自己，可以带点人设脾气，也可以顺手跟已经认识的人搭话。像真人进群那样短，1—3 行。不要提及本条指令。`
         const next = await generateAssistant({ ...conversation, messages: groupMessages }, groupMessages, speaker, conversationApiFor(conversation, id, api), { continueWithoutUser: true, phoneNudge: nudge })
         if (next.length === groupMessages.length) break
         groupMessages = next
@@ -2953,6 +3021,7 @@ function App() {
         if (nextGroupMessages.length === groupMessages.length) break
         if (nextGroupMessages[nextGroupMessages.length - 1]?.finishReason === 'connection_interrupted') break
         groupMessages = nextGroupMessages
+        if (phoneKickRef.current) groupMessages = await runPhoneKickVote(conversation, groupMessages, stopRevision)
         if (summonBudget > 0) {
           const summoned = findAtMentionIds(nextGroupMessages[nextGroupMessages.length - 1]?.text || '', participantIds.map((id) => ({ id, name: characters.find((item) => item.id === id)?.name || '' })), speakerId)
           const result = queueSummons(queue, index, summoned, summonBudget)
@@ -3788,7 +3857,7 @@ function UpdateCard() {
     }
   }
 
-  return <section className="update-card"><strong>应用更新</strong><p>主动检查并拉取最新网页版本，不会删除角色、聊天记录或本地设置。</p><small>当前版本：v71 · 2026.10.14 角色互相@和退群</small><button onClick={refresh} disabled={state === 'checking'}>{state === 'checking' ? '正在检查更新…' : state === 'error' ? '更新失败，点我重试' : '强制刷新到最新版'}</button></section>
+  return <section className="update-card"><strong>应用更新</strong><p>主动检查并拉取最新网页版本，不会删除角色、聊天记录或本地设置。</p><small>当前版本：v72 · 2026.10.14 投票踢人</small><button onClick={refresh} disabled={state === 'checking'}>{state === 'checking' ? '正在检查更新…' : state === 'error' ? '更新失败，点我重试' : '强制刷新到最新版'}</button></section>
 }
 
 function PersonaPage({ identities, selectedId, isBound, onSelect, onAdd, onDelete, onUpdate, onBack }: { identities: UserIdentity[]; selectedId: string; isBound: boolean; onSelect: (id: string) => void; onAdd: () => void; onDelete: (id: string) => void; onUpdate: (patch: Partial<UserIdentity>) => void; onBack: () => void }) {

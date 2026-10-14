@@ -18,3 +18,19 @@ describe('phone summons', () => {
     expect(parsePhoneQuit('没事', '傅承砚')).toBeNull()
   })
 })
+
+import { kickPassed, parsePhoneKick, parsePhoneVote } from './phoneGroup'
+describe('phone kick vote', () => {
+  it('parses a kick against a member', () => {
+    const kick = parsePhoneKick('受够了\n【踢人：承砚：天天锁她手机】', people, 'y')
+    expect(kick).toMatchObject({ targetId: 'f', reason: '天天锁她手机' })
+    expect(kick?.text).toContain('🗳️ 发起投票：踢出 傅承砚（天天锁她手机）')
+    expect(parsePhoneKick('【踢人：虞山行】', people, 'y')?.targetId).toBe('')
+  })
+  it('reads votes and majority', () => {
+    expect(parsePhoneVote('踢了吧\n【同意】')).toEqual({ text: '踢了吧\n🗳️ 同意踢', vote: 'yes' })
+    expect(parsePhoneVote('随便').vote).toBeNull()
+    expect(kickPassed(2, 3)).toBe(true)
+    expect(kickPassed(2, 4)).toBe(false)
+  })
+})

@@ -34,7 +34,7 @@ export type Conversation = {
   /** 聊天记录分组（故事名），只在聊天列表里整理用。 */
   chatGroup?: string
   /** 小手机戏外日常群：每张卡绑定的过往对话。 */
-  phone?: { bindings: Record<string, string>; mode?: 'named' | 'at' | 'free' | 'smart' | 'all'; /** 小手机私聊：一对一，能看到 TA 所在群的聊天和论坛，群里看不到私聊。 */ dm?: boolean; /** 自己退群的角色，再被拉回来时走“二进宫”报到。 */ left?: Record<string, { at: number; reason: string }> }
+  phone?: { bindings: Record<string, string>; mode?: 'named' | 'at' | 'free' | 'smart' | 'all'; /** 小手机私聊：一对一，能看到 TA 所在群的聊天和论坛，群里看不到私聊。 */ dm?: boolean; /** 自己退群的角色，再被拉回来时走“二进宫”报到。 */ left?: Record<string, { at: number; reason: string; kicked?: boolean }> }
   participantIds?: string[]
   participantApiIds?: Record<string, string>
   participantModelNames?: Record<string, string>

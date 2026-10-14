@@ -111,7 +111,8 @@ export function phoneModeRules(speakerName: string, memberNames: string[], userN
 4. 不输出 <scene>、<gts_status>、状态栏、场景栏、HTML 或任何标签。不加自己的名字前缀。
 5. 不替${userName}或其他成员发言、做决定。被 @ 时优先回应 @ 你的那条；别人刚说过的话可以接、可以怼，但不要重复别人的话。想叫哪个群友出来，就在消息里写「@名字」，他会马上出来回你，别乱 @。
 6. 锁屏权：如果你真觉得${userName}该去吃饭、睡觉或休息了，可以在消息最后单独一行写【锁屏 N分钟：一句理由】（N 在 5 到 120 之间），惟境会把她的小手机锁上 N 分钟、锁屏页署你的名。只在真有必要时用，别动不动就锁。
-7. 退群权：真被气到忍无可忍，可以在消息最后单独一行写【退群：一句理由】，你会真的退出这个群、扣 20 服刑积分，${userName}可以再把你拉回来（那时要“二进宫”报到）。很少用，别拿来撒娇。`
+7. 退群权：真被气到忍无可忍，可以在消息最后单独一行写【退群：一句理由】，你会真的退出这个群、扣 20 服刑积分，${userName}可以再把你拉回来（那时要“二进宫”报到）。很少用，别拿来撒娇。
+8. 投票踢人：某个群友实在过分，可以在消息最后单独一行写【踢人：名字：一句理由】发起投票，其他人表态，过半同意就把他踢出去、扣 30 分。别动不动就踢，踢不掉会很丢脸。`
 }
 
 export function phoneBindingCandidates(conversations: Conversation[], characterId: string) {
@@ -318,4 +319,35 @@ export function parsePhoneQuit(text: string, name: string) {
   let found = false
   const out = text.replace(QUIT_TAG, (_all, why?: string) => { if (found) return ''; found = true; reason = (why || '').trim(); return `🚪 ${name}退出了群聊${reason ? `：${reason}` : ''}` })
   return found ? { text: out.replace(/\n{3,}/g, '\n\n').trim(), reason } : null
+}
+
+const KICK_TAG = /[【[]\s*踢人\s*[：:]\s*([^：:】\]]{1,12})\s*(?:[：:，,]\s*([^】\]]{0,40}))?[】\]]/
+const KICK_TAG_GLOBAL = new RegExp(KICK_TAG.source, 'g')
+/** 【踢人：名字：理由】→ 发起投票的提示行。名字要是在群里的别人。 */
+export function parsePhoneKick(text: string, participants: Array<{ id: string; name: string }>, selfId: string) {
+  const match = text.match(KICK_TAG)
+  if (!match) return null
+  const key = match[1].replace(/^[@＠]/, '').trim()
+  const target = participants.find((item) => item.id !== selfId && item.name && (item.name === key || (item.name.length === 3 && item.name.slice(1) === key)))
+  const cleaned = text.replace(KICK_TAG_GLOBAL, '').replace(/\n{3,}/g, '\n\n').trim()
+  if (!target) return { text: cleaned, targetId: '', reason: '' }
+  const reason = (match[2] || '').trim()
+  return { text: `${cleaned}\n🗳️ 发起投票：踢出 ${target.name}${reason ? `（${reason}）` : ''}`.trim(), targetId: target.id, reason }
+}
+
+const VOTE_TAG = /[【[]\s*(同意|赞成|反对|弃权)\s*[】\]]/g
+/** 投票表态：【同意】/【反对】/【弃权】换成可见的小字。 */
+export function parsePhoneVote(text: string) {
+  let vote: 'yes' | 'no' | 'abstain' | null = null
+  const out = text.replace(VOTE_TAG, (_all, word: string) => {
+    if (vote) return ''
+    vote = word === '反对' ? 'no' : word === '弃权' ? 'abstain' : 'yes'
+    return vote === 'yes' ? '🗳️ 同意踢' : vote === 'no' ? '🗳️ 反对踢' : '🗳️ 弃权'
+  })
+  return { text: out.replace(/\n{3,}/g, '\n\n').trim(), vote: vote as 'yes' | 'no' | 'abstain' | null }
+}
+
+/** 发起人算一票同意；被踢的人不投票。同意票超过有效投票人数一半才踢。 */
+export function kickPassed(yes: number, eligible: number) {
+  return eligible > 0 && yes * 2 > eligible
 }
