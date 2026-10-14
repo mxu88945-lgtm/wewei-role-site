@@ -1824,6 +1824,23 @@ function App() {
     setPhoneTab('moments')
     navigate('phone')
   }
+  // 从小手机聊天回到小手机列表：截回历史里的小手机那一层，而不是再压一层，
+  // 否则小手机页的返回会跳回刚才的聊天，来回打转回不到首页。
+  const returnToPhoneList = () => {
+    setPhoneDraft(null)
+    setHistory((current) => {
+      const index = current.map((entry) => entry.page).lastIndexOf('phone')
+      return index >= 0 ? current.slice(0, index) : [{ page: 'home' }]
+    })
+    replacePage('phone')
+  }
+  const leavePhonePage = () => {
+    const editing = Boolean(phoneDraft?.editingId)
+    setPhoneDraft(null)
+    const previous = history[history.length - 1]
+    if (!editing && previous?.page === 'chat' && activeConversation?.phone) { goHome(); return }
+    goBack()
+  }
   const phoneMembersPool = characters.filter((item) => item.creator !== '惟境内置导演模板' && !item.directorTemplateConfig)
   const openPhonePage = (editing?: Conversation) => {
     setPhoneDraft(editing ? { editingId: editing.id, title: editing.title, memberIds: [...(editing.participantIds || [])], bindings: { ...(editing.phone?.bindings || {}) }, avatar: editing.phone?.avatar, noticeText: activeNotice(editing.phone?.notice)?.text || '', noticeHours: -1, allowQuit: editing.phone?.allowQuit !== false, allowKick: editing.phone?.allowKick !== false } : null)
@@ -3714,7 +3731,7 @@ function App() {
 
     {page === 'character-workshop' && <CharacterWorkshop channels={apiChannels} characters={characters} defaultChannelId={activeApiId} onBack={goBack} onAvatar={imageThumbnail} onExport={(character) => downloadJson(`${character.name}-character-card-v3.json`, exportableCharacter(character))} onSave={(character) => { localStorage.removeItem('weijing.characterWorkshop'); addImportedCharacter(character) }} />}
 
-    {page === 'phone' && <><BackHeader title={phoneDraft?.editingId ? '小手机群设置' : '小手机'} onBack={() => { setPhoneDraft(null); goBack() }} /><section className="content-stack phone-page">
+    {page === 'phone' && <><BackHeader title={phoneDraft?.editingId ? '小手机群设置' : '小手机'} onBack={leavePhonePage} /><section className="content-stack phone-page">
       {!phoneDraft && <PhoneStatusWidget />}
       {!phoneDraft && <PhoneWebSettings />}
       {!phoneDraft && <PhoneAutoSettingsCard status={phoneAutoStatus} />}
@@ -3890,7 +3907,7 @@ function App() {
     {drawer && <div className="drawer-layer" role="presentation">
       <button className="drawer-backdrop" aria-label="关闭抽屉" onClick={() => { setDrawer(null); setConversationMenuId(null) }} />
       {drawer === 'left' && <aside className="app-drawer left-drawer" aria-label="对话列表">
-        <header className="drawer-header"><div><small>惟境</small><h2>{inPhoneChat ? '小手机聊天' : '全部聊天'}</h2></div>{inPhoneChat ? <button onClick={() => { setDrawer(null); openPhonePage() }}>回小手机</button> : <button onClick={goHome}>回首页</button>}</header>
+        <header className="drawer-header"><div><small>惟境</small><h2>{inPhoneChat ? '小手机聊天' : '全部聊天'}</h2></div>{inPhoneChat ? <button onClick={returnToPhoneList}>回小手机</button> : <button onClick={goHome}>回首页</button>}</header>
         <div className="conversation-list">{sortedConversations.length ? (() => {
           const renderRow = (conversation: Conversation) => {
           const character = characters.find((item) => item.id === conversation.characterId) || demoCharacter
@@ -4026,7 +4043,7 @@ function UpdateCard() {
     }
   }
 
-  return <section className="update-card"><strong>应用更新</strong><p>主动检查并拉取最新网页版本，不会删除角色、聊天记录或本地设置。</p><small>当前版本：v83 · 2026.10.14 群聊读取本人私聊记忆</small><button onClick={refresh} disabled={state === 'checking'}>{state === 'checking' ? '正在检查更新…' : state === 'error' ? '更新失败，点我重试' : '强制刷新到最新版'}</button></section>
+  return <section className="update-card"><strong>应用更新</strong><p>主动检查并拉取最新网页版本，不会删除角色、聊天记录或本地设置。</p><small>当前版本：v84 · 2026.10.14 小手机返回首页修复</small><button onClick={refresh} disabled={state === 'checking'}>{state === 'checking' ? '正在检查更新…' : state === 'error' ? '更新失败，点我重试' : '强制刷新到最新版'}</button></section>
 }
 
 function PersonaPage({ identities, selectedId, isBound, onSelect, onAdd, onDelete, onUpdate, onBack }: { identities: UserIdentity[]; selectedId: string; isBound: boolean; onSelect: (id: string) => void; onAdd: () => void; onDelete: (id: string) => void; onUpdate: (patch: Partial<UserIdentity>) => void; onBack: () => void }) {
