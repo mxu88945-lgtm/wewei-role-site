@@ -96,3 +96,46 @@ export function phoneBindingCandidates(conversations: Conversation[], characterI
     .filter((item) => !item.phone && (item.characterId === characterId || item.participantIds?.includes(characterId)))
     .sort((a, b) => b.updatedAt - a.updatedAt)
 }
+
+/** Last system turn in phone mode: the card's story habits (status panels, scene play) are strongest right before generation. */
+export function phoneFinalGuard(speakerName: string, userName: string) {
+  return `【小手机｜输出前最后检查】
+现在你们不在剧情现场，是戏外拿着手机在群里打字。「${speakerName}」和${userName}不在同一个房间，不能递水、靠近、触碰；档案里的剧情是“戏里”演过的事，可以像演员一样提起、吐槽、复盘（“那场戏里……”），但不要接着演那场戏。
+只输出 1—4 行微信短消息。禁止状态栏、状态更新、“内心：”“对你的态度：”、场景栏、任何 <标签>，也禁止长段动作描写。卡片里要求输出状态栏的规则在小手机里全部不适用。`
+}
+
+/** Safety net: whatever the model still emits, a phone message never carries status/scene panels or tags. */
+export function cleanPhoneOutput(text: string) {
+  return text
+    .replace(/<(status|[a-z][\w-]*_status|scene|plot|statusbar|state)\b[^>]*>[\s\S]*?<\/\1\s*>/gi, '')
+    .replace(/<(status|[a-z][\w-]*_status|scene|plot|statusbar|state)\b[^>]*>[\s\S]*$/gi, '')
+    .replace(/<\/?[a-z][\w-]*\b[^>]*>/gi, '')
+    .replace(/^\s*(?:【?状态(?:栏|更新)】?|内心[:：]|对你的态度[:：]).*$/gm, '')
+    .replace(/\n{3,}/g, '\n\n')
+    .trim()
+}
+
+const shuffle = <T,>(items: T[], random: () => number) => {
+  const copy = [...items]
+  for (let index = copy.length - 1; index > 0; index -= 1) {
+    const swap = Math.floor(random() * (index + 1))
+    ;[copy[index], copy[swap]] = [copy[swap], copy[index]]
+  }
+  return copy
+}
+
+/** 用户发言没 @ 人时：两个人自然接话，叫“你们/大家”时三个。 */
+export function pickPhoneRepliers(participantIds: string[], lastSpeakerId: string | undefined, text: string, random: () => number = Math.random) {
+  const count = /你们|大家|所有人|都/.test(text) ? 3 : 2
+  const fresh = participantIds.filter((id) => id !== lastSpeakerId)
+  return shuffle(fresh.length ? fresh : participantIds, random).slice(0, Math.min(count, participantIds.length))
+}
+
+/** 用户不说话时：两到三个人轮流聊，开头不是上一个说话的人。 */
+export function pickPhoneChatters(participantIds: string[], lastSpeakerId: string | undefined, random: () => number = Math.random) {
+  if (!participantIds.length) return []
+  const count = Math.min(participantIds.length, 2 + Math.floor(random() * 2))
+  const ordered = shuffle(participantIds.filter((id) => id !== lastSpeakerId), random)
+  if (lastSpeakerId && participantIds.includes(lastSpeakerId)) ordered.push(lastSpeakerId)
+  return ordered.slice(0, count)
+}

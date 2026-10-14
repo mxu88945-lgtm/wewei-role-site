@@ -48,3 +48,24 @@ describe('phone group', () => {
     expect(phoneBindingCandidates(list, 'xie').map((c) => c.id)).toEqual(['c', 'a'])
   })
 })
+
+describe('phone output and turn taking', () => {
+  it('strips status panels, scene tags and inner-thought lines', async () => {
+    const { cleanPhoneOutput } = await import('./phoneGroup')
+    expect(cleanPhoneOutput('嗓子不舒服？\n有什么指示直接说。\n<gts_status>对你的态度：……｜内心：别让她听出来</gts_status>')).toBe('嗓子不舒服？\n有什么指示直接说。')
+    expect(cleanPhoneOutput('<scene>栖澜公馆</scene>滚。\n内心：她怎么知道')).toBe('滚。')
+  })
+
+  it('picks natural repliers and chatters without the last speaker first', async () => {
+    const { pickPhoneChatters, pickPhoneRepliers } = await import('./phoneGroup')
+    const ids = ['xie', 'fu', 'shen', 'yu']
+    const repliers = pickPhoneRepliers(ids, 'xie', '咳咳', () => 0.3)
+    expect(repliers).toHaveLength(2)
+    expect(repliers).not.toContain('xie')
+    expect(pickPhoneRepliers(ids, undefined, '你们都在吗', () => 0.3)).toHaveLength(3)
+    const chatters = pickPhoneChatters(ids, 'fu', () => 0.9)
+    expect(chatters.length).toBe(3)
+    expect(chatters[0]).not.toBe('fu')
+    expect(new Set(chatters).size).toBe(chatters.length)
+  })
+})

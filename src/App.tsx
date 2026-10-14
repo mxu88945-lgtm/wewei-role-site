@@ -14,7 +14,7 @@ import MessageContent from './MessageContent'
 import { createBlankCharacter, importCharacterCard, normalizeStoredCharacter, LIBRARY_ROLES, type Character, type LibraryRole } from './characterCard'
 import { Moments, type MomentSeed } from './Moments'
 import { USER_AUTHOR, communityMemberIds, excerptFromMessage } from './moments'
-import { buildPhoneArchive, buildPhoneGroupBackground, phoneBindingCandidates, phoneCharacter, phoneModeRules } from './phoneGroup'
+import { pickPhoneChatters, pickPhoneRepliers, cleanPhoneOutput, phoneFinalGuard, buildPhoneArchive, buildPhoneGroupBackground, phoneBindingCandidates, phoneCharacter, phoneModeRules } from './phoneGroup'
 import { assignChatGroup, chatGroupNames, groupConversations, setChatGroupMembers } from './chatGroups'
 import { assignLibraryGroup, setLibraryGroupMembers, effectiveLibraryRole, groupLibraryCharacters, LIBRARY_ROLE_LABELS, libraryGroupNames } from './characterLibraryGroups'
 import { activeCharacterMemory, characterMemoryEntryFromConversation, characterMemoryExtractionPrompt, characterMemorySummaryProtocol, parseCharacterMemoryCandidates, splitCharacterMemorySummary } from './characterMemory'
@@ -2268,11 +2268,12 @@ function App() {
       contextSummary: hasValidContextSummary ? conversation.contextSummary : undefined,
       compressedUntil: hasValidContextSummary ? conversation.compressedUntil : undefined,
     })
-    const storedRelationshipStage: RelationshipStage | 0 = capturedCharacter.name === '顾霆深'
+    const storedRelationshipStage: RelationshipStage | 0 = capturedCharacter.name === '顾霆深' && !isPhone
       ? Math.max(conversation.relationshipStages?.[capturedCharacter.id] || 0, highestRelationshipStage(nextMessages, capturedCharacter.id) || 0) as RelationshipStage
       : 0
     if (storedRelationshipStage) promptMessages.push({ role: 'system', content: relationshipStageLockInstruction(storedRelationshipStage) })
-    if (isDirector) promptMessages.push({ role: 'system', content: `${DIRECTOR_OUTPUT_GUARD}\n\n${directorRuntimeBoundary(groupNames.filter((name) => name !== speaker.name))}` })
+    if (isPhone) promptMessages.push({ role: 'system', content: phoneFinalGuard(speaker.name, identity.name) })
+    else if (isDirector) promptMessages.push({ role: 'system', content: `${DIRECTOR_OUTPUT_GUARD}\n\n${directorRuntimeBoundary(groupNames.filter((name) => name !== speaker.name))}` })
     else if (requiresCharacterStatus) {
       const fieldGuard = statusProtocol.fields.length
         ? `状态栏必须按卡片顺序逐项保留字段：${statusProtocol.fields.join('、')}。每一项都写本轮结束时的具体事实；没有变化就沿用上一轮的具体值，不能写“本轮未更新”“以正文为准”“延续当前剧情”等占位话，也不能删除字段。`
@@ -2285,7 +2286,7 @@ function App() {
       // visible transcript, long-term memory or later user-authored turns.
       promptMessages.push({
         role: 'user',
-        content: `请让${speaker.name}从上一条回复的结束处自然续演并推进当前剧情。不要复述已经写过的内容，不要替用户新增台词、动作、心理或关键选择，不要提及本条续演指令。`,
+        content: isPhone ? `${identity.name}现在没说话。请以「${speaker.name}」的身份在群里接着聊：接上一位成员的话头，或自然挑起一个日常话题、吐槽、互怼。不要提及本条指令。` : `请让${speaker.name}从上一条回复的结束处自然续演并推进当前剧情。不要复述已经写过的内容，不要替用户新增台词、动作、心理或关键选择，不要提及本条续演指令。`,
       })
     }
     const variablesPrompt = buildStoryVariablesPrompt(requestOptions.contextOverride ? requestOptions.contextOverride.storyVariables : conversation.storyVariables, speaker.id)
@@ -2518,6 +2519,7 @@ function App() {
       if (!cleanOutput && containsHiddenReasoning(output, isDirector)) throw new Error('模型只返回了内部分析，惟境已拦截且没有写入剧情。请重试或换一个更遵守指令的模型。')
       const visibleOutput = isDirector
         ? normalizeDirectorStatusOutput(cleanOutput || output)
+        : conversation.phone ? cleanPhoneOutput(cleanOutput || output) || cleanOutput || output
         : cleanOutput || output
       const statusFallback = requiresCharacterStatus
         ? buildStatusFallback(capturedCharacter, identity.name, {
@@ -2600,6 +2602,26 @@ function App() {
     }
   }
 
+  /** 小手机：用户不说话，让群里的角色自己聊几句。 */
+  const phoneChatterRound = async (conversation: Conversation) => {
+    const stopRevision = conversationStopRevisions.current.get(conversation.id) || 0
+    const participantIds = conversation.participantIds || []
+    let groupMessages = conversation.messages
+    const lastSpeakerId = [...groupMessages].reverse().find((item) => item.role === 'assistant')?.characterId
+    const speakerIds = pickPhoneChatters(participantIds, lastSpeakerId)
+    setChatError('')
+    for (const speakerId of speakerIds) {
+      if ((conversationStopRevisions.current.get(conversation.id) || 0) !== stopRevision) break
+      const speaker = characters.find((item) => item.id === speakerId)
+      if (!speaker) continue
+      const next = await generateAssistant(conversation, groupMessages, speaker, conversationApiFor(conversation, speakerId, api), { continueWithoutUser: true })
+      if ((conversationStopRevisions.current.get(conversation.id) || 0) !== stopRevision) break
+      if (next.length === groupMessages.length) break
+      if (next[next.length - 1]?.finishReason === 'connection_interrupted') break
+      groupMessages = next
+    }
+  }
+
   const continueSingleTurn = async () => {
     if (!activeConversation || activeConversation.kind === 'group' || isGenerating) return
     const speaker = characters.find((item) => item.id === activeConversation.characterId) || activeCharacter
@@ -2625,6 +2647,7 @@ function App() {
     const text = (textOverride ?? draft).trim()
     // Only a composer send carries the staged pictures; edit/resend paths pass textOverride.
     const images = textOverride === undefined ? pendingImages : []
+    if (!text && !images.length && textOverride === undefined && activeConversation?.phone && !isGenerating) { await phoneChatterRound(activeConversation); return }
     if (!text && !images.length) return
     if (imageBusy && textOverride === undefined) return
     if (images.length) setPendingImages([])
@@ -2660,7 +2683,9 @@ function App() {
         return
       }
       const lastSpeakerId = [...baseMessages].reverse().find((item) => item.role === 'assistant')?.characterId
-      const speakerIds = selectGroupSpeakerIds({ participantIds, mentionedIds, mode: conversation.phone ? 'contextual' : groupReplyMode, directorCharacterId: conversation.directorCharacterId, lastSpeakerId, text })
+      const speakerIds = conversation.phone
+        ? (mentionedIds.length ? participantIds.filter((id) => mentionedIds.includes(id)) : pickPhoneRepliers(participantIds, lastSpeakerId, text))
+        : selectGroupSpeakerIds({ participantIds, mentionedIds, mode: groupReplyMode, directorCharacterId: conversation.directorCharacterId, lastSpeakerId, text })
       if (!speakerIds.length) {
         // Specified mode waits silently until the user explicitly chooses a speaker with @.
         setChatError('')
@@ -3253,7 +3278,7 @@ function App() {
 
     {page === 'group-greeting-picker' && <GroupGreetingPicker characters={groupGreetingCharacters} userName={groupGreetingUserName} onCancel={() => { const creatingFromConversation = Boolean(newConversationSourceId); setNewConversationSourceId(null); if (creatingFromConversation) replacePage('chat'); else goBack() }} onConfirm={beginGroupWithGreeting} />}
 
-    {page === 'chat' && <section className={`chat-page${activeConversation?.phone ? ' phone-chat' : ''}`}><header className="chat-header"><button className="icon-button drawer-trigger" aria-label="打开对话列表" onClick={() => setDrawer('left')}>☰</button><button className="chat-identity" onClick={() => navigate('character-detail')}>{activeCharacter.avatar ? <img src={activeCharacter.avatar} alt="" /> : <span>{activeCharacter.name.slice(-1)}</span>}<div><strong>{activeConversation?.kind === 'group' ? activeConversation.title : activeCharacter.name}</strong><small>{isGenerating ? '正在回应…' : activeConversation?.title || `${identity.name} · 沉浸共演中`}</small></div></button><button className="more-button" aria-label="打开聊天设置" onClick={() => setDrawer('right')}>•••</button></header>{chatError && <div className="chat-error" role="alert"><button className="chat-error-action" onClick={() => navigate(chatErrorIsPlot ? 'temporary-plot' : 'api')}><span>{chatErrorIsPlot ? '剧情安排提示' : '连接提示'}</span>{chatError}<i>{chatErrorIsPlot ? '查看幕后安排 ›' : '前往 API 设置 ›'}</i></button>{chatErrorIsPlot && activeConversation?.temporaryPlot && <button className="chat-error-end-plot" onClick={() => { const id = activeConversation.id; setConversations((current) => current.map((item) => item.id === id ? { ...item, temporaryPlot: undefined, updatedAt: Date.now() } : item)); setChatError('') }}>已落实，结束安排</button>}<button className="chat-error-close" aria-label="关闭提示" title="关闭提示" onClick={() => setChatError('')}>×</button></div>}<div ref={messageListRef} className="message-list" onScroll={updateChatJump}>{earlierChatCount > 0 && <button type="button" className="chat-load-earlier" onClick={loadEarlierChatMessages}>加载更早 {earlierChatCount} 条</button>}{renderedChatMessages.map((message, offset) => contextSummaryBoundary > 0 && chatWindowStart + offset === contextSummaryBoundary && contextSummaryBoundary < messages.length ? [<div key="context-summary-divider" className="context-summary-divider" role="note">以上 {contextSummaryBoundary} 条已在后台整理进上下文摘要</div>, renderChatMessage(message)] : renderChatMessage(message))}<div ref={messageListLayoutMarkerRef} className="message-list-layout-marker" aria-hidden="true" /></div>{(chatJump.up || chatJump.down) && <nav className={`chat-jump-controls ${chatJump.visible ? 'visible' : ''}`} aria-label="快速浏览对话" aria-hidden={!chatJump.visible}>{chatJump.up && <button tabIndex={chatJump.visible ? 0 : -1} onClick={() => jumpChat('top')} aria-label="回到对话顶部">↑</button>}{chatJump.down && <button tabIndex={chatJump.visible ? 0 : -1} onClick={() => jumpChat('bottom')} aria-label="跳到最新消息">↓</button>}</nav>}<div ref={composerDockRef} className={`${composerExpanded ? 'composer has-expanded' : 'composer'}${composerCanExpand ? ' can-expand' : ''}${pendingImages.length || imageBusy ? ' has-images' : ''}`}>{(pendingImages.length > 0 || imageBusy) && <div className="composer-images" aria-label="待发送图片">{pendingImages.map((image) => <div key={image.id}><img src={image.dataUrl} alt="" /><button type="button" aria-label="移除图片" onClick={() => setPendingImages((current) => current.filter((item) => item.id !== image.id))}>×</button></div>)}{imageBusy && <span className="composer-images-busy">处理中…</span>}</div>}<button className="composer-plus" aria-label="打开输入工具" onClick={() => setComposerToolsOpen(true)}>{replyHelperState === 'generating' ? '…' : '＋'}</button><textarea ref={composerRef} rows={1} value={draft} onChange={(event) => { const value = event.target.value; setDraft(value); if (activeConversation?.kind === 'group' && /[@＠]$/.test(value) && value.length > draft.length) { event.currentTarget.blur(); setMentionPickerOpen(true) } }} placeholder={replyHelperState === 'generating' ? 'AI 帮答正在起草…' : isGenerating ? '可以先写下一条，停止后再发送' : groupReplyMode === 'specified' && activeConversation?.kind === 'group' ? '输入 @ 选择回答的角色……' : '写下你的回应……'} />{composerCanExpand && <button className="composer-expand" aria-label="展开长消息编辑器" title="展开编辑" onClick={() => setComposerExpanded(true)}>⛶</button>}<button className={`send-button ${isGenerating ? 'stop' : ''}`} aria-label={isGenerating ? '停止生成' : '发送'} onClick={() => isGenerating && activeConversation ? abortConversation(activeConversation.id) : sendMessage()}>{isGenerating ? '■' : '↑'}</button></div>{composerExpanded && <div className="composer-expanded-layer" role="dialog" aria-modal="true" aria-label="长消息编辑器"><header><button className="expanded-collapse" aria-label="收起编辑器" onClick={() => { setComposerExpanded(false); window.requestAnimationFrame(() => composerRef.current?.focus()) }}>‹</button><div><strong>长消息编辑</strong><small>{draft.length} 字 · 草稿实时保留</small></div><button className="expanded-tools" aria-label="打开输入工具" onClick={() => setComposerToolsOpen(true)}>＋</button></header><textarea ref={expandedComposerRef} value={draft} onChange={(event) => { const value = event.target.value; setDraft(value); if (activeConversation?.kind === 'group' && /[@＠]$/.test(value) && value.length > draft.length) { event.currentTarget.blur(); setMentionPickerOpen(true) } }} placeholder={replyHelperState === 'generating' ? 'AI 帮答正在起草…' : '在这里慢慢写完整段落……'} /><footer><button className="expanded-done" onClick={() => { setComposerExpanded(false); window.requestAnimationFrame(() => composerRef.current?.focus()) }}>收起</button><button className={isGenerating ? 'expanded-send stop' : 'expanded-send'} disabled={!draft.trim() && !pendingImages.length && !isGenerating} onClick={() => { if (isGenerating && activeConversation) { abortConversation(activeConversation.id); return } setComposerExpanded(false); void sendMessage() }}>{isGenerating ? '停止生成' : '发送'}</button></footer></div>}</section>}
+    {page === 'chat' && <section className={`chat-page${activeConversation?.phone ? ' phone-chat' : ''}`}><header className="chat-header"><button className="icon-button drawer-trigger" aria-label="打开对话列表" onClick={() => setDrawer('left')}>☰</button><button className="chat-identity" onClick={() => navigate('character-detail')}>{activeCharacter.avatar ? <img src={activeCharacter.avatar} alt="" /> : <span>{activeCharacter.name.slice(-1)}</span>}<div><strong>{activeConversation?.kind === 'group' ? activeConversation.title : activeCharacter.name}</strong><small>{isGenerating ? '正在回应…' : activeConversation?.title || `${identity.name} · 沉浸共演中`}</small></div></button><button className="more-button" aria-label="打开聊天设置" onClick={() => setDrawer('right')}>•••</button></header>{chatError && <div className="chat-error" role="alert"><button className="chat-error-action" onClick={() => navigate(chatErrorIsPlot ? 'temporary-plot' : 'api')}><span>{chatErrorIsPlot ? '剧情安排提示' : '连接提示'}</span>{chatError}<i>{chatErrorIsPlot ? '查看幕后安排 ›' : '前往 API 设置 ›'}</i></button>{chatErrorIsPlot && activeConversation?.temporaryPlot && <button className="chat-error-end-plot" onClick={() => { const id = activeConversation.id; setConversations((current) => current.map((item) => item.id === id ? { ...item, temporaryPlot: undefined, updatedAt: Date.now() } : item)); setChatError('') }}>已落实，结束安排</button>}<button className="chat-error-close" aria-label="关闭提示" title="关闭提示" onClick={() => setChatError('')}>×</button></div>}<div ref={messageListRef} className="message-list" onScroll={updateChatJump}>{earlierChatCount > 0 && <button type="button" className="chat-load-earlier" onClick={loadEarlierChatMessages}>加载更早 {earlierChatCount} 条</button>}{renderedChatMessages.map((message, offset) => contextSummaryBoundary > 0 && chatWindowStart + offset === contextSummaryBoundary && contextSummaryBoundary < messages.length ? [<div key="context-summary-divider" className="context-summary-divider" role="note">以上 {contextSummaryBoundary} 条已在后台整理进上下文摘要</div>, renderChatMessage(message)] : renderChatMessage(message))}<div ref={messageListLayoutMarkerRef} className="message-list-layout-marker" aria-hidden="true" /></div>{(chatJump.up || chatJump.down) && <nav className={`chat-jump-controls ${chatJump.visible ? 'visible' : ''}`} aria-label="快速浏览对话" aria-hidden={!chatJump.visible}>{chatJump.up && <button tabIndex={chatJump.visible ? 0 : -1} onClick={() => jumpChat('top')} aria-label="回到对话顶部">↑</button>}{chatJump.down && <button tabIndex={chatJump.visible ? 0 : -1} onClick={() => jumpChat('bottom')} aria-label="跳到最新消息">↓</button>}</nav>}<div ref={composerDockRef} className={`${composerExpanded ? 'composer has-expanded' : 'composer'}${composerCanExpand ? ' can-expand' : ''}${pendingImages.length || imageBusy ? ' has-images' : ''}`}>{(pendingImages.length > 0 || imageBusy) && <div className="composer-images" aria-label="待发送图片">{pendingImages.map((image) => <div key={image.id}><img src={image.dataUrl} alt="" /><button type="button" aria-label="移除图片" onClick={() => setPendingImages((current) => current.filter((item) => item.id !== image.id))}>×</button></div>)}{imageBusy && <span className="composer-images-busy">处理中…</span>}</div>}<button className="composer-plus" aria-label="打开输入工具" onClick={() => setComposerToolsOpen(true)}>{replyHelperState === 'generating' ? '…' : '＋'}</button><textarea ref={composerRef} rows={1} value={draft} onChange={(event) => { const value = event.target.value; setDraft(value); if (activeConversation?.kind === 'group' && /[@＠]$/.test(value) && value.length > draft.length) { event.currentTarget.blur(); setMentionPickerOpen(true) } }} placeholder={replyHelperState === 'generating' ? 'AI 帮答正在起草…' : isGenerating ? '可以先写下一条，停止后再发送' : activeConversation?.phone ? '说点什么，@谁谁回；空着点 ↑ 让他们自己聊' : groupReplyMode === 'specified' && activeConversation?.kind === 'group' ? '输入 @ 选择回答的角色……' : '写下你的回应……'} />{composerCanExpand && <button className="composer-expand" aria-label="展开长消息编辑器" title="展开编辑" onClick={() => setComposerExpanded(true)}>⛶</button>}<button className={`send-button ${isGenerating ? 'stop' : ''}`} aria-label={isGenerating ? '停止生成' : '发送'} onClick={() => isGenerating && activeConversation ? abortConversation(activeConversation.id) : sendMessage()}>{isGenerating ? '■' : '↑'}</button></div>{composerExpanded && <div className="composer-expanded-layer" role="dialog" aria-modal="true" aria-label="长消息编辑器"><header><button className="expanded-collapse" aria-label="收起编辑器" onClick={() => { setComposerExpanded(false); window.requestAnimationFrame(() => composerRef.current?.focus()) }}>‹</button><div><strong>长消息编辑</strong><small>{draft.length} 字 · 草稿实时保留</small></div><button className="expanded-tools" aria-label="打开输入工具" onClick={() => setComposerToolsOpen(true)}>＋</button></header><textarea ref={expandedComposerRef} value={draft} onChange={(event) => { const value = event.target.value; setDraft(value); if (activeConversation?.kind === 'group' && /[@＠]$/.test(value) && value.length > draft.length) { event.currentTarget.blur(); setMentionPickerOpen(true) } }} placeholder={replyHelperState === 'generating' ? 'AI 帮答正在起草…' : '在这里慢慢写完整段落……'} /><footer><button className="expanded-done" onClick={() => { setComposerExpanded(false); window.requestAnimationFrame(() => composerRef.current?.focus()) }}>收起</button><button className={isGenerating ? 'expanded-send stop' : 'expanded-send'} disabled={!draft.trim() && !pendingImages.length && !isGenerating} onClick={() => { if (isGenerating && activeConversation) { abortConversation(activeConversation.id); return } setComposerExpanded(false); void sendMessage() }}>{isGenerating ? '停止生成' : '发送'}</button></footer></div>}</section>}
 
     {page === 'more' && <><BackHeader title="设置" onBack={goBack} /><section className="settings-stack compact-settings">{[[['API 连接', 'api'], ['用户身份', 'identity']], [['模型设置', 'model'], ['全局预设', 'preset'], ['全局世界书', 'worldbook'], ['长记忆', 'memory']], [['应用设置', 'settings']]].map((group, index) => <div className="settings-group" key={index}>{group.map(([label, target]) => <button key={label} onClick={() => navigate(target as Page)}><span>{label}</span><span>›</span></button>)}</div>)}</section></>}
 
