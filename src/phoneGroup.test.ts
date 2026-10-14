@@ -56,6 +56,15 @@ describe('phone output and turn taking', () => {
     expect(cleanPhoneOutput('<scene>栖澜公馆</scene>滚。\n内心：她怎么知道')).toBe('滚。')
   })
 
+  it('blocks untagged persona analysis and keeps only an explicitly marked final message', async () => {
+    const { cleanPhoneOutput, containsPhoneReasoning } = await import('./phoneGroup')
+    const leaked = '沈衍人设立场与反应分析：\n\n1. 周惟惟说：吃了白饭。\n2. 沈衍视角：她又不听话。\n3. 语言风格：短句、低沉。'
+    expect(containsPhoneReasoning(leaked)).toBe(true)
+    expect(cleanPhoneOutput(leaked)).toBe('')
+    expect(cleanPhoneOutput(`${leaked}\n\n最终回复：\n吃完就好。\n今晚不准再熬。`)).toBe('吃完就好。\n今晚不准再熬。')
+    expect(cleanPhoneOutput('我看你就是欠管。\n少跟他们一起起哄。')).toBe('我看你就是欠管。\n少跟他们一起起哄。')
+  })
+
   it('picks natural repliers and chatters without the last speaker first', async () => {
     const { pickPhoneChatters, pickPhoneRepliers } = await import('./phoneGroup')
     const ids = ['xie', 'fu', 'shen', 'yu']

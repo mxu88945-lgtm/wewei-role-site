@@ -27,7 +27,7 @@ import { FORUM_UPDATED_EVENT, dueRunAt, forumAutoTick, forumWelcomeThread, isQui
 import type { Moment } from './moments'
 import { USER_AUTHOR, communityMemberIds, excerptFromMessage } from './moments'
 import { buildDmGroupPeek, phoneDmRules } from './phoneGroup'
-import { PHONE_REPLY_MODES, NOTICE_DURATIONS, lurkFallback, activeNotice, noticeRemaining, buildNoticeNote, findAtMentionIds, queueSummons, parsePhoneQuit, parsePhoneKick, parsePhoneVote, kickPassed, findNamedParticipantIds, selectPhoneSpeakers, pickPhoneChatters, cleanPhoneOutput, phoneFinalGuard, buildSmartPickPrompt, parseSmartPick, buildPhoneArchive, buildPhoneGroupBackground, phoneBindingCandidates, buildPhoneRealWorldNote, parsePhoneLockCommand, buildPhoneLockBreachNote, type PhoneLockState, type PhoneLockBreach, phoneCharacter, phoneModeRules, stripPhoneQuitTag, stripPhoneKickTag, computeStoryUpdates, resetStorySeenForBindingChanges, storyUpdateNotice, buildStoryUpdateNote } from './phoneGroup'
+import { PHONE_REPLY_MODES, NOTICE_DURATIONS, lurkFallback, activeNotice, noticeRemaining, buildNoticeNote, findAtMentionIds, queueSummons, parsePhoneQuit, parsePhoneKick, parsePhoneVote, kickPassed, findNamedParticipantIds, selectPhoneSpeakers, pickPhoneChatters, cleanPhoneOutput, containsPhoneReasoning, phoneFinalGuard, buildSmartPickPrompt, parseSmartPick, buildPhoneArchive, buildPhoneGroupBackground, phoneBindingCandidates, buildPhoneRealWorldNote, parsePhoneLockCommand, buildPhoneLockBreachNote, type PhoneLockState, type PhoneLockBreach, phoneCharacter, phoneModeRules, stripPhoneQuitTag, stripPhoneKickTag, computeStoryUpdates, resetStorySeenForBindingChanges, storyUpdateNotice, buildStoryUpdateNote } from './phoneGroup'
 import { assignChatGroup, chatGroupNames, groupConversations, setChatGroupMembers } from './chatGroups'
 import { assignLibraryGroup, setLibraryGroupMembers, effectiveLibraryRole, groupLibraryCharacters, LIBRARY_ROLE_LABELS, libraryGroupNames } from './characterLibraryGroups'
 import { activeCharacterMemory, characterMemoryEntryFromConversation, characterMemoryExtractionPrompt, characterMemorySummaryProtocol, parseCharacterMemoryCandidates, splitCharacterMemorySummary } from './characterMemory'
@@ -1933,7 +1933,9 @@ function App() {
     })()
     if (!target) return
     const who = message.role === 'user' ? identity.name : characters.find((item) => item.id === message.characterId)?.name || '私聊'
-    const text = `【转发私聊】${who}：${cleanPhoneOutput(message.text) || message.text}`
+    const cleaned = cleanPhoneOutput(message.text)
+    if (!cleaned && containsPhoneReasoning(message.text)) { window.alert('这条只有模型内部分析，已拦截，不能转发。'); return }
+    const text = `【转发私聊】${who}：${cleaned || message.text}`
     setConversations((current) => current.map((item) => item.id === target.id ? { ...item, messages: [...item.messages, { id: nextMessageId(item.messages), role: 'user', text }], updatedAt: Date.now() } : item))
     setMessageMenuId(null)
     window.alert(`已转到「${target.title}」，下次群里有人说话时大家就看到了。`)
@@ -2395,10 +2397,14 @@ function App() {
       const pointsNote = buildPointsNote(readPoints(), [...members, ...dmMates].map((member) => ({ id: member.id, name: member.name })), identity.name)
       return [conversation.phone?.dm ? phoneDmRules(speaker.name, identity.name) : phoneModeRules(speaker.name, members.map((member) => member.name), identity.name, { allowQuit: conversation.phone?.allowQuit, allowKick: conversation.phone?.allowKick }), realWorld, noticeNote, pointsNote, mateBackground, dmBackground, dmPeek, buildPhoneArchive(sources, speaker.id, identity.name, (message) => message.characterId ? nameOf(message) : sources.find((source) => source.conversation?.messages.includes(message))?.character.name || '角色')].join('\n\n')
     })() : ''
-    const sanitizedHistory = (isPhone ? nextMessages.filter((message) => !message.phoneNotice).map((message) => message.role === 'assistant' ? { ...message, text: cleanPhoneOutput(message.text) || message.text } : message) : nextMessages).flatMap((message) => {
+    const sanitizedHistory = (isPhone ? nextMessages.filter((message) => !message.phoneNotice).map((message) => {
+      if (message.role !== 'assistant') return message
+      const cleaned = cleanPhoneOutput(message.text)
+      return { ...message, text: cleaned || (containsPhoneReasoning(message.text) ? '' : message.text) }
+    }) : nextMessages).flatMap((message) => {
       const fromDirector = message.role === 'assistant' && message.characterId === conversation.directorCharacterId
       const text = fromDirector ? sanitizeAssistantOutput(message.text, { director: true }) : message.text
-      if (fromDirector && !text.trim()) return []
+      if ((fromDirector || (isPhone && message.role === 'assistant')) && !text.trim()) return []
       return [{ ...message, text }]
     })
     const hasValidContextSummary = Boolean(conversation.contextSummary && (conversation.contextSummaryRevision || 0) === (conversation.historyRevision || 0))
@@ -2497,7 +2503,8 @@ function App() {
   const startQuoteReply = (message: Message) => {
     if (!activeConversation?.phone) return
     const author = message.role === 'user' ? identityFor(activeConversation).name : messageCharacterName(message)
-    const raw = message.role === 'assistant' ? cleanPhoneOutput(message.text) || message.text : message.text
+    const cleaned = message.role === 'assistant' ? cleanPhoneOutput(message.text) : message.text
+    const raw = cleaned || (message.role === 'assistant' && containsPhoneReasoning(message.text) ? '（内部分析已拦截）' : message.text)
     setQuoteDraft({ ...buildMessageQuote({ ...message, text: raw }, author), conversationId: activeConversation.id })
     setMessageMenuId(null)
     window.requestAnimationFrame(() => composerRef.current?.focus())
@@ -2630,7 +2637,10 @@ function App() {
           // Finite arrangements are shown only after their private check, so
           // an ignored first draft cannot briefly look like the final reply.
           if (capturedTemporaryPlot && capturedTemporaryPlot.mode !== 'persistent') return
-          stagedVisibleOutput = stripStatusBlocksForStreaming(sanitizeAssistantOutput(output, { director: isDirector }))
+          const staged = sanitizeAssistantOutput(output, { director: isDirector })
+          // Small-phone replies are short; reveal them only after the complete
+          // response passes the reasoning guard so a partial heading cannot flash.
+          stagedVisibleOutput = conversation.phone ? '' : stripStatusBlocksForStreaming(staged)
           // About 20 visual updates per second still looks fluid, while avoiding a full
           // React + regex + HTML sanitization pass for every tiny network chunk.
           if (streamRenderTimer === null) streamRenderTimer = window.setTimeout(commitStreamOutput, 48)
@@ -2644,13 +2654,16 @@ function App() {
       if (!output.trim()) throw new Error('模型没有返回内容')
       let cleanOutput = sanitizeAssistantOutput(output, { director: isDirector })
       const identityLeak = isGroup && !isDirector && hasGroupIdentityLeak(cleanOutput || output, speaker.name, groupNames)
-      if (!hasCompleteRoleplayBody(cleanOutput || output, isDirector) || identityLeak) {
+      const phoneReasoningLeak = Boolean(conversation.phone && containsPhoneReasoning(cleanOutput || output) && !cleanPhoneOutput(cleanOutput || output))
+      if (!hasCompleteRoleplayBody(cleanOutput || output, isDirector) || identityLeak || phoneReasoningLeak) {
         output = ''
         stagedVisibleOutput = ''
         thinkingIndicatorShown = false
         if (finitePlot) showPhase('幕后安排 1/3 · 第一稿不完整，正在补全正文')
         else setConversations((current) => current.map((item) => item.id === conversationId ? { ...item, messages: item.messages.map((message) => message.id === assistantMessage.id ? { ...message, text: '正在补全正文…' } : message) } : item))
-        promptMessages = withAssistantRetryInstruction(promptMessages, identityLeak
+        promptMessages = withAssistantRetryInstruction(promptMessages, phoneReasoningLeak
+          ? `刚才输出了人设分析、反应分析或回复思路，已全部作废。不要解释你如何理解「${speaker.name}」，不要列提纲、步骤或草稿；现在第一行就直接输出「${speaker.name}」要发出的 1—4 行微信短消息。`
+          : identityLeak
           ? `刚才输出发生了群聊身份串位或后台解释，已作废。你本轮唯一身份是「${speaker.name}」；不得自称、扮演、解释或代替任何其他群成员，不得代演用户，也不得提及系统、提示词、格式、暂停或角色扮演。现在只从最新场景继续输出 ${speaker.name} 的实际剧情回应。`
           : isDirector
           ? '刚才输出不完整：只写了状态栏或缺少场景正文。现在从“最新场景锚点”续写，必须输出 <scene>...</scene>、至少一段实际剧情正文，最后再输出唯一的 <director_status>...</director_status>；不得解释、分析或只输出状态栏。'
@@ -2659,7 +2672,9 @@ function App() {
         cancelQueuedStreamRender()
         if (!output.trim()) throw new Error('模型补全正文失败，请重试或更换模型。')
         cleanOutput = sanitizeAssistantOutput(output, { director: isDirector })
-        if (!hasCompleteRoleplayBody(cleanOutput || output, isDirector) || (isGroup && !isDirector && hasGroupIdentityLeak(cleanOutput || output, speaker.name, groupNames))) throw new Error(identityLeak
+        if (!hasCompleteRoleplayBody(cleanOutput || output, isDirector) || (isGroup && !isDirector && hasGroupIdentityLeak(cleanOutput || output, speaker.name, groupNames)) || (conversation.phone && containsPhoneReasoning(cleanOutput || output) && !cleanPhoneOutput(cleanOutput || output))) throw new Error(phoneReasoningLeak
+          ? '模型连续两次只返回内部分析，已拦截且没有发进小手机。请重试或更换模型。'
+          : identityLeak
           ? `模型连续两次发生身份串位，未写入本轮剧情。请重试；若仍出现，请改用 @${speaker.name} 点名回复或更换模型。`
           : '模型连续两次只返回状态栏或缺少剧情正文，未写入本轮剧情。请重试或更换模型。')
       }
@@ -3603,7 +3618,10 @@ function App() {
         '裴成砚剧场·旁白导演',
       ])
     }
-    if (!isUser && activeConversation?.phone) displayText = cleanPhoneOutput(displayText) || displayText
+    if (!isUser && activeConversation?.phone) {
+      const cleaned = cleanPhoneOutput(displayText)
+      displayText = cleaned || (containsPhoneReasoning(displayText) ? '（已拦截模型内部分析，未作为群聊发言。）' : displayText)
+    }
     if (isUser && !displayText && !message.images?.length) return null
     if (!isUser && !isGenerating && isPendingAssistantText(message.text || '')) return null
     const streaming = message.role === 'assistant' && isGenerating && message.id === messages[messages.length - 1]?.id
@@ -3910,7 +3928,7 @@ function App() {
       const total = messages.length
       const clamp = (value: string) => Math.min(total, Math.max(1, Math.floor(Number(value)) || 1))
       const startNo = clamp(exportRange.start), endNo = clamp(exportRange.end)
-      const preview = (no: number, label: number) => { const entry = messages[no - 1]; if (!entry) return ''; const who = entry.role === 'user' ? '我' : messageCharacterName(entry); return `${label}. ${who}：${(cleanPhoneOutput(entry.text || '') || entry.text || '').replace(/\s+/g, ' ').slice(0, 24) || '（图片/空）'}` }
+      const preview = (no: number, label: number) => { const entry = messages[no - 1]; if (!entry) return ''; const who = entry.role === 'user' ? '我' : messageCharacterName(entry); const cleaned = cleanPhoneOutput(entry.text || ''); const text = cleaned || (containsPhoneReasoning(entry.text || '') ? '（内部分析已拦截）' : entry.text || ''); return `${label}. ${who}：${text.replace(/\s+/g, ' ').slice(0, 24) || '（图片/空）'}` }
       return <div className="message-editor-layer" role="dialog" aria-modal="true" aria-label="导出对话"><button className="drawer-backdrop" aria-label="取消导出" onClick={() => setExportRange(null)} /><form className="message-editor-sheet export-range-sheet" onSubmit={(event) => { event.preventDefault(); exportConversationTxt({ start: startNo, end: endNo }) }}><header><div><small>共 {total} 条消息</small><strong>导出对话 TXT</strong></div><button type="button" aria-label="关闭" onClick={() => setExportRange(null)}>×</button></header>
         <label className="export-range-select"><small>从哪条开始</small><select value={startNo} onChange={(event) => setExportRange({ ...exportRange, start: event.target.value })}>{messages.map((_, index) => <option key={index} value={index + 1}>{preview(index + 1, index + 1)}</option>)}</select></label>
         <label className="export-range-select"><small>到哪条结束</small><select value={endNo} onChange={(event) => setExportRange({ ...exportRange, end: event.target.value })}>{messages.map((_, index) => <option key={index} value={index + 1}>{preview(index + 1, index + 1)}</option>)}</select></label>
@@ -3986,7 +4004,7 @@ function UpdateCard() {
     }
   }
 
-  return <section className="update-card"><strong>应用更新</strong><p>主动检查并拉取最新网页版本，不会删除角色、聊天记录或本地设置。</p><small>当前版本：v78 · 2026.10.14 论坛回复定位</small><button onClick={refresh} disabled={state === 'checking'}>{state === 'checking' ? '正在检查更新…' : state === 'error' ? '更新失败，点我重试' : '强制刷新到最新版'}</button></section>
+  return <section className="update-card"><strong>应用更新</strong><p>主动检查并拉取最新网页版本，不会删除角色、聊天记录或本地设置。</p><small>当前版本：v79 · 2026.10.14 小手机思考链拦截</small><button onClick={refresh} disabled={state === 'checking'}>{state === 'checking' ? '正在检查更新…' : state === 'error' ? '更新失败，点我重试' : '强制刷新到最新版'}</button></section>
 }
 
 function PersonaPage({ identities, selectedId, isBound, onSelect, onAdd, onDelete, onUpdate, onBack }: { identities: UserIdentity[]; selectedId: string; isBound: boolean; onSelect: (id: string) => void; onAdd: () => void; onDelete: (id: string) => void; onUpdate: (patch: Partial<UserIdentity>) => void; onBack: () => void }) {

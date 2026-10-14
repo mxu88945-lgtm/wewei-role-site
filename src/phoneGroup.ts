@@ -132,11 +132,14 @@ export function phoneBindingCandidates(conversations: Conversation[], characterI
 export function phoneFinalGuard(speakerName: string, userName: string) {
   return `【小手机｜输出前最后检查】
 现在你们不在剧情现场，是戏外拿着手机在群里打字。「${speakerName}」和${userName}不在同一个房间，不能递水、靠近、触碰；档案里的剧情是“戏里”演过的事，可以像演员一样提起、吐槽、复盘（“那场戏里……”），但不要接着演那场戏。
-只输出 1—4 行微信短消息。禁止状态栏、状态更新、“内心：”“对你的态度：”、场景栏、任何 <标签>，也禁止长段动作描写。卡片里要求输出状态栏的规则在小手机里全部不适用。`
+只输出 1—4 行微信短消息。禁止状态栏、状态更新、“内心：”“对你的态度：”、场景栏、任何 <标签>，也禁止长段动作描写。卡片里要求输出状态栏的规则在小手机里全部不适用。
+对人设、立场、语气和回应方式的判断只能在内部完成。严禁输出思考过程、人设分析、反应分析、视角分析、回复思路、语言风格、草拟步骤或自检；第一行就直接说「${speakerName}」真正要发出的消息。`
 }
 
 /** Safety net: whatever the model still emits, a phone message never carries status/scene panels or tags. */
 const STATUS_FIELD = /(衣着|状态|心境|内心(?:想法|独白)?|对.{1,8}(?:态度|认知)|当前(?:进度|状态)|好感|场景|时间|地点)\s*[:：]/
+const PHONE_REASONING_OPENING = /^(?:\s|[#*_>—-])*(?:[\p{Script=Han}A-Za-z0-9·_-]{1,20})?(?:人设(?:立场)?与反应分析|人设分析|角色(?:立场|反应|视角|语气|风格|设定)?分析|人物(?:立场|反应|视角|语气|风格|设定)?分析|回复(?:思路|分析|策略|规划)|内部(?:思考|分析)|思考过程)\s*[:：]?/iu
+const PHONE_FINAL_HEADING = /(?:^|\n)\s*(?:#{1,6}\s*)?(?:(?:最终|正式|可发送的?|群聊|微信|建议的?)\s*)?(?:回复|发言|消息|输出|成稿)(?:内容)?\s*[:：]\s*/iu
 const isStatusLine = (line: string) => {
   const t = line.trim()
   if (!t) return false
@@ -144,6 +147,20 @@ const isStatusLine = (line: string) => {
   if (/^[^\s：:]{1,8}[:：]\s*(?:衣着|状态|心境)[:：]/.test(t)) return true
   const fields = (t.match(new RegExp(STATUS_FIELD.source, 'g')) || []).length
   return fields >= 2 || (fields >= 1 && /[|｜]/.test(t))
+}
+
+/** Untagged reasoning some models place before the actual phone message. */
+export function containsPhoneReasoning(text: string) {
+  const value = (text || '').trimStart()
+  return /^(?:<\/?(?:think(?:ing)?|analysis|reasoning)\b|```(?:analysis|reasoning|thinking))/i.test(value)
+    || PHONE_REASONING_OPENING.test(value)
+}
+
+function stripPhoneReasoning(text: string) {
+  const value = text.trimStart()
+  if (!PHONE_REASONING_OPENING.test(value)) return value
+  const final = PHONE_FINAL_HEADING.exec(value)
+  return final ? value.slice((final.index || 0) + final[0].length).trimStart() : ''
 }
 
 /** 小手机最终清理：任何 HTML/标签块、状态栏、场景栏、内心字段都不保留。 */
@@ -154,9 +171,10 @@ export function cleanPhoneOutput(text: string) {
     .replace(/<([A-Za-z\u4e00-\u9fa5][\w\u4e00-\u9fa5-]*(?:status|state|scene|plot)[\w-]*|status|state|scene|plot|statusbar)\b[^>]*>[\s\S]*$/gi, '')
     .replace(/```[\s\S]*?```/g, '')
     .replace(/<\/?[A-Za-z\u4e00-\u9fa5][\w\u4e00-\u9fa5-]*\b[^>]*>/g, '')
-  return out.split('\n').filter((line) => !isStatusLine(line) && !/^\s*[-—=─_]{3,}\s*$/.test(line)).join('\n')
+  const cleaned = out.split('\n').filter((line) => !isStatusLine(line) && !/^\s*[-—=─_]{3,}\s*$/.test(line)).join('\n')
     .replace(/\n{3,}/g, '\n\n')
     .trim()
+  return stripPhoneReasoning(cleaned)
 }
 
 const shuffle = <T,>(items: T[], random: () => number) => {
