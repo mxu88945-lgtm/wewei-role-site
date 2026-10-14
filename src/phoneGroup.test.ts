@@ -98,3 +98,15 @@ describe('cleanPhoneOutput status leaks', () => {
     expect(cleanPhoneOutput('今天周末，你们谁也别催她。')).toBe('今天周末，你们谁也别催她。')
   })
 })
+
+describe('phone display has no card status', () => {
+  it('MessageContent noStatus skips card status fallback', async () => {
+    const { renderToStaticMarkup } = await import('react-dom/server')
+    const React = await import('react')
+    const { default: MessageContent } = await import('./MessageContent')
+    const character = normalizeStoredCharacter({ id: 'c', name: '沈衍', systemPrompt: '每轮末尾输出 <sy_status>心境：自持｜衣着：黑衬衫</sy_status>', regexScripts: [] } as never)
+    const html = renderToStaticMarkup(React.createElement(MessageContent, { text: '散心就免了。', role: 'assistant', character, userName: '周惟惟', noStatus: true }))
+    expect(html).not.toContain('status')
+    expect(html).toContain('散心就免了')
+  })
+})

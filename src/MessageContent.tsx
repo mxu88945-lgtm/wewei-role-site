@@ -245,7 +245,7 @@ function SandboxHtml({ html, raw = false, greetings, onSelectGreeting }: { html:
   return <iframe ref={frameRef} className={`message-script-frame ${fullDocument && !raw ? 'full-document' : 'inline-script'}${raw ? ' fenced-page' : ''}`} title="角色卡互动内容" sandbox="allow-scripts" srcDoc={source} style={{ height }} />
 }
 
-function MessageContent({ text, role, character, userName, layout = 'bubble', streaming = false, greetings, onSelectGreeting }: { text: string; role: 'user' | 'assistant'; character: Character; userName: string; layout?: 'bubble' | 'flat'; streaming?: boolean } & SceneHooks) {
+function MessageContent({ text, role, character, userName, layout = 'bubble', streaming = false, greetings, onSelectGreeting, noStatus = false }: { text: string; role: 'user' | 'assistant'; character: Character; userName: string; layout?: 'bubble' | 'flat'; streaming?: boolean; noStatus?: boolean } & SceneHooks) {
   const rendered = useMemo(() => {
     const director = character.tags.includes('共演导演') || character.tags.includes('旁白导演')
     const cleanText = role === 'assistant' ? sanitizeAssistantOutput(text, { director }) : text
@@ -258,8 +258,8 @@ function MessageContent({ text, role, character, userName, layout = 'bubble', st
       ? '（已拦截模型内部分析；未计入正式剧情。）'
       : sanitizedText
     const pendingAssistant = role === 'assistant' && isPendingAssistantText(visibleText)
-    const statusProtocol = role === 'assistant' && !director ? getStatusProtocol(character) : { tag: '', fields: [] }
-    const statusTag = role === 'assistant' ? statusProtocol.tag || detectStatusTag(
+    const statusProtocol = role === 'assistant' && !director && !noStatus ? getStatusProtocol(character) : { tag: '', fields: [] }
+    const statusTag = role === 'assistant' && !noStatus ? statusProtocol.tag || detectStatusTag(
       character.beautificationProtocol || '',
       character.systemPrompt || '',
       character.postHistoryInstructions || '',
@@ -274,9 +274,9 @@ function MessageContent({ text, role, character, userName, layout = 'bubble', st
       : visibleText
     const orderedText = statusTag ? moveStatusBlockToEnd(normalizedText, statusTag) : normalizedText
     return role === 'assistant'
-      ? applyRegexScripts(orderedText, character.regexScripts, character, userName, 2, 'display')
+      ? applyRegexScripts(orderedText, noStatus ? [] : character.regexScripts, character, userName, 2, 'display')
       : applyMacros(visibleText, character, userName)
-  }, [text, role, character, userName, streaming])
+  }, [text, role, character, userName, streaming, noStatus])
 
   const segments = streaming ? null : splitHtmlFences(rendered)
   if (segments) {

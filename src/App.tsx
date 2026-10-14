@@ -3167,7 +3167,7 @@ function App() {
     const openingGreetings = isOpening ? [messageCharacter.greeting, ...messageCharacter.alternateGreetings].filter((item) => typeof item === 'string') : undefined
     const selectOpening = isOpening ? (_index: number, text: string) => setConversations((current) => current.map((item) => item.id === openingConversationId ? { ...item, messages: item.messages.map((entry) => entry.id === message.id ? { ...entry, text } : entry), updatedAt: Date.now() } : item)) : undefined
     const phaseStartedAt = streaming && activeConversation ? phaseStartedAtRef.current.get(`${activeConversation.id}|${message.id}`) : undefined
-    const textContent = phaseStartedAt !== undefined ? <PhaseElapsed label={displayText} startedAt={phaseStartedAt} /> : displayText ? <MessageContent text={displayText} role={message.role} character={messageCharacter} userName={identity.name} layout={chatLayout} streaming={streaming} greetings={openingGreetings} onSelectGreeting={selectOpening} /> : null
+    const textContent = phaseStartedAt !== undefined ? <PhaseElapsed label={displayText} startedAt={phaseStartedAt} /> : displayText ? <MessageContent text={displayText} role={message.role} character={messageCharacter} noStatus={Boolean(activeConversation?.phone)} userName={identity.name} layout={chatLayout} streaming={streaming} greetings={openingGreetings} onSelectGreeting={selectOpening} /> : null
     const content = imageGrid ? <>{imageGrid}{textContent}</> : textContent
 
     return <div key={message.id} data-message-id={message.id} className={`message-row ${message.role} message-layout-${chatLayout}`}>
@@ -3489,7 +3489,7 @@ function UpdateCard() {
     }
   }
 
-  return <section className="update-card"><strong>应用更新</strong><p>主动检查并拉取最新网页版本，不会删除角色、聊天记录或本地设置。</p><small>当前版本：v52 · 2026.10.14 小手机去状态栏</small><button onClick={refresh} disabled={state === 'checking'}>{state === 'checking' ? '正在检查更新…' : state === 'error' ? '更新失败，点我重试' : '强制刷新到最新版'}</button></section>
+  return <section className="update-card"><strong>应用更新</strong><p>主动检查并拉取最新网页版本，不会删除角色、聊天记录或本地设置。</p><small>当前版本：v53 · 2026.10.14 小手机显示层去状态栏</small><button onClick={refresh} disabled={state === 'checking'}>{state === 'checking' ? '正在检查更新…' : state === 'error' ? '更新失败，点我重试' : '强制刷新到最新版'}</button></section>
 }
 
 function PersonaPage({ identities, selectedId, isBound, onSelect, onAdd, onDelete, onUpdate, onBack }: { identities: UserIdentity[]; selectedId: string; isBound: boolean; onSelect: (id: string) => void; onAdd: () => void; onDelete: (id: string) => void; onUpdate: (patch: Partial<UserIdentity>) => void; onBack: () => void }) {
