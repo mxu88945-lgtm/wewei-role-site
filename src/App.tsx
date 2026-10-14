@@ -18,7 +18,10 @@ import { TAVILY_KEY_STORAGE, needsWebSearch, tavilySearch } from './phoneWeb'
 import { createBlankCharacter, importCharacterCard, normalizeStoredCharacter, LIBRARY_ROLES, type Character, type LibraryRole } from './characterCard'
 import { type MomentSeed } from './Moments'
 import { Forum } from './Forum'
-import { buildForumRecapNote, type ForumThread } from './forum'
+import { buildForumRecapNote, threadsFromMoments, type ForumThread } from './forum'
+import PhoneAutoSettingsCard from './PhoneAutoSettings'
+import { FORUM_UPDATED_EVENT, dueRunAt, forumAutoTick, isQuietHour, pickAutoGroup, readPhoneAuto, writePhoneAuto } from './phoneAuto'
+import type { Moment } from './moments'
 import { USER_AUTHOR, communityMemberIds, excerptFromMessage } from './moments'
 import { PHONE_REPLY_MODES, findNamedParticipantIds, selectPhoneSpeakers, pickPhoneChatters, cleanPhoneOutput, phoneFinalGuard, buildSmartPickPrompt, parseSmartPick, buildPhoneArchive, buildPhoneGroupBackground, phoneBindingCandidates, buildPhoneRealWorldNote, parsePhoneLockCommand, buildPhoneLockBreachNote, type PhoneLockState, type PhoneLockBreach, phoneCharacter, phoneModeRules } from './phoneGroup'
 import { assignChatGroup, chatGroupNames, groupConversations, setChatGroupMembers } from './chatGroups'
@@ -405,6 +408,17 @@ function App() {
     setPhoneLock(null)
   }
   const forumThreadsRef = useRef<ForumThread[]>([])
+  const [phoneAutoStatus, setPhoneAutoStatus] = useState('')
+  const phoneAutoRunning = useRef(false)
+  const phoneAutoLatest = useRef<() => Promise<void>>(async () => undefined)
+  useEffect(() => {
+    const tick = () => { void phoneAutoLatest.current() }
+    const first = window.setTimeout(tick, 8000)
+    const timer = window.setInterval(tick, 60000)
+    const onVisible = () => { if (!document.hidden) window.setTimeout(tick, 4000) }
+    document.addEventListener('visibilitychange', onVisible)
+    return () => { window.clearTimeout(first); window.clearInterval(timer); document.removeEventListener('visibilitychange', onVisible) }
+  }, [])
   useEffect(() => { durableGet<ForumThread[]>('weijing.forum').then((stored) => { if (stored && !forumThreadsRef.current.length) forumThreadsRef.current = stored }).catch(() => undefined) }, [])
   const handleForumChange = useCallback((threads: ForumThread[]) => { forumThreadsRef.current = threads }, [])
   const phoneWebNoteRef = useRef<{ conversationId: string; note: string; at: number } | null>(null)
@@ -2659,6 +2673,47 @@ function App() {
     }
   }
 
+  const runPhoneAuto = async () => {
+    if (phoneAutoRunning.current || document.hidden) return
+    const settings = readPhoneAuto()
+    const now = Date.now()
+    let at = dueRunAt(settings, now)
+    if (at === null) return
+    if (settings.quietNight && isQuietHour(now)) return
+    if (settings.quietNight && isQuietHour(at)) at = now
+    phoneAutoRunning.current = true
+    writePhoneAuto({ ...settings, lastRun: now })
+    const problems: string[] = []
+    try {
+      if (settings.forum && isApiChannelComplete(api)) {
+        try {
+          let current = forumThreadsRef.current
+          if (!current.length) {
+            const [stored, moments] = await Promise.all([durableGet<ForumThread[]>('weijing.forum'), durableGet<Moment[]>('weijing.moments')])
+            current = stored || (moments?.length ? threadsFromMoments(moments) : [])
+          }
+          const threads = await forumAutoTick({ threads: current, characters, conversations, api, userName: identity.name, at })
+          forumThreadsRef.current = threads
+          await durableSet('weijing.forum', threads.slice(0, 300))
+          window.dispatchEvent(new CustomEvent(FORUM_UPDATED_EVENT, { detail: threads }))
+        } catch (cause) {
+          problems.push(`论坛：${cause instanceof Error ? cause.message : '失败'}`)
+        }
+      }
+      if (settings.groups && !phoneLock) {
+        const group = pickAutoGroup(conversations)
+        if (group && !generatingIds.includes(group.id)) {
+          try { await phoneChatterRound(group) } catch (cause) { problems.push(`群聊：${cause instanceof Error ? cause.message : '失败'}`) }
+        }
+      }
+    } finally {
+      phoneAutoRunning.current = false
+      const stamp = new Date().toLocaleTimeString('zh-CN', { hour: '2-digit', minute: '2-digit' })
+      setPhoneAutoStatus(problems.length ? `${stamp} 出错：${problems.join('；').slice(0, 60)}` : `上次 ${stamp}`)
+    }
+  }
+  phoneAutoLatest.current = runPhoneAuto
+
   const continueSingleTurn = async () => {
     if (!activeConversation || activeConversation.kind === 'group' || isGenerating) return
     const speaker = characters.find((item) => item.id === activeConversation.characterId) || activeCharacter
@@ -3285,6 +3340,7 @@ function App() {
     {page === 'phone' && <><BackHeader title={phoneDraft?.editingId ? '小手机群设置' : '小手机'} onBack={() => { setPhoneDraft(null); goBack() }} /><section className="content-stack phone-page">
       {!phoneDraft && <PhoneStatusWidget />}
       {!phoneDraft && <PhoneWebSettings />}
+      {!phoneDraft && <PhoneAutoSettingsCard status={phoneAutoStatus} />}
       {!phoneDraft && <div className="phone-tabs" role="tablist"><button role="tab" aria-selected={phoneTab === 'groups'} className={phoneTab === 'groups' ? 'active' : ''} onClick={() => setPhoneTab('groups')}>群聊</button><button role="tab" aria-selected={phoneTab === 'moments'} className={phoneTab === 'moments' ? 'active' : ''} onClick={() => setPhoneTab('moments')}>论坛</button></div>}
       {!phoneDraft && phoneTab === 'moments' && <Forum characters={characters} conversations={conversations} userName={identity.name} userAvatar={identity.avatar} api={api} seed={momentSeed} onSeedUsed={clearMomentSeed} onSaveToMemory={saveMomentToMemory} onThreadsChange={handleForumChange} />}
       {!phoneDraft && phoneTab === 'groups' && <>
@@ -3562,7 +3618,7 @@ function UpdateCard() {
     }
   }
 
-  return <section className="update-card"><strong>应用更新</strong><p>主动检查并拉取最新网页版本，不会删除角色、聊天记录或本地设置。</p><small>当前版本：v65 · 2026.10.14 群里记得论坛</small><button onClick={refresh} disabled={state === 'checking'}>{state === 'checking' ? '正在检查更新…' : state === 'error' ? '更新失败，点我重试' : '强制刷新到最新版'}</button></section>
+  return <section className="update-card"><strong>应用更新</strong><p>主动检查并拉取最新网页版本，不会删除角色、聊天记录或本地设置。</p><small>当前版本：v66 · 2026.10.14 小手机自动活跃</small><button onClick={refresh} disabled={state === 'checking'}>{state === 'checking' ? '正在检查更新…' : state === 'error' ? '更新失败，点我重试' : '强制刷新到最新版'}</button></section>
 }
 
 function PersonaPage({ identities, selectedId, isBound, onSelect, onAdd, onDelete, onUpdate, onBack }: { identities: UserIdentity[]; selectedId: string; isBound: boolean; onSelect: (id: string) => void; onAdd: () => void; onDelete: (id: string) => void; onUpdate: (patch: Partial<UserIdentity>) => void; onBack: () => void }) {

@@ -84,6 +84,18 @@ export function Forum({ characters, conversations, userName, userAvatar, api, se
   useEffect(() => { if (ready) { void durableSet(STORE_KEY, threads.slice(0, MAX_THREADS)); onThreadsChange?.(threads) } }, [threads, ready, onThreadsChange])
 
   useEffect(() => {
+    const onUpdated = (event: Event) => {
+      const detail = (event as CustomEvent<ForumThread[]>).detail
+      if (!Array.isArray(detail)) return
+      threadsRef.current = detail
+      setThreads(detail)
+      setReady(true)
+    }
+    window.addEventListener('weijing-forum-updated', onUpdated)
+    return () => window.removeEventListener('weijing-forum-updated', onUpdated)
+  }, [])
+
+  useEffect(() => {
     if (!seed) return
     setComposeAuthor(seed.authorId === 'user' ? FORUM_USER : seed.authorId)
     setComposeSource({ conversationId: seed.sourceConversationId, excerpt: seed.sourceExcerpt })
