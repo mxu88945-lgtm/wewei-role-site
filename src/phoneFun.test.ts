@@ -105,5 +105,6 @@ describe('targeted transfer line', () => {
     const info = parseTransferLine(`${transferText('惟惟', '顾荒', 66, '买烟钱')}`)
     expect(info).toMatchObject({ fromName: '惟惟', toName: '顾荒', amount: 66, note: '买烟钱' })
     expect(parseTransferLine(transferText('惟惟', '顾荒', 5))?.note).toBe('')
+    expect(parseTransferLine('💸 周惟惟 转账给： 200 积分｜还是我 daddy 贴心。')).toMatchObject({ toName: '', amount: 200, note: '还是我 daddy 贴心。' })
   })
 })

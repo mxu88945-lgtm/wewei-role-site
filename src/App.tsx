@@ -3830,7 +3830,8 @@ function App() {
     if (!conversation?.phone || !target) return
     const fromName = identityFor(conversation).name
     writePoints(addPoints(readPoints(), target.id, amount, `${fromName}转账${note ? `：${note}` : ''}`, Date.now()))
-    void sendMessage(transferText(fromName, target.name, amount, note))
+    // 群里 @ 一下让他先接话（@ 会在显示时去掉，转给谁写在转账那行里）。
+    void sendMessage(`${conversation.phone.dm ? '' : `@${target.name} `}${transferText(fromName, target.name, amount, note)}`)
   }
   void pointsTick // 积分变了就重算今日榜
   const phoneTodayTop = activeConversation?.phone && !activeConversation.phone.dm ? todayTopPoints(readPoints(), (activeConversation.participantIds || []).map((id) => ({ id, name: characters.find((item) => item.id === id)?.name || '' })), Date.now()) : []
@@ -4255,7 +4256,7 @@ function UpdateCard() {
     }
   }
 
-  return <section className="update-card"><strong>应用更新</strong><p>主动检查并拉取最新网页版本，不会删除角色、聊天记录或本地设置。</p><small>当前版本：v104 · 2026.10.15 导入 TXT 自动补角色卡</small><button onClick={refresh} disabled={state === 'checking'}>{state === 'checking' ? '正在检查更新…' : state === 'error' ? '更新失败，点我重试' : '强制刷新到最新版'}</button></section>
+  return <section className="update-card"><strong>应用更新</strong><p>主动检查并拉取最新网页版本，不会删除角色、聊天记录或本地设置。</p><small>当前版本：v105 · 2026.10.15 导入 TXT 自动补角色卡</small><button onClick={refresh} disabled={state === 'checking'}>{state === 'checking' ? '正在检查更新…' : state === 'error' ? '更新失败，点我重试' : '强制刷新到最新版'}</button></section>
 }
 
 function PersonaPage({ identities, selectedId, isBound, onSelect, onAdd, onDelete, onUpdate, onBack }: { identities: UserIdentity[]; selectedId: string; isBound: boolean; onSelect: (id: string) => void; onAdd: () => void; onDelete: (id: string) => void; onUpdate: (patch: Partial<UserIdentity>) => void; onBack: () => void }) {

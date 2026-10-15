@@ -184,11 +184,11 @@ export function findRedPacket(list: RedPacket[], conversationId: string, info: R
 
 // ───── 定向转账：她单独转积分给群里某一个人，马上到账 ─────
 export type TransferLineInfo = { line: string; fromName: string; toName: string; amount: number; note: string }
-const TRANSFER_LINE = /💸\s*(\S+?)\s*转账给\s*[@＠]([^：:\s]{1,20})\s*[：:]\s*(\d{1,4})\s*积分(?:｜([^\n]{0,30}))?/
-export const transferText = (fromName: string, toName: string, amount: number, note = '') => `💸 ${fromName} 转账给 @${toName}：${amount} 积分${note.trim() ? `｜${note.trim().slice(0, 30)}` : ''}`
+const TRANSFER_LINE = /💸\s*(\S+?)\s*转账给\s*[@＠]?([^：:\s]{0,20})\s*[：:]\s*(\d{1,4})\s*积分(?:\s*[｜|]\s*([^\n]{0,30}))?/
+export const transferText = (fromName: string, toName: string, amount: number, note = '') => `💸 ${fromName} 转账给 ${toName}：${amount} 积分${note.trim() ? `｜${note.trim().slice(0, 30)}` : ''}`
 export function parseTransferLine(text: string): TransferLineInfo | null {
   const match = text.match(TRANSFER_LINE)
   if (!match) return null
   return { line: match[0], fromName: match[1], toName: match[2], amount: Number(match[3]), note: (match[4] || '').trim() }
 }
-export const TRANSFER_NOTE = (userName: string) => `【转账】看到「💸 ${userName} 转账给 @某人：N 积分」就是她单独转给那一个人的积分，已经直接到账记进他的服刑积分，别人没有份。被转的人先接住（收下、嘴硬、害羞都行，不用写“收款”）；其他人可以看见、可以酸，但不能说自己也收到了。`
+export const TRANSFER_NOTE = (userName: string) => `【转账】看到「💸 ${userName} 转账给 某人：N 积分」就是她单独转给那一个人的积分，已经直接到账记进他的服刑积分，别人没有份。被转的人先接住（收下、嘴硬、害羞都行，不用写“收款”）；其他人可以看见、可以酸，但不能说自己也收到了。`

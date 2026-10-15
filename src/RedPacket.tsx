@@ -80,10 +80,13 @@ export function TransferSheet({ members, onSend, onClose }: { members: Array<{ i
   </div>
 }
 
-/** 聊天里的转账卡片。 */
+/** 聊天里的转账卡片（微信样式）。 */
 export function TransferCard({ toName, amount, note }: { toName: string; amount: number; note: string }) {
-  return <div className="red-packet-wrap"><div className="red-packet-card transfer-card" aria-label={`转账给${toName} ${amount} 积分`}>
-    <span className="red-packet-card-main"><i aria-hidden="true">⇄</i><span><strong>{amount} 积分</strong><small>{note || `转账给${toName}`}</small></span></span>
-    <span className="red-packet-card-foot">转账 · 给 {toName} · 已收款</span>
-  </div></div>
+  return <div className="transfer-card" aria-label={`转账给${toName || '对方'} ${amount} 积分`}>
+    <div className="transfer-card-main">
+      <i aria-hidden="true"><svg viewBox="0 0 24 24" width="22" height="22" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M5 9h13l-4-4" /><path d="M19 15H6l4 4" /></svg></i>
+      <div><strong>{amount} 积分</strong><small>{toName ? `转账给${toName}` : '你发起了一笔转账'}</small>{note && <em>{note}</em>}</div>
+    </div>
+    <div className="transfer-card-foot">转账 · 已收款</div>
+  </div>
 }
