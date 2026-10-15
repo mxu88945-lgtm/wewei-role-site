@@ -30,3 +30,12 @@ describe('conversation TXT import', () => {
     expect(() => parseConversationTxt('普通笔记')).toThrow('没有找到')
   })
 })
+
+describe('伯恩戏剧导出的 TXT', () => {
+  it('parses the burne drama export', () => {
+    const parsed = parseConversationTxt(`雨夜\n角色：顾屿、旁白\n用户：周惟惟\n导出时间：2026/10/15 00:00:00\n\n旁白\n雨下得很大。\n\n--------------------\n\n周惟惟\n你来了。\n\n--------------------\n\n顾屿\n“嗯。”\n—----------\n他收起伞。\n`)
+    expect(parsed.participantNames).toEqual(['顾屿', '旁白'])
+    expect(parsed.messages.map((m) => m.author)).toEqual(['旁白', '周惟惟', '顾屿'])
+    expect(parsed.messages[2].text).toBe('“嗯。”\n—----------\n他收起伞。')
+  })
+})

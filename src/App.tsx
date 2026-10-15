@@ -3529,10 +3529,12 @@ function App() {
         ...parsed.participantNames,
         ...parsed.messages.filter((message) => message.author !== parsed.userName).map((message) => message.author),
       ]))
-      const participants = actorNames.map((name) => characters.find((character) => character.name === name))
-      const missingNames = actorNames.filter((_, index) => !participants[index])
-      if (missingNames.length) throw new Error(`角色库缺少：${missingNames.join('、')}。请先导入对应角色卡。`)
-      const resolvedParticipants = participants as Character[]
+      const found = actorNames.map((name) => characters.find((character) => character.name === name))
+      const missingNames = actorNames.filter((_, index) => !found[index])
+      if (missingNames.length && !window.confirm(`角色库里没有：${missingNames.join('、')}。\n要自动建空白角色卡继续导入吗？（人设留空，之后可以补）`)) throw new Error(`角色库缺少：${missingNames.join('、')}。请先导入对应角色卡。`)
+      const createdCards = missingNames.map((name) => ({ ...createBlankCharacter({ name, tagline: '', description: '从对话 TXT 导入时自动建的角色，请补充人设。', greeting: '', tags: name === '旁白' ? '旁白导演' : 'TXT导入' }), libraryGroup: parsed.title }))
+      if (createdCards.length) setCharacters((current) => [...current, ...createdCards])
+      const resolvedParticipants = actorNames.map((name, index) => found[index] || createdCards.find((card) => card.name === name)) as Character[]
       const existingIdentity = identities.find((item) => item.name === parsed.userName)
       const importedIdentity = existingIdentity || { id: crypto.randomUUID(), name: parsed.userName, description: '从惟境对话 TXT 恢复的用户身份，请按需补充完整设定。' }
       if (!existingIdentity) setIdentities((current) => [...current, importedIdentity])
@@ -4229,7 +4231,7 @@ function UpdateCard() {
     }
   }
 
-  return <section className="update-card"><strong>应用更新</strong><p>主动检查并拉取最新网页版本，不会删除角色、聊天记录或本地设置。</p><small>当前版本：v99 · 2026.10.15 商店里也能扣分</small><button onClick={refresh} disabled={state === 'checking'}>{state === 'checking' ? '正在检查更新…' : state === 'error' ? '更新失败，点我重试' : '强制刷新到最新版'}</button></section>
+  return <section className="update-card"><strong>应用更新</strong><p>主动检查并拉取最新网页版本，不会删除角色、聊天记录或本地设置。</p><small>当前版本：v100 · 2026.10.15 导入 TXT 自动补角色卡</small><button onClick={refresh} disabled={state === 'checking'}>{state === 'checking' ? '正在检查更新…' : state === 'error' ? '更新失败，点我重试' : '强制刷新到最新版'}</button></section>
 }
 
 function PersonaPage({ identities, selectedId, isBound, onSelect, onAdd, onDelete, onUpdate, onBack }: { identities: UserIdentity[]; selectedId: string; isBound: boolean; onSelect: (id: string) => void; onAdd: () => void; onDelete: (id: string) => void; onUpdate: (patch: Partial<UserIdentity>) => void; onBack: () => void }) {
