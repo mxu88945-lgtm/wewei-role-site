@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { findMentionedParticipantIds, isRoleplayPauseCommand, selectGroupSpeakerIds, stripParticipantMentions } from './groupReplyRouting'
+import { findMentionedParticipantIds, isRoleplayPauseCommand, mentionsEveryone as everyoneMention, selectGroupSpeakerIds, stripParticipantMentions } from './groupReplyRouting'
 
 describe('group reply routing', () => {
   const participantIds = ['male-lead', 'director']
@@ -66,5 +66,14 @@ describe('group reply routing', () => {
 
   it('does not mistake an in-story phrase for a pause command', () => {
     expect(isRoleplayPauseCommand('他叫我暂停一下会议')).toBe(false)
+  })
+})
+
+describe('mentionsEveryone', () => {
+  it('detects @所有人 and @全员', () => {
+    expect(everyoneMention('@所有人 出来说话')).toBe(true)
+    expect(everyoneMention('大家看这里＠全员')).toBe(true)
+    expect(everyoneMention('@时屿 你好')).toBe(false)
+    expect(everyoneMention('所有人都在')).toBe(false)
   })
 })

@@ -21,11 +21,12 @@ function MentionAvatar({ name, avatar }: { name: string; avatar?: string }) {
  * not need anything from the chat besides the member list, and member avatars are
  * shown as small cached thumbnails (see avatarThumbnail.ts).
  */
-function MentionPicker({ members, onPick, onClose }: { members: MentionPickerMember[]; onPick: (name: string) => void; onClose: () => void }) {
+function MentionPicker({ members, everyone = false, onPick, onClose }: { members: MentionPickerMember[]; everyone?: boolean; onPick: (name: string) => void; onClose: () => void }) {
   return <div className="mention-picker-layer" role="dialog" aria-modal="true" aria-label="选择要提及的角色">
     <button className="drawer-backdrop" aria-label="关闭角色选择" onClick={onClose} />
     <section className="mention-picker">
       <header><strong>选择 @ 的角色</strong><button onClick={onClose}>×</button></header>
+      {everyone && <button className="mention-member mention-everyone" onClick={() => onPick('所有人')}><span>@</span><strong>所有人</strong></button>}
       {members.map((member) => <button className="mention-member" key={member.id} onClick={() => onPick(member.name)}><MentionAvatar name={member.name} avatar={member.avatar} /><strong>{member.name}</strong></button>)}
     </section>
   </div>

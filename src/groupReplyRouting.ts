@@ -25,6 +25,11 @@ type SelectGroupSpeakersOptions = {
   random?: () => number
 }
 
+/** 小手机群聊里的 @所有人 / @全员。 */
+export function mentionsEveryone(text: string) {
+  return /[@＠](?:所有人|全员|全体成员|everyone|all)(?![\p{L}\p{N}])/iu.test(text)
+}
+
 export function findMentionedParticipantIds(text: string, participants: GroupParticipant[]) {
   const mentionedIds: string[] = []
   const mentionPattern = /[@＠]/g

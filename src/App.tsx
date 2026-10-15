@@ -53,7 +53,7 @@ import { durableGet, durableSet } from './persistentStore'
 import { completeStatusBlock, containsHiddenReasoning, hasCompleteRoleplayBody, hasGroupIdentityLeak, moveStatusBlockToEnd, normalizeDirectorStatusOutput, sanitizeAssistantOutput, stripLeadingSpeakerLabels, stripStatusBlocksForStreaming } from './outputSanitizer'
 import { hasCompleteCoreMemoryPayload, isMemoryScanCurrent, planMemoryScan } from './memoryScan'
 import { archivedMemoriesForConversation, memoriesForConversation, replaceConversationMemories, restoreMemoryToRevision } from './memoryEngine'
-import { findMentionedParticipantIds, isRoleplayPauseCommand, selectGroupSpeakerIds, stripParticipantMentions, type GroupReplyMode } from './groupReplyRouting'
+import { findMentionedParticipantIds, isRoleplayPauseCommand, mentionsEveryone, selectGroupSpeakerIds, stripParticipantMentions, type GroupReplyMode } from './groupReplyRouting'
 import Pet from './Pet'
 import PetCritter, { PET_CHOICES, type PetVariant } from './PetCritter'
 import DirectorTemplateEditor from './DirectorTemplateEditor'
@@ -3335,7 +3335,13 @@ function App() {
       const speakerIds = conversation.phone?.dm ? participantIds.slice(0, 1) : conversation.phone
         ? smartIds.length ? smartIds : phoneMode === 'smart' ? lurkFallback(participantIds, [...mentionedIds, ...phoneNamedIds], lastSpeakerId) : selectPhoneSpeakers({ mode: phoneMode, participantIds, mentionedIds, namedIds: phoneNamedIds, lastSpeakerId, text: visibleText })
         : selectGroupSpeakerIds({ participantIds, mentionedIds, mode: groupReplyMode, directorCharacterId: conversation.directorCharacterId, lastSpeakerId, text })
-      if (conversation.phone && !conversation.phone.dm && phoneMode === 'smart') {
+      // @所有人 / @全员：群里每个角色都要出来说一句（导演不算）。
+      const everyoneCalled = Boolean(conversation.phone && !conversation.phone.dm && mentionsEveryone(visibleText))
+      if (everyoneCalled) {
+        const directorId = conversation.directorCharacterId || participantIds.find((id) => /director/i.test(id))
+        speakerIds.splice(0, speakerIds.length, ...participantIds.filter((id) => id !== directorId))
+      }
+      if (conversation.phone && !conversation.phone.dm && phoneMode === 'smart' && !everyoneCalled) {
         // 话筒：其余每个群友同时拿到话筒，各自按人设判断接不接（并行、只回接/不接）。
         const extra = await passPhoneMic(conversation, baseMessages, participants, withQuotePrefix(visibleText, activeQuote), speakerIds)
         speakerIds.push(...extra.filter((id) => !speakerIds.includes(id)))
@@ -4147,7 +4153,7 @@ function App() {
     {redPacketView && activeConversation && (() => { const list = readRedPackets(); const found = findRedPacket(list, activeConversation.id, redPacketView.info, redPacketView.near); return <RedPacketDetail info={redPacketView.info} packet={found} ordinal={found ? redPacketOrdinal(list, found) : undefined} onClose={() => setRedPacketView(null)} /> })()}
     {viewerImage && <div className="chat-image-viewer" role="dialog" aria-modal="true" aria-label="查看图片" onClick={() => setViewerImage(null)}><img src={viewerImage.dataUrl} alt="" /><button type="button" aria-label="关闭图片">×</button></div>}
 
-    {mentionPickerOpen && activeConversation?.kind === 'group' && <MentionPicker members={groupParticipants} onPick={insertGroupMention} onClose={closeMentionPicker} />}
+    {mentionPickerOpen && activeConversation?.kind === 'group' && <MentionPicker members={groupParticipants} everyone={Boolean(activeConversation.phone && !activeConversation.phone.dm)} onPick={insertGroupMention} onClose={closeMentionPicker} />}
 
     {chatGroupSheet && <div className="character-menu-layer library-sheet-layer"><button className="drawer-backdrop" aria-label="关闭分组" onClick={() => setChatGroupSheet(null)} /><section className="conversation-menu library-group-sheet"><header><div><small>聊天分组</small><strong>{conversations.find((item) => item.id === chatGroupSheet.id)?.title}</strong></div><button onClick={() => setChatGroupSheet(null)}>×</button></header>
       <div className="library-sheet-block"><small>放进哪个组</small><input value={chatGroupSheet.group} maxLength={40} onChange={(event) => setChatGroupSheet({ ...chatGroupSheet, group: event.target.value })} placeholder="例如：谢聿衡篇（留空 = 不分组）" /><div className="library-chip-row">{chatGroupNames(conversations).map((name) => <button key={name} className={chatGroupSheet.group.trim() === name ? 'active' : ''} onClick={() => setChatGroupSheet({ ...chatGroupSheet, group: name })}>{name}</button>)}<button className={!chatGroupSheet.group.trim() ? 'active' : ''} onClick={() => setChatGroupSheet({ ...chatGroupSheet, group: '' })}>不分组</button></div></div>
@@ -4314,7 +4320,7 @@ function UpdateCard() {
     }
   }
 
-  return <section className="update-card"><strong>应用更新</strong><p>主动检查并拉取最新网页版本，不会删除角色、聊天记录或本地设置。</p><small>当前版本：v115 · 2026.10.15 导入 TXT 自动补角色卡</small><button onClick={refresh} disabled={state === 'checking'}>{state === 'checking' ? '正在检查更新…' : state === 'error' ? '更新失败，点我重试' : '强制刷新到最新版'}</button></section>
+  return <section className="update-card"><strong>应用更新</strong><p>主动检查并拉取最新网页版本，不会删除角色、聊天记录或本地设置。</p><small>当前版本：v116 · 2026.10.15 导入 TXT 自动补角色卡</small><button onClick={refresh} disabled={state === 'checking'}>{state === 'checking' ? '正在检查更新…' : state === 'error' ? '更新失败，点我重试' : '强制刷新到最新版'}</button></section>
 }
 
 function PersonaPage({ identities, selectedId, isBound, onSelect, onAdd, onDelete, onUpdate, onBack }: { identities: UserIdentity[]; selectedId: string; isBound: boolean; onSelect: (id: string) => void; onAdd: () => void; onDelete: (id: string) => void; onUpdate: (patch: Partial<UserIdentity>) => void; onBack: () => void }) {
