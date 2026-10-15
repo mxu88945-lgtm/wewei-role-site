@@ -330,3 +330,14 @@ describe('parseMicAnswer', () => {
     expect(parseMicAnswer('我觉得')).toBeNull()
   })
 })
+
+describe('phone place', () => {
+  it('adds the located place to the real-world note', async () => {
+    const { buildPhoneRealWorldNote, joinPlace, shortPlace } = await import('./phoneGroup')
+    const now = new Date(2026, 9, 15, 20, 30)
+    expect(joinPlace(['广东省', '潮州市', '湘桥区'])).toBe('广东省潮州市湘桥区')
+    expect(joinPlace(['北京市', '北京市', '朝阳区'])).toBe('北京市朝阳区')
+    expect(shortPlace('广东省潮州市湘桥区')).toBe('湘桥区')
+    expect(buildPhoneRealWorldNote(now, { temp: 24, code: 0, high: 28, low: 22, place: '广东省潮州市湘桥区', at: now.getTime() })).toContain('用户现在在：广东省潮州市湘桥区')
+  })
+})

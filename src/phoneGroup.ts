@@ -307,7 +307,20 @@ export function weatherLabel(code: number): { text: string; icon: string } {
   return { text: '未知', icon: '🌡️' }
 }
 
-export type PhoneWeatherSnapshot = { temp: number; code: number; high: number; low: number; at: number }
+export type PhoneWeatherSnapshot = { temp: number; code: number; high: number; low: number; place?: string; at: number }
+
+/** 省 / 市 / 区拼成一个地名，重复的层级（直辖市“北京市北京市”）只留一次。 */
+export function joinPlace(parts: Array<string | undefined>) {
+  const out: string[] = []
+  for (const part of parts) { const value = (part || '').trim(); if (value && !out.includes(value)) out.push(value) }
+  return out.join('')
+}
+
+/** 顶部小组件只放得下最后一级，比如“湘桥区”。 */
+export function shortPlace(place: string) {
+  const match = place.match(/[^省市区县]*[区县市]$/)
+  return match?.[0] || place.slice(-4)
+}
 
 /** 小手机成员能看到的“现实此刻”：用户本地时间 + 最近一次定位天气（超过 3 小时的天气不提供，免得说错）。 */
 export function buildPhoneRealWorldNote(now: Date, weather?: PhoneWeatherSnapshot | null) {
@@ -317,9 +330,10 @@ export function buildPhoneRealWorldNote(now: Date, weather?: PhoneWeatherSnapsho
   const period = hour < 5 ? '深夜' : hour < 9 ? '早上' : hour < 11 ? '上午' : hour < 13 ? '中午' : hour < 18 ? '下午' : hour < 23 ? '晚上' : '深夜'
   const lines = [`【现实此刻】用户那边现在是 ${now.getFullYear()}年${now.getMonth() + 1}月${now.getDate()}日 星期${weekday} ${pad(hour)}:${pad(now.getMinutes())}（${period}）。`]
   if (weather && Number.isFinite(weather.temp) && now.getTime() - weather.at < 3 * 60 * 60 * 1000) {
+    if (weather.place) lines.push(`用户现在在：${weather.place}（手机定位）。`)
     lines.push(`用户所在地天气：${weatherLabel(weather.code).text}，${weather.temp}°C，今天 ${weather.low}～${weather.high}°C。`)
   }
-  lines.push('这是群里所有人都看得到的真实时间与天气；聊天时自然地顺着它（比如很晚了会催睡、下雨会提醒带伞），不用每条都提，也不要编造别的时间或天气。')
+  lines.push('这是群里所有人都看得到的真实时间、地点与天气；聊天时自然地顺着它（比如很晚了会催睡、下雨会提醒带伞），不用每条都提，也不要编造别的时间、地点或天气。')
   return lines.join('\n')
 }
 
