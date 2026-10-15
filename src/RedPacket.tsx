@@ -57,3 +57,33 @@ export function RedPacketDetail({ info, packet, ordinal, onClose }: { info: RedP
     </section>
   </div>
 }
+
+/** 转账页：选一个人、填积分和留言，直接到账。 */
+export function TransferSheet({ members, onSend, onClose }: { members: Array<{ id: string; name: string }>; onSend: (toId: string, amount: number, note: string) => void; onClose: () => void }) {
+  const [toId, setToId] = useState(members.length === 1 ? members[0].id : '')
+  const [amount, setAmount] = useState('')
+  const [note, setNote] = useState('')
+  const value = Math.floor(Number(amount) || 0)
+  const problem = value > 500 ? '一次最多转 500 积分' : ''
+  const ready = Boolean(toId) && value > 0 && !problem
+  return <div className="red-packet-layer transfer-layer" role="dialog" aria-modal="true" aria-label="转账">
+    <header><button type="button" aria-label="返回" onClick={onClose}>‹</button><strong>转账</strong><span /></header>
+    <div className="red-packet-form">
+      <div className="transfer-people" role="radiogroup" aria-label="转给谁">{members.map((member) => <button key={member.id} type="button" role="radio" aria-checked={toId === member.id} className={toId === member.id ? 'active' : ''} onClick={() => setToId(member.id)}>{member.name}</button>)}</div>
+      <label className="red-packet-field"><span>积分</span><input inputMode="numeric" value={amount} onChange={(event) => setAmount(event.target.value.replace(/\D/g, '').slice(0, 3))} placeholder="0" /><em>积分</em></label>
+      <label className="red-packet-field red-packet-note"><input value={note} maxLength={30} onChange={(event) => setNote(event.target.value)} placeholder="添加转账说明" /></label>
+      {problem && <p className="red-packet-problem">{problem}</p>}
+      <div className="red-packet-amount"><b>{value}</b><span>积分</span></div>
+      <button type="button" className="red-packet-submit transfer-submit" disabled={!ready} onClick={() => onSend(toId, value, note.trim())}>转账给{members.find((member) => member.id === toId)?.name || '…'}</button>
+    </div>
+    <footer>造物主请客，不扣你的积分 · 立即到账，只有他收到</footer>
+  </div>
+}
+
+/** 聊天里的转账卡片。 */
+export function TransferCard({ toName, amount, note }: { toName: string; amount: number; note: string }) {
+  return <div className="red-packet-wrap"><div className="red-packet-card transfer-card" aria-label={`转账给${toName} ${amount} 积分`}>
+    <span className="red-packet-card-main"><i aria-hidden="true">⇄</i><span><strong>{amount} 积分</strong><small>{note || `转账给${toName}`}</small></span></span>
+    <span className="red-packet-card-foot">转账 · 给 {toName} · 已收款</span>
+  </div></div>
+}

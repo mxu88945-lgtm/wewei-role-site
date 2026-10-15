@@ -990,3 +990,9 @@ button { cursor: pointer; }
 .phone-owner-add { min-height: 40px; border: 1px dashed #d8d2de; border-radius: 12px; background: none; color: var(--theme-accent); font-weight: 800; }
 .phone-shop-balance button.minus { background: #fde9ee; color: #c0475f; }
 .phone-shop-balance button + button { margin-left: 0; }
+/* 定向转账 */
+.transfer-card { background: #f59a3e; }
+.transfer-card .red-packet-card-main i { display: grid; place-items: center; width: 34px; height: 34px; border-radius: 50%; border: 2px solid rgba(255,255,255,.9); font-style: normal; font-size: 18px; background: none; }
+.transfer-people { display: flex; flex-wrap: wrap; gap: 8px; padding: 4px 0 12px; }
+.transfer-people button { border: 1px solid rgba(0,0,0,.12); background: #fff; border-radius: 999px; padding: 7px 14px; font-size: 14px; color: #333; }
+.transfer-people button.active { background: #f59a3e; border-color: #f59a3e; color: #fff; }

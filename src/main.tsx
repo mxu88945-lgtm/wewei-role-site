@@ -16,7 +16,7 @@ import './theme-cute-icons.css'
 import './memoryApiEnhancements'
 
 const APP_SCOPE = '/wewei-role-site/'
-const SERVICE_WORKER_RELEASE = '2026-10-15-txt-home-import-v102'
+const SERVICE_WORKER_RELEASE = '2026-10-15-phone-transfer-v103'
 
 if ('serviceWorker' in navigator) {
   let reloadingForUpdate = false

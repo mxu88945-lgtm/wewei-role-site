@@ -98,3 +98,12 @@ describe('daytime dm', () => {
     expect(canDay(s, new Date(2026, 9, 16, 9).getTime())).toBe(true)
   })
 })
+
+describe('targeted transfer line', () => {
+  it('round-trips through text', async () => {
+    const { transferText, parseTransferLine } = await import('./phoneFun')
+    const info = parseTransferLine(`${transferText('惟惟', '顾荒', 66, '买烟钱')}`)
+    expect(info).toMatchObject({ fromName: '惟惟', toName: '顾荒', amount: 66, note: '买烟钱' })
+    expect(parseTransferLine(transferText('惟惟', '顾荒', 5))?.note).toBe('')
+  })
+})

@@ -18,8 +18,8 @@ import { TAVILY_KEY_STORAGE, needsWebSearch, tavilySearch } from './phoneWeb'
 import { createBlankCharacter, importCharacterCard, normalizeStoredCharacter, LIBRARY_ROLES, type Character, type LibraryRole } from './characterCard'
 import { type MomentSeed } from './Moments'
 import { Forum } from './Forum'
-import { DAY_DM_KEY, LATE_NIGHT_KEY, PAT_LINE, canDayDm, dayDmReason, nextDayDmState, type DayDmState, applyPatTags, applyRedPacketTags, buildRedPacketNote, createRedPacket, findRedPacket, lateNightKey, parseRedPacketLine, readRedPackets, redPacketOrdinal, redPacketText, userPatText, writeRedPackets, type RedPacketLineInfo } from './phoneFun'
-import { RedPacketCard, RedPacketDetail, RedPacketSendSheet } from './RedPacket'
+import { DAY_DM_KEY, LATE_NIGHT_KEY, PAT_LINE, canDayDm, dayDmReason, nextDayDmState, type DayDmState, applyPatTags, applyRedPacketTags, buildRedPacketNote, createRedPacket, findRedPacket, lateNightKey, parseRedPacketLine, parseTransferLine, transferText, TRANSFER_NOTE, readRedPackets, redPacketOrdinal, redPacketText, userPatText, writeRedPackets, type RedPacketLineInfo } from './phoneFun'
+import { RedPacketCard, RedPacketDetail, RedPacketSendSheet, TransferCard, TransferSheet } from './RedPacket'
 import { messageTime, phoneTimeLabel, showPhoneTimeDivider } from './phoneTime'
 import { latestMessageId, phoneUnreadCount, unreadLabel } from './phoneUnread'
 import { FORUM_USER, buildForumRecapNote, findForumThread, forumShareText, threadsFromMoments, type ForumThread } from './forum'
@@ -437,6 +437,7 @@ function App() {
   const [pointsTick, setPointsTick] = useState(0)
   useEffect(() => { const bump = () => setPointsTick((value) => value + 1); window.addEventListener(PHONE_POINTS_EVENT, bump); return () => window.removeEventListener(PHONE_POINTS_EVENT, bump) }, [])
   const [redPacketSheetOpen, setRedPacketSheetOpen] = useState(false)
+  const [transferSheetOpen, setTransferSheetOpen] = useState(false)
   const [redPacketView, setRedPacketView] = useState<{ info: RedPacketLineInfo; near: number } | null>(null)
   const phoneAutoLatest = useRef<() => Promise<void>>(async () => undefined)
   useEffect(() => {
@@ -2475,7 +2476,7 @@ function App() {
       const funNote = conversation.phone?.dm ? `【拍一拍】看到「👋 ${identity.name} 拍了拍 …」就是她拍了你一下，接住它；你也可以单独一行写【拍一拍：${identity.name}】拍她。偶尔用。\n${buildRedPacketNote(readRedPackets(), conversation.id, speaker.id, Date.now(), true)}`.trim() : `【拍一拍】看到「👋 某人 拍了拍 @你」就是有人拍了你，要接话；你也可以在消息最后单独一行写【拍一拍：名字】拍一个群友（他会马上出来回你）或拍${identity.name}。偶尔用，别每条都拍。\n${(() => { const top = todayTopPoints(readPoints(), (conversation.participantIds || []).map((id) => ({ id, name: characters.find((item) => item.id === id)?.name || '' })), Date.now()); return top.length ? `【今日积分榜·群顶上挂着】${top.map((item, index) => `${['第一', '第二', '第三'][index]} ${item.name} +${item.points}`).join('，')}。上榜的可以得意，没上榜的可以酸。\n` : '' })()}${buildRedPacketNote(readRedPackets(), conversation.id, speaker.id, Date.now())}`
       const noticeNote = conversation.phone?.dm ? funNote : [funNote, buildNoticeNote(activeNotice(conversation.phone?.notice), identity.name), (() => { const story = phoneStoryNoteRef.current; return story && story.conversationId === conversation.id ? story.note : '' })()].filter(Boolean).join('\n\n')
       const pointsNote = buildPointsNote(readPoints(), [...members, ...dmMates].map((member) => ({ id: member.id, name: member.name })), identity.name)
-      const shopNote = buildShopNote(readShop(), readPoints(), { id: speaker.id, name: speaker.name }, [...members, ...dmMates].map((member) => ({ id: member.id, name: member.name })), identity.name, Date.now()) + '\n' + wishPoolNote(speaker, identity.name)
+      const shopNote = buildShopNote(readShop(), readPoints(), { id: speaker.id, name: speaker.name }, [...members, ...dmMates].map((member) => ({ id: member.id, name: member.name })), identity.name, Date.now()) + '\n' + wishPoolNote(speaker, identity.name) + '\n' + TRANSFER_NOTE(identity.name)
       return [conversation.phone?.dm ? phoneDmRules(speaker.name, identity.name) : phoneModeRules(speaker.name, members.map((member) => member.name), identity.name, { allowQuit: conversation.phone?.allowQuit, allowKick: conversation.phone?.allowKick, allowForumShare: conversation.phone?.allowForumShare }), realWorld, noticeNote, pointsNote, shopNote, mateBackground, dmBackground, dmPeek, privateDmMemory, buildPhoneArchive(sources, speaker.id, identity.name, (message) => message.characterId ? nameOf(message) : sources.find((source) => source.conversation?.messages.includes(message))?.character.name || '角色')].join('\n\n')
     })() : ''
     const sanitizedHistory = (isPhone ? phonePromptHistory(nextMessages, memoryLength) : nextMessages).flatMap((message) => {
@@ -3820,6 +3821,15 @@ function App() {
     writeRedPackets([...readRedPackets(), packet])
     void sendMessage(redPacketText(packet))
   }
+  const sendTransfer = (toId: string, amount: number, note: string) => {
+    const conversation = activeConversation
+    setTransferSheetOpen(false)
+    const target = characters.find((item) => item.id === toId)
+    if (!conversation?.phone || !target) return
+    const fromName = identityFor(conversation).name
+    writePoints(addPoints(readPoints(), target.id, amount, `${fromName}转账${note ? `：${note}` : ''}`, Date.now()))
+    void sendMessage(transferText(fromName, target.name, amount, note))
+  }
   void pointsTick // 积分变了就重算今日榜
   const phoneTodayTop = activeConversation?.phone && !activeConversation.phone.dm ? todayTopPoints(readPoints(), (activeConversation.participantIds || []).map((id) => ({ id, name: characters.find((item) => item.id === id)?.name || '' })), Date.now()) : []
   const renderChatMessage = (message: Message) => {
@@ -3846,7 +3856,9 @@ function App() {
     }
     const packetInfo = activeConversation?.phone ? parseRedPacketLine(displayText) : null
     if (packetInfo) displayText = displayText.replace(packetInfo.line, '').replace(/\n{2,}/g, '\n').trim()
-    if (isUser && !displayText && !message.images?.length && !packetInfo) return null
+    const transferInfo = activeConversation?.phone && isUser ? parseTransferLine(displayText) : null
+    if (transferInfo) displayText = displayText.replace(transferInfo.line, '').replace(/\n{2,}/g, '\n').trim()
+    if (isUser && !displayText && !message.images?.length && !packetInfo && !transferInfo) return null
     if (!isUser && !isGenerating && isPendingAssistantText(message.text || '')) return null
     const streaming = message.role === 'assistant' && isGenerating && message.id === messages[messages.length - 1]?.id
     const imageGrid = message.images?.length ? <div className={`message-images count-${Math.min(message.images.length, 4)}`}>{message.images.map((image) => <button type="button" key={image.id} aria-label="查看图片" onClick={() => setViewerImage(image)}><img src={image.dataUrl} alt="" loading="lazy" decoding="async" style={message.images!.length === 1 ? { aspectRatio: `${image.width} / ${image.height}` } : undefined} /></button>)}</div> : null
@@ -3865,7 +3877,8 @@ function App() {
     const packetFound = packetInfo && activeConversation ? findRedPacket(packetList, activeConversation.id, packetInfo, message.id) : null
     const packetCard = packetInfo && activeConversation ? <RedPacketCard info={packetInfo} packet={packetFound} ordinal={packetFound ? redPacketOrdinal(packetList, packetFound) : undefined} onOpen={() => setRedPacketView({ info: packetInfo, near: message.id })} /> : null
     const withQuote = quoteBlock ? <>{body}{quoteBlock}</> : body
-    const content = packetCard ? <>{withQuote}{packetCard}</> : withQuote
+    const transferCard = transferInfo ? <TransferCard toName={transferInfo.toName} amount={transferInfo.amount} note={transferInfo.note} /> : null
+    const content = <>{withQuote}{packetCard}{transferCard}</>
 
     return <div key={message.id} data-message-id={message.id} className={`message-row ${message.role} message-layout-${chatLayout}`}>
       {chatLayout === 'flat' ? <div className="message-line message-line-flat">
@@ -4066,8 +4079,9 @@ function App() {
 
     {page === 'display-reply' && <><BackHeader title="显示与回复" onBack={goBack} action={<span className="saved-label">自动保存</span>} /><section className="settings-stack compact-settings display-reply-page"><div className="drawer-compact-group display-reply-card"><div className="drawer-section-title"><strong>消息显示</strong></div><div className="drawer-inline-setting"><span>布局方式</span><div className="mini-segment"><button className={chatLayout === 'bubble' ? 'active' : ''} onClick={() => setChatLayout('bubble')}>气泡</button><button className={chatLayout === 'flat' ? 'active' : ''} onClick={() => setChatLayout('flat')}>平铺</button></div></div><div className="drawer-color-setting"><label><span>正文</span><input type="color" value={chatTextColor} onChange={(event) => setChatTextColor(event.target.value)} /></label><label><span>旁白</span><input type="color" value={chatNarrationColor} onChange={(event) => setChatNarrationColor(event.target.value)} /></label><label><span>引用</span><input type="color" value={chatQuoteColor} onChange={(event) => setChatQuoteColor(event.target.value)} /></label></div></div><div className="drawer-compact-group display-reply-card"><div className="drawer-section-title"><strong>群聊回复</strong></div>{activeConversation?.kind === 'group' ? <div className="drawer-inline-setting reply-mode-row"><span>回复模式</span><strong>指定 @</strong></div> : <div className="display-reply-note">当前是单角色对话，消息会由当前角色直接回复。</div>}<div className="display-reply-note">群聊只会由你 @ 点名的角色发言；新增或删除成员不会改变这个规则。</div></div></section></>}
 
-    {composerToolsOpen && <div className="composer-tools-layer" role="dialog" aria-modal="true" aria-label="输入工具"><button className="drawer-backdrop" aria-label="关闭输入工具" onClick={() => replyHelperState === 'idle' && setComposerToolsOpen(false)} /><section className="composer-tools-sheet"><header><div><small>输入工具</small><strong>接下来想怎么写</strong></div><button onClick={() => setComposerToolsOpen(false)} disabled={replyHelperState === 'generating'}>×</button></header><button className="reply-helper-action" onClick={() => void generateReplyHelperDraft()} disabled={replyHelperState === 'generating' || isGenerating}><span>✦</span><div><strong>{replyHelperState === 'generating' ? 'AI 正在帮你起草…' : 'AI 帮答'}</strong><small>{draft.trim() ? '沿用输入框里的想法，润色补成一条回复' : '读取当前上下文，生成一版可修改的回复草稿'}</small></div><i>›</i></button><p>只会填入输入框，不会自动发送，也不会替其他角色继续演。</p>{activeConversation?.phone && <button className="reply-helper-action" onClick={() => { setComposerToolsOpen(false); setRedPacketSheetOpen(true) }} disabled={isGenerating}><span>🧧</span><div><strong>发积分红包</strong><small>拼手气，群里的人抢到的积分会记进服刑积分</small></div><i>›</i></button>}<button className="reply-helper-action image-send-action" onClick={() => chatImageInputRef.current?.click()} disabled={imageBusy || pendingImages.length >= CHAT_IMAGE_LIMIT}><span>▣</span><div><strong>{imageBusy ? '图片处理中…' : '发送图片'}</strong><small>{pendingImages.length ? `已选 ${pendingImages.length}/${CHAT_IMAGE_LIMIT} 张，可以再加一句话一起发` : `从相册选图，最多 ${CHAT_IMAGE_LIMIT} 张；需要模型支持识图`}</small></div><i>›</i></button><input ref={chatImageInputRef} type="file" accept="image/*" multiple hidden onChange={(event) => { const files = event.currentTarget.files; void addChatImages(files).finally(() => { if (chatImageInputRef.current) chatImageInputRef.current.value = '' }); setComposerToolsOpen(false) }} /></section></div>}
+    {composerToolsOpen && <div className="composer-tools-layer" role="dialog" aria-modal="true" aria-label="输入工具"><button className="drawer-backdrop" aria-label="关闭输入工具" onClick={() => replyHelperState === 'idle' && setComposerToolsOpen(false)} /><section className="composer-tools-sheet"><header><div><small>输入工具</small><strong>接下来想怎么写</strong></div><button onClick={() => setComposerToolsOpen(false)} disabled={replyHelperState === 'generating'}>×</button></header><button className="reply-helper-action" onClick={() => void generateReplyHelperDraft()} disabled={replyHelperState === 'generating' || isGenerating}><span>✦</span><div><strong>{replyHelperState === 'generating' ? 'AI 正在帮你起草…' : 'AI 帮答'}</strong><small>{draft.trim() ? '沿用输入框里的想法，润色补成一条回复' : '读取当前上下文，生成一版可修改的回复草稿'}</small></div><i>›</i></button><p>只会填入输入框，不会自动发送，也不会替其他角色继续演。</p>{activeConversation?.phone && <button className="reply-helper-action" onClick={() => { setComposerToolsOpen(false); setRedPacketSheetOpen(true) }} disabled={isGenerating}><span>🧧</span><div><strong>发积分红包</strong><small>拼手气，群里的人抢到的积分会记进服刑积分</small></div><i>›</i></button>}{activeConversation?.phone && <button className="reply-helper-action" onClick={() => { setComposerToolsOpen(false); setTransferSheetOpen(true) }} disabled={isGenerating}><span>⇄</span><div><strong>转账给某人</strong><small>选一个人单独转积分，立即到账，他会先接话</small></div><i>›</i></button>}<button className="reply-helper-action image-send-action" onClick={() => chatImageInputRef.current?.click()} disabled={imageBusy || pendingImages.length >= CHAT_IMAGE_LIMIT}><span>▣</span><div><strong>{imageBusy ? '图片处理中…' : '发送图片'}</strong><small>{pendingImages.length ? `已选 ${pendingImages.length}/${CHAT_IMAGE_LIMIT} 张，可以再加一句话一起发` : `从相册选图，最多 ${CHAT_IMAGE_LIMIT} 张；需要模型支持识图`}</small></div><i>›</i></button><input ref={chatImageInputRef} type="file" accept="image/*" multiple hidden onChange={(event) => { const files = event.currentTarget.files; void addChatImages(files).finally(() => { if (chatImageInputRef.current) chatImageInputRef.current.value = '' }); setComposerToolsOpen(false) }} /></section></div>}
     {redPacketSheetOpen && activeConversation?.phone && <RedPacketSendSheet dm={Boolean(activeConversation.phone.dm)} memberCount={(activeConversation.participantIds || []).length} onSend={sendRedPacket} onClose={() => setRedPacketSheetOpen(false)} />}
+    {transferSheetOpen && activeConversation?.phone && <TransferSheet members={(activeConversation.participantIds?.length ? activeConversation.participantIds : [activeConversation.characterId]).map((id) => characters.find((item) => item.id === id)).filter((item): item is Character => Boolean(item)).map((item) => ({ id: item.id, name: item.name }))} onSend={sendTransfer} onClose={() => setTransferSheetOpen(false)} />}
     {redPacketView && activeConversation && (() => { const list = readRedPackets(); const found = findRedPacket(list, activeConversation.id, redPacketView.info, redPacketView.near); return <RedPacketDetail info={redPacketView.info} packet={found} ordinal={found ? redPacketOrdinal(list, found) : undefined} onClose={() => setRedPacketView(null)} /> })()}
     {viewerImage && <div className="chat-image-viewer" role="dialog" aria-modal="true" aria-label="查看图片" onClick={() => setViewerImage(null)}><img src={viewerImage.dataUrl} alt="" /><button type="button" aria-label="关闭图片">×</button></div>}
 
@@ -4238,7 +4252,7 @@ function UpdateCard() {
     }
   }
 
-  return <section className="update-card"><strong>应用更新</strong><p>主动检查并拉取最新网页版本，不会删除角色、聊天记录或本地设置。</p><small>当前版本：v102 · 2026.10.15 导入 TXT 自动补角色卡</small><button onClick={refresh} disabled={state === 'checking'}>{state === 'checking' ? '正在检查更新…' : state === 'error' ? '更新失败，点我重试' : '强制刷新到最新版'}</button></section>
+  return <section className="update-card"><strong>应用更新</strong><p>主动检查并拉取最新网页版本，不会删除角色、聊天记录或本地设置。</p><small>当前版本：v103 · 2026.10.15 导入 TXT 自动补角色卡</small><button onClick={refresh} disabled={state === 'checking'}>{state === 'checking' ? '正在检查更新…' : state === 'error' ? '更新失败，点我重试' : '强制刷新到最新版'}</button></section>
 }
 
 function PersonaPage({ identities, selectedId, isBound, onSelect, onAdd, onDelete, onUpdate, onBack }: { identities: UserIdentity[]; selectedId: string; isBound: boolean; onSelect: (id: string) => void; onAdd: () => void; onDelete: (id: string) => void; onUpdate: (patch: Partial<UserIdentity>) => void; onBack: () => void }) {
