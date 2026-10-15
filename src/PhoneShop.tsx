@@ -7,7 +7,7 @@ type Section = 'shelf' | 'wall' | 'people' | 'owner'
 const STATUS: Record<ShopOrder['status'], string> = { done: '已买', pending: '待你决定', granted: '已答应', held: '暂存中', rejected: '已拒绝', refunded: '已退回积分', used: '已行使' }
 const when = (at: number) => { const d = new Date(at); return `${d.getMonth() + 1}/${d.getDate()} ${String(d.getHours()).padStart(2, '0')}:${String(d.getMinutes()).padStart(2, '0')}` }
 
-export default function PhoneShop({ members, userName }: { members: Character[]; userName: string }) {
+export default function PhoneShop({ members, userName, onGranted }: { members: Character[]; userName: string; onGranted?: (order: ShopOrder) => void }) {
   const [shop, setShop] = useState<ShopState>(readShop)
   const [points, setPoints] = useState<PointsState>(readPoints)
   const [section, setSection] = useState<Section>('shelf')
@@ -35,6 +35,7 @@ export default function PhoneShop({ members, userName }: { members: Character[];
     if (decision === 'rejected' && !window.confirm('拒绝且不退积分？')) return
     const next = decideOrder(readPoints(), readShop(), order.id, decision, Date.now(), condition)
     save(next.shop, next.points)
+    if (decision === 'granted') onGranted?.({ ...order, condition: condition || order.condition })
   }
   const gift = (item: ShopItem) => {
     if (!person) return

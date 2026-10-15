@@ -25,6 +25,7 @@ import { latestMessageId, phoneUnreadCount, unreadLabel } from './phoneUnread'
 import { FORUM_USER, buildForumRecapNote, findForumThread, forumShareText, threadsFromMoments, type ForumThread } from './forum'
 import PhoneAutoSettingsCard from './PhoneAutoSettings'
 import PhonePointsCard from './PhonePointsCard'
+import { addWishPoolLine, grantedWishLine, takeWishPoolTags, wishPoolNote } from './wishPool'
 import { applyPardons, applyShopTags, buildShopNote, readShop, spendLockTicket, takePriority, writeShop } from './phoneShop'
 import PhoneShop from './PhoneShop'
 import { collageAvatar, phoneAvatarSignature, squareAvatarFromFile } from './groupAvatar'
@@ -2474,7 +2475,7 @@ function App() {
       const funNote = conversation.phone?.dm ? `【拍一拍】看到「👋 ${identity.name} 拍了拍 …」就是她拍了你一下，接住它；你也可以单独一行写【拍一拍：${identity.name}】拍她。偶尔用。\n${buildRedPacketNote(readRedPackets(), conversation.id, speaker.id, Date.now(), true)}`.trim() : `【拍一拍】看到「👋 某人 拍了拍 @你」就是有人拍了你，要接话；你也可以在消息最后单独一行写【拍一拍：名字】拍一个群友（他会马上出来回你）或拍${identity.name}。偶尔用，别每条都拍。\n${(() => { const top = todayTopPoints(readPoints(), (conversation.participantIds || []).map((id) => ({ id, name: characters.find((item) => item.id === id)?.name || '' })), Date.now()); return top.length ? `【今日积分榜·群顶上挂着】${top.map((item, index) => `${['第一', '第二', '第三'][index]} ${item.name} +${item.points}`).join('，')}。上榜的可以得意，没上榜的可以酸。\n` : '' })()}${buildRedPacketNote(readRedPackets(), conversation.id, speaker.id, Date.now())}`
       const noticeNote = conversation.phone?.dm ? funNote : [funNote, buildNoticeNote(activeNotice(conversation.phone?.notice), identity.name), (() => { const story = phoneStoryNoteRef.current; return story && story.conversationId === conversation.id ? story.note : '' })()].filter(Boolean).join('\n\n')
       const pointsNote = buildPointsNote(readPoints(), [...members, ...dmMates].map((member) => ({ id: member.id, name: member.name })), identity.name)
-      const shopNote = buildShopNote(readShop(), readPoints(), { id: speaker.id, name: speaker.name }, [...members, ...dmMates].map((member) => ({ id: member.id, name: member.name })), identity.name, Date.now())
+      const shopNote = buildShopNote(readShop(), readPoints(), { id: speaker.id, name: speaker.name }, [...members, ...dmMates].map((member) => ({ id: member.id, name: member.name })), identity.name, Date.now()) + '\n' + wishPoolNote(speaker, identity.name)
       return [conversation.phone?.dm ? phoneDmRules(speaker.name, identity.name) : phoneModeRules(speaker.name, members.map((member) => member.name), identity.name, { allowQuit: conversation.phone?.allowQuit, allowKick: conversation.phone?.allowKick, allowForumShare: conversation.phone?.allowForumShare }), realWorld, noticeNote, pointsNote, shopNote, mateBackground, dmBackground, dmPeek, privateDmMemory, buildPhoneArchive(sources, speaker.id, identity.name, (message) => message.characterId ? nameOf(message) : sources.find((source) => source.conversation?.messages.includes(message))?.character.name || '角色')].join('\n\n')
     })() : ''
     const sanitizedHistory = (isPhone ? phonePromptHistory(nextMessages, memoryLength) : nextMessages).flatMap((message) => {
@@ -2885,7 +2886,12 @@ function App() {
         }
         writePoints(pardon.points)
         writeShop(shopState)
-        visibleOutput = shopText
+        const pool = takeWishPoolTags(shopText)
+        if (pool.lines.length) {
+          const poolOwner = speaker.id
+          setCharacters((current) => current.map((item) => item.id === poolOwner ? pool.lines.reduce((card, line) => addWishPoolLine(card, `${item.name}续写：${line}`, identity.name), item) : item))
+        }
+        visibleOutput = pool.text
         if (!conversation.phone.dm && shop.bought.some((item) => item.effect === 'whisper')) {
           const whisperFrom = speaker.id
           window.setTimeout(() => { void runPhoneDmFrom(whisperFrom, Date.now(), `你刚在群里买了一张「悄悄话券」，现在单独私聊${identity.name}，说一段只想让她一个人听的话。用自己的语气，1—3 条短消息。不要催她吃饭喝水睡觉。`).catch(() => undefined) }, 2500)
@@ -3920,7 +3926,7 @@ function App() {
       {!phoneDraft && <PhoneAutoSettingsCard status={phoneAutoStatus} />}
       {!phoneDraft && <PhonePointsCard members={[...new Set(conversations.filter((item) => item.phone && !item.phone.dm).flatMap((item) => item.participantIds || []))].map((id) => characters.find((item) => item.id === id)).filter((item): item is Character => Boolean(item))} />}
       {!phoneDraft && <div className="phone-tabs" role="tablist"><button role="tab" aria-selected={phoneTab === 'groups'} className={phoneTab === 'groups' ? 'active' : ''} onClick={() => setPhoneTab('groups')}>群聊{phoneUnread.groups > 0 && <b className="phone-unread inline">{unreadLabel(phoneUnread.groups)}</b>}</button><button role="tab" aria-selected={phoneTab === 'dms'} className={phoneTab === 'dms' ? 'active' : ''} onClick={() => setPhoneTab('dms')}>私聊{phoneUnread.dms > 0 && <b className="phone-unread inline">{unreadLabel(phoneUnread.dms)}</b>}</button><button role="tab" aria-selected={phoneTab === 'moments'} className={phoneTab === 'moments' ? 'active' : ''} onClick={() => setPhoneTab('moments')}>论坛</button><button role="tab" aria-selected={phoneTab === 'shop'} className={phoneTab === 'shop' ? 'active' : ''} onClick={() => setPhoneTab('shop')}>🏪 商店</button></div>}
-      {!phoneDraft && phoneTab === 'shop' && <PhoneShop userName={globalIdentity.name} members={[...new Set(conversations.filter((item) => item.phone && !item.phone.dm).flatMap((item) => item.participantIds || []))].map((id) => characters.find((item) => item.id === id)).filter((item): item is Character => Boolean(item))} />}
+      {!phoneDraft && phoneTab === 'shop' && <PhoneShop userName={globalIdentity.name} onGranted={(order) => setCharacters((current) => current.map((item) => item.id === order.buyerId ? addWishPoolLine(item, grantedWishLine(order, globalIdentity.name), globalIdentity.name) : item))} members={[...new Set(conversations.filter((item) => item.phone && !item.phone.dm).flatMap((item) => item.participantIds || []))].map((id) => characters.find((item) => item.id === id)).filter((item): item is Character => Boolean(item))} />}
       {!phoneDraft && phoneTab === 'moments' && <Forum characters={characters} conversations={conversations} userName={globalIdentity.name} userAvatar={globalIdentity.avatar} api={api} seed={momentSeed} onSeedUsed={clearMomentSeed} onSaveToMemory={saveMomentToMemory} onThreadsChange={handleForumChange} onShare={shareForumToChat} />}
       {!phoneDraft && phoneTab === 'dms' && <>
         <div className="privacy-note">一对一私聊：TA 看得到自己所在群最近的聊天和论坛，可以私下跟你吐槽；群里的人看不到私聊。</div>
@@ -4231,7 +4237,7 @@ function UpdateCard() {
     }
   }
 
-  return <section className="update-card"><strong>应用更新</strong><p>主动检查并拉取最新网页版本，不会删除角色、聊天记录或本地设置。</p><small>当前版本：v100 · 2026.10.15 导入 TXT 自动补角色卡</small><button onClick={refresh} disabled={state === 'checking'}>{state === 'checking' ? '正在检查更新…' : state === 'error' ? '更新失败，点我重试' : '强制刷新到最新版'}</button></section>
+  return <section className="update-card"><strong>应用更新</strong><p>主动检查并拉取最新网页版本，不会删除角色、聊天记录或本地设置。</p><small>当前版本：v101 · 2026.10.15 导入 TXT 自动补角色卡</small><button onClick={refresh} disabled={state === 'checking'}>{state === 'checking' ? '正在检查更新…' : state === 'error' ? '更新失败，点我重试' : '强制刷新到最新版'}</button></section>
 }
 
 function PersonaPage({ identities, selectedId, isBound, onSelect, onAdd, onDelete, onUpdate, onBack }: { identities: UserIdentity[]; selectedId: string; isBound: boolean; onSelect: (id: string) => void; onAdd: () => void; onDelete: (id: string) => void; onUpdate: (patch: Partial<UserIdentity>) => void; onBack: () => void }) {
