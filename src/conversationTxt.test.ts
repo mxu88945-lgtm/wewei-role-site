@@ -39,3 +39,11 @@ describe('伯恩戏剧导出的 TXT', () => {
     expect(parsed.messages[2].text).toBe('“嗯。”\n—----------\n他收起伞。')
   })
 })
+
+describe('conversation TXT punctuation names', () => {
+  it('treats punctuation-only authors as narrator', () => {
+    const parsed = parseConversationTxt('剧场\n角色：顾荒、.\n用户：苏禾\n导出时间：x\n\n.\n夜深了。\n\n--------------------\n\n顾荒\n有话就说。')
+    expect(parsed.participantNames).toEqual(['顾荒', '旁白'])
+    expect(parsed.messages[0].author).toBe('旁白')
+  })
+})

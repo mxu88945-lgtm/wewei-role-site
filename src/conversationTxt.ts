@@ -7,6 +7,8 @@ export type ParsedConversationTxt = {
   messages: ConversationTxtMessage[]
 }
 
+/** 只有标点、符号的名字（比如「.」）当旁白。 */
+const normalizeName = (name: string) => /[\p{L}\p{N}]/u.test(name) ? name : '旁白'
 const HEADER_BREAK = /\n\s*\n/
 const MESSAGE_BREAK = /\n\s*\n-{10,}\n\s*\n/
 
@@ -19,15 +21,15 @@ export function parseConversationTxt(value: string): ParsedConversationTxt {
   const title = header[0] || ''
   const participantLine = header.find((line) => line.startsWith('角色：'))
   const userLine = header.find((line) => line.startsWith('用户：'))
-  const participantNames = participantLine?.slice('角色：'.length).split(/[、，,]/).map((name) => name.trim()).filter(Boolean) || []
+  const participantNames = participantLine?.slice('角色：'.length).split(/[、，,]/).map((name) => name.trim()).filter(Boolean).map(normalizeName) || []
   const userName = userLine?.slice('用户：'.length).trim() || ''
   if (!title || !participantNames.length || !userName) throw new Error('TXT 缺少对话标题、角色或用户信息。')
 
   const messages = body.split(MESSAGE_BREAK).map((block) => {
     const newline = block.indexOf('\n')
     if (newline < 1) throw new Error('TXT 中有一条消息缺少作者或正文。')
-    return { author: block.slice(0, newline).trim(), text: block.slice(newline + 1).trim() }
+    return { author: normalizeName(block.slice(0, newline).trim()), text: block.slice(newline + 1).trim() }
   }).filter((message) => message.author && message.text)
   if (!messages.length) throw new Error('TXT 中没有可导入的消息。')
-  return { title, participantNames, userName, messages }
+  return { title, participantNames: [...new Set(participantNames)].filter((name) => name !== userName), userName, messages }
 }
