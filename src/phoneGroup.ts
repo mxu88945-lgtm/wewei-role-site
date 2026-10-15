@@ -161,7 +161,7 @@ export function phoneFinalGuard(speakerName: string, userName: string, now = new
 
 /** Safety net: whatever the model still emits, a phone message never carries status/scene panels or tags. */
 const STATUS_FIELD = /(衣着|状态|心境|内心(?:想法|独白)?|对.{1,8}(?:态度|认知)|当前(?:进度|状态)|好感|场景|时间|地点)\s*[:：]/
-const PHONE_REASONING_OPENING = /^(?:\s|[#*_>—-])*(?:[\p{Script=Han}A-Za-z0-9·_-]{1,20})?(?:人设(?:立场)?与反应分析|人设分析|角色(?:立场|反应|视角|语气|风格|设定)?分析|人物(?:立场|反应|视角|语气|风格|设定)?分析|回复(?:思路|分析|策略|规划)|内部(?:思考|分析)|思考过程)\s*[:：]?/iu
+const PHONE_REASONING_OPENING = /^(?:\s|[#*_>—-])*(?:[\p{Script=Han}A-Za-z0-9·_-]{1,20})?(?:人设(?:立场)?与反应分析|人设分析|角色(?:立场|反应|视角|语气|风格|设定)?分析|人物(?:立场|反应|视角|语气|风格|设定)?分析|回复(?:思路|分析|策略|规划)|内部(?:思考|分析)|思考过程)\s*[:：]?|^(?:\s|[#*_>—-])*(?:【[^】\n]{1,12}视角】|\[[^\]\n]{1,12}视角\]|(?:现在|当前)(?:情况|局面|状态)\s*[:：]|态度与反应\s*[:：])/iu
 const PHONE_FINAL_HEADING = /(?:^|\n)\s*(?:#{1,6}\s*)?(?:(?:最终|正式|可发送的?|群聊|微信|建议的?)\s*)?(?:回复|发言|消息|输出|成稿)(?:内容)?\s*[:：]\s*/iu
 const isStatusLine = (line: string) => {
   const t = line.trim()
@@ -594,4 +594,10 @@ ${speakerName}私底下知道：自己是惟境里的角色，戏外和${userNam
 2. 只把它当成心里有数：对她的近况、心情、身体状况、答应过的愿望、聊过的小事，可以化成剧情里自然的关心、默契和行动（比如她说过头疼，戏里会多照顾一点；她许的愿，在合适的时候用剧情方式兑现）。
 3. 不复述原话，不每轮都用，不要因为这个改写已经发生的剧情事实。
 ${clip(body, 3600)}`
+}
+
+/** 微信式群名：去掉群名里手写的“（N 人）/(N)”，按当前成员数自动补上。 */
+export function phoneGroupDisplayTitle(title: string, memberCount: number) {
+  const base = (title || '').replace(/\s*[（(]\s*\d+\s*(?:人|位)?\s*[)）]\s*$/u, '').trim() || '群聊'
+  return memberCount > 0 ? `${base}（${memberCount}）` : base
 }

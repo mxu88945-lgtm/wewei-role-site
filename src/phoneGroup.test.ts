@@ -367,3 +367,20 @@ describe('buildBackstageNote', () => {
     expect(buildBackstageNote([] as never, 'a', '傅承砚', '周惟惟', () => '')).toBe('')
   })
 })
+
+describe('v122 group count + perspective leak', () => {
+  it('replaces hand-written member count with live count', async () => {
+    const { phoneGroupDisplayTitle } = await import('./phoneGroup')
+    expect(phoneGroupDisplayTitle('型男靓女中心（11 人）', 13)).toBe('型男靓女中心（13）')
+    expect(phoneGroupDisplayTitle('型男靓女中心(11)', 13)).toBe('型男靓女中心（13）')
+    expect(phoneGroupDisplayTitle('整改中心', 3)).toBe('整改中心（3）')
+  })
+  it('treats 【X视角】 analysis as reasoning', async () => {
+    const { containsPhoneReasoning, cleanPhoneOutput } = await import('./phoneGroup')
+    const leak = '【谢聿衡视角】\n现在情况：\n- 真实时间：21:40\n- 态度与反应：\n- 被戳中软肋'
+    expect(containsPhoneReasoning(leak)).toBe(true)
+    expect(cleanPhoneOutput(leak)).toBe('')
+    expect(containsPhoneReasoning('现在情况：周惟惟笑得不行')).toBe(true)
+    expect(containsPhoneReasoning('现在几点了？')).toBe(false)
+  })
+})
