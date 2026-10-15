@@ -31,10 +31,14 @@ export function RedPacketCard({ info, packet, onOpen }: { info: RedPacketLineInf
   const done = packet ? grabbed >= packet.count : false
   const expired = packet ? !done && Date.now() - packet.at > 24 * 3600000 : false
   const status = done ? '已被领完' : expired ? '已过期' : grabbed ? `已领取 ${grabbed}/${info.count}` : ''
-  return <button type="button" className={`red-packet-card${done || expired ? ' opened' : ''}`} onClick={onOpen} aria-label={`${info.fromName}的积分红包`}>
-    <span className="red-packet-card-main"><i aria-hidden="true" /><span><strong>{info.note || '恭喜发财，大吉大利'}</strong>{status && <small>{status}</small>}</span></span>
-    <span className="red-packet-card-foot">积分红包 · {info.total} 积分</span>
-  </button>
+  const best = done && packet && packet.count > 1 ? packet.grabs.reduce((top, grab) => grab.amount > top.amount ? grab : top) : null
+  return <div className="red-packet-wrap">
+    <button type="button" className={`red-packet-card${done || expired ? ' opened' : ''}`} onClick={onOpen} aria-label={`${info.fromName}的积分红包`}>
+      <span className="red-packet-card-main"><i aria-hidden="true" /><span><strong>{info.note || '恭喜发财，大吉大利'}</strong>{status && <small>{status}</small>}</span></span>
+      <span className="red-packet-card-foot">积分红包 · {info.total} 积分</span>
+    </button>
+    {packet && packet.grabs.length > 0 && <ul className="red-packet-grabs" aria-label="谁抢了多少">{packet.grabs.map((grab) => <li key={grab.id}><span>{grab.name}</span><b>+{grab.amount}</b>{best?.id === grab.id && <em>手气最佳</em>}</li>)}</ul>}
+  </div>
 }
 
 /** 点开红包看谁抢了多少。 */

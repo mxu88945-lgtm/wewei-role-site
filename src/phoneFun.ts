@@ -66,11 +66,13 @@ const isActive = (packet: RedPacket, now: number) => packet.grabs.length < packe
 export const activeRedPackets = (list: RedPacket[], conversationId: string, now: number) => list.filter((packet) => packet.conversationId === conversationId && isActive(packet, now))
 
 const SEND_TAG = /[【[]\s*发红包\s*[：:\s]*(\d{1,4})\s*(?:积分|分)?\s*[，,：:\s]*(\d{1,2})\s*个?\s*(?:[：:，,｜|]\s*([^】\]]{0,30}))?[】\]]/
-const GRAB_TAG = /[【[]\s*抢红包\s*[】\]]/
-const ANY_PACKET_TAG = /[【[]\s*(?:发红包|抢红包)[^】\]]{0,60}[】\]]/g
+const GRAB_TAG = /[【[]\s*抢红包\s*[】\]]|^\s*抢红包\s*[!！。~～]*\s*$/m
+const REFUSE_TAG = /[【[]\s*不抢\s*[】\]]/
+const ANY_PACKET_TAG = /[【[]\s*(?:发红包|抢红包|不抢)[^】\]]{0,60}[】\]]|^\s*抢红包\s*[!！。~～]*\s*$/gm
 
 /** 角色消息里的【发红包 N积分 M个：留言】和【抢红包】。都换成群里看得见的一行小字。 */
-export function applyRedPacketTags(text: string, ctx: { conversationId: string; speakerId: string; speakerName: string; points: PointsState; packets: RedPacket[]; now: number; random?: () => number }) {
+/** autoGrab：群友一开口就自动把还没抢过的红包都抢了（写【不抢】可以拒绝）。 */
+export function applyRedPacketTags(text: string, ctx: { conversationId: string; speakerId: string; speakerName: string; points: PointsState; packets: RedPacket[]; now: number; random?: () => number; autoGrab?: boolean }) {
   let points = ctx.points
   let packets = ctx.packets
   const lines: string[] = []
@@ -86,9 +88,10 @@ export function applyRedPacketTags(text: string, ctx: { conversationId: string; 
       lines.push(redPacketText(packet))
     }
   }
-  if (GRAB_TAG.test(text)) {
-    const target = activeRedPackets(packets, ctx.conversationId, ctx.now).find((packet) => packet.fromId !== ctx.speakerId && !packet.grabs.some((grab) => grab.id === ctx.speakerId))
-    if (target) {
+  const asked = GRAB_TAG.test(text)
+  if (asked || (ctx.autoGrab && !REFUSE_TAG.test(text))) {
+    const targets = activeRedPackets(packets, ctx.conversationId, ctx.now).filter((packet) => packet.fromId !== ctx.speakerId && !packet.grabs.some((grab) => grab.id === ctx.speakerId))
+    for (const target of targets) {
       const amount = target.shares[target.grabs.length]
       const grabs = [...target.grabs, { id: ctx.speakerId, name: ctx.speakerName, amount, at: ctx.now }]
       packets = packets.map((packet) => packet.id === target.id ? { ...packet, grabs } : packet)
@@ -98,7 +101,8 @@ export function applyRedPacketTags(text: string, ctx: { conversationId: string; 
         const best = grabs.reduce((top, grab) => grab.amount > top.amount ? grab : top)
         lines.push(`🏆 红包抢完了，手气最佳：${best.name}（${best.amount} 积分）`)
       }
-    } else if (packets.some((packet) => packet.conversationId === ctx.conversationId && ctx.now - packet.at < RED_PACKET_TTL)) lines.push('🧧 手慢了，红包已经被抢完')
+    }
+    if (!targets.length && asked && packets.some((packet) => packet.conversationId === ctx.conversationId && ctx.now - packet.at < RED_PACKET_TTL)) lines.push('🧧 手慢了，红包已经被抢完')
   }
   const cleaned = text.replace(ANY_PACKET_TAG, '').replace(/\n{3,}/g, '\n\n').trim()
   return { text: [cleaned, ...lines].filter(Boolean).join('\n'), points, packets, changed: Boolean(send || lines.length) }
@@ -107,11 +111,11 @@ export function applyRedPacketTags(text: string, ctx: { conversationId: string; 
 /** 给模型看的红包规则和眼下没抢完的红包。 */
 export function buildRedPacketNote(list: RedPacket[], conversationId: string, speakerId: string, now: number) {
   const open = activeRedPackets(list, conversationId, now)
-  const rule = '【积分红包】你可以用自己的服刑积分发拼手气红包：消息最后单独一行写【发红包 N积分 M个：留言】（N 不能超过你的积分，M 最多 9）。群里有没抢完的红包时，想抢就单独一行写【抢红包】，抢到多少系统随机给。抢多抢少都可以拿来炫耀或嘴硬，别每条都发红包。'
+  const rule = '【积分红包】你可以用自己的服刑积分发拼手气红包：消息最后单独一行写【发红包 N积分 M个：留言】（N 不能超过你的积分，M 最多 9）。群里有没抢完的红包时，你一开口系统就自动帮你把没抢过的都抢了，抢到多少随机给，结果会接在你消息后面；你不用写“抢红包”。真想端着不抢就在最后单独一行写【不抢】。抢多抢少都可以拿来炫耀或嘴硬，别每条都发红包。'
   if (!open.length) return rule
   const lines = open.map((packet) => {
     const mine = packet.grabs.find((grab) => grab.id === speakerId)
-    const status = packet.fromId === speakerId ? '这是你发的' : mine ? `你已经抢到 ${mine.amount}` : '你还没抢'
+    const status = packet.fromId === speakerId ? '这是你发的' : mine ? `你已经抢到 ${mine.amount}` : '你还没抢，这条一发就自动抢'
     return `· ${packet.fromName}发的红包${packet.note ? `「${packet.note}」` : ''}：${packet.count} 个剩 ${packet.count - packet.grabs.length} 个；${packet.grabs.map((grab) => `${grab.name}抢到 ${grab.amount}`).join('，') || '还没人抢'}（${status}）`
   })
   return `${rule}\n群里现在有没抢完的红包：\n${lines.join('\n')}`

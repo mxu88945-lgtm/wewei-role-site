@@ -917,3 +917,11 @@ button { cursor: pointer; }
 .red-packet-detail li b { display: flex; flex-direction: column; align-items: flex-end; font-weight: 500; }
 .red-packet-detail li em { font-style: normal; color: #e6a23c; font-size: 12px; }
 .red-packet-detail-empty { text-align: center; color: #aaa; font-size: 13px; padding-bottom: 18px; }
+
+.red-packet-wrap { display: flex; flex-direction: column; gap: 6px; width: 230px; max-width: 100%; }
+.message-row.user .message-bubble-column > .red-packet-wrap { align-self: flex-end; }
+.red-packet-grabs { list-style: none; margin: 0; padding: 6px 10px; background: rgba(255,255,255,.75); border-radius: 8px; font-size: 13px; color: #555; }
+.red-packet-grabs li { display: flex; align-items: center; gap: 6px; padding: 2px 0; }
+.red-packet-grabs li span { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.red-packet-grabs li b { font-weight: 600; color: #e8553f; }
+.red-packet-grabs li em { font-style: normal; font-size: 11px; color: #e6a23c; }

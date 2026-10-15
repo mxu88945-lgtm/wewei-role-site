@@ -36,6 +36,16 @@ describe('red packets', () => {
     const again = applyRedPacketTags('【抢红包】', { conversationId: 'g', speakerId: 'b', speakerName: '谢聿衡', points: grab.points, packets: grab.packets, now: 14 })
     expect(again.text).toBe('🧧 手慢了，红包已经被抢完')
   })
+  it('auto-grabs every open packet on speaking, accepts a bare 抢红包 line, and respects 【不抢】', () => {
+    const p1 = createRedPacket({ conversationId: 'g', fromId: 'user', fromName: '惟惟', total: 20, count: 3, at: 1 })
+    const p2 = createRedPacket({ conversationId: 'g', fromId: 'user', fromName: '惟惟', total: 20, count: 3, at: 2 })
+    const auto = applyRedPacketTags('抢红包\n周导破费了', { conversationId: 'g', speakerId: 'a', speakerName: '沈衍', points: EMPTY_POINTS, packets: [p1, p2], now: 3, autoGrab: true })
+    expect(auto.text.startsWith('周导破费了\n🧧 抢到惟惟的红包')).toBe(true)
+    expect(auto.text.match(/🧧 抢到/g)).toHaveLength(2)
+    const refuse = applyRedPacketTags('不稀罕\n【不抢】', { conversationId: 'g', speakerId: 'b', speakerName: '谢聿衡', points: EMPTY_POINTS, packets: [p1, p2], now: 3, autoGrab: true })
+    expect(refuse.text).toBe('不稀罕')
+    expect(refuse.changed).toBe(false)
+  })
   it('refuses when points are short and names the luckiest when emptied', () => {
     const poor = applyRedPacketTags('【发红包 30积分 2个】', { conversationId: 'g', speakerId: 'a', speakerName: '沈衍', points: EMPTY_POINTS, packets: [], now: 1 })
     expect(poor.text).toContain('积分不够')
