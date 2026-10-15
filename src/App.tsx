@@ -1838,6 +1838,8 @@ function App() {
   }
   const leavePhonePage = () => {
     const editing = Boolean(phoneDraft?.editingId)
+    // 改群设置时按返回也算保存（保存按钮在成员列表最底下，很容易直接返回把改动丢掉）。
+    if (editing && phoneDraft && phoneDraft.memberIds.filter((id) => characters.some((item) => item.id === id)).length >= 2) { savePhoneGroup(); return }
     setPhoneDraft(null)
     const previous = history[history.length - 1]
     if (!editing && previous?.page === 'chat' && activeConversation?.phone) { goHome(); return }
@@ -3794,7 +3796,7 @@ function App() {
 
     {page === 'character-workshop' && <CharacterWorkshop channels={apiChannels} characters={characters} defaultChannelId={activeApiId} onBack={goBack} onAvatar={imageThumbnail} onExport={(character) => downloadJson(`${character.name}-character-card-v3.json`, exportableCharacter(character))} onSave={(character) => { localStorage.removeItem('weijing.characterWorkshop'); addImportedCharacter(character) }} />}
 
-    {page === 'phone' && <><BackHeader title={phoneDraft?.editingId ? '小手机群设置' : '小手机'} onBack={leavePhonePage} /><section className="content-stack phone-page">
+    {page === 'phone' && <><BackHeader title={phoneDraft?.editingId ? '小手机群设置' : '小手机'} onBack={leavePhonePage} action={phoneDraft?.editingId ? <button className="text-button" onClick={savePhoneGroup}>保存</button> : undefined} /><section className="content-stack phone-page">
       {!phoneDraft && <PhoneStatusWidget />}
       {!phoneDraft && <PhoneWebSettings />}
       {!phoneDraft && <PhoneAutoSettingsCard status={phoneAutoStatus} />}
@@ -4108,7 +4110,7 @@ function UpdateCard() {
     }
   }
 
-  return <section className="update-card"><strong>应用更新</strong><p>主动检查并拉取最新网页版本，不会删除角色、聊天记录或本地设置。</p><small>当前版本：v87 · 2026.10.15 小手机时间条 · 预设编辑不被键盘挡</small><button onClick={refresh} disabled={state === 'checking'}>{state === 'checking' ? '正在检查更新…' : state === 'error' ? '更新失败，点我重试' : '强制刷新到最新版'}</button></section>
+  return <section className="update-card"><strong>应用更新</strong><p>主动检查并拉取最新网页版本，不会删除角色、聊天记录或本地设置。</p><small>当前版本：v88 · 2026.10.15 群设置返回自动保存</small><button onClick={refresh} disabled={state === 'checking'}>{state === 'checking' ? '正在检查更新…' : state === 'error' ? '更新失败，点我重试' : '强制刷新到最新版'}</button></section>
 }
 
 function PersonaPage({ identities, selectedId, isBound, onSelect, onAdd, onDelete, onUpdate, onBack }: { identities: UserIdentity[]; selectedId: string; isBound: boolean; onSelect: (id: string) => void; onAdd: () => void; onDelete: (id: string) => void; onUpdate: (patch: Partial<UserIdentity>) => void; onBack: () => void }) {
