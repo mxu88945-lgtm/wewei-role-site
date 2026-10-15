@@ -20,7 +20,7 @@ export function readPoints(): PointsState {
   try { return { ...EMPTY_POINTS, ...(JSON.parse(localStorage.getItem(PHONE_POINTS_KEY) || 'null') || {}) } } catch { return EMPTY_POINTS }
 }
 export function writePoints(state: PointsState) {
-  try { localStorage.setItem(PHONE_POINTS_KEY, JSON.stringify({ ...state, log: state.log.slice(-200) })) } catch { /* ignore */ }
+  try { localStorage.setItem(PHONE_POINTS_KEY, JSON.stringify({ ...state, log: state.log.slice(-600) })) } catch { /* ignore */ }
   window.dispatchEvent(new Event(PHONE_POINTS_EVENT))
 }
 
@@ -71,4 +71,12 @@ export function buildPointsNote(state: PointsState, people: Array<{ id: string; 
 规则：每天第一次发言自动签到 +10（系统会记，不用你写）；主动认错、提醒造物主吃饭喝水、翻旧账攻击狱友这类表现，可以在消息最后单独一行自报【积分 +N：理由】（每次最多 +5，别每条都报）；被抓包、私聊争宠被转发公开、剧情里再犯旧罪，要自己老实写【积分 -N：理由】；锁造物主手机由造物主看效果酌情加减。
 积分可兑换（消息最后单独一行写【兑换：名称】）：${POINT_REWARDS.map((item) => `${item.name} ${item.cost}`).join('、')}。
 当前积分：${ranking.map((item) => `${item.name} ${item.points}`).join('，') || '大家都是 0'}。可以拿排名互相嘲讽。`
+}
+
+/** 今天（本机日期）每人净得多少积分，取前 N 名；没人得分就空。 */
+export function todayTopPoints(state: PointsState, people: Array<{ id: string; name: string }>, at: number, limit = 3) {
+  const today = dayKey(at)
+  const totals = new Map<string, number>()
+  for (const entry of state.log) if (dayKey(entry.at) === today) totals.set(entry.id, (totals.get(entry.id) || 0) + entry.delta)
+  return people.map((person) => ({ ...person, points: totals.get(person.id) || 0 })).filter((item) => item.points > 0).sort((a, b) => b.points - a.points).slice(0, limit)
 }

@@ -925,3 +925,14 @@ button { cursor: pointer; }
 .red-packet-grabs li span { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .red-packet-grabs li b { font-weight: 600; color: #e8553f; }
 .red-packet-grabs li em { font-style: normal; font-size: 11px; color: #e6a23c; }
+
+/* 群顶：公告 + 今日积分榜 */
+.phone-top-stack { position: absolute; z-index: 35; top: calc(64px + env(safe-area-inset-top)); left: 50%; transform: translateX(-50%); width: min(calc(100% - 28px), 460px); display: flex; flex-direction: column; gap: 6px; }
+.phone-top-stack .phone-notice-banner { position: relative; top: auto; left: auto; transform: none; width: 100%; }
+.phone-rank-strip { display: flex; align-items: center; gap: 10px; padding: 6px 12px; border-radius: 14px; background: rgba(255, 244, 236, .94); box-shadow: 0 6px 18px rgba(120, 60, 20, .08); color: #7a4a2a; font-size: 12.5px; white-space: nowrap; overflow-x: auto; scrollbar-width: none; }
+.phone-rank-strip::-webkit-scrollbar { display: none; }
+.phone-rank-strip span { font-weight: 800; }
+.phone-rank-strip b { font-weight: 600; }
+.phone-rank-strip em { font-style: normal; color: #e8553f; margin-left: 2px; }
+.chat-page.has-rank .message-list { padding-top: calc(132px + env(safe-area-inset-top)); }
+.chat-page.has-notice.has-rank .message-list { padding-top: calc(186px + env(safe-area-inset-top)); }

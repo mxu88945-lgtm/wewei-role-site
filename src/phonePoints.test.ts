@@ -32,3 +32,15 @@ describe('phone points', () => {
     expect(buildPointsNote({ ...EMPTY_POINTS, balances: { a: 3, b: 9 } }, [{ id: 'a', name: '沈衍' }, { id: 'b', name: '傅承砚' }], '周')).toContain('傅承砚 9，沈衍 3')
   })
 })
+
+import { todayTopPoints as top3, addPoints as add, EMPTY_POINTS as empty } from './phonePoints'
+describe('today top points', () => {
+  it('ranks today net gains and ignores other days', () => {
+    const today = new Date(2026, 9, 15, 12).getTime()
+    const yesterday = new Date(2026, 9, 14, 12).getTime()
+    let s = add(empty, 'a', 50, 'x', yesterday)
+    s = add(s, 'a', 5, 'x', today); s = add(s, 'b', 30, 'x', today); s = add(s, 'c', 10, 'x', today); s = add(s, 'c', -20, 'x', today); s = add(s, 'd', 12, 'x', today)
+    const people = ['a', 'b', 'c', 'd'].map((id) => ({ id, name: id }))
+    expect(top3(s, people, today).map((item) => `${item.id}${item.points}`)).toEqual(['b30', 'd12', 'a5'])
+  })
+})
