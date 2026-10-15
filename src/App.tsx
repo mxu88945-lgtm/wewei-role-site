@@ -37,7 +37,7 @@ import { USER_AUTHOR, communityMemberIds, excerptFromMessage } from './moments'
 import { buildDmGroupPeek, buildGroupDmPeek, parsePhoneForumShare, stripPhoneForumShareTag, phoneDmRules, phonePromptHistory, PHONE_COMPLETION_TIMEOUT_MS } from './phoneGroup'
 import { splitPhoneBubbles } from './phoneBubbles'
 import { PhoneChatInfo } from './PhoneChatInfo'
-import { NOTICE_DURATIONS, lurkFallback, activeNotice, noticeRemaining, buildNoticeNote, findAtMentionIds, queueSummons, parsePhoneQuit, parsePhoneKick, parsePhoneVote, kickPassed, findNamedParticipantIds, selectPhoneSpeakers, pickPhoneChatters, cleanPhoneOutput, phoneStreamPreview, containsPhoneReasoning, phoneFinalGuard, buildSmartPickPrompt, parseSmartPick, buildPhoneArchive, buildPhoneGroupBackground, phoneBindingCandidates, buildPhoneRealWorldNote, parsePhoneLockCommand, buildPhoneLockBreachNote, type PhoneLockState, type PhoneLockBreach, phoneCharacter, phoneModeRules, stripPhoneQuitTag, stripPhoneKickTag, computeStoryUpdates, resetStorySeenForBindingChanges, storyUpdateNotice, buildStoryUpdateNote } from './phoneGroup'
+import { NOTICE_DURATIONS, lurkFallback, activeNotice, noticeRemaining, buildNoticeNote, findAtMentionIds, queueSummons, parsePhoneQuit, parsePhoneKick, parsePhoneVote, kickPassed, findNamedParticipantIds, selectPhoneSpeakers, pickPhoneChatters, cleanPhoneOutput, phoneStreamPreview, containsPhoneReasoning, phoneFinalGuard, buildSmartPickPrompt, buildMicPrompt, parseMicAnswer, parseSmartPick, buildPhoneArchive, buildPhoneGroupBackground, phoneBindingCandidates, buildPhoneRealWorldNote, parsePhoneLockCommand, buildPhoneLockBreachNote, type PhoneLockState, type PhoneLockBreach, phoneCharacter, phoneModeRules, stripPhoneQuitTag, stripPhoneKickTag, computeStoryUpdates, resetStorySeenForBindingChanges, storyUpdateNotice, buildStoryUpdateNote } from './phoneGroup'
 import { assignChatGroup, chatGroupNames, groupConversations, setChatGroupMembers } from './chatGroups'
 import { assignLibraryGroup, setLibraryGroupMembers, effectiveLibraryRole, groupLibraryCharacters, LIBRARY_ROLE_LABELS, libraryGroupNames } from './characterLibraryGroups'
 import { activeCharacterMemory, characterMemoryEntryFromConversation, characterMemoryExtractionPrompt, characterMemorySummaryProtocol, parseCharacterMemoryCandidates, splitCharacterMemorySummary } from './characterMemory'
@@ -3018,6 +3018,25 @@ function App() {
     }
   }
 
+  const passPhoneMic = async (conversation: Conversation, history: Message[], participants: Array<{ id: string; name: string }>, text: string, speaking: string[]) => {
+    const identity = identityFor(conversation)
+    const nameOf = (message: Message) => message.role === 'user' ? identity.name : participants.find((item) => item.id === message.characterId)?.name || '角色'
+    const recent = history.filter((message) => message.text?.trim() && !message.phoneNotice).slice(-10).map((message) => `${nameOf(message)}：${cleanPhoneOutput(message.text).replace(/\s+/g, ' ').slice(0, 80)}`)
+    const alreadySpeaking = speaking.map((id) => participants.find((item) => item.id === id)?.name || '').filter(Boolean)
+    const lurkers = participants.filter((item) => !speaking.includes(item.id) && !phoneQuitRef.current.has(`${conversation.id}:${item.id}`))
+    const answers = await Promise.all(lurkers.map(async (member) => {
+      const character = characters.find((entry) => entry.id === member.id)
+      const persona = [character?.tagline, character?.personality, character?.description].filter(Boolean).join('\n').replace(/\s+/g, ' ').slice(0, 500)
+      let output = ''
+      try {
+        await completeChat({ api: conversationApiFor(conversation, member.id, api), messages: [{ role: 'user', content: buildMicPrompt({ name: member.name, persona, userName: identity.name, recentLines: recent, text, alreadySpeaking }) }], temperature: .7, topP: 1, maxTokens: 40, streaming: true, timeoutMs: 12_000, signal: new AbortController().signal, onDelta: (delta) => { output += delta } })
+      } catch { return null }
+      return parseMicAnswer(output) ? member.id : null
+    }))
+    // 真人群里也不会一下子全冒出来：最多再加 3 个，顺序随机。
+    return answers.filter((id): id is string => Boolean(id)).sort(() => Math.random() - .5).slice(0, 3)
+  }
+
   const phoneChatterRound = async (conversation: Conversation) => {
     const stopRevision = conversationStopRevisions.current.get(conversation.id) || 0
     const participantIds = conversation.participantIds || []
@@ -3316,6 +3335,11 @@ function App() {
       const speakerIds = conversation.phone?.dm ? participantIds.slice(0, 1) : conversation.phone
         ? smartIds.length ? smartIds : phoneMode === 'smart' ? lurkFallback(participantIds, [...mentionedIds, ...phoneNamedIds], lastSpeakerId) : selectPhoneSpeakers({ mode: phoneMode, participantIds, mentionedIds, namedIds: phoneNamedIds, lastSpeakerId, text: visibleText })
         : selectGroupSpeakerIds({ participantIds, mentionedIds, mode: groupReplyMode, directorCharacterId: conversation.directorCharacterId, lastSpeakerId, text })
+      if (conversation.phone && !conversation.phone.dm && phoneMode === 'smart') {
+        // 话筒：其余每个群友同时拿到话筒，各自按人设判断接不接（并行、只回接/不接）。
+        const extra = await passPhoneMic(conversation, baseMessages, participants, withQuotePrefix(visibleText, activeQuote), speakerIds)
+        speakerIds.push(...extra.filter((id) => !speakerIds.includes(id)))
+      }
       if (conversation.phone && !conversation.phone.dm) {
         const jump = takePriority(readShop(), participantIds, speakerIds)
         if (jump) { writeShop(jump.shop); speakerIds.splice(0, speakerIds.length, ...jump.speakerIds) }
@@ -4288,7 +4312,7 @@ function UpdateCard() {
     }
   }
 
-  return <section className="update-card"><strong>应用更新</strong><p>主动检查并拉取最新网页版本，不会删除角色、聊天记录或本地设置。</p><small>当前版本：v108 · 2026.10.15 导入 TXT 自动补角色卡</small><button onClick={refresh} disabled={state === 'checking'}>{state === 'checking' ? '正在检查更新…' : state === 'error' ? '更新失败，点我重试' : '强制刷新到最新版'}</button></section>
+  return <section className="update-card"><strong>应用更新</strong><p>主动检查并拉取最新网页版本，不会删除角色、聊天记录或本地设置。</p><small>当前版本：v109 · 2026.10.15 导入 TXT 自动补角色卡</small><button onClick={refresh} disabled={state === 'checking'}>{state === 'checking' ? '正在检查更新…' : state === 'error' ? '更新失败，点我重试' : '强制刷新到最新版'}</button></section>
 }
 
 function PersonaPage({ identities, selectedId, isBound, onSelect, onAdd, onDelete, onUpdate, onBack }: { identities: UserIdentity[]; selectedId: string; isBound: boolean; onSelect: (id: string) => void; onAdd: () => void; onDelete: (id: string) => void; onUpdate: (patch: Partial<UserIdentity>) => void; onBack: () => void }) {

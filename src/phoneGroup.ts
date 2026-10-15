@@ -241,7 +241,7 @@ export function pickPhoneChatters(participantIds: string[], lastSpeakerId: strin
 export type PhoneReplyMode = 'free' | 'smart' | 'all' | 'at' | 'named'
 export const PHONE_REPLY_MODES: Array<{ id: PhoneReplyMode; label: string; hint: string }> = [
   { id: 'free', label: '自然聊天', hint: '被提到的优先，否则随机两人接话' },
-  { id: 'smart', label: '旁观插话', hint: '聊谁谁回，其他人潜水，戳到才插嘴' },
+  { id: 'smart', label: '旁观插话', hint: '聊谁谁回；话筒递给每个潜水的人，自己决定接不接' },
   { id: 'all', label: '全员回复', hint: '所有人都会回你' },
   { id: 'at', label: '指定发言', hint: '只有被 @ 的人回' },
 ]
@@ -523,4 +523,25 @@ export function parsePhoneForumShare(text: string) {
 /** 本群关了转发论坛时：标签直接删掉。 */
 export function stripPhoneForumShareTag(text: string) {
   return text.replace(FORUM_SHARE_TAG_GLOBAL, '').replace(/\n{3,}/g, '\n\n').trim()
+}
+
+/** 话筒：把这一轮递给一个旁观的群友，让他按自己的人设决定接不接。只回“接/不接”，很便宜。 */
+export function buildMicPrompt(input: { name: string; persona: string; userName: string; recentLines: string[]; text: string; alreadySpeaking: string[] }) {
+  return `你是${input.name}，正在一个微信群里潜水。下面是你的人设要点：
+${input.persona || '（无）'}
+
+最近聊天：
+${input.recentLines.join('\n') || '（暂无）'}
+${input.userName}刚刚说：${input.text || '（没说话，群里在自己聊）'}
+${input.alreadySpeaking.length ? `这一轮${input.alreadySpeaking.join('、')}会先回她。` : ''}
+
+话筒递到你手上。像真人一样判断：这件事跟你有关、戳到你、你按性格忍不住想说一句，才接；跟你无关、只是看热闹、别人已经说了你想说的，就继续潜水。别为了刷存在感硬接。
+只输出一行：接 或 不接。想接的话后面可以加冒号和你想说的方向（十个字以内）。`
+}
+
+export function parseMicAnswer(raw: string) {
+  const line = raw.replace(/<think>[\s\S]*?<\/think>/g, '').trim().split('\n').map((item) => item.trim()).find(Boolean) || ''
+  if (/^(?:不接|不|潜水|pass)/i.test(line)) return null
+  const match = line.match(/^接\s*(?:[:：]\s*(.{0,20}))?/)
+  return match ? { hint: (match[1] || '').trim() } : null
 }

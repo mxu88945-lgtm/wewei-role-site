@@ -319,3 +319,14 @@ describe('phone group toggles and story-update alerts', () => {
     expect(peek).not.toContain('📖')
   })
 })
+
+import { parseMicAnswer } from './phoneGroup'
+describe('parseMicAnswer', () => {
+  it('reads 接 / 不接', () => {
+    expect(parseMicAnswer('不接')).toBeNull()
+    expect(parseMicAnswer('接：怼沈衍一句')).toEqual({ hint: '怼沈衍一句' })
+    expect(parseMicAnswer('接')).toEqual({ hint: '' })
+    expect(parseMicAnswer('<think>嗯</think>\n不接')).toBeNull()
+    expect(parseMicAnswer('我觉得')).toBeNull()
+  })
+})
