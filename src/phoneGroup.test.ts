@@ -341,3 +341,11 @@ describe('phone place', () => {
     expect(buildPhoneRealWorldNote(now, { temp: 24, code: 0, high: 28, low: 22, place: '广东省潮州市湘桥区', at: now.getTime() })).toContain('用户现在在：广东省潮州市湘桥区')
   })
 })
+
+describe('traditional place names', () => {
+  it('simplifies 湘橋區', async () => {
+    const { joinPlace, shortPlace } = await import('./phoneGroup')
+    expect(shortPlace('广东省潮州市湘橋區')).toBe('湘桥区')
+    expect(joinPlace(['广东省', '潮州市', '湘橋區'])).toBe('广东省潮州市湘桥区')
+  })
+})
