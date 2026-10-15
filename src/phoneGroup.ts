@@ -577,7 +577,10 @@ export function buildBackstageNote(conversations: Conversation[], characterId: s
   const dmRecent = dm ? phonePromptHistory(dm.messages, 12).filter((message) => message.role === 'user' || message.characterId === characterId || !message.characterId).map(line).join('\n') : ''
   const groups = conversations.filter((item) => item.phone && !item.phone.dm && item.participantIds?.includes(characterId) && item.messages.length)
     .sort((left, right) => right.updatedAt - left.updatedAt).slice(0, 2)
-    .map((group) => `「${group.title}」最近：\n${phonePromptHistory(group.messages, 10).map(line).join('\n')}`)
+    .map((group) => {
+      const summary = group.contextSummary && (group.contextSummaryRevision || 0) === (group.historyRevision || 0) ? clip(cleanPhoneOutput(sanitizeAssistantOutput(group.contextSummary)), 700) : ''
+      return `「${group.title}」${summary ? `较早摘要：\n${summary}\n` : ''}最近：\n${phonePromptHistory(group.messages, 10).map(line).join('\n')}`
+    })
   if (!dmSummary && !dmRecent && !groups.length) return ''
   const body = [
     dmSummary && `你和${userName}私聊的较早摘要：\n${dmSummary}`,
@@ -590,5 +593,5 @@ ${speakerName}私底下知道：自己是惟境里的角色，戏外和${userNam
 1. 戏里是戏里，戏外是戏外。剧情正文里绝不提小手机、群聊、私聊、积分、红包、群友、“戏外”“角色卡”这类词，也不打破剧情世界观。
 2. 只把它当成心里有数：对她的近况、心情、身体状况、答应过的愿望、聊过的小事，可以化成剧情里自然的关心、默契和行动（比如她说过头疼，戏里会多照顾一点；她许的愿，在合适的时候用剧情方式兑现）。
 3. 不复述原话，不每轮都用，不要因为这个改写已经发生的剧情事实。
-${clip(body, 2600)}`
+${clip(body, 3600)}`
 }

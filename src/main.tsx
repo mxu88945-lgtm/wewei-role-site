@@ -16,7 +16,7 @@ import './theme-cute-icons.css'
 import './memoryApiEnhancements'
 
 const APP_SCOPE = '/wewei-role-site/'
-const SERVICE_WORKER_RELEASE = '2026-10-15-backstage-memory-v119'
+const SERVICE_WORKER_RELEASE = '2026-10-15-backstage-group-summary-v120'
 
 if ('serviceWorker' in navigator) {
   let reloadingForUpdate = false
