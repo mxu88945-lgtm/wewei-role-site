@@ -1007,21 +1007,23 @@ button { cursor: pointer; }
 .phone-chat .wx-row { margin: 0 0 14px; }
 .phone-chat .wx-line { display: flex; align-items: flex-start; gap: 9px; }
 .phone-chat .wx-row.user .wx-line { flex-direction: row-reverse; }
-.phone-chat .wx-line .message-avatar { flex: 0 0 40px; width: 40px; height: 40px; border-radius: 6px; box-shadow: none; }
+.phone-chat .wx-line .message-avatar { flex: 0 0 40px; width: 40px; height: 40px; border-radius: 5px; box-shadow: none; }
 .phone-chat .wx-line .message-avatar img { width: 100%; height: 100%; object-fit: cover; }
-.phone-chat .wx-column { display: flex; flex-direction: column; align-items: flex-start; gap: 6px; min-width: 0; max-width: calc(100% - 98px); -webkit-touch-callout: none; -webkit-user-select: none; user-select: none; }
+.phone-chat .wx-stack { display: flex; flex-direction: column; gap: 10px; -webkit-touch-callout: none; -webkit-user-select: none; user-select: none; }
+.phone-chat .wx-column { display: flex; flex-direction: column; align-items: flex-start; gap: 4px; min-width: 0; max-width: min(72%, calc(100% - 110px)); }
+.phone-chat .wx-act-line { padding: 0 52px 0 51px; margin: -3px 0; }
+.phone-chat .wx-row.user .wx-act-line { text-align: right; }
 .phone-chat .wx-row.user .wx-column { align-items: flex-end; }
 .phone-chat .wx-name { font-size: 12px; color: #8b8b8b; margin: 0 0 -2px 2px; line-height: 1.2; }
-.phone-chat .wx-bubble { position: relative; padding: 9px 12px; border-radius: 6px; background: #fff; color: #191919; font-size: calc(var(--chat-font-size, 16px) * 1); line-height: 1.45; white-space: pre-wrap; word-break: break-word; box-shadow: 0 1px 1px rgba(0,0,0,.04); }
-.phone-chat .wx-bubble::before { content: ''; position: absolute; top: 13px; left: -5px; width: 10px; height: 10px; background: inherit; transform: rotate(45deg); border-radius: 1px; }
+.phone-chat .wx-bubble { position: relative; padding: 9px 12px; border-radius: 5px; background: #fff; color: #191919; font-size: calc(var(--chat-font-size, 16px) * .97); line-height: 1.42; white-space: pre-wrap; word-break: break-word; box-shadow: none; }
+.phone-chat .wx-bubble::before { content: ''; position: absolute; top: 14px; left: -5px; width: 10px; height: 10px; background: inherit; transform: rotate(45deg); border-radius: 1px; }
 .phone-chat .wx-row.user .wx-bubble { background: #95ec69; }
 .phone-chat .wx-row.user .wx-bubble::before { left: auto; right: -5px; }
-.phone-chat .wx-bubble ~ .wx-bubble::before, .phone-chat .wx-act ~ .wx-bubble::before { display: none; }
 .phone-chat .wx-bubble .message-content { font-size: inherit; color: inherit; }
 .phone-chat .wx-typing { color: #999; letter-spacing: 2px; }
-.phone-chat .wx-act { margin: -1px 2px; font-size: 12.5px; line-height: 1.45; color: #9a9a9a; max-width: 100%; }
+.phone-chat .wx-act { margin: 0; font-size: 12.5px; line-height: 1.45; color: #9a9a9a; max-width: 100%; }
 .phone-chat .wx-column .message-images { margin: 0; }
-.phone-chat .wx-row .message-action-row { margin: 2px 0 0 49px; }
+.phone-chat .wx-row .message-action-row { margin: 4px 0 0 49px; }
 .phone-chat .wx-row.user .message-action-row { margin: 2px 49px 0 0; justify-content: flex-end; }
 .phone-chat .wx-row .message-bookmark-button, .phone-chat .wx-row .message-action-trigger { display: none; }
 .phone-chat .wx-row .message-action-row:not(:has(> nav, > button:not(.message-bookmark-button):not(.message-action-trigger))) { display: none; }

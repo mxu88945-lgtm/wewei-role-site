@@ -634,7 +634,8 @@ function App() {
   // inside one conversation (its bound persona, else global). identity: whatever the
   // current page is about — the open chat's persona on chat pages, global elsewhere.
   const globalIdentity = pickGlobalIdentity(identities, activePersonaId)
-  const identityFor = (conversation: Conversation | undefined) => pickIdentity(conversation, identities, activePersonaId)
+  // 小手机（群聊和私聊）永远用全局身份：那是现实里的你，不跟着某段剧情绑定的女主身份走。
+  const identityFor = (conversation: Conversation | undefined) => conversation?.phone ? globalIdentity : pickIdentity(conversation, identities, activePersonaId)
   const identity = chatScoped ? identityFor(activeConversation) : globalIdentity
   const sourceGroupConversation = conversations.find((item) => item.id === newConversationSourceId && item.kind === 'group')
   const groupGreetingCharacters = (sourceGroupConversation?.participantIds || groupDraft.participantIds).map((id) => characters.find((item) => item.id === id)).filter(Boolean) as Character[]
@@ -2094,7 +2095,7 @@ function App() {
   // Inside a chat a pick binds that chat only; from global settings it changes the
   // global identity used by home, 小手机 and new conversations.
   const selectIdentity = (id: string) => {
-    if (scopedConversation) {
+    if (scopedConversation && !scopedConversation.phone) {
       setConversations((current) => current.map((item) => item.id === scopedConversation.id ? { ...item, personaId: id, updatedAt: Date.now() } : item))
       return
     }
@@ -3893,15 +3894,25 @@ function App() {
       const bubbles = phaseStartedAt !== undefined || !displayText ? [] : splitPhoneBubbles(displayText)
       const holdEnd = () => { if (longPressRef.current) { window.clearTimeout(longPressRef.current); longPressRef.current = null } }
       const holdStart = () => { holdEnd(); longPressRef.current = window.setTimeout(() => { longPressRef.current = null; setMessageMenuId(message.id) }, 450) }
-      phoneLine = <div className="wx-line">
-        {avatarNode}
-        <div className="wx-column" onPointerDown={holdStart} onPointerUp={holdEnd} onPointerCancel={holdEnd} onPointerLeave={holdEnd} onContextMenu={(event) => { event.preventDefault(); holdEnd(); setMessageMenuId(message.id) }}>
-          {!isUser && activeConversation.kind === 'group' && <span className="wx-name">{authorName}{activeConversation.bookmarks?.[String(message.id)] ? ' ★' : ''}</span>}
-          {imageGrid}
-          {phaseStartedAt !== undefined ? <div className="wx-bubble">{textContent}</div> : bubbles.map((bubble, index) => bubble.kind === 'act' ? <p key={index} className="wx-act">{bubble.text}</p> : <div key={index} className="wx-bubble">{bubble.text}</div>)}
-          {streaming && !bubbles.length && phaseStartedAt === undefined && <div className="wx-bubble wx-typing">···</div>}
-          {quoteBlock}{packetCard}{transferCard}
-        </div>
+      // 像微信一样：每个气泡单独一行、各带头像；动作小灰字夹在中间。
+      const pieces: React.ReactNode[] = []
+      if (imageGrid) pieces.push(imageGrid)
+      if (phaseStartedAt !== undefined) pieces.push(<div className="wx-bubble">{textContent}</div>)
+      bubbles.forEach((bubble) => pieces.push(bubble.kind === 'act' ? <p className="wx-act">{bubble.text}</p> : <div className="wx-bubble">{bubble.text}</div>))
+      if (streaming && !bubbles.length && phaseStartedAt === undefined) pieces.push(<div className="wx-bubble wx-typing">···</div>)
+      if (quoteBlock) pieces.push(quoteBlock)
+      if (packetCard) pieces.push(packetCard)
+      if (transferCard) pieces.push(transferCard)
+      const showName = !isUser && activeConversation.kind === 'group'
+      let named = false
+      phoneLine = <div className="wx-stack" onPointerDown={holdStart} onPointerUp={holdEnd} onPointerCancel={holdEnd} onPointerLeave={holdEnd} onContextMenu={(event) => { event.preventDefault(); holdEnd(); setMessageMenuId(message.id) }}>
+        {pieces.map((piece, index) => {
+          const isAct = (piece as React.ReactElement<{ className?: string }>)?.props?.className === 'wx-act'
+          if (isAct) return <div key={index} className="wx-act-line">{piece}</div>
+          const nameNode = showName && !named ? <span className="wx-name">{authorName}{activeConversation.bookmarks?.[String(message.id)] ? ' ★' : ''}</span> : null
+          named = true
+          return <div key={index} className="wx-line">{avatarNode}<div className="wx-column">{nameNode}{piece}</div></div>
+        })}
       </div>
     }
 
@@ -4059,7 +4070,7 @@ function App() {
     {page === 'api' && <ApiSettingsPage api={api} channels={apiChannels} connection={connection} connectionMessage={connectionMessage} onApiChange={updateApiChannel} onSelectChannel={selectApiChannel} onAddChannel={addApiChannel} onDeleteChannel={deleteApiChannel} onConnectionReset={resetApiConnection} onBack={goBack} onTest={testConnection} replyHelperChannelName={(apiChannels.find((item) => item.id === replyHelperApiId) || api).name} replyHelperModelName={replyHelperModelName || (apiChannels.find((item) => item.id === replyHelperApiId) || api).modelName} onOpenReplyHelper={() => navigate('reply-helper-api')} />}
     {page === 'reply-helper-api' && <ReplyHelperSettingsPage channels={apiChannels} channelId={(apiChannels.find((item) => item.id === replyHelperApiId) || api).id} modelName={replyHelperModelName || (apiChannels.find((item) => item.id === replyHelperApiId) || api).modelName} onChannelChange={setReplyHelperApiId} onModelChange={setReplyHelperModelName} onBack={goBack} />}
 
-    {page === 'identity' && <PersonaPage identities={identities} selectedId={identity.id} isBound={Boolean(scopedConversation?.personaId)} onSelect={selectIdentity} onAdd={addIdentity} onDelete={deleteIdentity} onUpdate={updateIdentity} onBack={goBack} />}
+    {page === 'identity' && <PersonaPage identities={identities} selectedId={identity.id} isBound={Boolean(scopedConversation?.personaId && !scopedConversation.phone)} onSelect={selectIdentity} onAdd={addIdentity} onDelete={deleteIdentity} onUpdate={updateIdentity} onBack={goBack} />}
     {page === 'worldbook' && <EditablePage title="世界书" value={worldbook} onChange={setWorldbook} onBack={goBack} />}
     {page === 'chat-search' && activeConversation && <ChatSearchPage key={activeConversation.id} conversation={activeConversation} onBack={goBack} onJump={jumpToMessage} onBookmark={updateBookmark} authorName={(message) => message.role === 'user' ? identity.name : messageCharacterName(message, activeConversation)} />}
     {page === 'request-preview' && activeConversation && <RequestPreviewPage key={activeConversation.id} previews={requestPreviews} lastRequests={[...(lastRequestsRef.current.get(activeConversation.id)?.values() || [])]} onBack={goBack} />}
@@ -4277,7 +4288,7 @@ function UpdateCard() {
     }
   }
 
-  return <section className="update-card"><strong>应用更新</strong><p>主动检查并拉取最新网页版本，不会删除角色、聊天记录或本地设置。</p><small>当前版本：v107 · 2026.10.15 导入 TXT 自动补角色卡</small><button onClick={refresh} disabled={state === 'checking'}>{state === 'checking' ? '正在检查更新…' : state === 'error' ? '更新失败，点我重试' : '强制刷新到最新版'}</button></section>
+  return <section className="update-card"><strong>应用更新</strong><p>主动检查并拉取最新网页版本，不会删除角色、聊天记录或本地设置。</p><small>当前版本：v108 · 2026.10.15 导入 TXT 自动补角色卡</small><button onClick={refresh} disabled={state === 'checking'}>{state === 'checking' ? '正在检查更新…' : state === 'error' ? '更新失败，点我重试' : '强制刷新到最新版'}</button></section>
 }
 
 function PersonaPage({ identities, selectedId, isBound, onSelect, onAdd, onDelete, onUpdate, onBack }: { identities: UserIdentity[]; selectedId: string; isBound: boolean; onSelect: (id: string) => void; onAdd: () => void; onDelete: (id: string) => void; onUpdate: (patch: Partial<UserIdentity>) => void; onBack: () => void }) {
