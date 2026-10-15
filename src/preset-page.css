@@ -38,6 +38,7 @@
 .preset-row-main { min-width: 0; border: 0; padding: 4px 0; color: inherit; background: transparent; text-align: left; }
 .preset-row-main strong, .preset-row-main small { display: block; }
 .preset-row-main strong { font-size: 14px; }
+.preset-row-main strong em { margin-left: 7px; border-radius: 999px; padding: 3px 7px; color: #806d91; background: #e5dfea; font-size: 9px; font-style: normal; font-weight: 700; white-space: nowrap; }
 .preset-row-main small { margin-top: 7px; overflow: hidden; color: #98909b; text-overflow: ellipsis; white-space: nowrap; font-size: 10px; }
 
 .preset-editor-layer { position: fixed; inset: 0; z-index: 10030; display: grid; align-items: end; }
@@ -62,7 +63,7 @@
 .preset-editor-sheet > header strong { margin-top: 4px; font-size: 18px; }
 .preset-editor-sheet > header button { width: 40px; height: 40px; border: 0; border-radius: 14px; color: #756d79; background: #ece9ee; font-size: 23px; }
 .preset-editor-sheet label { display: grid; gap: 8px; font-size: 12px; font-weight: 800; }
-.preset-editor-sheet input, .preset-editor-sheet textarea { width: 100%; border: 1px solid rgba(71,55,80,.08); outline: none; border-radius: 18px; padding: 15px 16px; color: #302a33; background: #efedf0; line-height: 1.65; resize: vertical; }
+.preset-editor-sheet input, .preset-editor-sheet select, .preset-editor-sheet textarea { width: 100%; border: 1px solid rgba(71,55,80,.08); outline: none; border-radius: 18px; padding: 15px 16px; color: #302a33; background: #efedf0; line-height: 1.65; resize: vertical; }
 .preset-editor-actions { display: flex; align-items: center; justify-content: space-between; gap: 12px; }
 .preset-editor-actions .primary-button { min-width: 126px; }
 

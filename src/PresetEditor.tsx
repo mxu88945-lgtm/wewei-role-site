@@ -16,28 +16,31 @@ export default function PresetEditor({ sections, onChange, onBack }: Props) {
     onChange(next)
   }
   const add = () => {
-    const section = { id: crypto.randomUUID(), name: `自定义提示词 ${sections.length + 1}`, content: '', enabled: true }
+    const section: PresetSection = { id: crypto.randomUUID(), name: `自定义提示词 ${sections.length + 1}`, content: '', enabled: true, scope: 'all' }
     onChange([...sections, section])
     setEditingId(section.id)
   }
 
+  const scopeLabel = (scope: PresetSection['scope']) => scope === 'all' ? '剧情＋小手机' : scope === 'phone' ? '仅小手机' : '仅剧情'
+
   return <section className="preset-page">
-    <header className="page-header"><button className="icon-button" onClick={onBack}>‹</button><h1>编辑预设</h1><span className="saved-label">自动保存</span></header>
-    <div className="preset-intro"><div><strong>全局提示词</strong><small>{sections.filter((item) => item.enabled).length} / {sections.length} 条启用 · 从上到下发送</small></div><button onClick={add}>＋ 添加</button></div>
+    <header className="page-header"><button className="icon-button" onClick={onBack}>‹</button><h1>模型预设</h1><span className="saved-label">自动保存</span></header>
+    <div className="preset-intro"><div><strong>直接发送给模型</strong><small>{sections.filter((item) => item.enabled).length} / {sections.length} 条启用 · 作为 system 提示词从上到下发送</small></div><button onClick={add}>＋ 添加</button></div>
     <div className="preset-list">
       {sections.map((section, index) => <article className={`preset-row${section.enabled ? '' : ' disabled'}`} key={section.id}>
         <div className="preset-order"><button disabled={index === 0} onClick={() => move(index, -1)}>↑</button><button disabled={index === sections.length - 1} onClick={() => move(index, 1)}>↓</button></div>
-        <button className="preset-row-main" onClick={() => setEditingId(section.id)}><strong>{section.name}</strong><small>{section.content || '点击填写提示词内容'}</small></button>
+        <button className="preset-row-main" onClick={() => setEditingId(section.id)}><strong>{section.name}<em>{scopeLabel(section.scope)}</em></strong><small>{section.content || '点击填写提示词内容'}</small></button>
         <button className={`switch ${section.enabled ? 'on' : ''}`} aria-label={section.enabled ? '停用' : '启用'} onClick={() => patch(section.id, { enabled: !section.enabled })}><span /></button>
       </article>)}
     </div>
-    <div className="privacy-note">栏目顺序就是注入顺序。关闭后内容仍会保留，但不会发送给模型。</div>
+    <div className="privacy-note">栏目顺序就是注入顺序。可分别选择发送给剧情、小手机或两边；关闭后内容仍会保留，但不会发送给模型。</div>
 
     {editing && <div className="preset-editor-layer">
       <button className="preset-editor-backdrop" aria-label="关闭编辑" onClick={() => setEditingId(null)} />
       <section className="preset-editor-sheet">
         <header><div><small>编辑提示词栏目</small><strong>{editing.name}</strong></div><button onClick={() => setEditingId(null)}>×</button></header>
         <label>名称<input value={editing.name} onChange={(event) => patch(editing.id, { name: event.target.value })} /></label>
+        <label>发送范围<select value={editing.scope} onChange={(event) => patch(editing.id, { scope: event.target.value as PresetSection['scope'] })}><option value="all">剧情＋小手机</option><option value="story">仅剧情</option><option value="phone">仅小手机</option></select></label>
         <label>内容<textarea rows={12} value={editing.content} onChange={(event) => patch(editing.id, { content: event.target.value })} placeholder="填写会发送给模型的提示词…" /></label>
         <div className="preset-editor-actions"><button className="danger-link" onClick={() => { if (sections.length > 1 && window.confirm(`删除“${editing.name}”？`)) { onChange(sections.filter((item) => item.id !== editing.id)); setEditingId(null) } }}>删除栏目</button><button className="primary-button" onClick={() => setEditingId(null)}>完成</button></div>
       </section>
