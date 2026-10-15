@@ -4,11 +4,11 @@ import type { RedPacket, RedPacketLineInfo } from './phoneFun'
 /** 微信式“发红包”页：个数、总积分、留言，大号金额，塞进红包。 */
 export function RedPacketSendSheet({ dm = false, memberCount, onSend, onClose }: { dm?: boolean; memberCount: number; onSend: (total: number, count: number, note: string) => void; onClose: () => void }) {
   const [total, setTotal] = useState('')
-  const [count, setCount] = useState(dm ? '1' : String(Math.min(9, Math.max(1, memberCount))))
+  const [count, setCount] = useState(dm ? '1' : String(Math.min(100, Math.max(1, memberCount))))
   const [note, setNote] = useState('')
   const totalNumber = Math.floor(Number(total) || 0)
   const countNumber = Math.floor(Number(count) || 0)
-  const problem = !totalNumber ? '' : totalNumber > 500 ? '一个红包最多 500 积分' : countNumber < 1 || countNumber > 9 ? '红包个数 1—9 个' : totalNumber < countNumber ? '每个红包至少 1 积分' : ''
+  const problem = !totalNumber ? '' : totalNumber > 500 ? '一个红包最多 500 积分' : countNumber < 1 || countNumber > 100 ? '红包个数 1—100 个' : totalNumber < countNumber ? '每个红包至少 1 积分' : ''
   const ready = totalNumber > 0 && !problem
   return <div className="red-packet-layer" role="dialog" aria-modal="true" aria-label="发红包">
     <header><button type="button" aria-label="返回" onClick={onClose}>‹</button><strong>发红包</strong><span /></header>
