@@ -118,8 +118,9 @@ export function applyRedPacketTags(text: string, ctx: { conversationId: string; 
 }
 
 /** 给模型看的红包规则和眼下没抢完的红包。 */
-export function buildRedPacketNote(list: RedPacket[], conversationId: string, speakerId: string, now: number) {
+export function buildRedPacketNote(list: RedPacket[], conversationId: string, speakerId: string, now: number, dm = false) {
   const open = activeRedPackets(list, conversationId, now)
+  if (dm) return open.some((packet) => !packet.grabs.some((grab) => grab.id === speakerId)) ? `【红包】她在私聊里给你发了积分红包${open.map((packet) => packet.note ? `「${packet.note}」` : '').join('')}，共 ${open.reduce((sum, packet) => sum + packet.total, 0)} 积分。你这条一发就自动收下，积分记进你的服刑积分；不用写“领红包”，接住她的心意或嘴硬都行。真不想收就单独一行写【不抢】。` : ''
   const rule = '【积分红包】你可以用自己的服刑积分发拼手气红包：消息最后单独一行写【发红包 N积分 M个：留言】（N 不能超过你的积分，M 最多 9）。群里有没抢完的红包时，你一开口系统就自动帮你把没抢过的都抢了，抢到多少随机给，结果会接在你消息后面；你不用写“抢红包”。真想端着不抢就在最后单独一行写【不抢】。抢多抢少都可以拿来炫耀或嘴硬，别每条都发红包。'
   if (!open.length) return rule
   const lines = open.map((packet) => {

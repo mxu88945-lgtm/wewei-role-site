@@ -2,9 +2,9 @@ import { useState } from 'react'
 import type { RedPacket, RedPacketLineInfo } from './phoneFun'
 
 /** 微信式“发红包”页：个数、总积分、留言，大号金额，塞进红包。 */
-export function RedPacketSendSheet({ memberCount, onSend, onClose }: { memberCount: number; onSend: (total: number, count: number, note: string) => void; onClose: () => void }) {
+export function RedPacketSendSheet({ dm = false, memberCount, onSend, onClose }: { dm?: boolean; memberCount: number; onSend: (total: number, count: number, note: string) => void; onClose: () => void }) {
   const [total, setTotal] = useState('')
-  const [count, setCount] = useState(String(Math.min(9, Math.max(1, memberCount))))
+  const [count, setCount] = useState(dm ? '1' : String(Math.min(9, Math.max(1, memberCount))))
   const [note, setNote] = useState('')
   const totalNumber = Math.floor(Number(total) || 0)
   const countNumber = Math.floor(Number(count) || 0)
@@ -13,9 +13,9 @@ export function RedPacketSendSheet({ memberCount, onSend, onClose }: { memberCou
   return <div className="red-packet-layer" role="dialog" aria-modal="true" aria-label="发红包">
     <header><button type="button" aria-label="返回" onClick={onClose}>‹</button><strong>发红包</strong><span /></header>
     <div className="red-packet-form">
-      <label className="red-packet-field"><span>红包个数</span><input inputMode="numeric" value={count} onChange={(event) => setCount(event.target.value.replace(/\D/g, '').slice(0, 1))} placeholder="填写个数" /><em>个</em></label>
-      <small className="red-packet-hint">本群共 {memberCount} 人 · 拼手气红包</small>
-      <label className="red-packet-field"><span>总积分</span><input inputMode="numeric" value={total} onChange={(event) => setTotal(event.target.value.replace(/\D/g, '').slice(0, 3))} placeholder="0" /><em>积分</em></label>
+      {!dm && <><label className="red-packet-field"><span>红包个数</span><input inputMode="numeric" value={count} onChange={(event) => setCount(event.target.value.replace(/\D/g, '').slice(0, 1))} placeholder="填写个数" /><em>个</em></label>
+      <small className="red-packet-hint">本群共 {memberCount} 人 · 拼手气红包</small></>}
+      <label className="red-packet-field"><span>{dm ? '积分' : '总积分'}</span><input inputMode="numeric" value={total} onChange={(event) => setTotal(event.target.value.replace(/\D/g, '').slice(0, 3))} placeholder="0" /><em>积分</em></label>
       <label className="red-packet-field red-packet-note"><input value={note} maxLength={30} onChange={(event) => setNote(event.target.value)} placeholder="恭喜发财，大吉大利" /></label>
       {problem && <p className="red-packet-problem">{problem}</p>}
       <div className="red-packet-amount"><b>{totalNumber}</b><span>积分</span></div>

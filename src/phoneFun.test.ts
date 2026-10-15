@@ -45,6 +45,13 @@ describe('red packets', () => {
     expect(refuse.text).toBe('不稀罕')
     expect(refuse.changed).toBe(false)
   })
+  it('dm note only appears while her packet is waiting', () => {
+    const p1 = createRedPacket({ conversationId: 'd', fromId: 'user', fromName: '惟惟', total: 66, count: 1, note: '买咖啡', at: 1 })
+    expect(buildRedPacketNote([p1], 'd', 'a', 2, true)).toContain('「买咖啡」，共 66 积分')
+    const got = applyRedPacketTags('收了', { conversationId: 'd', speakerId: 'a', speakerName: '沈衍', points: EMPTY_POINTS, packets: [p1], now: 2, autoGrab: true })
+    expect(got.points.balances.a).toBe(66)
+    expect(buildRedPacketNote(got.packets, 'd', 'a', 3, true)).toBe('')
+  })
   it('refuses when points are short and names the luckiest when emptied', () => {
     const poor = applyRedPacketTags('【发红包 30积分 2个】', { conversationId: 'g', speakerId: 'a', speakerName: '沈衍', points: EMPTY_POINTS, packets: [], now: 1 })
     expect(poor.text).toContain('积分不够')
