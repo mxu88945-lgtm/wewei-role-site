@@ -25,6 +25,7 @@ import { latestMessageId, phoneUnreadCount, unreadLabel } from './phoneUnread'
 import { FORUM_USER, buildForumRecapNote, findForumThread, forumShareText, threadsFromMoments, type ForumThread } from './forum'
 import PhoneAutoSettingsCard from './PhoneAutoSettings'
 import PhonePointsCard from './PhonePointsCard'
+import { applyShopTags, buildShopNote, readShop, writeShop } from './phoneShop'
 import { collageAvatar, phoneAvatarSignature, squareAvatarFromFile } from './groupAvatar'
 import { PHONE_POINTS_EVENT, addPoints, applyMessagePoints, buildPointsNote, readPoints, todayTopPoints, writePoints } from './phonePoints'
 import { FORUM_UPDATED_EVENT, dueRunAt, forumAutoTick, forumWelcomeThread, isQuietHour, pickAutoGroup, readPhoneAuto, writePhoneAuto } from './phoneAuto'
@@ -2472,7 +2473,8 @@ function App() {
       const funNote = conversation.phone?.dm ? `【拍一拍】看到「👋 ${identity.name} 拍了拍 …」就是她拍了你一下，接住它；你也可以单独一行写【拍一拍：${identity.name}】拍她。偶尔用。\n${buildRedPacketNote(readRedPackets(), conversation.id, speaker.id, Date.now(), true)}`.trim() : `【拍一拍】看到「👋 某人 拍了拍 @你」就是有人拍了你，要接话；你也可以在消息最后单独一行写【拍一拍：名字】拍一个群友（他会马上出来回你）或拍${identity.name}。偶尔用，别每条都拍。\n${(() => { const top = todayTopPoints(readPoints(), (conversation.participantIds || []).map((id) => ({ id, name: characters.find((item) => item.id === id)?.name || '' })), Date.now()); return top.length ? `【今日积分榜·群顶上挂着】${top.map((item, index) => `${['第一', '第二', '第三'][index]} ${item.name} +${item.points}`).join('，')}。上榜的可以得意，没上榜的可以酸。\n` : '' })()}${buildRedPacketNote(readRedPackets(), conversation.id, speaker.id, Date.now())}`
       const noticeNote = conversation.phone?.dm ? funNote : [funNote, buildNoticeNote(activeNotice(conversation.phone?.notice), identity.name), (() => { const story = phoneStoryNoteRef.current; return story && story.conversationId === conversation.id ? story.note : '' })()].filter(Boolean).join('\n\n')
       const pointsNote = buildPointsNote(readPoints(), [...members, ...dmMates].map((member) => ({ id: member.id, name: member.name })), identity.name)
-      return [conversation.phone?.dm ? phoneDmRules(speaker.name, identity.name) : phoneModeRules(speaker.name, members.map((member) => member.name), identity.name, { allowQuit: conversation.phone?.allowQuit, allowKick: conversation.phone?.allowKick, allowForumShare: conversation.phone?.allowForumShare }), realWorld, noticeNote, pointsNote, mateBackground, dmBackground, dmPeek, privateDmMemory, buildPhoneArchive(sources, speaker.id, identity.name, (message) => message.characterId ? nameOf(message) : sources.find((source) => source.conversation?.messages.includes(message))?.character.name || '角色')].join('\n\n')
+      const shopNote = buildShopNote(readShop(), [...members, ...dmMates].map((member) => ({ id: member.id, name: member.name })), identity.name)
+      return [conversation.phone?.dm ? phoneDmRules(speaker.name, identity.name) : phoneModeRules(speaker.name, members.map((member) => member.name), identity.name, { allowQuit: conversation.phone?.allowQuit, allowKick: conversation.phone?.allowKick, allowForumShare: conversation.phone?.allowForumShare }), realWorld, noticeNote, pointsNote, shopNote, mateBackground, dmBackground, dmPeek, privateDmMemory, buildPhoneArchive(sources, speaker.id, identity.name, (message) => message.characterId ? nameOf(message) : sources.find((source) => source.conversation?.messages.includes(message))?.character.name || '角色')].join('\n\n')
     })() : ''
     const sanitizedHistory = (isPhone ? phonePromptHistory(nextMessages, memoryLength) : nextMessages).flatMap((message) => {
       const fromDirector = message.role === 'assistant' && message.characterId === conversation.directorCharacterId
@@ -2868,9 +2870,11 @@ function App() {
       }
       if (conversation.phone && !isDirector && visibleOutput.trim()) {
         const points = applyMessagePoints(readPoints(), speaker.id, visibleOutput, Date.now())
-        writePoints(points.state)
-        visibleOutput = points.text
-        if (points.redeemed.includes('论坛置顶')) {
+        const shop = applyShopTags(points.state, readShop(), speaker.id, points.text, Date.now())
+        writePoints(shop.points)
+        if (shop.changed) writeShop(shop.orders)
+        visibleOutput = shop.text
+        if ([...points.redeemed, ...shop.bought].includes('论坛置顶')) {
           const mine = [...forumThreadsRef.current].filter((thread) => thread.authorId === speaker.id).sort((a, b) => b.createdAt - a.createdAt)[0]
           if (mine) {
             const threads = forumThreadsRef.current.map((thread) => thread.id === mine.id ? { ...thread, pinned: true } : thread)
@@ -4196,7 +4200,7 @@ function UpdateCard() {
     }
   }
 
-  return <section className="update-card"><strong>应用更新</strong><p>主动检查并拉取最新网页版本，不会删除角色、聊天记录或本地设置。</p><small>当前版本：v96 · 2026.10.15 白天也会有人主动私聊</small><button onClick={refresh} disabled={state === 'checking'}>{state === 'checking' ? '正在检查更新…' : state === 'error' ? '更新失败，点我重试' : '强制刷新到最新版'}</button></section>
+  return <section className="update-card"><strong>应用更新</strong><p>主动检查并拉取最新网页版本，不会删除角色、聊天记录或本地设置。</p><small>当前版本：v97 · 2026.10.15 整改小卖部和许愿墙</small><button onClick={refresh} disabled={state === 'checking'}>{state === 'checking' ? '正在检查更新…' : state === 'error' ? '更新失败，点我重试' : '强制刷新到最新版'}</button></section>
 }
 
 function PersonaPage({ identities, selectedId, isBound, onSelect, onAdd, onDelete, onUpdate, onBack }: { identities: UserIdentity[]; selectedId: string; isBound: boolean; onSelect: (id: string) => void; onAdd: () => void; onDelete: (id: string) => void; onUpdate: (patch: Partial<UserIdentity>) => void; onBack: () => void }) {

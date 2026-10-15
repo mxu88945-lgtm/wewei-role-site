@@ -936,3 +936,21 @@ button { cursor: pointer; }
 .phone-rank-strip em { font-style: normal; color: #e8553f; margin-left: 2px; }
 .chat-page.has-rank .message-list { padding-top: calc(132px + env(safe-area-inset-top)); }
 .chat-page.has-notice.has-rank .message-list { padding-top: calc(186px + env(safe-area-inset-top)); }
+
+/* 服刑积分：小卖部 / 许愿墙 */
+.phone-points-tabs { display: grid; grid-template-columns: repeat(3, 1fr); gap: 4px; padding: 3px; border-radius: 12px; background: #efedf1; }
+.phone-points-tabs button { min-height: 32px; border: 0; border-radius: 9px; background: none; color: #8a8190; font-weight: 700; }
+.phone-points-tabs button.active { background: #fff; color: var(--theme-accent); box-shadow: 0 1px 4px rgba(0, 0, 0, .06); }
+.phone-shop-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 8px; }
+.phone-shop-item { display: grid; gap: 2px; padding: 10px; border-radius: 12px; background: #f6f5f7; text-align: left; }
+.phone-shop-item i { font-style: normal; font-size: 22px; }
+.phone-shop-item strong { font-size: 14px; }
+.phone-shop-item small { color: #8a8190; font-size: 11.5px; line-height: 1.35; }
+.phone-shop-item em { font-style: normal; color: #e8553f; font-weight: 800; font-size: 13px; }
+.phone-wish { display: grid; gap: 4px; padding: 10px 12px; border-radius: 12px; background: #fff8ec; }
+.phone-wish.granted { background: #eef8ee; }
+.phone-wish.rejected { background: #f4f2f5; opacity: .75; }
+.phone-wish > div:first-child { display: flex; justify-content: space-between; align-items: baseline; gap: 8px; }
+.phone-wish small { color: #a08c5a; font-size: 11px; }
+.phone-wish p { margin: 0; color: #4a4250; font-size: 14px; line-height: 1.45; }
+.phone-wish > span { color: #8a8190; font-size: 12px; text-align: right; }
