@@ -51,6 +51,20 @@ export default function PhoneShop({ members, userName }: { members: Character[];
     const next = addPoints(readPoints(), person.id, Math.min(amount, 1000), `${userName}送的`, Date.now())
     setPoints(next); writePoints(next)
   }
+  const deduct = () => {
+    if (!person) return
+    const raw = window.prompt(`扣${person.name}多少分？`, '10')
+    const amount = Math.round(Number(raw))
+    if (!raw || !Number.isFinite(amount) || amount <= 0) return
+    const reason = window.prompt('扣分理由（他们会看到）：', '违规')?.trim() || '违规'
+    let next = addPoints(readPoints(), person.id, -Math.min(amount, 1000), `${userName}扣分：${reason}`, Date.now())
+    const current = readShop()
+    if (amount <= 20 && invCount(current, person.id, 'pardon') > 0 && window.confirm(`${person.name}有免罚券，让他用掉一张抵消这次扣分吗？`)) {
+      next = addPoints(next, person.id, Math.min(amount, 1000), `免罚券抵消：${reason}`, Date.now())
+      save({ ...current, inventory: { ...current.inventory, [person.id]: { ...(current.inventory[person.id] || {}), pardon: invCount(current, person.id, 'pardon') - 1 } } })
+    }
+    setPoints(next); writePoints(next)
+  }
   const updateItem = (id: string, patch: Partial<ShopItem>) => save({ ...shop, items: shop.items.map((item) => item.id === id ? { ...item, ...patch } : item) })
   const addCustom = () => {
     const name = window.prompt('新商品名字：', '')?.trim()
@@ -85,7 +99,7 @@ export default function PhoneShop({ members, userName }: { members: Character[];
     {section === 'people' && person && <>
       <div className="phone-shop-people">{members.map((member) => <button key={member.id} type="button" className={member.id === person.id ? 'active' : ''} onClick={() => setWho(member.id)}>{member.name}<em>{points.balances[member.id] || 0}</em></button>)}</div>
       <div className="phone-shop-card">
-        <div className="phone-shop-balance"><strong>{person.name}</strong><span>{points.balances[person.id] || 0} 分</span><button type="button" onClick={giftPoints}>送积分</button></div>
+        <div className="phone-shop-balance"><strong>{person.name}</strong><span>{points.balances[person.id] || 0} 分</span><button type="button" className="minus" onClick={deduct}>扣分</button><button type="button" onClick={giftPoints}>送积分</button></div>
         <h4>库存</h4>
         <div className="phone-shop-inv">{shop.items.filter((item) => invCount(shop, person.id, item.id) > 0).map((item) => <span key={item.id}>{item.icon}{item.name}×{invCount(shop, person.id, item.id)}</span>)}{shop.orders.filter((order) => order.buyerId === person.id && order.itemId === 'autonomy' && order.status === 'granted').map((order) => <span key={order.id}>👑自主权（{order.condition || '无条件'}）</span>)}{shop.priority.includes(person.id) && <span>🎟️翻牌排队中</span>}</div>
         <h4>送礼</h4>
