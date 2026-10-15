@@ -62,6 +62,8 @@ export function createRedPacket(input: { conversationId: string; fromId: string;
 
 export const redPacketText = (packet: RedPacket) => `🧧 ${packet.fromName} 发了一个积分红包：${packet.total} 积分 · ${packet.count} 个${packet.note ? `｜${packet.note}` : ''}`
 
+/** 同一个人在这个群里发的第几个红包（从 1 数）。 */
+export const redPacketOrdinal = (list: RedPacket[], packet: RedPacket) => list.filter((item) => item.conversationId === packet.conversationId && item.fromId === packet.fromId && item.at <= packet.at).length
 const isActive = (packet: RedPacket, now: number) => packet.grabs.length < packet.count && now - packet.at < RED_PACKET_TTL
 export const activeRedPackets = (list: RedPacket[], conversationId: string, now: number) => list.filter((packet) => packet.conversationId === conversationId && isActive(packet, now))
 
@@ -91,16 +93,23 @@ export function applyRedPacketTags(text: string, ctx: { conversationId: string; 
   const asked = GRAB_TAG.test(text)
   if (asked || (ctx.autoGrab && !REFUSE_TAG.test(text))) {
     const targets = activeRedPackets(packets, ctx.conversationId, ctx.now).filter((packet) => packet.fromId !== ctx.speakerId && !packet.grabs.some((grab) => grab.id === ctx.speakerId))
+    const grabbed: string[] = []
     for (const target of targets) {
       const amount = target.shares[target.grabs.length]
+      const ordinal = redPacketOrdinal(packets, target)
       const grabs = [...target.grabs, { id: ctx.speakerId, name: ctx.speakerName, amount, at: ctx.now }]
       packets = packets.map((packet) => packet.id === target.id ? { ...packet, grabs } : packet)
       points = addPoints(points, ctx.speakerId, amount, `抢到${target.fromName}的红包`, ctx.now)
-      lines.push(`🧧 抢到${target.fromName}的红包 +${amount} 积分`)
+      grabbed.push(`${targets.length > 1 || ordinal > 1 ? `第${ordinal}个 ` : ''}+${amount}`)
       if (grabs.length === target.count && target.count > 1) {
         const best = grabs.reduce((top, grab) => grab.amount > top.amount ? grab : top)
-        lines.push(`🏆 红包抢完了，手气最佳：${best.name}（${best.amount} 积分）`)
+        lines.push(`🏆 ${target.fromName}的${ordinal > 1 ? `第${ordinal}个` : ''}红包抢完了，手气最佳：${best.name}（${best.amount} 积分）`)
       }
+    }
+    if (grabbed.length) {
+      const from = [...new Set(targets.map((target) => target.fromName))].join('、')
+      const sum = targets.reduce((total, target) => total + target.shares[target.grabs.length], 0)
+      lines.unshift(grabbed.length === 1 ? `🧧 抢到${from}的红包 ${grabbed[0]} 积分` : `🧧 抢到${from}的 ${grabbed.length} 个红包，共 +${sum} 积分（${grabbed.join('，')}）`)
     }
     if (!targets.length && asked && packets.some((packet) => packet.conversationId === ctx.conversationId && ctx.now - packet.at < RED_PACKET_TTL)) lines.push('🧧 手慢了，红包已经被抢完')
   }

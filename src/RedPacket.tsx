@@ -26,7 +26,7 @@ export function RedPacketSendSheet({ memberCount, onSend, onClose }: { memberCou
 }
 
 /** 聊天里的红包卡片。 */
-export function RedPacketCard({ info, packet, onOpen }: { info: RedPacketLineInfo; packet: RedPacket | null; onOpen: () => void }) {
+export function RedPacketCard({ info, packet, ordinal, onOpen }: { info: RedPacketLineInfo; packet: RedPacket | null; ordinal?: number; onOpen: () => void }) {
   const grabbed = packet?.grabs.length || 0
   const done = packet ? grabbed >= packet.count : false
   const expired = packet ? !done && Date.now() - packet.at > 24 * 3600000 : false
@@ -35,14 +35,14 @@ export function RedPacketCard({ info, packet, onOpen }: { info: RedPacketLineInf
   return <div className="red-packet-wrap">
     <button type="button" className={`red-packet-card${done || expired ? ' opened' : ''}`} onClick={onOpen} aria-label={`${info.fromName}的积分红包`}>
       <span className="red-packet-card-main"><i aria-hidden="true" /><span><strong>{info.note || '恭喜发财，大吉大利'}</strong>{status && <small>{status}</small>}</span></span>
-      <span className="red-packet-card-foot">积分红包 · {info.total} 积分</span>
+      <span className="red-packet-card-foot">积分红包{ordinal && ordinal > 1 ? ` · 第${ordinal}个` : ''} · {info.total} 积分</span>
     </button>
     {packet && packet.grabs.length > 0 && <ul className="red-packet-grabs" aria-label="谁抢了多少">{packet.grabs.map((grab) => <li key={grab.id}><span>{grab.name}</span><b>+{grab.amount}</b>{best?.id === grab.id && <em>手气最佳</em>}</li>)}</ul>}
   </div>
 }
 
 /** 点开红包看谁抢了多少。 */
-export function RedPacketDetail({ info, packet, onClose }: { info: RedPacketLineInfo; packet: RedPacket | null; onClose: () => void }) {
+export function RedPacketDetail({ info, packet, ordinal, onClose }: { info: RedPacketLineInfo; packet: RedPacket | null; ordinal?: number; onClose: () => void }) {
   const grabs = packet?.grabs || []
   const taken = grabs.reduce((sum, grab) => sum + grab.amount, 0)
   const full = packet ? grabs.length >= packet.count && packet.count > 1 : false
@@ -50,7 +50,7 @@ export function RedPacketDetail({ info, packet, onClose }: { info: RedPacketLine
   return <div className="red-packet-detail-layer" role="dialog" aria-modal="true" aria-label="红包详情">
     <button className="drawer-backdrop" aria-label="关闭红包详情" onClick={onClose} />
     <section className="red-packet-detail">
-      <div className="red-packet-detail-top"><button type="button" aria-label="关闭" onClick={onClose}>×</button><strong>{info.fromName}的红包</strong><small>{info.note || '恭喜发财，大吉大利'}</small></div>
+      <div className="red-packet-detail-top"><button type="button" aria-label="关闭" onClick={onClose}>×</button><strong>{info.fromName}的{ordinal && ordinal > 1 ? `第${ordinal}个` : ''}红包</strong><small>{info.note || '恭喜发财，大吉大利'}</small></div>
       <p className="red-packet-detail-sum">{packet ? `${info.count} 个红包共 ${info.total} 积分，已领取 ${grabs.length}/${info.count} 个（${taken}/${info.total}）` : '这个红包的记录不在这台设备上'}</p>
       <ul>{grabs.map((grab) => <li key={grab.id}><span>{grab.name}<small>{new Date(grab.at).toLocaleTimeString('zh-CN', { hour: '2-digit', minute: '2-digit' })}</small></span><b>{grab.amount} 积分{best?.id === grab.id && <em>手气最佳</em>}</b></li>)}</ul>
       {packet && !grabs.length && <p className="red-packet-detail-empty">还没人抢，等他们冒泡吧</p>}

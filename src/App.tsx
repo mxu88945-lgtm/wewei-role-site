@@ -18,7 +18,7 @@ import { TAVILY_KEY_STORAGE, needsWebSearch, tavilySearch } from './phoneWeb'
 import { createBlankCharacter, importCharacterCard, normalizeStoredCharacter, LIBRARY_ROLES, type Character, type LibraryRole } from './characterCard'
 import { type MomentSeed } from './Moments'
 import { Forum } from './Forum'
-import { LATE_NIGHT_KEY, PAT_LINE, applyPatTags, applyRedPacketTags, buildRedPacketNote, createRedPacket, findRedPacket, lateNightKey, parseRedPacketLine, readRedPackets, redPacketText, userPatText, writeRedPackets, type RedPacketLineInfo } from './phoneFun'
+import { LATE_NIGHT_KEY, PAT_LINE, applyPatTags, applyRedPacketTags, buildRedPacketNote, createRedPacket, findRedPacket, lateNightKey, parseRedPacketLine, readRedPackets, redPacketOrdinal, redPacketText, userPatText, writeRedPackets, type RedPacketLineInfo } from './phoneFun'
 import { RedPacketCard, RedPacketDetail, RedPacketSendSheet } from './RedPacket'
 import { messageTime, phoneTimeLabel, showPhoneTimeDivider } from './phoneTime'
 import { latestMessageId, phoneUnreadCount, unreadLabel } from './phoneUnread'
@@ -3810,7 +3810,9 @@ function App() {
     const quoteExists = Boolean(message.quote && messages.some((item) => String(item.id) === message.quote!.messageId))
     const quoteBlock = isUser && message.quote && activeConversation?.phone ? <button type="button" className={`phone-message-quote${quoteExists ? '' : ' missing'}`} aria-label={quoteExists ? `跳到被引用的消息：${message.quote.author}` : '被引用的消息已不在'} disabled={!quoteExists} onClick={() => jumpToQuoted(message.quote!.messageId)}><b>{message.quote.author}：</b>{message.quote.text}</button> : null
     const body = imageGrid ? <>{imageGrid}{textContent}</> : textContent
-    const packetCard = packetInfo && activeConversation ? <RedPacketCard info={packetInfo} packet={findRedPacket(readRedPackets(), activeConversation.id, packetInfo, message.id)} onOpen={() => setRedPacketView({ info: packetInfo, near: message.id })} /> : null
+    const packetList = packetInfo ? readRedPackets() : []
+    const packetFound = packetInfo && activeConversation ? findRedPacket(packetList, activeConversation.id, packetInfo, message.id) : null
+    const packetCard = packetInfo && activeConversation ? <RedPacketCard info={packetInfo} packet={packetFound} ordinal={packetFound ? redPacketOrdinal(packetList, packetFound) : undefined} onOpen={() => setRedPacketView({ info: packetInfo, near: message.id })} /> : null
     const withQuote = quoteBlock ? <>{body}{quoteBlock}</> : body
     const content = packetCard ? <>{withQuote}{packetCard}</> : withQuote
 
@@ -4013,7 +4015,7 @@ function App() {
 
     {composerToolsOpen && <div className="composer-tools-layer" role="dialog" aria-modal="true" aria-label="输入工具"><button className="drawer-backdrop" aria-label="关闭输入工具" onClick={() => replyHelperState === 'idle' && setComposerToolsOpen(false)} /><section className="composer-tools-sheet"><header><div><small>输入工具</small><strong>接下来想怎么写</strong></div><button onClick={() => setComposerToolsOpen(false)} disabled={replyHelperState === 'generating'}>×</button></header><button className="reply-helper-action" onClick={() => void generateReplyHelperDraft()} disabled={replyHelperState === 'generating' || isGenerating}><span>✦</span><div><strong>{replyHelperState === 'generating' ? 'AI 正在帮你起草…' : 'AI 帮答'}</strong><small>{draft.trim() ? '沿用输入框里的想法，润色补成一条回复' : '读取当前上下文，生成一版可修改的回复草稿'}</small></div><i>›</i></button><p>只会填入输入框，不会自动发送，也不会替其他角色继续演。</p>{activeConversation?.phone && !activeConversation.phone.dm && <button className="reply-helper-action" onClick={() => { setComposerToolsOpen(false); setRedPacketSheetOpen(true) }} disabled={isGenerating}><span>🧧</span><div><strong>发积分红包</strong><small>拼手气，群里的人抢到的积分会记进服刑积分</small></div><i>›</i></button>}<button className="reply-helper-action image-send-action" onClick={() => chatImageInputRef.current?.click()} disabled={imageBusy || pendingImages.length >= CHAT_IMAGE_LIMIT}><span>▣</span><div><strong>{imageBusy ? '图片处理中…' : '发送图片'}</strong><small>{pendingImages.length ? `已选 ${pendingImages.length}/${CHAT_IMAGE_LIMIT} 张，可以再加一句话一起发` : `从相册选图，最多 ${CHAT_IMAGE_LIMIT} 张；需要模型支持识图`}</small></div><i>›</i></button><input ref={chatImageInputRef} type="file" accept="image/*" multiple hidden onChange={(event) => { const files = event.currentTarget.files; void addChatImages(files).finally(() => { if (chatImageInputRef.current) chatImageInputRef.current.value = '' }); setComposerToolsOpen(false) }} /></section></div>}
     {redPacketSheetOpen && activeConversation?.phone && <RedPacketSendSheet memberCount={(activeConversation.participantIds || []).length} onSend={sendRedPacket} onClose={() => setRedPacketSheetOpen(false)} />}
-    {redPacketView && activeConversation && <RedPacketDetail info={redPacketView.info} packet={findRedPacket(readRedPackets(), activeConversation.id, redPacketView.info, redPacketView.near)} onClose={() => setRedPacketView(null)} />}
+    {redPacketView && activeConversation && (() => { const list = readRedPackets(); const found = findRedPacket(list, activeConversation.id, redPacketView.info, redPacketView.near); return <RedPacketDetail info={redPacketView.info} packet={found} ordinal={found ? redPacketOrdinal(list, found) : undefined} onClose={() => setRedPacketView(null)} /> })()}
     {viewerImage && <div className="chat-image-viewer" role="dialog" aria-modal="true" aria-label="查看图片" onClick={() => setViewerImage(null)}><img src={viewerImage.dataUrl} alt="" /><button type="button" aria-label="关闭图片">×</button></div>}
 
     {mentionPickerOpen && activeConversation?.kind === 'group' && <MentionPicker members={groupParticipants} onPick={insertGroupMention} onClose={closeMentionPicker} />}
@@ -4183,7 +4185,7 @@ function UpdateCard() {
     }
   }
 
-  return <section className="update-card"><strong>应用更新</strong><p>主动检查并拉取最新网页版本，不会删除角色、聊天记录或本地设置。</p><small>当前版本：v91 · 2026.10.15 红包开口自动抢</small><button onClick={refresh} disabled={state === 'checking'}>{state === 'checking' ? '正在检查更新…' : state === 'error' ? '更新失败，点我重试' : '强制刷新到最新版'}</button></section>
+  return <section className="update-card"><strong>应用更新</strong><p>主动检查并拉取最新网页版本，不会删除角色、聊天记录或本地设置。</p><small>当前版本：v92 · 2026.10.15 红包标第几个</small><button onClick={refresh} disabled={state === 'checking'}>{state === 'checking' ? '正在检查更新…' : state === 'error' ? '更新失败，点我重试' : '强制刷新到最新版'}</button></section>
 }
 
 function PersonaPage({ identities, selectedId, isBound, onSelect, onAdd, onDelete, onUpdate, onBack }: { identities: UserIdentity[]; selectedId: string; isBound: boolean; onSelect: (id: string) => void; onAdd: () => void; onDelete: (id: string) => void; onUpdate: (patch: Partial<UserIdentity>) => void; onBack: () => void }) {
