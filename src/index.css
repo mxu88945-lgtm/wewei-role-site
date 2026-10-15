@@ -1002,3 +1002,38 @@ button { cursor: pointer; }
 .transfer-people { display: flex; flex-wrap: wrap; gap: 8px; padding: 4px 0 12px; }
 .transfer-people button { border: 1px solid rgba(0,0,0,.12); background: #fff; border-radius: 999px; padding: 7px 14px; font-size: 14px; color: #333; }
 .transfer-people button.active { background: #f79c42; border-color: #f79c42; color: #fff; }
+
+/* 小手机 · 微信样式聊天（v106） */
+.phone-chat .wx-row { margin: 0 0 14px; }
+.phone-chat .wx-line { display: flex; align-items: flex-start; gap: 9px; }
+.phone-chat .wx-row.user .wx-line { flex-direction: row-reverse; }
+.phone-chat .wx-line .message-avatar { flex: 0 0 40px; width: 40px; height: 40px; border-radius: 6px; box-shadow: none; }
+.phone-chat .wx-line .message-avatar img { width: 100%; height: 100%; object-fit: cover; }
+.phone-chat .wx-column { display: flex; flex-direction: column; align-items: flex-start; gap: 6px; min-width: 0; max-width: calc(100% - 98px); -webkit-touch-callout: none; -webkit-user-select: none; user-select: none; }
+.phone-chat .wx-row.user .wx-column { align-items: flex-end; }
+.phone-chat .wx-name { font-size: 12px; color: #8b8b8b; margin: 0 0 -2px 2px; line-height: 1.2; }
+.phone-chat .wx-bubble { position: relative; padding: 9px 12px; border-radius: 6px; background: #fff; color: #191919; font-size: calc(var(--chat-font-size, 16px) * 1); line-height: 1.45; white-space: pre-wrap; word-break: break-word; box-shadow: 0 1px 1px rgba(0,0,0,.04); }
+.phone-chat .wx-bubble::before { content: ''; position: absolute; top: 13px; left: -5px; width: 10px; height: 10px; background: inherit; transform: rotate(45deg); border-radius: 1px; }
+.phone-chat .wx-row.user .wx-bubble { background: #95ec69; }
+.phone-chat .wx-row.user .wx-bubble::before { left: auto; right: -5px; }
+.phone-chat .wx-bubble ~ .wx-bubble::before, .phone-chat .wx-act ~ .wx-bubble::before { display: none; }
+.phone-chat .wx-bubble .message-content { font-size: inherit; color: inherit; }
+.phone-chat .wx-typing { color: #999; letter-spacing: 2px; }
+.phone-chat .wx-act { margin: -1px 2px; font-size: 12.5px; line-height: 1.45; color: #9a9a9a; max-width: 100%; }
+.phone-chat .wx-column .message-images { margin: 0; }
+.phone-chat .wx-row .message-action-row { margin: 2px 0 0 49px; }
+.phone-chat .wx-row.user .message-action-row { margin: 2px 49px 0 0; justify-content: flex-end; }
+.phone-chat .wx-row .message-bookmark-button, .phone-chat .wx-row .message-action-trigger { display: none; }
+.phone-chat .wx-row .message-action-row:not(:has(> nav, > button:not(.message-bookmark-button):not(.message-action-trigger))) { display: none; }
+.wx-more-menu { position: absolute; inset: 0; z-index: 40; }
+.wx-more-backdrop { position: absolute; inset: 0; border: 0; background: transparent; }
+.wx-more-sheet { position: absolute; top: calc(env(safe-area-inset-top, 0px) + 58px); right: 10px; width: min(290px, calc(100% - 20px)); padding: 10px; border-radius: 10px; background: #4c4c4c; color: #fff; display: grid; gap: 6px; box-shadow: 0 10px 30px rgba(0,0,0,.25); }
+.wx-more-sheet > small { font-size: 11px; opacity: .7; padding: 0 4px; }
+.wx-more-sheet > div { display: grid; gap: 2px; }
+.wx-more-sheet button { border: 0; background: transparent; color: #fff; text-align: left; padding: 8px 8px; border-radius: 6px; display: grid; gap: 2px; }
+.wx-more-sheet button strong { font-size: 15px; font-weight: 500; }
+.wx-more-sheet button small { font-size: 11px; opacity: .7; }
+.wx-more-sheet button.active { background: rgba(255,255,255,.14); }
+.wx-more-sheet button.active strong::after { content: ' ✓'; color: #95ec69; }
+.wx-more-settings { border-top: 1px solid rgba(255,255,255,.15) !important; border-radius: 0 !important; margin-top: 2px; font-size: 14px; }
+.phone-chat { position: relative; }
