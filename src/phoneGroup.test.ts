@@ -265,8 +265,9 @@ describe('phone group toggles and story-update alerts', () => {
     const noKick = phoneModeRules('谢聿衡', ['谢聿衡'], '惟惟', { allowKick: false })
     expect(noKick).not.toContain('踢人')
     expect(noKick).toContain('7. 退群权')
-    const none = phoneModeRules('谢聿衡', ['谢聿衡'], '惟惟', { allowQuit: false, allowKick: false })
-    expect(none).not.toMatch(/退群|踢人|\n7\./)
+    const none = phoneModeRules('谢聿衡', ['谢聿衡'], '惟惟', { allowQuit: false, allowKick: false, allowForumShare: false })
+    expect(none).not.toMatch(/退群|踢人|转发论坛|\n7\./)
+    expect(phoneModeRules('谢聿衡', ['谢聿衡'], '惟惟', { allowQuit: false, allowKick: false })).toContain('7. 转发论坛')
     expect(none).toContain('6. 锁屏权')
   })
 

@@ -115,7 +115,7 @@ export function buildPhoneArchive(sources: PhoneArchiveSource[], speakerId: stri
   return `【小手机｜成员剧情档案｜大家互相公开】\n这些档案所有人都看过，彼此透明：别人演过什么、跟${userName}在戏里发生过什么、各自的人物关系和故事背景，你都知道，可以直接聊、对比、吐槽、拿来调侃。自己那份你最熟，细节最清楚；别人的你看过但只记得大概，别编档案里没有的细节。\n\n${blocks.join('\n\n')}`
 }
 
-export type PhoneRuleOptions = { allowQuit?: boolean; allowKick?: boolean }
+export type PhoneRuleOptions = { allowQuit?: boolean; allowKick?: boolean; allowForumShare?: boolean }
 
 export function phoneModeRules(speakerName: string, memberNames: string[], userName: string, options: PhoneRuleOptions = {}) {
   const rules = [
@@ -127,6 +127,7 @@ export function phoneModeRules(speakerName: string, memberNames: string[], userN
     `锁屏权：如果你真觉得${userName}该去吃饭、睡觉或休息了，可以在消息最后单独一行写【锁屏 N分钟：一句理由】（N 在 5 到 120 之间），惟境会把她的小手机锁上 N 分钟、锁屏页署你的名。只在真有必要时用，别动不动就锁。`,
     options.allowQuit !== false && `退群权：真被气到忍无可忍，可以在消息最后单独一行写【退群：一句理由】，你会真的退出这个群、扣 20 服刑积分，${userName}可以再把你拉回来（那时要“二进宫”报到）。很少用，别拿来撒娇。`,
     options.allowKick !== false && `投票踢人：某个群友实在过分，可以在消息最后单独一行写【踢人：名字：一句理由】发起投票，其他人表态，过半同意就把他踢出去、扣 30 分。别动不动就踢，踢不掉会很丢脸。`,
+    options.allowForumShare !== false && `转发论坛：想把论坛上的帖子甩进群里当证据、翻旧账或拱火，在消息最后单独一行写【转发论坛：帖子标题】，转某一层就写【转发论坛：帖子标题：N楼】，群里会出现一张转发卡片。标题照【论坛近况】里写，找不到的帖子不会发出去。偶尔用，别每次都转。`,
   ].filter((rule): rule is string => Boolean(rule))
   return [
     `【小手机｜戏外日常群｜最高优先级】`,
@@ -196,7 +197,7 @@ export function phoneStreamPreview(text: string) {
     .replace(/<([A-Za-z\u4e00-\u9fa5][\w\u4e00-\u9fa5-]*)\b[^>]*>[\s\S]*?<\/\1\s*>/g, '')
     .replace(/```[\s\S]*?```/g, '')
   // An unfinished tag/fence may contain private reasoning, not just markup.
-  const opening = candidate.search(/<|```|【锁屏|\[锁屏/)
+  const opening = candidate.search(/<|```|【锁屏|\[锁屏|【转发论坛|\[转发论坛/)
   if (opening >= 0) candidate = candidate.slice(0, opening)
   const boundary = Array.from(candidate.matchAll(/[。！？!?\n]/g)).pop()
   if (!boundary || boundary.index === undefined) return ''
@@ -498,4 +499,19 @@ export function storyUpdateNotice(name: string, count: number) {
 
 export function buildStoryUpdateNote(updates: Array<{ name: string; count: number }>) {
   return updates.map(({ name, count }) => `【剧情刚更新】${name}的长剧情刚更新了 ${count} 条（最新内容见档案里的最近几句）。本人可以自然提一句或炫耀/吐槽，其他人如果在意可以围观、八卦、调侃；不必每个人都提。`).join('\n')
+}
+
+const FORUM_SHARE_TAG = /[【[]\s*转发论坛\s*[：:]\s*([^】\]]{1,60}?)\s*(?:[：:]\s*(\d{1,4})\s*楼)?\s*[】\]]/
+const FORUM_SHARE_TAG_GLOBAL = new RegExp(FORUM_SHARE_TAG.source, 'g')
+/** 【转发论坛：标题(:N楼)】→ { 去掉标签的文本, 标题关键词, 楼层 }。只取第一个。 */
+export function parsePhoneForumShare(text: string) {
+  const match = text.match(FORUM_SHARE_TAG)
+  if (!match) return null
+  const cleaned = text.replace(FORUM_SHARE_TAG_GLOBAL, '').replace(/\n{3,}/g, '\n\n').trim()
+  return { text: cleaned, key: match[1].trim(), floor: match[2] ? Number(match[2]) : 1 }
+}
+
+/** 本群关了转发论坛时：标签直接删掉。 */
+export function stripPhoneForumShareTag(text: string) {
+  return text.replace(FORUM_SHARE_TAG_GLOBAL, '').replace(/\n{3,}/g, '\n\n').trim()
 }

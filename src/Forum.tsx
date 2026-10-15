@@ -9,7 +9,7 @@ import { characterBrief, communityMemberIds, findMentionIds, type Moment } from 
 import {
   FORUM_BOARDS, FORUM_FLOOR_IMAGE_LIMIT, FORUM_REPORT_REASONS, FORUM_SYSTEM, FORUM_THREAD_IMAGE_LIMIT, FORUM_USER, forumPromptPixels, buildFloorsPrompt, buildThreadPrompt, floorNumber, floorsText, forumThreadLine, parseFloors, parseThreadDraft,
   pickForumReaders, sortThreads, threadsFromMoments, type ForumBoard, type ForumFloor, type ForumThread,
-  matchForumAuthor,
+  matchForumAuthor, forumShareText,
 } from './forum'
 import type { MomentSeed } from './Moments'
 import { addPoints, readPoints, writePoints } from './phonePoints'
@@ -298,11 +298,7 @@ export function Forum({ characters, conversations, userName, userAvatar, api, se
 
   const share = async (thread: ForumThread, floor: number, conversationId: string) => {
     setSheet(null)
-    const target = targetOf(thread, floor)
-    const who = target.anonymous ? '匿名用户' : nameOf(target.authorId)
-    const text = floor > 1
-      ? `【分享论坛楼层】《${thread.title}》${floor}楼 ${who}：${target.text.slice(0, 200)}`
-      : `【分享论坛帖子】《${thread.title}》（${thread.board}·${who}）\n${thread.body.slice(0, 200)}${thread.body.length > 200 ? '…' : ''}${thread.floors.length ? `\n已有 ${thread.floors.length} 层回复` : ''}`
+    const text = forumShareText(thread, floor, nameOf)
     if (conversationId === 'system') {
       try { if (navigator.share) await navigator.share({ text }); else { await navigator.clipboard.writeText(text); window.alert('已复制，可以粘贴给别人。') } } catch { /* 取消分享 */ }
       return

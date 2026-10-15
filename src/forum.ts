@@ -267,3 +267,25 @@ export function buildForumRecapNote(threads: ForumThread[], memberIds: string[],
   })
   return `【论坛近况】大家都逛过戏外论坛，下面是最近几天的帖子。群聊里可以自然提起、接着吵、翻旧帖，但别逐字复述，也别每句都扯论坛。\n${blocks.join('\n')}`
 }
+
+/** 论坛帖子/楼层的分享卡片文字（你分享和角色转发共用）。floor ≤ 1 是帖子本身。 */
+export function forumShareText(thread: ForumThread, floor: number, nameOf: (id: string) => string) {
+  const item = floor > 1 ? thread.floors[floor - 2] : undefined
+  if (item) return `【分享论坛楼层】《${thread.title}》${floor}楼 ${item.anonymous ? '匿名用户' : nameOf(item.authorId)}：${item.text.slice(0, 200)}`
+  const who = thread.anonymous ? '匿名用户' : nameOf(thread.authorId)
+  return `【分享论坛帖子】《${thread.title}》（${thread.board}·${who}）\n${thread.body.slice(0, 200)}${thread.body.length > 200 ? '…' : ''}${thread.floors.length ? `\n已有 ${thread.floors.length} 层回复` : ''}`
+}
+
+const titleKey = (value: string) => value.replace(/[《》「」"“”'‘’\s]/g, '').replace(/…$/, '').toLowerCase()
+/** 按角色写的标题关键词找帖子：完全相同优先，其次互相包含，同等时取最近更新的。 */
+export function findForumThread(threads: ForumThread[], key: string) {
+  const want = titleKey(key)
+  if (!want) return undefined
+  const scored = threads.map((thread) => {
+    const title = titleKey(thread.title)
+    const score = title === want ? 3 : title.includes(want) ? 2 : want.includes(title.slice(0, 30)) && title.length >= 2 ? 1 : 0
+    return { thread, score }
+  }).filter((entry) => entry.score > 0)
+  scored.sort((a, b) => b.score - a.score || b.thread.updatedAt - a.thread.updatedAt)
+  return scored[0]?.thread
+}

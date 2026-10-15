@@ -18,7 +18,8 @@ import { TAVILY_KEY_STORAGE, needsWebSearch, tavilySearch } from './phoneWeb'
 import { createBlankCharacter, importCharacterCard, normalizeStoredCharacter, LIBRARY_ROLES, type Character, type LibraryRole } from './characterCard'
 import { type MomentSeed } from './Moments'
 import { Forum } from './Forum'
-import { buildForumRecapNote, threadsFromMoments, type ForumThread } from './forum'
+import { latestMessageId, phoneUnreadCount, unreadLabel } from './phoneUnread'
+import { FORUM_USER, buildForumRecapNote, findForumThread, forumShareText, threadsFromMoments, type ForumThread } from './forum'
 import PhoneAutoSettingsCard from './PhoneAutoSettings'
 import PhonePointsCard from './PhonePointsCard'
 import { collageAvatar, phoneAvatarSignature, squareAvatarFromFile } from './groupAvatar'
@@ -26,7 +27,7 @@ import { addPoints, applyMessagePoints, buildPointsNote, readPoints, writePoints
 import { FORUM_UPDATED_EVENT, dueRunAt, forumAutoTick, forumWelcomeThread, isQuietHour, pickAutoGroup, readPhoneAuto, writePhoneAuto } from './phoneAuto'
 import type { Moment } from './moments'
 import { USER_AUTHOR, communityMemberIds, excerptFromMessage } from './moments'
-import { buildDmGroupPeek, buildGroupDmPeek, phoneDmRules, phonePromptHistory, PHONE_COMPLETION_TIMEOUT_MS } from './phoneGroup'
+import { buildDmGroupPeek, buildGroupDmPeek, parsePhoneForumShare, stripPhoneForumShareTag, phoneDmRules, phonePromptHistory, PHONE_COMPLETION_TIMEOUT_MS } from './phoneGroup'
 import { PHONE_REPLY_MODES, NOTICE_DURATIONS, lurkFallback, activeNotice, noticeRemaining, buildNoticeNote, findAtMentionIds, queueSummons, parsePhoneQuit, parsePhoneKick, parsePhoneVote, kickPassed, findNamedParticipantIds, selectPhoneSpeakers, pickPhoneChatters, cleanPhoneOutput, phoneStreamPreview, containsPhoneReasoning, phoneFinalGuard, buildSmartPickPrompt, parseSmartPick, buildPhoneArchive, buildPhoneGroupBackground, phoneBindingCandidates, buildPhoneRealWorldNote, parsePhoneLockCommand, buildPhoneLockBreachNote, type PhoneLockState, type PhoneLockBreach, phoneCharacter, phoneModeRules, stripPhoneQuitTag, stripPhoneKickTag, computeStoryUpdates, resetStorySeenForBindingChanges, storyUpdateNotice, buildStoryUpdateNote } from './phoneGroup'
 import { assignChatGroup, chatGroupNames, groupConversations, setChatGroupMembers } from './chatGroups'
 import { assignLibraryGroup, setLibraryGroupMembers, effectiveLibraryRole, groupLibraryCharacters, LIBRARY_ROLE_LABELS, libraryGroupNames } from './characterLibraryGroups'
@@ -447,7 +448,7 @@ function App() {
   const [phoneTab, setPhoneTab] = useState<'groups' | 'dms' | 'moments'>('groups')
   const [momentSeed, setMomentSeed] = useState<MomentSeed | null>(null)
   const clearMomentSeed = useCallback(() => setMomentSeed(null), [])
-  const [phoneDraft, setPhoneDraft] = useState<{ editingId?: string; title: string; memberIds: string[]; bindings: Record<string, string>; avatar?: string; avatarCollage?: boolean; noticeText?: string; noticeHours?: number; allowQuit?: boolean; allowKick?: boolean } | null>(null)
+  const [phoneDraft, setPhoneDraft] = useState<{ editingId?: string; title: string; memberIds: string[]; bindings: Record<string, string>; avatar?: string; avatarCollage?: boolean; noticeText?: string; noticeHours?: number; allowQuit?: boolean; allowKick?: boolean; allowForumShare?: boolean } | null>(null)
   const [collapsedChatGroups, setCollapsedChatGroups] = useState<string[]>(() => read<string[]>('weijing.chatCollapsed', []))
   const [chatGroupSheet, setChatGroupSheet] = useState<{ id: string; group: string } | null>(null)
   const [chatGroupEditor, setChatGroupEditor] = useState<{ original: string; name: string; memberIds: string[] } | null>(null)
@@ -1841,6 +1842,23 @@ function App() {
     if (!editing && previous?.page === 'chat' && activeConversation?.phone) { goHome(); return }
     goBack()
   }
+  // 小手机未读：旧会话第一次见到时记成已读；正在看的小手机会话随时标已读。
+  const phoneReadMissing = conversations.some((item) => item.phone && item.phone.readId === undefined)
+  useEffect(() => {
+    if (!phoneReadMissing) return
+    setConversations((current) => current.map((item) => item.phone && item.phone.readId === undefined ? { ...item, phone: { ...item.phone, readId: latestMessageId(item) } } : item))
+  }, [phoneReadMissing])
+  const viewingPhoneId = page === 'chat' && activeConversation?.phone ? activeConversation.id : ''
+  const viewingPhoneLatest = viewingPhoneId && activeConversation ? latestMessageId(activeConversation) : 0
+  useEffect(() => {
+    if (!viewingPhoneId) return
+    setConversations((current) => current.map((item) => item.id === viewingPhoneId && item.phone && (item.phone.readId || 0) < viewingPhoneLatest ? { ...item, phone: { ...item.phone, readId: viewingPhoneLatest } } : item))
+  }, [viewingPhoneId, viewingPhoneLatest])
+  const phoneUnread = conversations.reduce((sum, item) => {
+    if (!item.phone) return sum
+    const count = phoneUnreadCount(item)
+    return item.phone.dm ? { ...sum, dms: sum.dms + count } : { ...sum, groups: sum.groups + count }
+  }, { groups: 0, dms: 0 })
   // 「拼成员」群头像跟着成员走：设置页里加减成员时立刻重拼。
   const phoneDraftCollageKey = phoneDraft?.avatarCollage ? phoneDraft.memberIds.map((id) => `${id}:${phoneAvatarSignature(characters.find((item) => item.id === id)?.avatar)}`).join('|') : ''
   useEffect(() => {
@@ -1873,7 +1891,7 @@ function App() {
   }, [savedCollageKey])
   const phoneMembersPool = characters.filter((item) => item.creator !== '惟境内置导演模板' && !item.directorTemplateConfig)
   const openPhonePage = (editing?: Conversation) => {
-    setPhoneDraft(editing ? { editingId: editing.id, title: editing.title, memberIds: [...(editing.participantIds || [])], bindings: { ...(editing.phone?.bindings || {}) }, avatar: editing.phone?.avatar, avatarCollage: Boolean(editing.phone?.avatar && editing.phone?.avatarCollage), noticeText: activeNotice(editing.phone?.notice)?.text || '', noticeHours: -1, allowQuit: editing.phone?.allowQuit !== false, allowKick: editing.phone?.allowKick !== false } : null)
+    setPhoneDraft(editing ? { editingId: editing.id, title: editing.title, memberIds: [...(editing.participantIds || [])], bindings: { ...(editing.phone?.bindings || {}) }, avatar: editing.phone?.avatar, avatarCollage: Boolean(editing.phone?.avatar && editing.phone?.avatarCollage), noticeText: activeNotice(editing.phone?.notice)?.text || '', noticeHours: -1, allowQuit: editing.phone?.allowQuit !== false, allowKick: editing.phone?.allowKick !== false, allowForumShare: editing.phone?.allowForumShare !== false } : null)
     navigate('phone')
   }
   const togglePhoneMember = (id: string) => setPhoneDraft((current) => {
@@ -1916,7 +1934,7 @@ function App() {
           ...item, title, characterId: members[0].id, participantIds: members.map((member) => member.id),
           participantApiIds: { ...apiIds, ...Object.fromEntries(Object.entries(item.participantApiIds || {}).filter(([id]) => phoneDraft.memberIds.includes(id))) },
           participantModelNames: { ...modelNames, ...Object.fromEntries(Object.entries(item.participantModelNames || {}).filter(([id]) => phoneDraft.memberIds.includes(id))) },
-          phone: { ...item.phone, bindings, avatar: phoneDraft.avatar, avatarCollage: Boolean(phoneDraft.avatar && phoneDraft.avatarCollage), notice, allowQuit: phoneDraft.allowQuit !== false, allowKick: phoneDraft.allowKick !== false, storySeen: resetStorySeenForBindingChanges(item.phone?.storySeen, item.phone?.bindings || {}, bindings), left: Object.fromEntries(Object.entries(item.phone?.left || {}).filter(([id]) => !phoneDraft.memberIds.includes(id))) },
+          phone: { ...item.phone, bindings, avatar: phoneDraft.avatar, avatarCollage: Boolean(phoneDraft.avatar && phoneDraft.avatarCollage), notice, allowQuit: phoneDraft.allowQuit !== false, allowKick: phoneDraft.allowKick !== false, allowForumShare: phoneDraft.allowForumShare !== false, storySeen: resetStorySeenForBindingChanges(item.phone?.storySeen, item.phone?.bindings || {}, bindings), left: Object.fromEntries(Object.entries(item.phone?.left || {}).filter(([id]) => !phoneDraft.memberIds.includes(id))) },
           theaterWorldBackground: sameMembers && item.theaterWorldBackground?.trim() ? item.theaterWorldBackground : buildPhoneGroupBackground(members),
           updatedAt: now,
         }
@@ -1931,7 +1949,7 @@ function App() {
       participantIds: members.map((member) => member.id),
       participantApiIds: apiIds, participantModelNames: modelNames,
       title, messages: [], createdAt: now, updatedAt: now,
-      phone: { bindings, avatar: phoneDraft.avatar, avatarCollage: Boolean(phoneDraft.avatar && phoneDraft.avatarCollage), notice, allowQuit: phoneDraft.allowQuit !== false, allowKick: phoneDraft.allowKick !== false },
+      phone: { bindings, avatar: phoneDraft.avatar, avatarCollage: Boolean(phoneDraft.avatar && phoneDraft.avatarCollage), notice, allowQuit: phoneDraft.allowQuit !== false, allowKick: phoneDraft.allowKick !== false, allowForumShare: phoneDraft.allowForumShare !== false, readId: now },
       theaterWorldBackground: buildPhoneGroupBackground(members),
     }
     setConversations((current) => [...current, conversation])
@@ -2443,7 +2461,7 @@ function App() {
       const privateDmMemory = conversation.phone?.dm ? '' : buildGroupDmPeek(conversations, speaker.id, speaker.name, identity.name)
       const noticeNote = conversation.phone?.dm ? '' : [buildNoticeNote(activeNotice(conversation.phone?.notice), identity.name), (() => { const story = phoneStoryNoteRef.current; return story && story.conversationId === conversation.id ? story.note : '' })()].filter(Boolean).join('\n\n')
       const pointsNote = buildPointsNote(readPoints(), [...members, ...dmMates].map((member) => ({ id: member.id, name: member.name })), identity.name)
-      return [conversation.phone?.dm ? phoneDmRules(speaker.name, identity.name) : phoneModeRules(speaker.name, members.map((member) => member.name), identity.name, { allowQuit: conversation.phone?.allowQuit, allowKick: conversation.phone?.allowKick }), realWorld, noticeNote, pointsNote, mateBackground, dmBackground, dmPeek, privateDmMemory, buildPhoneArchive(sources, speaker.id, identity.name, (message) => message.characterId ? nameOf(message) : sources.find((source) => source.conversation?.messages.includes(message))?.character.name || '角色')].join('\n\n')
+      return [conversation.phone?.dm ? phoneDmRules(speaker.name, identity.name) : phoneModeRules(speaker.name, members.map((member) => member.name), identity.name, { allowQuit: conversation.phone?.allowQuit, allowKick: conversation.phone?.allowKick, allowForumShare: conversation.phone?.allowForumShare }), realWorld, noticeNote, pointsNote, mateBackground, dmBackground, dmPeek, privateDmMemory, buildPhoneArchive(sources, speaker.id, identity.name, (message) => message.characterId ? nameOf(message) : sources.find((source) => source.conversation?.messages.includes(message))?.character.name || '角色')].join('\n\n')
     })() : ''
     const sanitizedHistory = (isPhone ? phonePromptHistory(nextMessages, memoryLength) : nextMessages).flatMap((message) => {
       const fromDirector = message.role === 'assistant' && message.characterId === conversation.directorCharacterId
@@ -2813,6 +2831,18 @@ function App() {
           delete bindings[speaker.id]
           return { ...item, participantIds: (item.participantIds || []).filter((id) => id !== speaker.id), phone: { ...item.phone, bindings, left: { ...(item.phone.left || {}), [speaker.id]: { at: Date.now(), reason: phoneQuit.reason } } } }
         }))
+      }
+      if (conversation.phone && !conversation.phone.dm && !isDirector) {
+        if (conversation.phone.allowForumShare === false) visibleOutput = stripPhoneForumShareTag(visibleOutput)
+        else {
+          const forumShare = parsePhoneForumShare(visibleOutput)
+          if (forumShare) {
+            const thread = findForumThread(forumThreadsRef.current, forumShare.key)
+            const floor = thread && forumShare.floor > 1 && forumShare.floor - 2 < thread.floors.length ? forumShare.floor : 1
+            const card = thread ? forumShareText(thread, floor, (id) => id === FORUM_USER ? identity.name : characters.find((item) => item.id === id)?.name || '已离开的角色') : ''
+            visibleOutput = card ? `${forumShare.text}\n\n${card}`.trim() : forumShare.text
+          }
+        }
       }
       if (conversation.phone && !isDirector && visibleOutput.trim()) {
         const points = applyMessagePoints(readPoints(), speaker.id, visibleOutput, Date.now())
@@ -3739,7 +3769,7 @@ function App() {
         <button onClick={() => navigate('story-projects')}><span className="home-icon">◈</span><strong>剧本项目</strong><small>{storyProjects.some((project) => project.status === 'active') ? `${storyProjects.filter((project) => project.status === 'active').length} 部戏正在进行` : '组织角色、对话与世界背景'}</small><i>›</i></button>
         <button onClick={() => navigate('characters')}><span className="home-icon">◉</span><strong>角色库</strong><small>导入、创建与管理角色</small><i>›</i></button>
         <button onClick={() => navigate('group-create')}><span className="home-icon">◎</span><strong>群聊共演</strong><small>多个角色 · 独立模型 · 共享剧情</small><i>›</i></button>
-        <button onClick={() => openPhonePage()}><span className="home-icon">▢</span><strong>小手机</strong><small>{conversations.some((item) => item.phone) ? `${conversations.filter((item) => item.phone).length} 个戏外群 · 日常吐槽` : '把角色们拉进群，戏外聊天日常'}</small><i>›</i></button>
+        <button onClick={() => openPhonePage()}><span className="home-icon">▢{phoneUnread.groups + phoneUnread.dms > 0 && <b className="phone-unread" aria-label={`${phoneUnread.groups + phoneUnread.dms} 条未读`}>{unreadLabel(phoneUnread.groups + phoneUnread.dms)}</b>}</span><strong>小手机</strong><small>{conversations.some((item) => item.phone) ? `${conversations.filter((item) => item.phone).length} 个戏外群 · 日常吐槽` : '把角色们拉进群，戏外聊天日常'}</small><i>›</i></button>
         <button onClick={() => navigate('more')}><span className="home-icon">⌘</span><strong>设置</strong><small>API、模型、身份与应用</small><i>›</i></button>
       </div>
     </section>}
@@ -3766,7 +3796,7 @@ function App() {
       {!phoneDraft && <PhoneWebSettings />}
       {!phoneDraft && <PhoneAutoSettingsCard status={phoneAutoStatus} />}
       {!phoneDraft && <PhonePointsCard members={[...new Set(conversations.filter((item) => item.phone && !item.phone.dm).flatMap((item) => item.participantIds || []))].map((id) => characters.find((item) => item.id === id)).filter((item): item is Character => Boolean(item))} />}
-      {!phoneDraft && <div className="phone-tabs" role="tablist"><button role="tab" aria-selected={phoneTab === 'groups'} className={phoneTab === 'groups' ? 'active' : ''} onClick={() => setPhoneTab('groups')}>群聊</button><button role="tab" aria-selected={phoneTab === 'dms'} className={phoneTab === 'dms' ? 'active' : ''} onClick={() => setPhoneTab('dms')}>私聊</button><button role="tab" aria-selected={phoneTab === 'moments'} className={phoneTab === 'moments' ? 'active' : ''} onClick={() => setPhoneTab('moments')}>论坛</button></div>}
+      {!phoneDraft && <div className="phone-tabs" role="tablist"><button role="tab" aria-selected={phoneTab === 'groups'} className={phoneTab === 'groups' ? 'active' : ''} onClick={() => setPhoneTab('groups')}>群聊{phoneUnread.groups > 0 && <b className="phone-unread inline">{unreadLabel(phoneUnread.groups)}</b>}</button><button role="tab" aria-selected={phoneTab === 'dms'} className={phoneTab === 'dms' ? 'active' : ''} onClick={() => setPhoneTab('dms')}>私聊{phoneUnread.dms > 0 && <b className="phone-unread inline">{unreadLabel(phoneUnread.dms)}</b>}</button><button role="tab" aria-selected={phoneTab === 'moments'} className={phoneTab === 'moments' ? 'active' : ''} onClick={() => setPhoneTab('moments')}>论坛</button></div>}
       {!phoneDraft && phoneTab === 'moments' && <Forum characters={characters} conversations={conversations} userName={globalIdentity.name} userAvatar={globalIdentity.avatar} api={api} seed={momentSeed} onSeedUsed={clearMomentSeed} onSaveToMemory={saveMomentToMemory} onThreadsChange={handleForumChange} onShare={shareForumToChat} />}
       {!phoneDraft && phoneTab === 'dms' && <>
         <div className="privacy-note">一对一私聊：TA 看得到自己所在群最近的聊天和论坛，可以私下跟你吐槽；群里的人看不到私聊。</div>
@@ -3782,6 +3812,7 @@ function App() {
               return <button key={character.id} className="phone-group-row phone-dm-row" onClick={() => openPhoneDm(character.id)}>
                 {character.avatar ? <img src={character.avatar} alt="" /> : <i>{character.name.slice(-1)}</i>}
                 <strong>{character.name}</strong><span>{last ? last.replace(/<[^>]+>/g, ' ').slice(0, 36) : '还没私聊过，点开说第一句'}</span>
+                {dm && phoneUnreadCount(dm) > 0 && <b className="phone-unread">{unreadLabel(phoneUnreadCount(dm))}</b>}
               </button>
             })
         })()}
@@ -3792,7 +3823,7 @@ function App() {
           const names = (item.participantIds || []).map((id) => characters.find((character) => character.id === id)?.name).filter(Boolean).join('、')
           const last = item.messages[item.messages.length - 1]?.text || '还没有消息，去说第一句吧'
           const cover = item.phone?.avatar || characters.find((character) => character.id === item.participantIds?.[0])?.avatar
-          return <button key={item.id} className="phone-group-row has-avatar" onClick={() => openConversation(item)}>{cover ? <img src={cover} alt="" /> : <i>{item.title.slice(0, 1)}</i>}<strong>{activeNotice(item.phone?.notice) ? '📌 ' : ''}{item.title}</strong><small>{names}</small><span>{last.slice(0, 36)}</span></button>
+          return <button key={item.id} className="phone-group-row has-avatar" onClick={() => openConversation(item)}>{cover ? <img src={cover} alt="" /> : <i>{item.title.slice(0, 1)}</i>}<strong>{activeNotice(item.phone?.notice) ? '📌 ' : ''}{item.title}</strong><small>{names}</small><span>{last.slice(0, 36)}</span>{phoneUnreadCount(item) > 0 && <b className="phone-unread">{unreadLabel(phoneUnreadCount(item))}</b>}</button>
         })}
         <button className="library-sheet-save" onClick={() => setPhoneDraft({ title: '', memberIds: [], bindings: {} })}>＋ 新建小手机群</button>
       </>}
@@ -3809,6 +3840,7 @@ function App() {
         {(phoneDraft.noticeText || '').trim() && <div className="phone-notice-hours">{(phoneDraft.noticeHours ?? -1) < 0 && phoneDraft.editingId && activeNotice(conversations.find((item) => item.id === phoneDraft.editingId)?.phone?.notice)?.text === (phoneDraft.noticeText || '').trim() ? <small>{noticeRemaining(activeNotice(conversations.find((item) => item.id === phoneDraft.editingId)?.phone?.notice)?.until)} · 重选时长会重新计时</small> : <small>挂多久</small>}<div>{NOTICE_DURATIONS.map((option) => <button key={option.hours} type="button" className={((phoneDraft.noticeHours ?? -1) < 0 ? (phoneDraft.editingId && activeNotice(conversations.find((item) => item.id === phoneDraft.editingId)?.phone?.notice)?.text === (phoneDraft.noticeText || '').trim() ? -1 : 24) : phoneDraft.noticeHours) === option.hours ? 'active' : ''} onClick={() => setPhoneDraft({ ...phoneDraft, noticeHours: option.hours })}>{option.label}</button>)}</div></div>}
         <div className="settings-group toggle-row phone-group-toggle"><div><strong>允许角色退群</strong><small>关掉后角色不会被告知能退群，写了【退群】也不生效</small></div><button type="button" role="switch" aria-checked={phoneDraft.allowQuit !== false} aria-label="允许角色退群" className={`switch ${phoneDraft.allowQuit !== false ? 'on' : ''}`} onClick={() => setPhoneDraft({ ...phoneDraft, allowQuit: phoneDraft.allowQuit === false })}><span /></button></div>
         <div className="settings-group toggle-row phone-group-toggle"><div><strong>允许投票踢人</strong><small>关掉后不会发起踢人投票，【踢人】标签直接隐藏</small></div><button type="button" role="switch" aria-checked={phoneDraft.allowKick !== false} aria-label="允许投票踢人" className={`switch ${phoneDraft.allowKick !== false ? 'on' : ''}`} onClick={() => setPhoneDraft({ ...phoneDraft, allowKick: phoneDraft.allowKick === false })}><span /></button></div>
+        <div className="settings-group toggle-row phone-group-toggle"><div><strong>允许角色转发论坛</strong><small>角色可以把论坛帖子或楼层转进群里当证据，关掉后【转发论坛】标签直接隐藏</small></div><button type="button" role="switch" aria-checked={phoneDraft.allowForumShare !== false} aria-label="允许角色转发论坛" className={`switch ${phoneDraft.allowForumShare !== false ? 'on' : ''}`} onClick={() => setPhoneDraft({ ...phoneDraft, allowForumShare: phoneDraft.allowForumShare === false })}><span /></button></div>
         <div className="privacy-note">选至少两张角色卡。每张卡可以绑定一段自己演过的对话，他的剧情摘要和记忆会带进群里；所有成员的人设与世界观会自动拼进这个群的综合世界观，之后可在聊天设置里修改。</div>
         <div className="phone-member-list">{phoneMembersPool.map((character) => {
           const selected = phoneDraft.memberIds.includes(character.id)
@@ -4073,7 +4105,7 @@ function UpdateCard() {
     }
   }
 
-  return <section className="update-card"><strong>应用更新</strong><p>主动检查并拉取最新网页版本，不会删除角色、聊天记录或本地设置。</p><small>当前版本：v85 · 2026.10.14 拼图群头像自动更新</small><button onClick={refresh} disabled={state === 'checking'}>{state === 'checking' ? '正在检查更新…' : state === 'error' ? '更新失败，点我重试' : '强制刷新到最新版'}</button></section>
+  return <section className="update-card"><strong>应用更新</strong><p>主动检查并拉取最新网页版本，不会删除角色、聊天记录或本地设置。</p><small>当前版本：v86 · 2026.10.15 小手机未读红点 · 角色转发论坛</small><button onClick={refresh} disabled={state === 'checking'}>{state === 'checking' ? '正在检查更新…' : state === 'error' ? '更新失败，点我重试' : '强制刷新到最新版'}</button></section>
 }
 
 function PersonaPage({ identities, selectedId, isBound, onSelect, onAdd, onDelete, onUpdate, onBack }: { identities: UserIdentity[]; selectedId: string; isBound: boolean; onSelect: (id: string) => void; onAdd: () => void; onDelete: (id: string) => void; onUpdate: (patch: Partial<UserIdentity>) => void; onBack: () => void }) {
