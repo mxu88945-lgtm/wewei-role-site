@@ -25,7 +25,8 @@ import { latestMessageId, phoneUnreadCount, unreadLabel } from './phoneUnread'
 import { FORUM_USER, buildForumRecapNote, findForumThread, forumShareText, threadsFromMoments, type ForumThread } from './forum'
 import PhoneAutoSettingsCard from './PhoneAutoSettings'
 import PhonePointsCard from './PhonePointsCard'
-import { applyShopTags, buildShopNote, readShop, writeShop } from './phoneShop'
+import { applyPardons, applyShopTags, buildShopNote, readShop, spendLockTicket, takePriority, writeShop } from './phoneShop'
+import PhoneShop from './PhoneShop'
 import { collageAvatar, phoneAvatarSignature, squareAvatarFromFile } from './groupAvatar'
 import { PHONE_POINTS_EVENT, addPoints, applyMessagePoints, buildPointsNote, readPoints, todayTopPoints, writePoints } from './phonePoints'
 import { FORUM_UPDATED_EVENT, dueRunAt, forumAutoTick, forumWelcomeThread, isQuietHour, pickAutoGroup, readPhoneAuto, writePhoneAuto } from './phoneAuto'
@@ -454,7 +455,7 @@ function App() {
   const [characterSelectionMode, setCharacterSelectionMode] = useState(false)
   const [selectedCharacterIds, setSelectedCharacterIds] = useState<string[]>([])
   const [collapsedLibraryGroups, setCollapsedLibraryGroups] = useState<string[]>(() => read<string[]>('weijing.libraryCollapsed', []))
-  const [phoneTab, setPhoneTab] = useState<'groups' | 'dms' | 'moments'>('groups')
+  const [phoneTab, setPhoneTab] = useState<'groups' | 'dms' | 'moments' | 'shop'>('groups')
   const [momentSeed, setMomentSeed] = useState<MomentSeed | null>(null)
   const clearMomentSeed = useCallback(() => setMomentSeed(null), [])
   const [phoneDraft, setPhoneDraft] = useState<{ editingId?: string; title: string; memberIds: string[]; bindings: Record<string, string>; avatar?: string; avatarCollage?: boolean; noticeText?: string; noticeHours?: number; allowQuit?: boolean; allowKick?: boolean; allowForumShare?: boolean } | null>(null)
@@ -2473,7 +2474,7 @@ function App() {
       const funNote = conversation.phone?.dm ? `【拍一拍】看到「👋 ${identity.name} 拍了拍 …」就是她拍了你一下，接住它；你也可以单独一行写【拍一拍：${identity.name}】拍她。偶尔用。\n${buildRedPacketNote(readRedPackets(), conversation.id, speaker.id, Date.now(), true)}`.trim() : `【拍一拍】看到「👋 某人 拍了拍 @你」就是有人拍了你，要接话；你也可以在消息最后单独一行写【拍一拍：名字】拍一个群友（他会马上出来回你）或拍${identity.name}。偶尔用，别每条都拍。\n${(() => { const top = todayTopPoints(readPoints(), (conversation.participantIds || []).map((id) => ({ id, name: characters.find((item) => item.id === id)?.name || '' })), Date.now()); return top.length ? `【今日积分榜·群顶上挂着】${top.map((item, index) => `${['第一', '第二', '第三'][index]} ${item.name} +${item.points}`).join('，')}。上榜的可以得意，没上榜的可以酸。\n` : '' })()}${buildRedPacketNote(readRedPackets(), conversation.id, speaker.id, Date.now())}`
       const noticeNote = conversation.phone?.dm ? funNote : [funNote, buildNoticeNote(activeNotice(conversation.phone?.notice), identity.name), (() => { const story = phoneStoryNoteRef.current; return story && story.conversationId === conversation.id ? story.note : '' })()].filter(Boolean).join('\n\n')
       const pointsNote = buildPointsNote(readPoints(), [...members, ...dmMates].map((member) => ({ id: member.id, name: member.name })), identity.name)
-      const shopNote = buildShopNote(readShop(), [...members, ...dmMates].map((member) => ({ id: member.id, name: member.name })), identity.name)
+      const shopNote = buildShopNote(readShop(), readPoints(), { id: speaker.id, name: speaker.name }, [...members, ...dmMates].map((member) => ({ id: member.id, name: member.name })), identity.name, Date.now())
       return [conversation.phone?.dm ? phoneDmRules(speaker.name, identity.name) : phoneModeRules(speaker.name, members.map((member) => member.name), identity.name, { allowQuit: conversation.phone?.allowQuit, allowKick: conversation.phone?.allowKick, allowForumShare: conversation.phone?.allowForumShare }), realWorld, noticeNote, pointsNote, shopNote, mateBackground, dmBackground, dmPeek, privateDmMemory, buildPhoneArchive(sources, speaker.id, identity.name, (message) => message.characterId ? nameOf(message) : sources.find((source) => source.conversation?.messages.includes(message))?.character.name || '角色')].join('\n\n')
     })() : ''
     const sanitizedHistory = (isPhone ? phonePromptHistory(nextMessages, memoryLength) : nextMessages).flatMap((message) => {
@@ -2815,6 +2816,7 @@ function App() {
 
       if (!cleanOutput && containsHiddenReasoning(output, isDirector)) throw new Error('模型只返回了内部分析，惟境已拦截且没有写入剧情。请重试或换一个更遵守指令的模型。')
       const phoneLockCommand = conversation.phone ? parsePhoneLockCommand(cleanOutput || output) : null
+      let phoneLockDenied = false
       let visibleOutput = isDirector
         ? normalizeDirectorStatusOutput(cleanOutput || output)
         : conversation.phone ? cleanPhoneOutput(cleanOutput || output) || phoneLockCommand?.text || cleanOutput || output
@@ -2869,12 +2871,26 @@ function App() {
         }
       }
       if (conversation.phone && !isDirector && visibleOutput.trim()) {
-        const points = applyMessagePoints(readPoints(), speaker.id, visibleOutput, Date.now())
-        const shop = applyShopTags(points.state, readShop(), speaker.id, points.text, Date.now())
-        writePoints(shop.points)
-        if (shop.changed) writeShop(shop.orders)
-        visibleOutput = shop.text
-        if ([...points.redeemed, ...shop.bought].includes('论坛置顶')) {
+        const pointsBefore = readPoints()
+        const points = applyMessagePoints(pointsBefore, speaker.id, visibleOutput, Date.now())
+        const shopMates = [...new Set([...(conversation.participantIds || []), ...conversations.filter((item) => item.phone && !item.phone.dm).flatMap((item) => item.participantIds || [])])].map((id) => ({ id, name: characters.find((item) => item.id === id)?.name || '' })).filter((item) => item.name)
+        const shop = applyShopTags({ points: points.state, shop: readShop(), buyerId: speaker.id, buyerName: speaker.name, mates: shopMates, text: points.text, at: Date.now() })
+        const pardon = applyPardons(pointsBefore, shop.points, shop.shop, speaker.id, shop.text, Date.now())
+        let shopState = pardon.shop
+        let shopText = pardon.text
+        if (phoneLockCommand) {
+          const ticket = spendLockTicket(shopState, speaker.id, Date.now(), phoneLockCommand.minutes)
+          if (ticket.ok) { shopState = ticket.shop; shopText = `${shopText}\n🔒 用掉一张锁屏券` }
+          else { phoneLockDenied = true; shopText = `${shopText}\n🔒 想锁屏，但${ticket.reason}` }
+        }
+        writePoints(pardon.points)
+        writeShop(shopState)
+        visibleOutput = shopText
+        if (!conversation.phone.dm && shop.bought.some((item) => item.effect === 'whisper')) {
+          const whisperFrom = speaker.id
+          window.setTimeout(() => { void runPhoneDmFrom(whisperFrom, Date.now(), `你刚在群里买了一张「悄悄话券」，现在单独私聊${identity.name}，说一段只想让她一个人听的话。用自己的语气，1—3 条短消息。不要催她吃饭喝水睡觉。`).catch(() => undefined) }, 2500)
+        }
+        if (points.redeemed.includes('论坛置顶')) {
           const mine = [...forumThreadsRef.current].filter((thread) => thread.authorId === speaker.id).sort((a, b) => b.createdAt - a.createdAt)[0]
           if (mine) {
             const threads = forumThreadsRef.current.map((thread) => thread.id === mine.id ? { ...thread, pinned: true } : thread)
@@ -2901,7 +2917,7 @@ function App() {
       const reportedRelationshipStage = capturedCharacter.name === '顾霆深' ? extractRelationshipStage(finalOutput) : undefined
       const nextRelationshipStage = Math.max(storedRelationshipStage || 0, reportedRelationshipStage || 0)
       const generatedMessage: Message = { ...assistantMessage, text: finalOutput, finishReason: completion.finishReason }
-      if (phoneLockCommand) setPhoneLock({ until: Date.now() + phoneLockCommand.minutes * 60000, startedAt: Date.now(), byId: speaker.id, byName: speaker.name, reason: phoneLockCommand.reason })
+      if (phoneLockCommand && !phoneLockDenied) setPhoneLock({ until: Date.now() + phoneLockCommand.minutes * 60000, startedAt: Date.now(), byId: speaker.id, byName: speaker.name, reason: phoneLockCommand.reason })
       const completedMessage = requestOptions.replacement ? appendReplyAlternative(requestOptions.replacement, generatedMessage) : generatedMessage
       setConversations((current) => current.map((item) => item.id === conversationId ? {
         ...(plotApplied ? consumeTemporaryPlot(item, capturedTemporaryPlot, conversation.historyRevision || 0) : item),
@@ -3032,6 +3048,14 @@ function App() {
     if (!pool.length) return false
     try { if (daytime) localStorage.setItem(DAY_DM_KEY, JSON.stringify(nextDayDmState(dayState, now))); else localStorage.setItem(LATE_NIGHT_KEY, night) } catch { /* ignore */ }
     const speaker = pool[Math.floor(Math.random() * pool.length)]
+    return runPhoneDmFrom(speaker.id, now, daytime ? 'day' : 'night')
+  }
+
+  /** 让某个角色主动私聊她：nudge 为 'day' / 'night' 或一段自定义提示。 */
+  const runPhoneDmFrom = async (speakerId: string, now: number, nudge: string) => {
+    const speaker = characters.find((item) => item.id === speakerId)
+    if (!speaker || !isApiChannelComplete(api)) return false
+    const daytime = nudge === 'day'
     let dm = conversations.filter((item) => item.phone?.dm && item.participantIds?.[0] === speaker.id).sort((a, b) => b.updatedAt - a.updatedAt)[0]
     if (!dm) {
       const binding = conversations.map((item) => item.phone && !item.phone.dm ? item.phone.bindings[speaker.id] : undefined).find(Boolean)
@@ -3048,7 +3072,7 @@ function App() {
     }
     if (generatingIds.includes(dm.id)) return false
     const identity = identityFor(dm)
-    await generateAssistant(dm, dm.messages, speaker, conversationApiFor(dm, speaker.id, api), { continueWithoutUser: true, phoneNudge: daytime ? `现在是白天，${identity.name}没在私聊里找你，你主动私聊她。这次的由头：${dayDmReason()}。用「${speaker.name}」自己的语气，1—3 条短消息，像真人随手发的微信。不要催她吃饭、喝水、睡觉，也不要提积分。` : `现在快半夜了，${identity.name}还没在私聊里说话。你突然想私聊她，用「${speaker.name}」自己的语气问一句“睡了吗”或类似的话，可以带上为什么这么晚还惦记她（看到群里/论坛的什么、自己也没睡、担心她又熬夜）。1—3 条短消息。` })
+    await generateAssistant(dm, dm.messages, speaker, conversationApiFor(dm, speaker.id, api), { continueWithoutUser: true, phoneNudge: nudge !== 'day' && nudge !== 'night' ? nudge : daytime ? `现在是白天，${identity.name}没在私聊里找你，你主动私聊她。这次的由头：${dayDmReason()}。用「${speaker.name}」自己的语气，1—3 条短消息，像真人随手发的微信。不要催她吃饭、喝水、睡觉，也不要提积分。` : `现在快半夜了，${identity.name}还没在私聊里说话。你突然想私聊她，用「${speaker.name}」自己的语气问一句“睡了吗”或类似的话，可以带上为什么这么晚还惦记她（看到群里/论坛的什么、自己也没睡、担心她又熬夜）。1—3 条短消息。` })
     return true
   }
 
@@ -3278,6 +3302,10 @@ function App() {
       const speakerIds = conversation.phone?.dm ? participantIds.slice(0, 1) : conversation.phone
         ? smartIds.length ? smartIds : phoneMode === 'smart' ? lurkFallback(participantIds, [...mentionedIds, ...phoneNamedIds], lastSpeakerId) : selectPhoneSpeakers({ mode: phoneMode, participantIds, mentionedIds, namedIds: phoneNamedIds, lastSpeakerId, text: visibleText })
         : selectGroupSpeakerIds({ participantIds, mentionedIds, mode: groupReplyMode, directorCharacterId: conversation.directorCharacterId, lastSpeakerId, text })
+      if (conversation.phone && !conversation.phone.dm) {
+        const jump = takePriority(readShop(), participantIds, speakerIds)
+        if (jump) { writeShop(jump.shop); speakerIds.splice(0, speakerIds.length, ...jump.speakerIds) }
+      }
       if (!speakerIds.length) {
         // Specified mode waits silently until the user explicitly chooses a speaker with @.
         setChatError('')
@@ -3889,7 +3917,8 @@ function App() {
       {!phoneDraft && <PhoneWebSettings />}
       {!phoneDraft && <PhoneAutoSettingsCard status={phoneAutoStatus} />}
       {!phoneDraft && <PhonePointsCard members={[...new Set(conversations.filter((item) => item.phone && !item.phone.dm).flatMap((item) => item.participantIds || []))].map((id) => characters.find((item) => item.id === id)).filter((item): item is Character => Boolean(item))} />}
-      {!phoneDraft && <div className="phone-tabs" role="tablist"><button role="tab" aria-selected={phoneTab === 'groups'} className={phoneTab === 'groups' ? 'active' : ''} onClick={() => setPhoneTab('groups')}>群聊{phoneUnread.groups > 0 && <b className="phone-unread inline">{unreadLabel(phoneUnread.groups)}</b>}</button><button role="tab" aria-selected={phoneTab === 'dms'} className={phoneTab === 'dms' ? 'active' : ''} onClick={() => setPhoneTab('dms')}>私聊{phoneUnread.dms > 0 && <b className="phone-unread inline">{unreadLabel(phoneUnread.dms)}</b>}</button><button role="tab" aria-selected={phoneTab === 'moments'} className={phoneTab === 'moments' ? 'active' : ''} onClick={() => setPhoneTab('moments')}>论坛</button></div>}
+      {!phoneDraft && <div className="phone-tabs" role="tablist"><button role="tab" aria-selected={phoneTab === 'groups'} className={phoneTab === 'groups' ? 'active' : ''} onClick={() => setPhoneTab('groups')}>群聊{phoneUnread.groups > 0 && <b className="phone-unread inline">{unreadLabel(phoneUnread.groups)}</b>}</button><button role="tab" aria-selected={phoneTab === 'dms'} className={phoneTab === 'dms' ? 'active' : ''} onClick={() => setPhoneTab('dms')}>私聊{phoneUnread.dms > 0 && <b className="phone-unread inline">{unreadLabel(phoneUnread.dms)}</b>}</button><button role="tab" aria-selected={phoneTab === 'moments'} className={phoneTab === 'moments' ? 'active' : ''} onClick={() => setPhoneTab('moments')}>论坛</button><button role="tab" aria-selected={phoneTab === 'shop'} className={phoneTab === 'shop' ? 'active' : ''} onClick={() => setPhoneTab('shop')}>🏪 商店</button></div>}
+      {!phoneDraft && phoneTab === 'shop' && <PhoneShop userName={globalIdentity.name} members={[...new Set(conversations.filter((item) => item.phone && !item.phone.dm).flatMap((item) => item.participantIds || []))].map((id) => characters.find((item) => item.id === id)).filter((item): item is Character => Boolean(item))} />}
       {!phoneDraft && phoneTab === 'moments' && <Forum characters={characters} conversations={conversations} userName={globalIdentity.name} userAvatar={globalIdentity.avatar} api={api} seed={momentSeed} onSeedUsed={clearMomentSeed} onSaveToMemory={saveMomentToMemory} onThreadsChange={handleForumChange} onShare={shareForumToChat} />}
       {!phoneDraft && phoneTab === 'dms' && <>
         <div className="privacy-note">一对一私聊：TA 看得到自己所在群最近的聊天和论坛，可以私下跟你吐槽；群里的人看不到私聊。</div>
@@ -4200,7 +4229,7 @@ function UpdateCard() {
     }
   }
 
-  return <section className="update-card"><strong>应用更新</strong><p>主动检查并拉取最新网页版本，不会删除角色、聊天记录或本地设置。</p><small>当前版本：v97 · 2026.10.15 整改小卖部和许愿墙</small><button onClick={refresh} disabled={state === 'checking'}>{state === 'checking' ? '正在检查更新…' : state === 'error' ? '更新失败，点我重试' : '强制刷新到最新版'}</button></section>
+  return <section className="update-card"><strong>应用更新</strong><p>主动检查并拉取最新网页版本，不会删除角色、聊天记录或本地设置。</p><small>当前版本：v98 · 2026.10.15 小手机真正的小商店</small><button onClick={refresh} disabled={state === 'checking'}>{state === 'checking' ? '正在检查更新…' : state === 'error' ? '更新失败，点我重试' : '强制刷新到最新版'}</button></section>
 }
 
 function PersonaPage({ identities, selectedId, isBound, onSelect, onAdd, onDelete, onUpdate, onBack }: { identities: UserIdentity[]; selectedId: string; isBound: boolean; onSelect: (id: string) => void; onAdd: () => void; onDelete: (id: string) => void; onUpdate: (patch: Partial<UserIdentity>) => void; onBack: () => void }) {

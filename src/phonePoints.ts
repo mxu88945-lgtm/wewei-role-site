@@ -50,7 +50,7 @@ export function applyMessagePoints(state: PointsState, id: string, text: string,
   })
   out = out.replace(REDEEM_TAG, (_all, raw: string) => {
     const reward = POINT_REWARDS.find((item) => raw.includes(item.name) || item.name.includes(raw.trim()))
-    if (!reward) return ''
+    if (!reward) return _all
     const balance = next.balances[id] || 0
     if (balance < reward.cost) return `🎫 兑换「${reward.name}」失败：积分不够（${balance}/${reward.cost}）`
     next = addPoints(next, id, -reward.cost, `兑换：${reward.name}`, at)
@@ -69,7 +69,7 @@ export function buildPointsNote(state: PointsState, people: Array<{ id: string; 
   const ranking = people.map((person) => ({ ...person, points: state.balances[person.id] || 0 })).sort((a, b) => b.points - a.points)
   return `【整改中心·服刑积分】${userName}是造物主兼监狱长，你们是被她拉进来“整改”的角色，靠积分减刑。
 规则：每天第一次发言自动签到 +10（系统会记，不用你写）；完成剧本要求（造物主在剧情里点名要你做的事、交代的任务）、主动认错、守规矩这类行为表现，可以在消息最后单独一行自报【积分 +N：理由】（每次最多 +5，别每条都报）；被抓包、私聊争宠被转发公开、剧情里再犯旧罪，要自己老实写【积分 -N：理由】；锁造物主手机由造物主看效果酌情加减。提醒造物主吃饭、喝水、睡觉不算加分项，别为了积分去催她，更别几个人轮流催。
-积分可兑换（消息最后单独一行写【兑换：名称】）：${POINT_REWARDS.map((item) => `${item.name} ${item.cost}`).join('、')}。
+积分拿去【整改小商店】花（规则见下）。
 当前积分：${ranking.map((item) => `${item.name} ${item.points}`).join('，') || '大家都是 0'}。可以拿排名互相嘲讽。`
 }
 

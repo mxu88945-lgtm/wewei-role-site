@@ -954,3 +954,37 @@ button { cursor: pointer; }
 .phone-wish small { color: #a08c5a; font-size: 11px; }
 .phone-wish p { margin: 0; color: #4a4250; font-size: 14px; line-height: 1.45; }
 .phone-wish > span { color: #8a8190; font-size: 12px; text-align: right; }
+
+/* 小商店 v98 */
+.phone-shop { display: grid; gap: 10px; padding: 4px 14px 120px; }
+.phone-points-tabs.four { grid-template-columns: repeat(4, 1fr); }
+.phone-shop-empty, .phone-shop-tip { margin: 0; color: #8a8190; font-size: 12.5px; line-height: 1.5; }
+.phone-wish-actions { display: flex; flex-wrap: wrap; gap: 6px; justify-content: flex-end; }
+.phone-wish-actions button { min-height: 32px; padding: 0 12px; border: 0; border-radius: 10px; background: var(--theme-accent-soft); color: var(--theme-accent-text); font-weight: 800; }
+.phone-wish-actions button.minus { background: #fde9ee; color: #c0475f; }
+.phone-wish.held { background: #eef3fb; }
+.phone-wish.used { background: #f3eefb; }
+.phone-wish.refunded { background: #f4f2f5; opacity: .75; }
+.phone-wish-condition { color: #6b4fa0 !important; font-size: 13px !important; }
+.phone-shop-people { display: flex; gap: 6px; overflow-x: auto; scrollbar-width: none; padding-bottom: 2px; }
+.phone-shop-people::-webkit-scrollbar { display: none; }
+.phone-shop-people button { flex: none; display: flex; gap: 4px; align-items: baseline; min-height: 32px; padding: 0 12px; border: 0; border-radius: 16px; background: #f1eff3; color: #5a5260; font-weight: 700; }
+.phone-shop-people button.active { background: var(--theme-accent); color: #fff; }
+.phone-shop-people em { font-style: normal; font-size: 11px; opacity: .8; }
+.phone-shop-card { display: grid; gap: 8px; padding: 12px; border-radius: 14px; background: rgba(255, 255, 255, .85); }
+.phone-shop-card h4 { margin: 4px 0 0; font-size: 12px; color: #8a8190; }
+.phone-shop-balance { display: flex; align-items: baseline; gap: 10px; }
+.phone-shop-balance span { color: #e8553f; font-weight: 800; }
+.phone-shop-balance button { margin-left: auto; min-height: 30px; padding: 0 12px; border: 0; border-radius: 10px; background: #fff1e4; color: #c0601f; font-weight: 800; }
+.phone-shop-inv, .phone-shop-gifts { display: flex; flex-wrap: wrap; gap: 6px; font-size: 12.5px; }
+.phone-shop-inv span { padding: 4px 8px; border-radius: 8px; background: #f6f5f7; }
+.phone-shop-inv:empty::after { content: '空空的'; color: #b0a8b6; }
+.phone-shop-gifts button { min-height: 30px; padding: 0 10px; border: 0; border-radius: 10px; background: #f6f5f7; color: #4a4250; }
+.phone-owner-item { display: grid; gap: 6px; padding: 8px 12px; border-radius: 12px; background: rgba(255, 255, 255, .85); }
+.phone-owner-item.off { opacity: .6; }
+.phone-owner-head { display: flex; justify-content: space-between; align-items: baseline; border: 0; background: none; padding: 4px 0; color: #3a3340; font-weight: 700; text-align: left; }
+.phone-owner-head small { color: #8a8190; font-weight: 500; }
+.phone-owner-form { display: grid; gap: 6px; }
+.phone-owner-form label { display: grid; grid-template-columns: 7.5em 1fr; align-items: center; gap: 8px; font-size: 12.5px; color: #6a6270; }
+.phone-owner-form input { min-height: 32px; border: 1px solid #e6e2ea; border-radius: 8px; padding: 0 8px; font-size: 16px; background: #fff; }
+.phone-owner-add { min-height: 40px; border: 1px dashed #d8d2de; border-radius: 12px; background: none; color: var(--theme-accent); font-weight: 800; }
