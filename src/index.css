@@ -1083,3 +1083,7 @@ button { cursor: pointer; }
 .wx-info-mode small { font-size: 12px; color: #8a8a8a; }
 .wx-info-mode > b { color: #07c160 !important; font-weight: 600 !important; }
 .phone-chat .wx-row > .wx-stack { align-self: stretch; width: 100%; }
+.phone-chat .wx-avatar-gap { flex: 0 0 40px; width: 40px; }
+.phone-chat .wx-follow .wx-bubble::before { display: none; }
+.phone-chat .wx-stack { gap: 6px; }
+.phone-chat .wx-stack > .wx-line:first-child ~ .wx-act-line { margin: 0; }

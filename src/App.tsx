@@ -3933,9 +3933,11 @@ function App() {
         {pieces.map((piece, index) => {
           const isAct = (piece as React.ReactElement<{ className?: string }>)?.props?.className === 'wx-act'
           if (isAct) return <div key={index} className="wx-act-line">{piece}</div>
-          const nameNode = showName && !named ? <span className="wx-name">{authorName}{activeConversation.bookmarks?.[String(message.id)] ? ' ★' : ''}</span> : null
+          const first = !named
+          const nameNode = showName && first ? <span className="wx-name">{authorName}{activeConversation.bookmarks?.[String(message.id)] ? ' ★' : ''}</span> : null
           named = true
-          return <div key={index} className="wx-line">{avatarNode}<div className="wx-column">{nameNode}{piece}</div></div>
+          // 只有第一句带头像和小尖角，后面的续句对齐在下面。
+          return <div key={index} className={`wx-line${first ? '' : ' wx-follow'}`}>{first ? avatarNode : <span className="wx-avatar-gap" aria-hidden="true" />}<div className="wx-column">{nameNode}{piece}</div></div>
         })}
       </div>
     }
@@ -4312,7 +4314,7 @@ function UpdateCard() {
     }
   }
 
-  return <section className="update-card"><strong>应用更新</strong><p>主动检查并拉取最新网页版本，不会删除角色、聊天记录或本地设置。</p><small>当前版本：v110 · 2026.10.15 导入 TXT 自动补角色卡</small><button onClick={refresh} disabled={state === 'checking'}>{state === 'checking' ? '正在检查更新…' : state === 'error' ? '更新失败，点我重试' : '强制刷新到最新版'}</button></section>
+  return <section className="update-card"><strong>应用更新</strong><p>主动检查并拉取最新网页版本，不会删除角色、聊天记录或本地设置。</p><small>当前版本：v111 · 2026.10.15 导入 TXT 自动补角色卡</small><button onClick={refresh} disabled={state === 'checking'}>{state === 'checking' ? '正在检查更新…' : state === 'error' ? '更新失败，点我重试' : '强制刷新到最新版'}</button></section>
 }
 
 function PersonaPage({ identities, selectedId, isBound, onSelect, onAdd, onDelete, onUpdate, onBack }: { identities: UserIdentity[]; selectedId: string; isBound: boolean; onSelect: (id: string) => void; onAdd: () => void; onDelete: (id: string) => void; onUpdate: (patch: Partial<UserIdentity>) => void; onBack: () => void }) {
