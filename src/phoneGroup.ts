@@ -564,3 +564,31 @@ export function parseMicAnswer(raw: string) {
   const match = line.match(/^接\s*(?:[:：]\s*(.{0,20}))?/)
   return match ? { hint: (match[1] || '').trim() } : null
 }
+
+/**
+ * 长剧情里的角色“私底下知道”小手机上的戏外日常：只给本人的私聊 + 他在的群的最近片段。
+ * 戏里是戏里，戏外是戏外——这份只当心里有数，用行动和态度体现，绝不在剧情里提小手机、群、积分。
+ */
+export function buildBackstageNote(conversations: Conversation[], characterId: string, speakerName: string, userName: string, nameOfCharacter: (id?: string) => string) {
+  const line = (message: Message) => `${message.role === 'user' ? userName : nameOfCharacter(message.characterId)}：${clip(message.text.replace(/<[^>]+>/g, ' ').replace(/\s+/g, ' '), 120)}`
+  const dm = conversations.filter((item) => item.phone?.dm && item.participantIds?.length === 1 && item.participantIds[0] === characterId)
+    .sort((left, right) => right.updatedAt - left.updatedAt)[0]
+  const dmSummary = dm?.contextSummary && (dm.contextSummaryRevision || 0) === (dm.historyRevision || 0) ? clip(cleanPhoneOutput(sanitizeAssistantOutput(dm.contextSummary)), 900) : ''
+  const dmRecent = dm ? phonePromptHistory(dm.messages, 12).filter((message) => message.role === 'user' || message.characterId === characterId || !message.characterId).map(line).join('\n') : ''
+  const groups = conversations.filter((item) => item.phone && !item.phone.dm && item.participantIds?.includes(characterId) && item.messages.length)
+    .sort((left, right) => right.updatedAt - left.updatedAt).slice(0, 2)
+    .map((group) => `「${group.title}」最近：\n${phonePromptHistory(group.messages, 10).map(line).join('\n')}`)
+  if (!dmSummary && !dmRecent && !groups.length) return ''
+  const body = [
+    dmSummary && `你和${userName}私聊的较早摘要：\n${dmSummary}`,
+    dmRecent && `你和${userName}最近的私聊：\n${dmRecent}`,
+    ...groups,
+  ].filter(Boolean).join('\n\n')
+  return `【戏外近况｜只在${speakerName}心里，戏里绝不提】
+${speakerName}私底下知道：自己是惟境里的角色，戏外和${userName}（陪你对戏、演女主的人）还有一个“小手机”日常——私聊、群聊、玩闹、许愿、答应过的事。以下是那边最近的片段，你都记得。
+规则：
+1. 戏里是戏里，戏外是戏外。剧情正文里绝不提小手机、群聊、私聊、积分、红包、群友、“戏外”“角色卡”这类词，也不打破剧情世界观。
+2. 只把它当成心里有数：对她的近况、心情、身体状况、答应过的愿望、聊过的小事，可以化成剧情里自然的关心、默契和行动（比如她说过头疼，戏里会多照顾一点；她许的愿，在合适的时候用剧情方式兑现）。
+3. 不复述原话，不每轮都用，不要因为这个改写已经发生的剧情事实。
+${clip(body, 2600)}`
+}

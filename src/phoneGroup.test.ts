@@ -349,3 +349,21 @@ describe('traditional place names', () => {
     expect(joinPlace(['广东省', '潮州市', '湘橋區'])).toBe('广东省潮州市湘桥区')
   })
 })
+
+describe('buildBackstageNote', () => {
+  it('gives the story character his own DM and groups, framed as private knowledge', async () => {
+    const { buildBackstageNote } = await import('./phoneGroup')
+    const base = { updatedAt: 1, createdAt: 1, characterId: 'a' } as never as object
+    const conversations = [
+      { ...base, id: 'dm-a', title: 'A', phone: { dm: true, bindings: {} }, participantIds: ['a'], messages: [{ id: 1, role: 'user', text: '头好疼' }, { id: 2, role: 'assistant', characterId: 'a', text: '去躺着' }] },
+      { ...base, id: 'dm-b', title: 'B', phone: { dm: true, bindings: {} }, participantIds: ['b'], messages: [{ id: 1, role: 'user', text: 'B的秘密' }] },
+      { ...base, id: 'g', title: '群', phone: { bindings: {} }, participantIds: ['a', 'b'], messages: [{ id: 1, role: 'assistant', characterId: 'b', text: '发红包' }] },
+    ] as never
+    const note = buildBackstageNote(conversations, 'a', '傅承砚', '周惟惟', (id) => id === 'b' ? '陆屿' : '傅承砚')
+    expect(note).toContain('戏里绝不提')
+    expect(note).toContain('头好疼')
+    expect(note).toContain('陆屿：发红包')
+    expect(note).not.toContain('B的秘密')
+    expect(buildBackstageNote([] as never, 'a', '傅承砚', '周惟惟', () => '')).toBe('')
+  })
+})
