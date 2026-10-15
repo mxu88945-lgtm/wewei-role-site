@@ -16,7 +16,7 @@ import './theme-cute-icons.css'
 import './memoryApiEnhancements'
 
 const APP_SCOPE = '/wewei-role-site/'
-const SERVICE_WORKER_RELEASE = '2026-10-15-pat-redpacket-latenight-v89'
+const SERVICE_WORKER_RELEASE = '2026-10-15-wechat-red-packet-v90'
 
 if ('serviceWorker' in navigator) {
   let reloadingForUpdate = false

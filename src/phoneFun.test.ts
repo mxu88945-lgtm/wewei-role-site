@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { PAT_LINE, activeRedPackets, applyPatTags, applyRedPacketTags, buildRedPacketNote, createRedPacket, lateNightKey, splitRedPacket, userPatText } from './phoneFun'
+import { PAT_LINE, findRedPacket, parseRedPacketLine, redPacketText, activeRedPackets, applyPatTags, applyRedPacketTags, buildRedPacketNote, createRedPacket, lateNightKey, splitRedPacket, userPatText } from './phoneFun'
 import { EMPTY_POINTS, addPoints } from './phonePoints'
 
 const members = [{ id: 'a', name: '沈衍' }, { id: 'b', name: '谢聿衡' }]
@@ -53,5 +53,16 @@ describe('late night', () => {
     expect(lateNightKey(new Date(2026, 9, 15, 23, 30).getTime())).toBe('2026-10-15')
     expect(lateNightKey(new Date(2026, 9, 16, 0, 20).getTime())).toBe('2026-10-15')
     expect(lateNightKey(new Date(2026, 9, 16, 1, 0).getTime())).toBe('')
+  })
+})
+
+describe('red packet card', () => {
+  it('parses the packet line and finds the packet nearest in time', () => {
+    const a = createRedPacket({ conversationId: 'g', fromId: 'user', fromName: '惟惟', total: 50, count: 3, note: '恭喜发财', at: 100 })
+    const b = createRedPacket({ conversationId: 'g', fromId: 'user', fromName: '惟惟', total: 50, count: 3, note: '恭喜发财', at: 9000 })
+    const info = parseRedPacketLine(`好\n${redPacketText(b)}`)!
+    expect(info).toMatchObject({ fromName: '惟惟', total: 50, count: 3, note: '恭喜发财' })
+    expect(findRedPacket([a, b], 'g', info, 8990)?.id).toBe(b.id)
+    expect(parseRedPacketLine('没有红包')).toBeNull()
   })
 })

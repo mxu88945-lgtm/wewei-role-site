@@ -127,3 +127,17 @@ export function lateNightKey(at: number) {
   if (hour === 0) date.setDate(date.getDate() - 1)
   return `${date.getFullYear()}-${date.getMonth() + 1}-${date.getDate()}`
 }
+
+const PACKET_LINE = /^🧧 (.{1,20}?) 发了一个积分红包：(\d{1,4}) 积分 · (\d{1,2}) 个(?:｜(.*))?$/m
+export type RedPacketLineInfo = { line: string; fromName: string; total: number; count: number; note: string }
+/** 从消息里认出“发红包”那行，渲染成红包卡片。 */
+export function parseRedPacketLine(text: string): RedPacketLineInfo | null {
+  const match = text.match(PACKET_LINE)
+  if (!match) return null
+  return { line: match[0], fromName: match[1], total: Number(match[2]), count: Number(match[3]), note: (match[4] || '').trim() }
+}
+/** 找到这条消息对应的红包（同群、同人、同金额，时间最接近）。 */
+export function findRedPacket(list: RedPacket[], conversationId: string, info: RedPacketLineInfo, near: number) {
+  return list.filter((packet) => packet.conversationId === conversationId && packet.fromName === info.fromName && packet.total === info.total && packet.count === info.count && packet.note === info.note)
+    .sort((a, b) => Math.abs(a.at - near) - Math.abs(b.at - near))[0] || null
+}
