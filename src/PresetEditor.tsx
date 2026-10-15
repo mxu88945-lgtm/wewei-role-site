@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { useEffect, useState, type FocusEvent } from 'react'
 import type { PresetSection } from './presetConfig'
 
 type Props = { sections: PresetSection[]; onChange: (sections: PresetSection[]) => void; onBack: () => void }
@@ -6,6 +6,13 @@ type Props = { sections: PresetSection[]; onChange: (sections: PresetSection[]) 
 export default function PresetEditor({ sections, onChange, onBack }: Props) {
   const [editingId, setEditingId] = useState<string | null>(null)
   const editing = sections.find((section) => section.id === editingId)
+  // iOS 键盘：这一层的高度由 index.html 写成可见高度，打开时立刻量一次；聚焦的输入框滚到中间。
+  useEffect(() => { if (editingId) (window as Window & { __weijingApplyAppHeight?: () => void }).__weijingApplyAppHeight?.() }, [editingId])
+  const revealField = (event: FocusEvent<HTMLElement>) => {
+    const target = event.target
+    if (!(target instanceof HTMLInputElement || target instanceof HTMLTextAreaElement || target instanceof HTMLSelectElement)) return
+    window.setTimeout(() => target.scrollIntoView({ block: 'center', behavior: 'smooth' }), 320)
+  }
 
   const patch = (id: string, next: Partial<PresetSection>) => onChange(sections.map((section) => section.id === id ? { ...section, ...next } : section))
   const move = (index: number, direction: -1 | 1) => {
@@ -37,7 +44,7 @@ export default function PresetEditor({ sections, onChange, onBack }: Props) {
 
     {editing && <div className="preset-editor-layer">
       <button className="preset-editor-backdrop" aria-label="关闭编辑" onClick={() => setEditingId(null)} />
-      <section className="preset-editor-sheet">
+      <section className="preset-editor-sheet" onFocus={revealField}>
         <header><div><small>编辑提示词栏目</small><strong>{editing.name}</strong></div><button onClick={() => setEditingId(null)}>×</button></header>
         <label>名称<input value={editing.name} onChange={(event) => patch(editing.id, { name: event.target.value })} /></label>
         <label>发送范围<select value={editing.scope} onChange={(event) => patch(editing.id, { scope: event.target.value as PresetSection['scope'] })}><option value="all">剧情＋小手机</option><option value="story">仅剧情</option><option value="phone">仅小手机</option></select></label>

@@ -190,3 +190,8 @@ html[data-standalone][data-kb] .message-editor-sheet textarea { flex: 1 1 auto; 
 
 html[data-standalone] .forum-sheet-layer { bottom: auto; }
 html[data-standalone][data-kb] .forum-sheet { padding-bottom: 12px; }
+
+/* 提示词栏目编辑：键盘弹起时整张卡片缩到键盘上方，可以上下滑着改内容。 */
+html[data-standalone] .preset-editor-layer { bottom: auto; }
+html[data-standalone][data-kb] .preset-editor-sheet { max-height: calc(100% - 8px - env(safe-area-inset-top)); padding-bottom: 14px; -webkit-overflow-scrolling: touch; }
+html[data-standalone][data-kb] .preset-editor-sheet textarea { max-height: 42vh; }

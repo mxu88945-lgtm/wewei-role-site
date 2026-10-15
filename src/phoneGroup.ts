@@ -19,6 +19,7 @@ export function buildPhoneLockBreachNote(breach: PhoneLockBreach | null | undefi
   return `【告状】${ago ? `${ago} 分钟前` : '刚刚'}，${userName}点了「偷偷解锁」，提前 ${breach.remainingMinutes} 分钟解开了${breach.byName}给她设的锁屏${breach.reason ? `（理由：${breach.reason}）` : ''}。群里的人都知道了，可以按各自人设反应（${breach.byName}尤其）。`
 }
 
+import { messageTime, phonePromptTimePrefix, phoneNowLabel, PHONE_TIME_PREFIX } from './phoneTime'
 import type { Character } from './characterCard'
 import type { Conversation, Message } from './conversationLifecycle'
 import type { LongMemoryEntry } from './memoryEngine'
@@ -42,12 +43,19 @@ export const PHONE_COMPLETION_TIMEOUT_MS = 90_000
 export const PHONE_HISTORY_LIMIT = 24
 
 /** Bound request history only; saved chats and shared story archives stay intact. */
-export function phonePromptHistory(messages: Message[], requestedLength: number) {
-  return messages.filter((message) => !message.phoneNotice).flatMap((message) => {
+export function phonePromptHistory(messages: Message[], requestedLength: number, now = Date.now()) {
+  const kept = messages.filter((message) => !message.phoneNotice).flatMap((message) => {
     if (message.role === 'user') return [message]
     const text = cleanPhoneOutput(sanitizeAssistantOutput(message.text))
     return text ? [{ ...message, text: clip(text, 1800) }] : []
   }).slice(-Math.max(1, Math.min(requestedLength, PHONE_HISTORY_LIMIT)))
+  // 隔了 20 分钟以上的消息带上发送时间，模型才知道昨晚的话已经是昨晚。
+  return kept.map((message, index) => {
+    const at = messageTime(message, now)
+    const before = index > 0 ? messageTime(kept[index - 1], now) : undefined
+    if (at === undefined || (before !== undefined && at - before < 20 * 60_000)) return message
+    return { ...message, text: `${phonePromptTimePrefix(at)}${message.text}` }
+  })
 }
 
 /** The card as it should speak in the phone group: persona kept, every story-mode output rule dropped. */
@@ -143,8 +151,9 @@ export function phoneBindingCandidates(conversations: Conversation[], characterI
 }
 
 /** Last system turn in phone mode: the card's story habits (status panels, scene play) are strongest right before generation. */
-export function phoneFinalGuard(speakerName: string, userName: string) {
+export function phoneFinalGuard(speakerName: string, userName: string, now = new Date()) {
   return `【小手机｜输出前最后检查】
+现在真实时间：${phoneNowLabel(now)}。聊天记录里带 [发送于 …] 的是当时的时间，之前提到过的钟点、天气、“熬夜”“傍晚”都已经过去了，一律以现在这个时间为准，别再拿旧时间说事。你的消息里不要写 [发送于 …]。
 现在你们不在剧情现场，是戏外拿着手机在群里打字。「${speakerName}」和${userName}不在同一个房间，不能递水、靠近、触碰；档案里的剧情是“戏里”演过的事，可以像演员一样提起、吐槽、复盘（“那场戏里……”），但不要接着演那场戏。
 只输出 1—4 行微信短消息。禁止状态栏、状态更新、“内心：”“对你的态度：”、场景栏、任何 <标签>，也禁止长段动作描写。卡片里要求输出状态栏的规则在小手机里全部不适用。
 对人设、立场、语气和回应方式的判断只能在内部完成。严禁输出思考过程、人设分析、反应分析、视角分析、回复思路、语言风格、草拟步骤或自检；第一行就直接说「${speakerName}」真正要发出的消息。`
@@ -179,7 +188,7 @@ function stripPhoneReasoning(text: string) {
 
 /** 小手机最终清理：任何 HTML/标签块、状态栏、场景栏、内心字段都不保留。 */
 export function cleanPhoneOutput(text: string) {
-  let out = text.replace(PHONE_LOCK_TAG_GLOBAL, '')
+  let out = text.replace(PHONE_LOCK_TAG_GLOBAL, '').replace(PHONE_TIME_PREFIX, '')
   for (let i = 0; i < 3; i += 1) out = out.replace(/<([A-Za-z\u4e00-\u9fa5][\w\u4e00-\u9fa5-]*)\b[^>]*>[\s\S]*?<\/\1\s*>/g, '')
   out = out
     .replace(/<([A-Za-z\u4e00-\u9fa5][\w\u4e00-\u9fa5-]*(?:status|state|scene|plot)[\w-]*|status|state|scene|plot|statusbar)\b[^>]*>[\s\S]*$/gi, '')
