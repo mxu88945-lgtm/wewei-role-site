@@ -65,7 +65,7 @@ import { normalizeStoryProjects, type StoryProject } from './storyProject'
 import { buildStoryProjectPrompt, selectConversationStoryProject } from './storyProjectPrompt'
 import { buildAutomaticContinuityInput, captureAssistantMessageIds, hasUnprocessedAssistantMessages, mergeAutomaticContinuity, parseAutomaticContinuityResponse } from './storyContinuity'
 import { buildReplyHelperMessages, cleanReplyHelperDraft, REPLY_HELPER_MAX_TOKENS } from './replyHelper'
-import { canApplyContextCompression, planAutoContextCompression, planContextCompression, shouldStartAutoCompression, uncompressedMessages, type ContextCompressionPlan } from './contextCompression'
+import { PHONE_COMPRESSION_KEEP_RECENT, PHONE_COMPRESSION_TRIGGER, canApplyContextCompression, planAutoContextCompression, planContextCompression, shouldStartAutoCompression, uncompressedMessages, type ContextCompressionPlan } from './contextCompression'
 import { buildMessageQuote, prioritizeAddressed, quotedParticipantIds, withQuotePrefix, type MessageQuote } from './quoteReply'
 import { chatWindowAnchorIncluding, earlierChatMessageCount, earlierChatWindowAnchor, resolveChatWindowStart, trimmedChatWindowAnchor } from './chatWindow'
 import { findLatestActorContinuityAnchor, findLatestSceneContinuityAnchor } from './actorContinuity'
@@ -3702,7 +3702,8 @@ function App() {
       compressedUntil: conversation.compressedUntil,
       hasValidSummary,
       memoryLength,
-      isCompressible: (message) => Boolean(modelVisibleMessageText(message).trim()),
+      isCompressible: (message) => !message.phoneNotice && Boolean(modelVisibleMessageText(message).trim()),
+      ...(conversation.phone ? { trigger: PHONE_COMPRESSION_TRIGGER, keepRecent: PHONE_COMPRESSION_KEEP_RECENT } : {}),
     })
     const channel = apiRef.current
     if (!shouldStartAutoCompression({
@@ -4325,7 +4326,7 @@ function UpdateCard() {
     }
   }
 
-  return <section className="update-card"><strong>应用更新</strong><p>主动检查并拉取最新网页版本，不会删除角色、聊天记录或本地设置。</p><small>当前版本：v120 · 2026.10.15 导入 TXT 自动补角色卡</small><button onClick={refresh} disabled={state === 'checking'}>{state === 'checking' ? '正在检查更新…' : state === 'error' ? '更新失败，点我重试' : '强制刷新到最新版'}</button></section>
+  return <section className="update-card"><strong>应用更新</strong><p>主动检查并拉取最新网页版本，不会删除角色、聊天记录或本地设置。</p><small>当前版本：v121 · 2026.10.15 导入 TXT 自动补角色卡</small><button onClick={refresh} disabled={state === 'checking'}>{state === 'checking' ? '正在检查更新…' : state === 'error' ? '更新失败，点我重试' : '强制刷新到最新版'}</button></section>
 }
 
 function PersonaPage({ identities, selectedId, isBound, onSelect, onAdd, onDelete, onUpdate, onBack }: { identities: UserIdentity[]; selectedId: string; isBound: boolean; onSelect: (id: string) => void; onAdd: () => void; onDelete: (id: string) => void; onUpdate: (patch: Partial<UserIdentity>) => void; onBack: () => void }) {

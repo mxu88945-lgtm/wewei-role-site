@@ -96,3 +96,13 @@ describe('automatic background context compression', () => {
     expect(canApplyContextCompression(undefined, started)).toBe(false)
   })
 })
+
+describe('phone auto compression', () => {
+  it('summarizes phone chats after 60 messages, keeping 24', () => {
+    const list = Array.from({ length: 60 }, (_, index) => ({ id: index }))
+    expect(planAutoContextCompression(list.slice(0, 59), { trigger: 60, keepRecent: 24 })).toBeNull()
+    const plan = planAutoContextCompression(list, { trigger: 60, keepRecent: 24 })!
+    expect(plan.targetUntil).toBe(36)
+    expect(plan.pendingMessages).toHaveLength(36)
+  })
+})
