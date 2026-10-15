@@ -21,6 +21,7 @@ export default function PhoneAutoSettingsCard({ status }: { status: string }) {
       <label className="forum-anon"><input type="checkbox" checked={settings.forum} onChange={(event) => change({ forum: event.target.checked })} />论坛：有人开帖、热帖接着盖楼</label>
       <label className="forum-anon"><input type="checkbox" checked={settings.groups} onChange={(event) => change({ groups: event.target.checked })} />群聊：挑一个群让他们主动冒泡</label>
       <label className="forum-anon"><input type="checkbox" checked={settings.quietNight} onChange={(event) => change({ quietNight: event.target.checked })} />凌晨 1—7 点安静</label>
+      <label className="forum-anon"><input type="checkbox" checked={settings.lateNight !== false} onChange={(event) => change({ lateNight: event.target.checked })} />深夜私聊：23 点到 1 点之间，偶尔有人来问一句「睡了吗」（不用开自动活跃也有）</label>
       <p>惟境开着时按点自动发；关掉后再打开，会补上错过的一轮。每轮会用掉一两次 API 调用。</p>
     </div>}
   </section>

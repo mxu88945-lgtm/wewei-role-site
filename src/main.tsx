@@ -16,7 +16,7 @@ import './theme-cute-icons.css'
 import './memoryApiEnhancements'
 
 const APP_SCOPE = '/wewei-role-site/'
-const SERVICE_WORKER_RELEASE = '2026-10-15-phone-settings-autosave-v88'
+const SERVICE_WORKER_RELEASE = '2026-10-15-pat-redpacket-latenight-v89'
 
 if ('serviceWorker' in navigator) {
   let reloadingForUpdate = false
