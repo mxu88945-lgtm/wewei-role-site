@@ -142,6 +142,32 @@ export function lateNightKey(at: number) {
   return `${date.getFullYear()}-${date.getMonth() + 1}-${date.getDate()}`
 }
 
+// ───── 白天主动私聊 ─────
+export const DAY_DM_KEY = 'weijing.phoneDayDm'
+export const DAY_DM_MAX = 3
+export const DAY_DM_GAP = 3 * 60 * 60 * 1000
+export type DayDmState = { day: string; count: number; last: number }
+/** 9:00—22:59 算白天，返回当天标识；否则空。 */
+export function dayDmKey(at: number) {
+  const date = new Date(at)
+  const hour = date.getHours()
+  if (hour < 9 || hour > 22) return ''
+  return `${date.getFullYear()}-${date.getMonth() + 1}-${date.getDate()}`
+}
+/** 白天还能不能再来一条：一天最多 3 次，两次之间至少隔 3 小时。 */
+export function canDayDm(state: DayDmState | null, at: number) {
+  const day = dayDmKey(at)
+  if (!day) return false
+  if (!state || state.day !== day) return !state || at - state.last >= DAY_DM_GAP
+  return state.count < DAY_DM_MAX && at - state.last >= DAY_DM_GAP
+}
+export function nextDayDmState(state: DayDmState | null, at: number): DayDmState {
+  const day = dayDmKey(at)
+  return { day, count: state && state.day === day ? state.count + 1 : 1, last: at }
+}
+const DAY_DM_REASONS = ['看到/想到一件事想跟她分享', '接着群里或论坛刚才的话题，私下再说两句', '单纯想她了，找个借口搭话', '问她现在在干嘛', '有点小心事或小委屈想跟她说', '想约她晚点一起做点什么（剧情里的）']
+export function dayDmReason(pick = Math.random()) { return DAY_DM_REASONS[Math.min(DAY_DM_REASONS.length - 1, Math.floor(pick * DAY_DM_REASONS.length))] }
+
 const PACKET_LINE = /^🧧 (.{1,20}?) 发了一个积分红包：(\d{1,4}) 积分 · (\d{1,2}) 个(?:｜(.*))?$/m
 export type RedPacketLineInfo = { line: string; fromName: string; total: number; count: number; note: string }
 /** 从消息里认出“发红包”那行，渲染成红包卡片。 */

@@ -10,7 +10,7 @@ import {
 /** 小手机“自动活跃”：App 开着时按点触发，重新打开时补一次错过的。没有服务器，关掉 App 时不会跑。 */
 export const PHONE_AUTO_KEY = 'weijing.phoneAuto'
 export const PHONE_AUTO_INTERVALS = [30, 60, 120, 240, 480] as const
-export type PhoneAutoSettings = { enabled: boolean; intervalMinutes: number; forum: boolean; groups: boolean; lastRun: number; quietNight: boolean; /** 23 点到 1 点之间，偶尔有人私聊一句“睡了吗”。不受“开启”影响。 */ lateNight?: boolean }
+export type PhoneAutoSettings = { enabled: boolean; intervalMinutes: number; forum: boolean; groups: boolean; lastRun: number; quietNight: boolean; /** 23 点到 1 点之间，偶尔有人私聊一句“睡了吗”。不受“开启”影响。 */ lateNight?: boolean; /** 白天 9—23 点偶尔有人主动私聊，一天最多 3 次。不受“开启”影响。 */ dayDm?: boolean }
 export const DEFAULT_PHONE_AUTO: PhoneAutoSettings = { enabled: false, intervalMinutes: 120, forum: true, groups: true, lastRun: 0, quietNight: true, lateNight: true }
 export const PHONE_AUTO_EVENT = 'weijing-phone-auto-settings'
 export const FORUM_UPDATED_EVENT = 'weijing-forum-updated'

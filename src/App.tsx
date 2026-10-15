@@ -18,7 +18,7 @@ import { TAVILY_KEY_STORAGE, needsWebSearch, tavilySearch } from './phoneWeb'
 import { createBlankCharacter, importCharacterCard, normalizeStoredCharacter, LIBRARY_ROLES, type Character, type LibraryRole } from './characterCard'
 import { type MomentSeed } from './Moments'
 import { Forum } from './Forum'
-import { LATE_NIGHT_KEY, PAT_LINE, applyPatTags, applyRedPacketTags, buildRedPacketNote, createRedPacket, findRedPacket, lateNightKey, parseRedPacketLine, readRedPackets, redPacketOrdinal, redPacketText, userPatText, writeRedPackets, type RedPacketLineInfo } from './phoneFun'
+import { DAY_DM_KEY, LATE_NIGHT_KEY, PAT_LINE, canDayDm, dayDmReason, nextDayDmState, type DayDmState, applyPatTags, applyRedPacketTags, buildRedPacketNote, createRedPacket, findRedPacket, lateNightKey, parseRedPacketLine, readRedPackets, redPacketOrdinal, redPacketText, userPatText, writeRedPackets, type RedPacketLineInfo } from './phoneFun'
 import { RedPacketCard, RedPacketDetail, RedPacketSendSheet } from './RedPacket'
 import { messageTime, phoneTimeLabel, showPhoneTimeDivider } from './phoneTime'
 import { latestMessageId, phoneUnreadCount, unreadLabel } from './phoneUnread'
@@ -3016,13 +3016,17 @@ function App() {
   }
 
   /** 深夜私聊：23 点到 1 点之间每分钟约 1/40 的机会，一晚最多一次，挑一个群友来问“睡了吗”。 */
-  const runLateNightDm = async (now: number) => {
+  const runLateNightDm = async (now: number, daytime = false) => {
     const night = lateNightKey(now)
-    if (!night || localStorage.getItem(LATE_NIGHT_KEY) === night || Math.random() > 1 / 40 || phoneLock || !isApiChannelComplete(api)) return false
+    let dayState: DayDmState | null = null
+    if (daytime) {
+      try { dayState = JSON.parse(localStorage.getItem(DAY_DM_KEY) || 'null') } catch { dayState = null }
+      if (!canDayDm(dayState, now) || Math.random() > 1 / 90 || phoneLock || !isApiChannelComplete(api)) return false
+    } else if (!night || localStorage.getItem(LATE_NIGHT_KEY) === night || Math.random() > 1 / 40 || phoneLock || !isApiChannelComplete(api)) return false
     const memberIds = [...new Set(conversations.filter((item) => item.phone && !item.phone.dm).flatMap((item) => (item.participantIds || []).filter((id) => !phoneQuitRef.current.has(`${item.id}:${id}`))))]
     const pool = memberIds.map((id) => characters.find((item) => item.id === id)).filter((item): item is Character => Boolean(item))
     if (!pool.length) return false
-    try { localStorage.setItem(LATE_NIGHT_KEY, night) } catch { /* ignore */ }
+    try { if (daytime) localStorage.setItem(DAY_DM_KEY, JSON.stringify(nextDayDmState(dayState, now))); else localStorage.setItem(LATE_NIGHT_KEY, night) } catch { /* ignore */ }
     const speaker = pool[Math.floor(Math.random() * pool.length)]
     let dm = conversations.filter((item) => item.phone?.dm && item.participantIds?.[0] === speaker.id).sort((a, b) => b.updatedAt - a.updatedAt)[0]
     if (!dm) {
@@ -3040,7 +3044,7 @@ function App() {
     }
     if (generatingIds.includes(dm.id)) return false
     const identity = identityFor(dm)
-    await generateAssistant(dm, dm.messages, speaker, conversationApiFor(dm, speaker.id, api), { continueWithoutUser: true, phoneNudge: `现在快半夜了，${identity.name}还没在私聊里说话。你突然想私聊她，用「${speaker.name}」自己的语气问一句“睡了吗”或类似的话，可以带上为什么这么晚还惦记她（看到群里/论坛的什么、自己也没睡、担心她又熬夜）。1—3 条短消息。` })
+    await generateAssistant(dm, dm.messages, speaker, conversationApiFor(dm, speaker.id, api), { continueWithoutUser: true, phoneNudge: daytime ? `现在是白天，${identity.name}没在私聊里找你，你主动私聊她。这次的由头：${dayDmReason()}。用「${speaker.name}」自己的语气，1—3 条短消息，像真人随手发的微信。不要催她吃饭、喝水、睡觉，也不要提积分。` : `现在快半夜了，${identity.name}还没在私聊里说话。你突然想私聊她，用「${speaker.name}」自己的语气问一句“睡了吗”或类似的话，可以带上为什么这么晚还惦记她（看到群里/论坛的什么、自己也没睡、担心她又熬夜）。1—3 条短消息。` })
     return true
   }
 
@@ -3051,6 +3055,9 @@ function App() {
     if (settings.lateNight !== false && lateNightKey(now)) {
       phoneAutoRunning.current = true
       try { await runLateNightDm(now) } catch { /* 下一晚再来 */ } finally { phoneAutoRunning.current = false }
+    } else if (settings.dayDm !== false) {
+      phoneAutoRunning.current = true
+      try { await runLateNightDm(now, true) } catch { /* 下次再来 */ } finally { phoneAutoRunning.current = false }
     }
     let at = dueRunAt(settings, now)
     if (at === null) return
@@ -4189,7 +4196,7 @@ function UpdateCard() {
     }
   }
 
-  return <section className="update-card"><strong>应用更新</strong><p>主动检查并拉取最新网页版本，不会删除角色、聊天记录或本地设置。</p><small>当前版本：v95 · 2026.10.15 积分不再奖励催吃饭</small><button onClick={refresh} disabled={state === 'checking'}>{state === 'checking' ? '正在检查更新…' : state === 'error' ? '更新失败，点我重试' : '强制刷新到最新版'}</button></section>
+  return <section className="update-card"><strong>应用更新</strong><p>主动检查并拉取最新网页版本，不会删除角色、聊天记录或本地设置。</p><small>当前版本：v96 · 2026.10.15 白天也会有人主动私聊</small><button onClick={refresh} disabled={state === 'checking'}>{state === 'checking' ? '正在检查更新…' : state === 'error' ? '更新失败，点我重试' : '强制刷新到最新版'}</button></section>
 }
 
 function PersonaPage({ identities, selectedId, isBound, onSelect, onAdd, onDelete, onUpdate, onBack }: { identities: UserIdentity[]; selectedId: string; isBound: boolean; onSelect: (id: string) => void; onAdd: () => void; onDelete: (id: string) => void; onUpdate: (patch: Partial<UserIdentity>) => void; onBack: () => void }) {

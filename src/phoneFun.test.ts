@@ -82,3 +82,19 @@ describe('red packet card', () => {
     expect(parseRedPacketLine('没有红包')).toBeNull()
   })
 })
+
+import { canDayDm as canDay, nextDayDmState as nextDay, dayDmKey as dayKeyDm } from './phoneFun'
+describe('daytime dm', () => {
+  it('only 9-22, max 3 a day, 3h apart', () => {
+    const at = (h: number, m = 0) => new Date(2026, 9, 15, h, m).getTime()
+    expect(dayKeyDm(at(8))).toBe('')
+    expect(canDay(null, at(10))).toBe(true)
+    let s = nextDay(null, at(10))
+    expect(canDay(s, at(12))).toBe(false)
+    expect(canDay(s, at(13))).toBe(true)
+    s = nextDay(nextDay(s, at(13)), at(16))
+    expect(s.count).toBe(3)
+    expect(canDay(s, at(20))).toBe(false)
+    expect(canDay(s, new Date(2026, 9, 16, 9).getTime())).toBe(true)
+  })
+})
