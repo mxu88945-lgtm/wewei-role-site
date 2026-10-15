@@ -23,7 +23,7 @@ export default function PhonePointsCard({ members }: { members: Character[] }) {
         <button type="button" className="phone-points-name" onClick={() => setPicked(picked === member.id ? '' : member.id)}><b>{index + 1}</b>{member.name}<em>{state.balances[member.id] || 0}</em></button>
         {picked === member.id && <div className="phone-points-judge">{[-20, -5, 5, 10].map((delta) => <button key={delta} type="button" className={delta < 0 ? 'minus' : ''} onClick={() => judge(member.id, delta)}>{delta > 0 ? '+' : ''}{delta}</button>)}</div>}
       </div>)}
-      <p>每天第一次发言自动签到 +10；他们会自报认错、提醒你吃饭加分，被抓包扣分。可兑换：{POINT_REWARDS.map((item) => `${item.name} ${item.cost}`).join('、')}。点名字可以亲自加减分。</p>
+      <p>每天第一次发言自动签到 +10；完成剧本要求、认错守规矩可以自报加分（催你吃饭不算），被抓包扣分。可兑换：{POINT_REWARDS.map((item) => `${item.name} ${item.cost}`).join('、')}。点名字可以亲自加减分。</p>
       {state.log.length > 0 && <div className="phone-points-log">{state.log.slice(-8).reverse().map((entry, index) => <span key={`${entry.at}-${index}`}>{nameOf(entry.id)} {entry.delta > 0 ? '+' : ''}{entry.delta}｜{entry.reason}</span>)}</div>}
     </div>}
   </section>
