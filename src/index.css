@@ -1087,3 +1087,5 @@ button { cursor: pointer; }
 .phone-chat .wx-follow .wx-bubble::before { display: none; }
 .phone-chat .wx-stack { gap: 6px; }
 .phone-chat .wx-stack > .wx-line:first-child ~ .wx-act-line { margin: 0; }
+.composer.has-quote { grid-template-areas: "quote quote quote" "plus input send"; }
+.composer.has-quote.has-images { grid-template-areas: "thumbs thumbs thumbs" "quote quote quote" "plus input send"; }
