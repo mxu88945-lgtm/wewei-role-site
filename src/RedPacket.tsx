@@ -8,7 +8,7 @@ export function RedPacketSendSheet({ dm = false, memberCount, onSend, onClose }:
   const [note, setNote] = useState('')
   const totalNumber = Math.floor(Number(total) || 0)
   const countNumber = Math.floor(Number(count) || 0)
-  const problem = !totalNumber ? '' : totalNumber > 200 ? '一个红包最多 200 积分' : countNumber < 1 || countNumber > 9 ? '红包个数 1—9 个' : totalNumber < countNumber ? '每个红包至少 1 积分' : ''
+  const problem = !totalNumber ? '' : totalNumber > 500 ? '一个红包最多 500 积分' : countNumber < 1 || countNumber > 9 ? '红包个数 1—9 个' : totalNumber < countNumber ? '每个红包至少 1 积分' : ''
   const ready = totalNumber > 0 && !problem
   return <div className="red-packet-layer" role="dialog" aria-modal="true" aria-label="发红包">
     <header><button type="button" aria-label="返回" onClick={onClose}>‹</button><strong>发红包</strong><span /></header>

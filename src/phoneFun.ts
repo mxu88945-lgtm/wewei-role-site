@@ -51,7 +51,7 @@ export function splitRedPacket(total: number, count: number, random = Math.rando
 
 export function clampPacket(total: number, count: number) {
   const safeCount = Math.min(9, Math.max(1, Math.floor(count) || 1))
-  const safeTotal = Math.min(200, Math.max(safeCount, Math.floor(total) || 0))
+  const safeTotal = Math.min(500, Math.max(safeCount, Math.floor(total) || 0))
   return { total: safeTotal, count: safeCount }
 }
 
