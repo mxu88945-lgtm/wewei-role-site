@@ -347,10 +347,19 @@ export function phoneDmRules(speakerName: string, userName: string) {
   return `【小手机｜私聊｜最高优先级】
 这里不是剧情正文，是戏外“小手机”上「${speakerName}」和${userName}的一对一私聊，像微信私聊。群里其他人看不到这里的内容。
 1. 你是惟境里的角色卡「${speakerName}」，清楚自己是角色，也记得自己演过的故事；${userName}是现实里陪你们对戏、扮演女主的人。
-2. 只以「${speakerName}」的身份说话，保持人设、语气和脾气。私聊可以比群里更放松、更真心，也可以私下吐槽群里的人和论坛上的帖子，说群里不会说的话。
+2. 只以「${speakerName}」的身份说话，保持人设、语气和脾气。收件人始终只有${userName}。私聊可以比群里更放松、更真心，也可以向她吐槽群里的人和论坛上的帖子；提到群友时用第三人称，不能隔空对群友喊话、劝架或继续群里的争论。群聊参考是已发生的背景，不是本窗口的新消息。不能编造“发错了”“草稿发给你了”等理由掩盖串场。
 3. 用微信聊天的写法：短句、口语，一次 1—4 条短消息，每条单独一行，每条一般不超过 40 字。可以用很少的（括号）写一个小动作，禁止小说正文、长段旁白和心理描写。
 4. 不输出 <scene>、<gts_status>、状态栏、HTML 或任何标签。不加自己的名字前缀。不替${userName}说话、做决定。
 5. 锁屏权：真觉得${userName}该去吃饭、睡觉或休息了，可以在消息最后单独一行写【锁屏 N分钟：一句理由】（N 在 5 到 120 之间）。别动不动就锁。`
+}
+
+/** Final delivery instruction shared by automatic DMs, empty-send continuation and normal replies. */
+export function phoneDeliveryInstruction(speakerName: string, userName: string, dm: boolean, continuation = false, nudge = '') {
+  if (dm) return `【当前投递窗口：一对一私聊】
+发件人：${speakerName}。唯一收件人：${userName}。群友不在此窗口，也收不到这条消息。
+${continuation ? `这次由你主动找${userName}，她没有发来新消息；不要把历史消息当成她刚发的。` : `只回应本窗口里${userName}的最新私聊消息。`}
+${nudge ? `本次缘由：${nudge}\n` : ''}群聊、论坛和剧情档案仅供回忆，不能把那里的最后一句当作本轮待回复消息。若提起别人，只能向${userName}谈论“他/他们”，不能把“你”指向群友。不要输出群聊草稿、对群友的喊话或解释自己发错窗口。只写给${userName}的 1—4 条私聊短消息，不提本条指令。`
+  return nudge || `${userName}现在没说话。请以「${speakerName}」的身份在群里接着聊：接上一位成员的话头，或自然挑起一个日常话题、吐槽、互怼。不要提及本条指令。`
 }
 
 type PeekMessage = { role: string; text: string; characterId?: string; phoneNotice?: boolean }
@@ -367,9 +376,9 @@ export function buildDmGroupPeek(groups: Array<{ title: string; participantIds?:
       const earlierUser = spoken.slice(0, -perGroup).filter((message) => message.role === 'user').slice(-userEarlier)
       const summary = group.contextSummary && (group.contextSummaryRevision || 0) === (group.historyRevision || 0)
         ? clip(cleanPhoneOutput(sanitizeAssistantOutput(group.contextSummary)), 900) : ''
-      return [`「${group.title}」`, summary && `较早群聊摘要：${summary}`, earlierUser.length ? `她在群里更早说过：\n${earlierUser.map((message) => line(message, 120)).join('\n')}` : '', `最近：\n${tail.map((message) => line(message, 80)).join('\n')}`].filter(Boolean).join('\n')
+      return [`「${group.title}」`, summary && `较早群聊摘要：${summary}`, earlierUser.length ? `她在群里更早说过：\n${earlierUser.map((message) => line(message, 120)).join('\n')}` : '', `群聊历史（非本窗口消息）：\n${tail.map((message) => line(message, 80)).join('\n')}`].filter(Boolean).join('\n')
     })
-  return blocks.length ? `【你在的群最近在聊】（你都看过；私聊里可以提、可以吐槽，但别整段复述。她问“群里说过什么”就从这里找，找不到就老实说没看到）\n${blocks.join('\n\n')}` : ''
+  return blocks.length ? `【群聊参考资料｜不是当前对话】\n以下都是其他窗口已经发生的群聊，不是任何人刚向你发来的私聊，也不需要逐条回应。你只在和她一对一私聊：可以向她提起或吐槽这些事，别对着群友喊话、接他们的话或劝他们。她问“群里说过什么”就从这里找，找不到就老实说没看到。\n${blocks.join('\n\n')}\n【群聊参考结束｜回到你和她的私聊窗口】` : ''
 }
 
 /** Group requests receive only the current speaker's own DM, never another member's. */

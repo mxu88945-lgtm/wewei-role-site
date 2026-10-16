@@ -1,3 +1,4 @@
+import type { PhoneGameRound } from './phoneGames'
 import type { ChatImage } from './chatImages'
 import type { DirectorTemplateConfig } from './directorTemplate'
 import type { Character, CharacterMemoryEntry } from './characterCard'
@@ -5,7 +6,7 @@ import type { LongMemoryEntry } from './memoryEngine'
 import type { StoryScript, StoryVariable } from './storyScripts'
 
 export type ReplyAlternative = { text: string; finishReason?: string | null; contextSnapshotId?: string }
-export type Message = { id: number; role: 'user' | 'assistant'; text: string; images?: ChatImage[]; characterId?: string; finishReason?: string | null; alternatives?: ReplyAlternative[]; selectedAlternative?: number; contextSnapshotId?: string; /** 小手机群里的系统小字（例如剧情更新提醒），不发给模型、不算发言。 */ phoneNotice?: boolean; /** 小手机「引用回复」：被引用那句的快照（约 80 字）。 */ quote?: { messageId: string; author: string; text: string } }
+export type Message = { id: number; role: 'user' | 'assistant'; text: string; images?: ChatImage[]; characterId?: string; finishReason?: string | null; alternatives?: ReplyAlternative[]; selectedAlternative?: number; contextSnapshotId?: string; /** 小手机群里的系统小字（例如剧情更新提醒），不发给模型、不算发言。 */ phoneNotice?: boolean; /** 本条游戏的固定抽签结果。 */ phoneGame?: PhoneGameRound; /** 小手机「引用回复」：被引用那句的快照（约 80 字）。 */ quote?: { messageId: string; author: string; text: string } }
 
 export type ConversationContextSnapshot = {
   memories: LongMemoryEntry[]
@@ -34,7 +35,7 @@ export type Conversation = {
   /** 聊天记录分组（故事名），只在聊天列表里整理用。 */
   chatGroup?: string
   /** 小手机戏外日常群：每张卡绑定的过往对话。 */
-  phone?: { bindings: Record<string, string>; mode?: 'named' | 'at' | 'free' | 'smart' | 'all'; /** 小手机私聊：一对一，能看到 TA 所在群的聊天和论坛，群里看不到私聊。 */ dm?: boolean; /** 自己退群的角色，再被拉回来时走“二进宫”报到。 */ left?: Record<string, { at: number; reason: string; kicked?: boolean }>; /** 自定义群头像（256 方图）。 */ avatar?: string; /** 群头像是「拼成员」生成的：成员或成员头像变了就自动重拼。 */ avatarCollage?: boolean; /** 群公告：until 为空表示一直挂着。 */ notice?: { text: string; at: number; until?: number | null }; /** 允许角色自己【退群】，undefined 视为开启。 */ allowQuit?: boolean; /** 允许【踢人】投票，undefined 视为开启。 */ allowKick?: boolean; /** 允许角色【转发论坛】到群里，undefined 视为开启。 */ allowForumShare?: boolean; /** 小手机未读：看过的最后一条消息 id（id 单调递增）。 */ readId?: number; /** 每个成员绑定的长剧情上次被群里看到时的消息数。 */ storySeen?: Record<string, number> }
+  phone?: { game?: PhoneGameRound; bindings: Record<string, string>; mode?: 'named' | 'at' | 'free' | 'smart' | 'all'; /** 小手机私聊：一对一，能看到 TA 所在群的聊天和论坛，群里看不到私聊。 */ dm?: boolean; /** 自己退群的角色，再被拉回来时走“二进宫”报到。 */ left?: Record<string, { at: number; reason: string; kicked?: boolean }>; /** 自定义群头像（256 方图）。 */ avatar?: string; /** 群头像是「拼成员」生成的：成员或成员头像变了就自动重拼。 */ avatarCollage?: boolean; /** 群公告：until 为空表示一直挂着。 */ notice?: { text: string; at: number; until?: number | null }; /** 允许角色自己【退群】，undefined 视为开启。 */ allowQuit?: boolean; /** 允许【踢人】投票，undefined 视为开启。 */ allowKick?: boolean; /** 允许角色【转发论坛】到群里，undefined 视为开启。 */ allowForumShare?: boolean; /** 小手机未读：看过的最后一条消息 id（id 单调递增）。 */ readId?: number; /** 每个成员绑定的长剧情上次被群里看到时的消息数。 */ storySeen?: Record<string, number> }
   participantIds?: string[]
   participantApiIds?: Record<string, string>
   participantModelNames?: Record<string, string>
