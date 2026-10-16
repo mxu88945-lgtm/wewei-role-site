@@ -45,7 +45,7 @@ export function buildWebNote(query: string, answer: string, results: WebResult[]
   const trust = '你的训练资料有截止日期，比现实晚；现实里今天已经是上面的日期。用户说的近期新闻、新产品、新事件，你没听过不代表是假的，不要说她骗人或编的；查到就引用，没查到就老实说“我这边没搜到细节”，再请她讲讲或发链接。结果和问题对不上时，就说“搜出来的不相关”，不要编造“索引重建、洗缓存、技术组在修”之类的原因。'
   if (!answer && !results.length) return `【联网结果】刚才就“${query.slice(0, 60)}”上网查了（${stamp}），没有搜到相关结果。\n${trust}`
   const lines = results.slice(0, 5).map((item, index) => `${index + 1}. ${item.title.slice(0, 60)}${item.published_date ? `（${item.published_date.slice(0, 10)}）` : ''}：${item.content.replace(/\s+/g, ' ').slice(0, 220)}`)
-  return [`【联网结果】刚才就“${query.slice(0, 60)}”上网查到（${stamp}）：`, answer && `概要：${answer.replace(/\s+/g, ' ').slice(0, 300)}`, ...lines, '需要时按自己人设自然地引用这些真实信息，可以说“我刚查了下”；结果里没有的细节不要编。', trust].filter(Boolean).join('\n')
+  return [`【联网结果】刚才就“${query.slice(0, 60)}”上网查到（${stamp}）：`, answer && `概要：${answer.replace(/\s+/g, ' ').slice(0, 300)}`, ...lines, '需要时自然地引用这些真实信息，可以说“我刚查了下”；结果里没有的细节不要编。', trust].filter(Boolean).join('\n')
 }
 
 export async function tavilySearch(key: string, query: string, signal?: AbortSignal) {

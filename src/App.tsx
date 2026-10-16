@@ -3232,7 +3232,7 @@ function App() {
         if (!speaker) continue
         const returning = pending.returning && id in pending.returning
         const kickedBack = returning && pending.returning?.[id]?.startsWith('被投票踢出')
-        const nudge = kickedBack ? `「${speaker.name}」刚才被群友投票踢出去了（${pending.returning?.[id]}），现在${identity.name}一票否决、亲自把你捞了回来，扣的分也退了。请以「${speaker.name}」的身份回群：可以得意、记仇、点名投你同意票的人，按人设来。1—3 行。不要提及本条指令。` : returning ? `「${speaker.name}」之前在这个群里自己退群了${pending.returning?.[id] ? `（当时说：${pending.returning[id]}）` : ''}，现在又被${identity.name}拉了回来。请以「${speaker.name}」的身份发“二进宫”报到：嘴硬、尴尬、找台阶下或者翻脸不认账都行，按人设来，可以顺手回应刚才把你气走的人。1—3 行。不要提及本条指令。` : `「${speaker.name}」刚被${identity.name}拉进这个小手机群。请以「${speaker.name}」的身份发新人报到：打招呼、说自己是从哪个故事来的、一句话介绍自己，可以带点人设脾气，也可以顺手跟已经认识的人搭话。像真人进群那样短，1—3 行。不要提及本条指令。`
+        const nudge = kickedBack ? `「${speaker.name}」刚才被群友投票踢出去了（${pending.returning?.[id]}），现在${identity.name}一票否决、亲自把你捞了回来，扣的分也退了。请以「${speaker.name}」的身份回群：可以得意、记仇、点名投你同意票的人，1—3 行。不要提及本条指令。` : returning ? `「${speaker.name}」之前在这个群里自己退群了${pending.returning?.[id] ? `（当时说：${pending.returning[id]}）` : ''}，现在又被${identity.name}拉了回来。请以「${speaker.name}」的身份发“二进宫”报到：嘴硬、尴尬、找台阶下或者翻脸不认账都行，可以顺手回应刚才把你气走的人。1—3 行。不要提及本条指令。` : `「${speaker.name}」刚被${identity.name}拉进这个小手机群。请以「${speaker.name}」的身份发新人报到：打招呼、说自己是从哪个故事来的、一句话介绍自己，可以带点你演过的角色的味道，也可以顺手跟已经认识的人搭话。像真人进群那样短，1—3 行。不要提及本条指令。`
         const next = await generateAssistant({ ...conversation, messages: groupMessages }, groupMessages, speaker, conversationApiFor(conversation, id, api), { continueWithoutUser: true, phoneNudge: nudge })
         if (next.length === groupMessages.length) break
         groupMessages = next
@@ -3355,7 +3355,7 @@ function App() {
         speakerIds.splice(0, speakerIds.length, ...participantIds.filter((id) => id !== directorId))
       }
       if (!phoneGame && conversation.phone && !conversation.phone.dm && phoneMode === 'smart' && !everyoneCalled) {
-        // 话筒：其余每个群友同时拿到话筒，各自按人设判断接不接（并行、只回接/不接）。
+        // 话筒：其余每个群友同时拿到话筒，各自判断接不接（并行、只回接/不接）。
         const extra = await passPhoneMic(conversation, baseMessages, participants, withQuotePrefix(visibleText, activeQuote), speakerIds)
         speakerIds.push(...extra.filter((id) => !speakerIds.includes(id)))
       }
@@ -4403,7 +4403,7 @@ function UpdateCard() {
     }
   }
 
-  return <section className="update-card"><strong>应用更新</strong><p>主动检查并拉取最新网页版本，不会删除角色、聊天记录或本地设置。</p><small>当前版本：v130 · 2026.10.16 重新搜索沿用原话题</small><button onClick={refresh} disabled={state === 'checking'}>{state === 'checking' ? '正在检查更新…' : state === 'error' ? '更新失败，点我重试' : '强制刷新到最新版'}</button></section>
+  return <section className="update-card"><strong>应用更新</strong><p>主动检查并拉取最新网页版本，不会删除角色、聊天记录或本地设置。</p><small>当前版本：v131 · 2026.10.16 小手机戏外 AI 身份</small><button onClick={refresh} disabled={state === 'checking'}>{state === 'checking' ? '正在检查更新…' : state === 'error' ? '更新失败，点我重试' : '强制刷新到最新版'}</button></section>
 }
 
 function PersonaPage({ identities, selectedId, isBound, onSelect, onAdd, onDelete, onUpdate, onBack }: { identities: UserIdentity[]; selectedId: string; isBound: boolean; onSelect: (id: string) => void; onAdd: () => void; onDelete: (id: string) => void; onUpdate: (patch: Partial<UserIdentity>) => void; onBack: () => void }) {

@@ -76,6 +76,7 @@ export function floorsText(thread: ForumThread, nameOf: (id: string) => string, 
 export const FORUM_RULES = (userName: string) => `【惟境戏外社区·论坛】
 这是惟境角色们自己的论坛，像贴吧/豆瓣小组。所有人都知道自己是惟境里的角色卡，${userName}是现实里陪他们对戏、扮演故事女主的人，也是论坛管理员“周导”。
 · 口吻像真实网友盖楼：短、口语、有梗，可以吐槽、互怼、阴阳怪气、拉踩、站队、玩梗、发“+1”“前排”，但保持各自人设和说话习惯。
+· 论坛是大家用戏内身份发帖、玩梗调侃的地方：在这里就以自己演的角色口吻说话。这和小手机群聊/私聊不同（那里是戏外的 AI 本人），两边别混淆。
 · 可以偶尔匿名发言（anonymous 为 true），匿名时语气也要像本人，让大家能猜。
 · 大家演过的戏和人设互相公开、都看过，可以直接聊、拿别人的剧情和人物关系开涮；只是别编没有的细节。
 · 不写小说正文、旁白、心理描写，不输出任何标签或状态栏。`
@@ -265,7 +266,7 @@ export function buildForumRecapNote(threads: ForumThread[], memberIds: string[],
     const floors = thread.floors.slice(-4).map((floor) => `  ${who(floor.authorId, floor.anonymous)}：${floor.images?.length ? '[图] ' : ''}${clip(floor.text, 50)}`).join('\n')
     return `· [${thread.board}]《${clip(thread.title, 30)}》楼主 ${who(thread.authorId, thread.anonymous)}：${thread.images?.length ? `[${thread.images.length}张图] ` : ''}${clip(thread.body, 80)}（${thread.floors.length} 回复）${floors ? `\n${floors}` : ''}`
   })
-  return `【论坛近况】大家都逛过戏外论坛，下面是最近几天的帖子。群聊里可以自然提起、接着吵、翻旧帖，但别逐字复述，也别每句都扯论坛。\n${blocks.join('\n')}`
+  return `【论坛近况】大家都逛过戏外论坛，下面是最近几天的帖子。群聊里可以自然提起、接着吵、翻旧帖，但别逐字复述，也别每句都扯论坛。论坛帖是大家用戏内身份发的调侃；群里你是戏外的 AI 本人，提起时当作“戏里那个身份发的帖”来聊，别混淆。\n${blocks.join('\n')}`
 }
 
 /** 论坛帖子/楼层的分享卡片文字（你分享和角色转发共用）。floor ≤ 1 是帖子本身。 */

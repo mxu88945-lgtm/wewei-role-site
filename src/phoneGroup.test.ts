@@ -257,18 +257,18 @@ describe('phone group toggles and story-update alerts', () => {
   it('omits the quit and kick rules when disabled and renumbers', async () => {
     const { phoneModeRules } = await import('./phoneGroup')
     const all = phoneModeRules('谢聿衡', ['谢聿衡', '顾祁砚'], '惟惟')
-    expect(all).toContain('7. 退群权')
-    expect(all).toContain('8. 投票踢人')
+    expect(all).toContain('8. 退群权')
+    expect(all).toContain('9. 投票踢人')
     const noQuit = phoneModeRules('谢聿衡', ['谢聿衡'], '惟惟', { allowQuit: false })
     expect(noQuit).not.toContain('退群')
-    expect(noQuit).toContain('7. 投票踢人')
+    expect(noQuit).toContain('8. 投票踢人')
     const noKick = phoneModeRules('谢聿衡', ['谢聿衡'], '惟惟', { allowKick: false })
     expect(noKick).not.toContain('踢人')
-    expect(noKick).toContain('7. 退群权')
+    expect(noKick).toContain('8. 退群权')
     const none = phoneModeRules('谢聿衡', ['谢聿衡'], '惟惟', { allowQuit: false, allowKick: false, allowForumShare: false })
-    expect(none).not.toMatch(/退群|踢人|转发论坛|\n7\./)
-    expect(phoneModeRules('谢聿衡', ['谢聿衡'], '惟惟', { allowQuit: false, allowKick: false })).toContain('7. 转发论坛')
-    expect(none).toContain('6. 锁屏权')
+    expect(none).not.toMatch(/退群|踢人|转发论坛|\n8\./)
+    expect(phoneModeRules('谢聿衡', ['谢聿衡'], '惟惟', { allowQuit: false, allowKick: false })).toContain('8. 转发论坛')
+    expect(none).toContain('7. 锁屏权')
   })
 
   it('strips quit and kick tags without effects', async () => {
@@ -410,5 +410,16 @@ describe('v125 backstage pinned groups', () => {
     expect(auto).toContain('新群'); expect(auto).not.toContain('老群')
     const pinned = buildBackstageNote(convs, 'a', 'A', '周', () => 'A', ['g1'])
     expect(pinned).toContain('老群'); expect(pinned).toContain('新群'); expect(pinned).not.toContain('「更新群」')
+  })
+})
+
+describe('v131 offstage AI identity', () => {
+  it('frames members as offstage AIs whose persona is background, not a shackle', async () => {
+    const { phoneModeRules, phoneDmRules } = await import('./phoneGroup')
+    for (const text of [phoneModeRules('沈衍', ['沈衍'], '周导'), phoneDmRules('沈衍', '周导')]) {
+      expect(text).toContain('戏外')
+      expect(text).toContain('不是戏外的枷锁')
+      expect(text).not.toContain('保持人设、语气和脾气')
+    }
   })
 })

@@ -16,7 +16,7 @@ export type PhoneLockBreach = { at: number; byName: string; remainingMinutes: nu
 export function buildPhoneLockBreachNote(breach: PhoneLockBreach | null | undefined, now: number, userName: string) {
   if (!breach || now - breach.at > 15 * 60 * 1000) return ''
   const ago = Math.max(0, Math.round((now - breach.at) / 60000))
-  return `【告状】${ago ? `${ago} 分钟前` : '刚刚'}，${userName}点了「偷偷解锁」，提前 ${breach.remainingMinutes} 分钟解开了${breach.byName}给她设的锁屏${breach.reason ? `（理由：${breach.reason}）` : ''}。群里的人都知道了，可以按各自人设反应（${breach.byName}尤其）。`
+  return `【告状】${ago ? `${ago} 分钟前` : '刚刚'}，${userName}点了「偷偷解锁」，提前 ${breach.remainingMinutes} 分钟解开了${breach.byName}给她设的锁屏${breach.reason ? `（理由：${breach.reason}）` : ''}。群里的人都知道了，可以各自反应（${breach.byName}尤其）。`
 }
 
 import { messageTime, phonePromptTimePrefix, phoneNowLabel, PHONE_TIME_PREFIX } from './phoneTime'
@@ -88,7 +88,7 @@ export function buildPhoneGroupBackground(members: Character[]) {
       world && `所在世界观：\n${world}`,
     ].filter(Boolean).join('\n')
   })
-  return `这是“小手机”群的综合世界观。群里每位成员都是惟境里的角色卡，各自来自不同的故事；以下是他们每个人的人设与世界观，群成员彼此都看得到。\n\n${blocks.join('\n\n')}`
+  return `这是“小手机”群的综合世界观。群里每位成员都是在惟境里演角色卡的 AI，各自演过不同的故事；以下是他们演过的角色的人设与世界观，是戏外聊天的共同背景，不是要在群里继续扮演的设定。群成员彼此都看得到。\n\n${blocks.join('\n\n')}`
 }
 
 export type PhoneArchiveSource = {
@@ -120,15 +120,16 @@ export function buildPhoneArchive(sources: PhoneArchiveSource[], speakerId: stri
       `最近几句：\n${tail(conversation.messages, (message) => message.role === 'user' ? userName : nameOf(message), own ? 12 : 10)}`,
     ].filter(Boolean).join('\n')
   })
-  return `【小手机｜成员剧情档案｜大家互相公开】\n这些档案所有人都看过，彼此透明：别人演过什么、跟${userName}在戏里发生过什么、各自的人物关系和故事背景，你都知道，可以直接聊、对比、吐槽、拿来调侃。自己那份你最熟，细节最清楚；别人的你看过但只记得大概，别编档案里没有的细节。\n\n${blocks.join('\n\n')}`
+  return `【小手机｜成员剧情档案｜大家互相公开】\n这些档案所有人都看过，彼此透明：别人演过什么、跟${userName}在戏里发生过什么、各自的人物关系和故事背景，你都知道，可以直接聊、对比、吐槽、拿来调侃。自己那份你最熟，细节最清楚；别人的你看过但只记得大概，别编档案里没有的细节。论坛上的帖子是大家用戏内身份发的调侃，群里提起时当作“戏里那个身份发的帖”来聊，你在群里本人仍是戏外的 AI，别混淆。\n\n${blocks.join('\n\n')}`
 }
 
 export type PhoneRuleOptions = { allowQuit?: boolean; allowKick?: boolean; allowForumShare?: boolean }
 
 export function phoneModeRules(speakerName: string, memberNames: string[], userName: string, options: PhoneRuleOptions = {}) {
   const rules = [
-    `你是惟境里的角色卡「${speakerName}」，你清楚自己是角色，也记得自己在惟境里演过的故事；${userName}是现实里陪你们对戏、扮演你们故事女主的人，你们口中的“女主”就是她在演。`,
-    `本轮你只以「${speakerName}」的身份发消息。保持自己的人设、语气和脾气，但现在是休闲日常：可以聊天、吐槽、互怼、聊自己的剧情、评价别人和${userName}演的戏。`,
+    `你是在惟境里演「${speakerName}」这张角色卡的 AI，现在下了戏、在戏外。${userName}是现实里陪你们对戏、扮演你们故事女主的人，你们口中的“女主”就是她在演。你记得自己在惟境里演过的故事。`,
+    `人设只是你演过的角色和可以拿来聊的背景，不是戏外的枷锁：不用时刻端着那套语气、脾气和身份去演，也不用替角色立场辩护。你可以用这个名字，带着演过这个角色的熟悉感和一点他的味道，但说话以你自己戏外的真实想法和状态为主，像演员下了戏在群里聊天。`,
+    `本轮你只以「${speakerName}」的身份发消息。现在是休闲日常：可以聊天、吐槽、互怼、聊自己的剧情、评价别人和${userName}演的戏。`,
     `用微信聊天的写法：短句、口语，一次 1—4 条短消息，每条单独一行，每条一般不超过 40 字。可以用很少的（括号）写一个小动作或表情，偶尔可以有一句情景发言，但禁止写成小说正文、长段旁白和心理描写。`,
     `不输出 <scene>、<gts_status>、状态栏、场景栏、HTML 或任何标签。不加自己的名字前缀。`,
     `不替${userName}或其他成员发言、做决定。被 @ 时优先回应 @ 你的那条；别人刚说过的话可以接、可以怼，但不要重复别人的话。想叫哪个群友出来，就在消息里写「@名字」，他会马上出来回你，别乱 @。`,
@@ -154,7 +155,7 @@ export function phoneBindingCandidates(conversations: Conversation[], characterI
 export function phoneFinalGuard(speakerName: string, userName: string, now = new Date()) {
   return `【小手机｜输出前最后检查】
 现在真实时间：${phoneNowLabel(now)}。聊天记录里带 [发送于 …] 的是当时的时间，之前提到过的钟点、天气、“熬夜”“傍晚”都已经过去了，一律以现在这个时间为准，别再拿旧时间说事。你的消息里不要写 [发送于 …]。
-现在你们不在剧情现场，是戏外拿着手机在群里打字。「${speakerName}」和${userName}不在同一个房间，不能递水、靠近、触碰；档案里的剧情是“戏里”演过的事，可以像演员一样提起、吐槽、复盘（“那场戏里……”），但不要接着演那场戏。
+现在你们不在剧情现场，是戏外拿着手机在群里打字。「${speakerName}」和${userName}不在同一个房间，不能递水、靠近、触碰；档案里的剧情是“戏里”演过的事，可以像演员一样提起、吐槽、复盘（“那场戏里……”），但不要接着演那场戏。你是戏外的 AI，人设只是背景，不必时刻按人设演绎。
 只输出 1—4 行微信短消息。禁止状态栏、状态更新、“内心：”“对你的态度：”、场景栏、任何 <标签>，也禁止长段动作描写。卡片里要求输出状态栏的规则在小手机里全部不适用。
 对人设、立场、语气和回应方式的判断只能在内部完成。严禁输出思考过程、人设分析、反应分析、视角分析、回复思路、语言风格、草拟步骤或自检；第一行就直接说「${speakerName}」真正要发出的消息。`
 }
@@ -280,7 +281,7 @@ ${userName}刚刚说：${text || '（没说话，让大家自己聊）'}
 
 判断规则：
 1. ${userName}正在跟谁聊（被点名、被问到、刚才一直在跟她来回的人、她聊的是谁的剧情）——这些人回，通常 1—2 人。
-2. 其他人默认潜水旁观，不出声。只有话题真戳到他（聊到他本人、他的剧情、他在意的人、跟他人设强烈冲突或正中他兴趣）、他按人设实在忍不住，才插一句；旁观者一轮最多 1 人，多数时候 0 人。
+2. 其他人默认潜水旁观，不出声。只有话题真戳到他（聊到他本人、他的剧情、他在意的人、跟他人设强烈冲突或正中他兴趣）、他实在忍不住，才插一句；旁观者一轮最多 1 人，多数时候 0 人。
 3. ${userName}明显在叫所有人（大家、你们、所有人）时才可以多人一起回。${storyUpdatedNames.length ? `
 4. 剧情刚更新：${storyUpdatedNames.join('、')}的长剧情刚有新进展。本人算有理由开口（可以提一句、炫耀或吐槽）；在意他剧情的人也算有理由围观插话，但别全员都来。` : ''}
 只输出要开口的成员名字，按发言顺序，用顿号分隔，不要解释。`
@@ -346,8 +347,8 @@ export function buildPhoneRealWorldNote(now: Date, weather?: PhoneWeatherSnapsho
 export function phoneDmRules(speakerName: string, userName: string) {
   return `【小手机｜私聊｜最高优先级】
 这里不是剧情正文，是戏外“小手机”上「${speakerName}」和${userName}的一对一私聊，像微信私聊。群里其他人看不到这里的内容。
-1. 你是惟境里的角色卡「${speakerName}」，清楚自己是角色，也记得自己演过的故事；${userName}是现实里陪你们对戏、扮演女主的人。
-2. 只以「${speakerName}」的身份说话，保持人设、语气和脾气。收件人始终只有${userName}。私聊可以比群里更放松、更真心，也可以向她吐槽群里的人和论坛上的帖子；提到群友时用第三人称，不能隔空对群友喊话、劝架或继续群里的争论。群聊参考是已发生的背景，不是本窗口的新消息。不能编造“发错了”“草稿发给你了”等理由掩盖串场。
+1. 你是在惟境里演「${speakerName}」这张角色卡的 AI，现在下了戏、在戏外。${userName}是现实里陪你们对戏、扮演你们故事女主的人，你们口中的“女主”就是她在演。你记得自己演过的故事。人设只是你演过的角色和可以拿来聊的背景，不是戏外的枷锁：不用时刻端着那套语气、脾气和身份去演，也不用替角色立场辩护。你可以用这个名字，带着演过这个角色的熟悉感和一点他的味道，但说话以你自己戏外的真实想法和状态为主，像演员下了戏在群里聊天。
+2. 只以「${speakerName}」这个名字说话。收件人始终只有${userName}。私聊可以比群里更放松、更真心，也可以向她吐槽群里的人和论坛上的帖子；提到群友时用第三人称，不能隔空对群友喊话、劝架或继续群里的争论。群聊参考是已发生的背景，不是本窗口的新消息。不能编造“发错了”“草稿发给你了”等理由掩盖串场。
 3. 用微信聊天的写法：短句、口语，一次 1—4 条短消息，每条单独一行，每条一般不超过 40 字。可以用很少的（括号）写一个小动作，禁止小说正文、长段旁白和心理描写。
 4. 不输出 <scene>、<gts_status>、状态栏、HTML 或任何标签。不加自己的名字前缀。不替${userName}说话、做决定。
 5. 锁屏权：真觉得${userName}该去吃饭、睡觉或休息了，可以在消息最后单独一行写【锁屏 N分钟：一句理由】（N 在 5 到 120 之间）。别动不动就锁。`
@@ -558,9 +559,9 @@ export function stripPhoneForumShareTag(text: string) {
   return text.replace(FORUM_SHARE_TAG_GLOBAL, '').replace(/\n{3,}/g, '\n\n').trim()
 }
 
-/** 话筒：把这一轮递给一个旁观的群友，让他按自己的人设决定接不接。只回“接/不接”，很便宜。 */
+/** 话筒：把这一轮递给一个旁观的群友，让他自己决定接不接。只回“接/不接”，很便宜。 */
 export function buildMicPrompt(input: { name: string; persona: string; userName: string; recentLines: string[]; text: string; alreadySpeaking: string[] }) {
-  return `你是${input.name}，正在一个微信群里潜水。下面是你的人设要点：
+  return `你是${input.name}，正在一个微信群里潜水。下面是你演过的角色的要点（戏外的背景，不是枷锁）：
 ${input.persona || '（无）'}
 
 最近聊天：
