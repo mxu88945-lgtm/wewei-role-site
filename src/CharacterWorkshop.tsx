@@ -140,6 +140,7 @@ export default function CharacterWorkshop({ channels, characters = [], defaultCh
   const [copilotState, setCopilotState] = useState<'idle' | 'thinking' | 'compressing'>('idle')
   const [copilotError, setCopilotError] = useState('')
   const controllerRef = useRef<AbortController | null>(null)
+  const [generateActivity, setGenerateActivity] = useState<'' | 'retrying'>('')
   const copilotControllerRef = useRef<AbortController | null>(null)
   const generationRevisionRef = useRef(0)
   const copilotEndRef = useRef<HTMLDivElement | null>(null)
@@ -187,7 +188,7 @@ export default function CharacterWorkshop({ channels, characters = [], defaultCh
     controllerRef.current?.abort()
     const controller = new AbortController()
     controllerRef.current = controller
-    setState('generating'); setError('')
+    setState('generating'); setError(''); setGenerateActivity('')
     let raw = ''
     try {
       const completion = await completeChat({
@@ -206,6 +207,7 @@ export default function CharacterWorkshop({ channels, characters = [], defaultCh
         streaming: false,
         signal: controller.signal,
         onDelta: (delta) => { raw += delta },
+        onActivity: (activity) => { if (revision === generationRevisionRef.current) setGenerateActivity(activity === 'retrying' ? 'retrying' : '') },
       })
       if (revision !== generationRevisionRef.current) return
       if (completion.finishReason === 'length' || completion.finishReason === 'max_tokens') {
@@ -492,7 +494,7 @@ export default function CharacterWorkshop({ channels, characters = [], defaultCh
         <details><summary>细化风格、边界与开场美化</summary><TextArea label="文风与气质" rows={3} value={brief.tone} onChange={(tone) => patchBrief({ tone })} /><TextArea label="感情节奏" rows={3} value={brief.pace} onChange={(pace) => patchBrief({ pace })} /><TextArea label="绝对边界" rows={3} value={brief.boundaries} onChange={(boundaries) => patchBrief({ boundaries })} /><TextArea label="开场白美化偏好" rows={4} value={brief.beautificationHint || ''} onChange={(beautificationHint) => patchBrief({ beautificationHint })} /><div className="workshop-beautification-preview" aria-label="开场白美化结构预览"><div className="workshop-preview-heading"><div><strong>开场白结构预览</strong><small>只展示排版逻辑，不消耗模型额度</small></div><span>✦</span></div><div className="workshop-preview-block scene"><code>&lt;scene&gt;</code><p>时间、地点和环境：先把这一轮的场景交代清楚。</p></div><div className="workshop-preview-block body"><code>剧情正文</code><p>角色的动作、语气和外部事件自然展开，但不替用户决定台词、动作或心理。</p></div><div className="workshop-preview-block status"><code>&lt;gts_status&gt;</code><p>关系：{brief.relationship.trim() || '按当前设定推进'} · 状态：等待用户回应</p></div><div className="workshop-field-hint">生成后，模型会用角色自己的内容替换这三段；关闭正则时，原始标签仍然可读。</div></div></details>
         <label><span>生成所用渠道</span><select value={channelId} onChange={(event) => setChannelId(event.target.value)}>{channels.map((item) => <option key={item.id} value={item.id}>{item.name} · {item.modelName || '未选模型'}</option>)}</select></label>
         {error && <div className="workshop-error">{error}</div>}
-        <button className="workshop-generate" disabled={state === 'generating'} onClick={generate}>{state === 'generating' ? '正在认真捏人…' : result ? '重新生成整张卡' : '✦ 生成角色卡'}</button>
+        <button className="workshop-generate" disabled={state === 'generating'} onClick={generate}>{state === 'generating' ? (generateActivity === 'retrying' ? '接口不稳，正在重新连接…' : '正在认真捏人…（长设定约 1–3 分钟）') : result ? '重新生成整张卡' : '✦ 生成角色卡'}</button>
         {state === 'generating' && <button className="workshop-stop" onClick={() => controllerRef.current?.abort()}>停止生成</button>}
       </div>
 

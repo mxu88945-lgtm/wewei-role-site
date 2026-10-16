@@ -527,7 +527,10 @@ async function completeChatRequest(options: CompletionOptions) {
       } catch (error) {
         if (signal.aborted || (error instanceof DOMException && error.name === 'AbortError')) throw error
         lastError = error
-        if (attempt === 3) throw error
+        // A non-streaming request that ran out its 3-minute wait may still be
+        // generating (and billing) on the relay. Re-sending it silently made
+        // the workshop look frozen for up to 9 minutes and paid for 3 cards.
+        if (attempt === 3 || (!streaming && error instanceof ChatApiError && /超时/.test(error.message))) throw error
       }
       // Match the stable behaviour of the older port: short backoff absorbs a
       // relay's one-off overload without making the user resend the turn.

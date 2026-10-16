@@ -498,3 +498,21 @@ describe('chatApi', () => {
     expect(output).toBe('已恢复。')
   })
 })
+
+describe('v126 non-stream timeout', () => {
+  it('does not silently resend a non-streaming request after it timed out', async () => {
+    vi.useFakeTimers()
+    const { completeChat } = await import('./chatApi')
+    const fetchMock = vi.fn((_url: unknown, init: RequestInit) => new Promise((_resolve, reject) => {
+      init.signal?.addEventListener('abort', () => reject(new DOMException('Timed out', 'TimeoutError')))
+    }))
+    vi.stubGlobal('fetch', fetchMock)
+    const pending = completeChat({ api: { id: 'x', name: 'x', baseUrl: 'https://relay.test/v1', apiKey: 'k', modelName: 'm' } as never, messages: [{ role: 'user', content: 'hi' }], temperature: 1, topP: 1, maxTokens: 100, streaming: false, signal: new AbortController().signal, onDelta: () => {} })
+    const settled = pending.catch((error) => error)
+    await vi.advanceTimersByTimeAsync(181_000)
+    const error = await settled
+    expect(String(error?.message)).toContain('超时')
+    expect(fetchMock).toHaveBeenCalledTimes(1)
+    vi.unstubAllGlobals(); vi.useRealTimers()
+  })
+})
