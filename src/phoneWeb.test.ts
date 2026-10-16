@@ -27,3 +27,13 @@ describe('v129 web search accuracy', () => {
     expect(note).toContain('不要说她骗人')
   })
 })
+
+describe('v130 retry search keeps the topic', () => {
+  it('reuses her last topical ask instead of searching her complaint', async () => {
+    const { buildSearchQuery } = await import('./phoneWeb')
+    const earlier = ['今天马斯克发布了新车，你们搜下新闻', '就是让你们去接近这个世界，你们倒好', '怎么搜出来的东西那么不确定？？']
+    const query = buildSearchQuery('顺个鬼！现在重新搜索看看', earlier)
+    expect(query).toContain('马斯克')
+    expect(query).not.toContain('顺个鬼')
+  })
+})
