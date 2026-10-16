@@ -2527,7 +2527,7 @@ function App() {
       : 0
     if (!isPhone && !isDirector) {
       // 长剧情里的他私底下知道小手机上的戏外日常，但戏里不提。
-      const backstage = buildBackstageNote(conversations, speaker.id, speaker.name, identity.name, (id) => characters.find((item) => item.id === id)?.name || '角色')
+      const backstage = buildBackstageNote(conversations, speaker.id, speaker.name, identity.name, (id) => characters.find((item) => item.id === id)?.name || '角色', conversation.backstageGroupIds)
       if (backstage) promptMessages.push({ role: 'system', content: backstage })
     }
     if (storedRelationshipStage) promptMessages.push({ role: 'system', content: relationshipStageLockInstruction(storedRelationshipStage) })
@@ -4223,6 +4223,17 @@ function App() {
           {activeConversation?.fork && <section className="drawer-compact-group"><div className="drawer-section-title"><strong>独立剧情分线</strong></div><p className="branch-context-note">只沿这条分线的正文与记忆继续，不同步原线后来的事实。项目场记沿用分叉时快照；另行绑定剧本项目后使用新项目。</p><button disabled={isGenerating || !conversations.some((item) => item.id === activeConversation.fork?.parentId)} onClick={returnToParentConversation}><span>{conversations.some((item) => item.id === activeConversation.fork?.parentId) ? '返回原剧情（原线已保留）' : '原剧情已删除，分线仍独立保留'}</span><i>↩</i></button></section>}
           <section className="conversation-stats-card" aria-label="本次共演统计"><div className="conversation-stats-heading"><strong>本次共演</strong><small>你每发送一次计一轮</small></div><div className="conversation-stats-grid"><div><strong>{conversationStats.rounds}</strong><span>对话轮数</span></div><div><strong>{conversationStats.replies}</strong><span>角色回复</span></div><div><strong>{conversationStats.total}</strong><span>消息总数</span></div></div></section>
           <section className="drawer-members-section"><div className="drawer-section-title"><strong>成员（{conversationMemberIds().length}）</strong><button onClick={() => { setDrawer(null); setMemberPickerOpen(true) }}>＋ 添加 / 配置 API</button></div><div className="drawer-member-row">{conversationMemberIds().map((id) => { const member = characters.find((item) => item.id === id); if (!member) return null; return <div className="drawer-member-chip" key={id}>{member.avatar ? <img src={member.avatar} alt="" /> : <span>{member.name.slice(-1)}</span>}<small>{member.name}</small>{conversationMemberIds().length > 1 && <button aria-label={`移除${member.name}`} onClick={() => removeConversationMember(id)}>×</button>}</div> })}</div></section>
+          {activeConversation && !activeConversation.phone && (() => {
+            const memberIds = conversationMemberIds()
+            const groups = conversations.filter((item) => item.phone && !item.phone.dm && item.participantIds?.some((id) => memberIds.includes(id)))
+            if (!groups.length) return null
+            const pinned = (activeConversation.backstageGroupIds || []).filter((id) => groups.some((group) => group.id === id))
+            const toggle = (id: string) => {
+              const next = pinned.includes(id) ? pinned.filter((item) => item !== id) : [...pinned, id].slice(-2)
+              setConversations((current) => current.map((item) => item.id === activeConversation.id ? { ...item, backstageGroupIds: next.length ? next : undefined } : item))
+            }
+            return <section className="drawer-compact-group backstage-groups"><div className="drawer-section-title"><strong>戏外小手机记忆</strong></div><p className="branch-context-note">{pinned.length ? `已指定 ${pinned.length}/2 个群，私聊照常带上。` : '未指定：自动带最近活跃的两个群和私聊。点选最多两个群来固定。'}</p>{groups.map((group) => <button key={group.id} aria-pressed={pinned.includes(group.id)} onClick={() => toggle(group.id)}><span>{shownTitle(group)}</span><i>{pinned.includes(group.id) ? '✓' : '＋'}</i></button>)}</section>
+          })()}
           {activeConversation?.phone && <section className="drawer-compact-group"><div className="drawer-section-title"><strong>小手机</strong></div><button onClick={() => { setDrawer(null); openPhonePage(activeConversation) }}><span>成员与绑定的过往对话</span><i>›</i></button></section>}
           <section className="drawer-compact-group"><div className="drawer-section-title"><strong>聊天设置</strong></div>{activeConversation?.directorCharacterId ? <button onClick={() => { setDirectorEditorTarget('conversation'); navigate('director-template', 'right') }}><span>共演导演资料 · 已启用</span><i>›</i></button> : <button onClick={openConversationDirectorCreator}><span>添加共演导演 · 保留当前剧情</span><i>＋</i></button>}{activeConversation?.directorCharacterId && activeConversation.directorConfig && <button disabled={!persistenceReady} onClick={() => saveDirectorToLibrary()}><span>保存导演卡到角色库</span><i>＋</i></button>}{[['剧情搜索与书签', 'chat-search'], ['模型发送内容', 'request-preview'], [`临时剧情 · ${activeConversation?.temporaryPlot?.text.trim() ? '待使用' : '未填写'}`, 'temporary-plot'], ['剧情脚本与变量', 'story-scripts'], ['情景与角色资料', 'card-data'], [`本剧场世界观背景 · ${activeConversation?.theaterWorldBackground?.trim() ? '已填写' : '未填写'}`, 'theater-world'], ['用户身份', 'identity'], ['主题与背景', 'appearance'], ['字体与文字颜色', 'font'], ['显示与回复', 'display-reply']].map(([label, target]) => <button key={label} onClick={() => target === 'request-preview' ? openRequestPreview() : navigate(target as Page, 'right')}><span>{label}</span><i>›</i></button>)}</section>
           <section className="drawer-compact-group"><div className="drawer-section-title"><strong>角色与高级设置</strong></div>{[['世界书', 'card-worldbook'], ['正则与美化', 'card-regex'], ['长期记忆', 'memory'], [`AI 帮答 · ${(apiChannels.find((item) => item.id === replyHelperApiId) || api).name || '未配置'}`, 'reply-helper-api'], [`API · ${api.name || '当前渠道'}`, 'api'], ['模型设置', 'model'], ['模型预设', 'preset'], ['应用设置', 'settings']].map(([label, target]) => <button key={label} onClick={() => navigate(target as Page, 'right')}><span>{label}</span><i>›</i></button>)}</section>
@@ -4330,7 +4341,7 @@ function UpdateCard() {
     }
   }
 
-  return <section className="update-card"><strong>应用更新</strong><p>主动检查并拉取最新网页版本，不会删除角色、聊天记录或本地设置。</p><small>当前版本：v124 · 2026.10.16 私聊记得群里的话</small><button onClick={refresh} disabled={state === 'checking'}>{state === 'checking' ? '正在检查更新…' : state === 'error' ? '更新失败，点我重试' : '强制刷新到最新版'}</button></section>
+  return <section className="update-card"><strong>应用更新</strong><p>主动检查并拉取最新网页版本，不会删除角色、聊天记录或本地设置。</p><small>当前版本：v125 · 2026.10.16 长剧情可指定群记忆</small><button onClick={refresh} disabled={state === 'checking'}>{state === 'checking' ? '正在检查更新…' : state === 'error' ? '更新失败，点我重试' : '强制刷新到最新版'}</button></section>
 }
 
 function PersonaPage({ identities, selectedId, isBound, onSelect, onAdd, onDelete, onUpdate, onBack }: { identities: UserIdentity[]; selectedId: string; isBound: boolean; onSelect: (id: string) => void; onAdd: () => void; onDelete: (id: string) => void; onUpdate: (patch: Partial<UserIdentity>) => void; onBack: () => void }) {

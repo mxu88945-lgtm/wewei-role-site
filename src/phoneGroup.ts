@@ -574,14 +574,18 @@ export function parseMicAnswer(raw: string) {
  * 长剧情里的角色“私底下知道”小手机上的戏外日常：只给本人的私聊 + 他在的群的最近片段。
  * 戏里是戏里，戏外是戏外——这份只当心里有数，用行动和态度体现，绝不在剧情里提小手机、群、积分。
  */
-export function buildBackstageNote(conversations: Conversation[], characterId: string, speakerName: string, userName: string, nameOfCharacter: (id?: string) => string) {
+export function buildBackstageNote(conversations: Conversation[], characterId: string, speakerName: string, userName: string, nameOfCharacter: (id?: string) => string, pinnedGroupIds: string[] = []) {
   const line = (message: Message) => `${message.role === 'user' ? userName : nameOfCharacter(message.characterId)}：${clip(message.text.replace(/<[^>]+>/g, ' ').replace(/\s+/g, ' '), 120)}`
   const dm = conversations.filter((item) => item.phone?.dm && item.participantIds?.length === 1 && item.participantIds[0] === characterId)
     .sort((left, right) => right.updatedAt - left.updatedAt)[0]
   const dmSummary = dm?.contextSummary && (dm.contextSummaryRevision || 0) === (dm.historyRevision || 0) ? clip(cleanPhoneOutput(sanitizeAssistantOutput(dm.contextSummary)), 900) : ''
   const dmRecent = dm ? phonePromptHistory(dm.messages, 12).filter((message) => message.role === 'user' || message.characterId === characterId || !message.characterId).map(line).join('\n') : ''
   const groups = conversations.filter((item) => item.phone && !item.phone.dm && item.participantIds?.includes(characterId) && item.messages.length)
-    .sort((left, right) => right.updatedAt - left.updatedAt).slice(0, 2)
+    .sort((left, right) => {
+      // 她在长剧情里指定过的群排最前；指定不满两个时用最近活跃的补上。
+      const pin = (id: string) => { const index = pinnedGroupIds.indexOf(id); return index < 0 ? 99 : index }
+      return pin(left.id) - pin(right.id) || right.updatedAt - left.updatedAt
+    }).slice(0, 2)
     .map((group) => {
       const summary = group.contextSummary && (group.contextSummaryRevision || 0) === (group.historyRevision || 0) ? clip(cleanPhoneOutput(sanitizeAssistantOutput(group.contextSummary)), 700) : ''
       return `「${group.title}」${summary ? `较早摘要：\n${summary}\n` : ''}最近：\n${phonePromptHistory(group.messages, 10).map(line).join('\n')}`

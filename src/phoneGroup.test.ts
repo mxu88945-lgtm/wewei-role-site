@@ -400,3 +400,15 @@ describe('v124 dm peek and reasoning leak', () => {
     expect(containsPhoneReasoning('早上好呀，吃了吗')).toBe(false)
   })
 })
+
+describe('v125 backstage pinned groups', () => {
+  it('prefers pinned groups over recently active ones', async () => {
+    const { buildBackstageNote } = await import('./phoneGroup')
+    const mk = (id: string, title: string, updatedAt: number) => ({ id, title, updatedAt, participantIds: ['a'], phone: { bindings: {} }, messages: [{ id: 1, role: 'user', text: `${title}的话` }] })
+    const convs = [mk('g1', '老群', 1), mk('g2', '新群', 3), mk('g3', '更新群', 2)] as never
+    const auto = buildBackstageNote(convs, 'a', 'A', '周', () => 'A')
+    expect(auto).toContain('新群'); expect(auto).not.toContain('老群')
+    const pinned = buildBackstageNote(convs, 'a', 'A', '周', () => 'A', ['g1'])
+    expect(pinned).toContain('老群'); expect(pinned).toContain('新群'); expect(pinned).not.toContain('「更新群」')
+  })
+})

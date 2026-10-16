@@ -51,6 +51,8 @@ export type Conversation = {
   projectContextSnapshot?: Record<string, string>
   fork?: { parentId: string; messageId: number; createdAt: number }
   theaterWorldBackground?: string
+  /** 长剧情：指定带入哪几个小手机群的戏外近况（最多 2 个）；空 = 自动取最近活跃的两个。 */
+  backstageGroupIds?: string[]
   directorCharacterId?: string
   directorConfig?: DirectorTemplateConfig
   relationshipStages?: Record<string, number>
@@ -159,6 +161,7 @@ export function createFreshConversationFrom(source: Conversation, greeting: stri
     themePresetId: source.themePresetId,
     themeFrost: source.themeFrost,
     theaterWorldBackground: source.theaterWorldBackground,
+    backstageGroupIds: source.backstageGroupIds,
     directorCharacterId: source.directorCharacterId,
     directorConfig: source.directorConfig ? { ...source.directorConfig } : undefined,
   }
