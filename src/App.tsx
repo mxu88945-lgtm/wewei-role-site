@@ -29,12 +29,14 @@ import { fixStageMentions, phoneStageNameNote } from './phoneStageName'
 import { addWishPoolLine, grantedWishLine, takeWishPoolTags, wishPoolNote } from './wishPool'
 import { applyPardons, applyShopTags, buildShopNote, readShop, spendLockTicket, takePriority, writeShop } from './phoneShop'
 import PhoneShop from './PhoneShop'
+import PhoneGames, { PhoneGameCard } from './PhoneGames'
+import { buildPhoneGameNote, nextPhoneGame, phoneGameSpeakers, phoneGameText, type GamePlayer, type PhoneGameKind, type PhoneGameRound, type TruthMode } from './phoneGames'
 import { collageAvatar, phoneAvatarSignature, squareAvatarFromFile } from './groupAvatar'
 import { PHONE_POINTS_EVENT, addPoints, applyMessagePoints, buildPointsNote, readPoints, todayTopPoints, writePoints } from './phonePoints'
 import { FORUM_UPDATED_EVENT, dueRunAt, forumAutoTick, forumWelcomeThread, isQuietHour, pickAutoGroup, readPhoneAuto, writePhoneAuto } from './phoneAuto'
 import type { Moment } from './moments'
 import { USER_AUTHOR, communityMemberIds, excerptFromMessage } from './moments'
-import { buildBackstageNote, buildDmGroupPeek, buildGroupDmPeek, parsePhoneForumShare, stripPhoneForumShareTag, phoneDmRules, phonePromptHistory, PHONE_COMPLETION_TIMEOUT_MS } from './phoneGroup'
+import { buildBackstageNote, buildDmGroupPeek, buildGroupDmPeek, parsePhoneForumShare, stripPhoneForumShareTag, phoneDeliveryInstruction, phoneDmRules, phonePromptHistory, PHONE_COMPLETION_TIMEOUT_MS } from './phoneGroup'
 import { splitPhoneBubbles } from './phoneBubbles'
 import { PhoneChatInfo } from './PhoneChatInfo'
 import { NOTICE_DURATIONS, lurkFallback, activeNotice, noticeRemaining, buildNoticeNote, findAtMentionIds, queueSummons, parsePhoneQuit, parsePhoneKick, parsePhoneVote, kickPassed, findNamedParticipantIds, selectPhoneSpeakers, pickPhoneChatters, cleanPhoneOutput, phoneGroupDisplayTitle, phoneStreamPreview, containsPhoneReasoning, phoneFinalGuard, buildSmartPickPrompt, buildMicPrompt, parseMicAnswer, parseSmartPick, buildPhoneArchive, buildPhoneGroupBackground, phoneBindingCandidates, buildPhoneRealWorldNote, parsePhoneLockCommand, buildPhoneLockBreachNote, type PhoneLockState, type PhoneLockBreach, phoneCharacter, phoneModeRules, stripPhoneQuitTag, stripPhoneKickTag, computeStoryUpdates, resetStorySeenForBindingChanges, storyUpdateNotice, buildStoryUpdateNote } from './phoneGroup'
@@ -441,6 +443,8 @@ function App() {
   const patTapRef = useRef<{ id: string; at: number } | null>(null)
   const [pointsTick, setPointsTick] = useState(0)
   useEffect(() => { const bump = () => setPointsTick((value) => value + 1); window.addEventListener(PHONE_POINTS_EVENT, bump); return () => window.removeEventListener(PHONE_POINTS_EVENT, bump) }, [])
+  const [phoneGamesId, setPhoneGamesId] = useState<string | null>(null)
+  const phoneGameSending = useRef(false)
   const [redPacketSheetOpen, setRedPacketSheetOpen] = useState(false)
   const [transferSheetOpen, setTransferSheetOpen] = useState(false)
   const [redPacketView, setRedPacketView] = useState<{ info: RedPacketLineInfo; near: number } | null>(null)
@@ -2485,7 +2489,7 @@ function App() {
       const shopNote = buildShopNote(readShop(), readPoints(), { id: speaker.id, name: speaker.name }, [...members, ...dmMates].map((member) => ({ id: member.id, name: member.name })), identity.name, Date.now()) + '\n' + wishPoolNote(speaker, identity.name) + '\n' + TRANSFER_NOTE(identity.name) + phoneStageNameNote(identities.map((item) => item.name), identity.name)
       return [conversation.phone?.dm ? phoneDmRules(speaker.name, identity.name) : phoneModeRules(speaker.name, members.map((member) => member.name), identity.name, { allowQuit: conversation.phone?.allowQuit, allowKick: conversation.phone?.allowKick, allowForumShare: conversation.phone?.allowForumShare }), realWorld, noticeNote, pointsNote, shopNote, mateBackground, dmBackground, dmPeek, privateDmMemory, buildPhoneArchive(sources, speaker.id, identity.name, (message) => message.characterId ? nameOf(message) : sources.find((source) => source.conversation?.messages.includes(message))?.character.name || '角色')].join('\n\n')
     })() : ''
-    const sanitizedHistory = (isPhone ? phonePromptHistory(nextMessages, memoryLength) : nextMessages).flatMap((message) => {
+    const sanitizedHistory = (isPhone ? phonePromptHistory(nextMessages, memoryLength).filter((message) => !conversation.phone?.dm || message.role === 'user' || !message.characterId || message.characterId === speaker.id) : nextMessages).flatMap((message) => {
       const fromDirector = message.role === 'assistant' && message.characterId === conversation.directorCharacterId
       const text = fromDirector ? sanitizeAssistantOutput(message.text, { director: true }) : message.text
       if ((fromDirector || (isPhone && message.role === 'assistant')) && !text.trim()) return []
@@ -2531,7 +2535,10 @@ function App() {
       if (backstage) promptMessages.push({ role: 'system', content: backstage })
     }
     if (storedRelationshipStage) promptMessages.push({ role: 'system', content: relationshipStageLockInstruction(storedRelationshipStage) })
-    if (isPhone) promptMessages.push({ role: 'system', content: phoneFinalGuard(speaker.name, identity.name) })
+    if (isPhone) {
+      promptMessages.push({ role: 'system', content: phoneFinalGuard(speaker.name, identity.name) })
+      if (!conversation.phone?.dm && conversation.phone?.game) promptMessages.push({ role: 'system', content: buildPhoneGameNote(conversation.phone.game, speaker.id, identity.name) })
+    }
     else if (isDirector) promptMessages.push({ role: 'system', content: `${DIRECTOR_OUTPUT_GUARD}\n\n${directorRuntimeBoundary(groupNames.filter((name) => name !== speaker.name))}` })
     else if (requiresCharacterStatus) {
       const fieldGuard = statusProtocol.fields.length
@@ -2545,10 +2552,10 @@ function App() {
       // visible transcript, long-term memory or later user-authored turns.
       promptMessages.push({
         role: 'user',
-        content: isPhone && requestOptions.phoneNudge ? requestOptions.phoneNudge : isPhone ? `${identity.name}现在没说话。请以「${speaker.name}」的身份在群里接着聊：接上一位成员的话头，或自然挑起一个日常话题、吐槽、互怼。不要提及本条指令。` : `请让${speaker.name}从上一条回复的结束处自然续演并推进当前剧情。不要复述已经写过的内容，不要替用户新增台词、动作、心理或关键选择，不要提及本条续演指令。`,
+        content: isPhone ? phoneDeliveryInstruction(speaker.name, identity.name, Boolean(conversation.phone?.dm), true, requestOptions.phoneNudge) : `请让${speaker.name}从上一条回复的结束处自然续演并推进当前剧情。不要复述已经写过的内容，不要替用户新增台词、动作、心理或关键选择，不要提及本条续演指令。`,
       })
     }
-    if (isPhone && requestOptions.phoneNudge && !requestOptions.continueWithoutUser) promptMessages.push({ role: 'system', content: requestOptions.phoneNudge })
+    if (isPhone && !requestOptions.continueWithoutUser && (conversation.phone?.dm || requestOptions.phoneNudge)) promptMessages.push({ role: 'system', content: phoneDeliveryInstruction(speaker.name, identity.name, Boolean(conversation.phone?.dm), false, requestOptions.phoneNudge) })
     const variablesPrompt = buildStoryVariablesPrompt(requestOptions.contextOverride ? requestOptions.contextOverride.storyVariables : conversation.storyVariables, speaker.id)
     if (variablesPrompt) promptMessages.push({ role: 'system', content: variablesPrompt })
     // This must be the final outbound instruction.  In particular, director
@@ -3269,7 +3276,7 @@ function App() {
     } finally { setImageBusy(false) }
   }
 
-  const sendMessage = async (textOverride?: string, historyOverride?: Message[], conversationOverride?: Conversation) => {
+  const sendMessage = async (textOverride?: string, historyOverride?: Message[], conversationOverride?: Conversation, phoneGame?: PhoneGameRound) => {
     const text = (textOverride ?? draft).trim()
     // Only a composer send carries the staged pictures; edit/resend paths pass textOverride.
     const images = textOverride === undefined ? pendingImages : []
@@ -3283,9 +3290,10 @@ function App() {
       setConversations((current) => [...current, conversation!])
       setActiveConversationId(conversation.id)
     }
+    if (phoneGame && conversation.phone && !conversation.phone.dm) conversation = { ...conversation, phone: { ...conversation.phone, game: phoneGame } }
     requestChatLatestScroll(conversation.id)
     const sourceMessages = historyOverride ?? messages
-    setDraft('')
+    if (!phoneGame) setDraft('')
     // A composer send (no override) closes the soft keyboard on touch devices;
     // edit/resend paths pass textOverride and keep whatever focus they had.
     if (textOverride === undefined) dismissComposerKeyboard([composerRef.current, expandedComposerRef.current])
@@ -3303,7 +3311,7 @@ function App() {
       const quotedIds = conversation.phone ? quotedParticipantIds(activeQuote, participants, sourceMessages) : []
       // 被引用的成员和 @ 一样算被点名。
       const mentionedIds = prioritizeAddressed(findMentionedParticipantIds(text, participants), quotedIds)
-      const userMessage = visibleText || images.length ? { id: nextMessageId(sourceMessages), role: 'user' as const, text: visibleText, ...(images.length ? { images } : {}), ...(activeQuote ? { quote: activeQuote } : {}) } : null
+      const userMessage = visibleText || images.length ? { id: nextMessageId(sourceMessages), role: 'user' as const, text: visibleText, ...(phoneGame ? { phoneGame } : {}), ...(images.length ? { images } : {}), ...(activeQuote ? { quote: activeQuote } : {}) } : null
       let baseMessages: Message[] = userMessage ? [...sourceMessages, userMessage] : sourceMessages
       let storyUpdatedNames: string[] = []
       phoneStoryNoteRef.current = null
@@ -3324,7 +3332,7 @@ function App() {
           setConversations((current) => current.map((item) => item.id === conversationId && item.phone ? { ...item, phone: { ...item.phone, storySeen: seen } } : item))
         }
       }
-      setConversations((current) => current.map((item) => item.id === conversation.id ? { ...item, messages: baseMessages, updatedAt: Date.now() } : item))
+      setConversations((current) => current.map((item) => item.id === conversation.id ? { ...item, ...(phoneGame && item.phone ? { phone: { ...item.phone, game: phoneGame } } : {}), messages: baseMessages, updatedAt: Date.now() } : item))
       // “暂停角色扮演” is intentionally stored as a visible boundary in the
       // transcript, but it must never be routed to a character or director.
       // The next actual message resumes from this exact point.
@@ -3335,23 +3343,23 @@ function App() {
       const lastSpeakerId = [...baseMessages].reverse().find((item) => item.role === 'assistant' && !item.phoneNotice)?.characterId
       const phoneMode = conversation.phone?.mode || 'free'
       const phoneNamedIds = conversation.phone ? findNamedParticipantIds(visibleText, participants) : []
-      const smartPicked = conversation.phone && phoneMode === 'smart' ? await pickSmartSpeakers(conversation, baseMessages, participants, withQuotePrefix(visibleText, activeQuote), storyUpdatedNames) : []
+      const smartPicked = !phoneGame && conversation.phone && phoneMode === 'smart' ? await pickSmartSpeakers(conversation, baseMessages, participants, withQuotePrefix(visibleText, activeQuote), storyUpdatedNames) : []
       const smartIds = smartPicked.length && quotedIds.length ? prioritizeAddressed(smartPicked, quotedIds) : smartPicked
-      const speakerIds = conversation.phone?.dm ? participantIds.slice(0, 1) : conversation.phone
+      const speakerIds = phoneGame ? phoneGameSpeakers(phoneGame, participantIds) : conversation.phone?.dm ? participantIds.slice(0, 1) : conversation.phone
         ? smartIds.length ? smartIds : phoneMode === 'smart' ? lurkFallback(participantIds, [...mentionedIds, ...phoneNamedIds], lastSpeakerId) : selectPhoneSpeakers({ mode: phoneMode, participantIds, mentionedIds, namedIds: phoneNamedIds, lastSpeakerId, text: visibleText })
         : selectGroupSpeakerIds({ participantIds, mentionedIds, mode: groupReplyMode, directorCharacterId: conversation.directorCharacterId, lastSpeakerId, text })
       // @所有人 / @全员：群里每个角色都要出来说一句（导演不算）。
-      const everyoneCalled = Boolean(conversation.phone && !conversation.phone.dm && mentionsEveryone(visibleText))
+      const everyoneCalled = Boolean(!phoneGame && conversation.phone && !conversation.phone.dm && mentionsEveryone(visibleText))
       if (everyoneCalled) {
         const directorId = conversation.directorCharacterId || participantIds.find((id) => /director/i.test(id))
         speakerIds.splice(0, speakerIds.length, ...participantIds.filter((id) => id !== directorId))
       }
-      if (conversation.phone && !conversation.phone.dm && phoneMode === 'smart' && !everyoneCalled) {
+      if (!phoneGame && conversation.phone && !conversation.phone.dm && phoneMode === 'smart' && !everyoneCalled) {
         // 话筒：其余每个群友同时拿到话筒，各自按人设判断接不接（并行、只回接/不接）。
         const extra = await passPhoneMic(conversation, baseMessages, participants, withQuotePrefix(visibleText, activeQuote), speakerIds)
         speakerIds.push(...extra.filter((id) => !speakerIds.includes(id)))
       }
-      if (conversation.phone && !conversation.phone.dm) {
+      if (!phoneGame && conversation.phone && !conversation.phone.dm) {
         const jump = takePriority(readShop(), participantIds, speakerIds)
         if (jump) { writeShop(jump.shop); speakerIds.splice(0, speakerIds.length, ...jump.speakerIds) }
       }
@@ -3373,7 +3381,7 @@ function App() {
       }
       let groupMessages = baseMessages
       let queue = [...speakerIds]
-      let summonBudget = conversation.phone && !conversation.phone.dm ? 3 : 0
+      let summonBudget = !phoneGame && conversation.phone && !conversation.phone.dm ? 3 : 0
       const summonedBy = new Map<string, string>()
       for (let index = 0; index < queue.length; index += 1) {
         const speakerId = queue[index]
@@ -3868,6 +3876,25 @@ function App() {
     writeRedPackets([...readRedPackets(), packet])
     void sendMessage(redPacketText(packet))
   }
+  const playPhoneGame = async (conversation: Conversation, kind: PhoneGameKind, players: GamePlayer[], truthMode: TruthMode, customTask = '', previous?: PhoneGameRound) => {
+    if (!conversation.phone || conversation.phone.dm || generatingIds.includes(conversation.id) || phoneGameSending.current) return
+    const liveIds = conversation.participantIds || []
+    const livePlayers = players.filter((player) => player.id === 'user' || liveIds.includes(player.id))
+    if (livePlayers.length < 2 || !livePlayers.some((player) => player.id !== 'user')) { setChatError('至少选择两位当前在群里的参与者'); return }
+    phoneGameSending.current = true
+    try {
+      const round = nextPhoneGame({ kind, players: livePlayers, truthMode, customTask, previous })
+      setPhoneGamesId(null)
+      await sendMessage(phoneGameText(round), conversation.messages, conversation, round)
+    } catch (error) { setChatError(error instanceof Error ? error.message : '小游戏发起失败') }
+    finally { phoneGameSending.current = false }
+  }
+  const endPhoneGame = () => {
+    const conversation = activeConversation
+    if (!conversation?.phone?.game || isGenerating) return
+    const notice: Message = { id: nextMessageId(conversation.messages), role: 'user', text: '🎲 本场小游戏已结束，接下来自由聊天。' }
+    setConversations((list) => list.map((item) => item.id === conversation.id && item.phone ? { ...item, phone: { ...item.phone, game: undefined }, messages: [...item.messages, notice], updatedAt: Date.now() } : item))
+  }
   const sendTransfer = (toId: string, amount: number, note: string) => {
     const conversation = activeConversation
     setTransferSheetOpen(false)
@@ -3880,6 +3907,10 @@ function App() {
   }
   void pointsTick // 积分变了就重算今日榜
   const renderChatMessage = (message: Message) => {
+    if (activeConversation?.phone && !activeConversation.phone.dm && message.phoneGame) {
+      const round = message.phoneGame
+      return <div key={message.id} data-message-id={message.id}><PhoneGameCard round={round} active={activeConversation.phone.game?.id === round.id} busy={isGenerating} onNext={() => void playPhoneGame(activeConversation, round.kind, round.players, round.truthMode, '', round)} onEnd={endPhoneGame} /></div>
+    }
     if (message.phoneNotice) return <div key={message.id} data-message-id={message.id} className="phone-system-notice" role="note">{message.text}</div>
     if (activeConversation?.phone && message.role === 'user' && PAT_LINE.test(message.text.trim())) return <div key={message.id} data-message-id={message.id} className="phone-system-notice phone-pat-notice" role="note">{message.text.trim().replace(/[@＠]/g, '')}</div>
     const messageCharacter = resolveMessageCharacter(message)
@@ -4157,7 +4188,8 @@ function App() {
 
     {page === 'display-reply' && <><BackHeader title="显示与回复" onBack={goBack} action={<span className="saved-label">自动保存</span>} /><section className="settings-stack compact-settings display-reply-page"><div className="drawer-compact-group display-reply-card"><div className="drawer-section-title"><strong>消息显示</strong></div><div className="drawer-inline-setting"><span>布局方式</span><div className="mini-segment"><button className={chatLayout === 'bubble' ? 'active' : ''} onClick={() => setChatLayout('bubble')}>气泡</button><button className={chatLayout === 'flat' ? 'active' : ''} onClick={() => setChatLayout('flat')}>平铺</button></div></div><div className="drawer-color-setting"><label><span>正文</span><input type="color" value={chatTextColor} onChange={(event) => setChatTextColor(event.target.value)} /></label><label><span>旁白</span><input type="color" value={chatNarrationColor} onChange={(event) => setChatNarrationColor(event.target.value)} /></label><label><span>引用</span><input type="color" value={chatQuoteColor} onChange={(event) => setChatQuoteColor(event.target.value)} /></label></div></div><div className="drawer-compact-group display-reply-card"><div className="drawer-section-title"><strong>群聊回复</strong></div>{activeConversation?.kind === 'group' ? <div className="drawer-inline-setting reply-mode-row"><span>回复模式</span><strong>指定 @</strong></div> : <div className="display-reply-note">当前是单角色对话，消息会由当前角色直接回复。</div>}<div className="display-reply-note">群聊只会由你 @ 点名的角色发言；新增或删除成员不会改变这个规则。</div></div></section></>}
 
-    {composerToolsOpen && <div className="composer-tools-layer" role="dialog" aria-modal="true" aria-label="输入工具"><button className="drawer-backdrop" aria-label="关闭输入工具" onClick={() => replyHelperState === 'idle' && setComposerToolsOpen(false)} /><section className="composer-tools-sheet"><header><div><small>输入工具</small><strong>接下来想怎么写</strong></div><button onClick={() => setComposerToolsOpen(false)} disabled={replyHelperState === 'generating'}>×</button></header><button className="reply-helper-action" onClick={() => void generateReplyHelperDraft()} disabled={replyHelperState === 'generating' || isGenerating}><span>✦</span><div><strong>{replyHelperState === 'generating' ? 'AI 正在帮你起草…' : 'AI 帮答'}</strong><small>{draft.trim() ? '沿用输入框里的想法，润色补成一条回复' : '读取当前上下文，生成一版可修改的回复草稿'}</small></div><i>›</i></button><p>只会填入输入框，不会自动发送，也不会替其他角色继续演。</p>{activeConversation?.phone && <button className="reply-helper-action" onClick={() => { setComposerToolsOpen(false); setRedPacketSheetOpen(true) }} disabled={isGenerating}><span>🧧</span><div><strong>发积分红包</strong><small>拼手气，群里的人抢到的积分会记进服刑积分</small></div><i>›</i></button>}{activeConversation?.phone && <button className="reply-helper-action" onClick={() => { setComposerToolsOpen(false); setTransferSheetOpen(true) }} disabled={isGenerating}><span>⇄</span><div><strong>转账给某人</strong><small>选一个人单独转积分，立即到账，他会先接话</small></div><i>›</i></button>}<button className="reply-helper-action image-send-action" onClick={() => chatImageInputRef.current?.click()} disabled={imageBusy || pendingImages.length >= CHAT_IMAGE_LIMIT}><span>▣</span><div><strong>{imageBusy ? '图片处理中…' : '发送图片'}</strong><small>{pendingImages.length ? `已选 ${pendingImages.length}/${CHAT_IMAGE_LIMIT} 张，可以再加一句话一起发` : `从相册选图，最多 ${CHAT_IMAGE_LIMIT} 张；需要模型支持识图`}</small></div><i>›</i></button><input ref={chatImageInputRef} type="file" accept="image/*" multiple hidden onChange={(event) => { const files = event.currentTarget.files; void addChatImages(files).finally(() => { if (chatImageInputRef.current) chatImageInputRef.current.value = '' }); setComposerToolsOpen(false) }} /></section></div>}
+    {composerToolsOpen && <div className="composer-tools-layer" role="dialog" aria-modal="true" aria-label="输入工具"><button className="drawer-backdrop" aria-label="关闭输入工具" onClick={() => replyHelperState === 'idle' && setComposerToolsOpen(false)} /><section className="composer-tools-sheet"><header><div><small>输入工具</small><strong>接下来想怎么写</strong></div><button onClick={() => setComposerToolsOpen(false)} disabled={replyHelperState === 'generating'}>×</button></header><button className="reply-helper-action" onClick={() => void generateReplyHelperDraft()} disabled={replyHelperState === 'generating' || isGenerating}><span>✦</span><div><strong>{replyHelperState === 'generating' ? 'AI 正在帮你起草…' : 'AI 帮答'}</strong><small>{draft.trim() ? '沿用输入框里的想法，润色补成一条回复' : '读取当前上下文，生成一版可修改的回复草稿'}</small></div><i>›</i></button><p>只会填入输入框，不会自动发送，也不会替其他角色继续演。</p>{activeConversation?.phone && !activeConversation.phone.dm && <button className="reply-helper-action" onClick={() => { setComposerToolsOpen(false); setPhoneGamesId(activeConversation.id) }} disabled={isGenerating}><span>🎲</span><div><strong>群互动小游戏</strong><small>真心话大冒险、互动抽卡、扑克牌比大小</small></div><i>›</i></button>}{activeConversation?.phone && <button className="reply-helper-action" onClick={() => { setComposerToolsOpen(false); setRedPacketSheetOpen(true) }} disabled={isGenerating}><span>🧧</span><div><strong>发积分红包</strong><small>拼手气，群里的人抢到的积分会记进服刑积分</small></div><i>›</i></button>}{activeConversation?.phone && <button className="reply-helper-action" onClick={() => { setComposerToolsOpen(false); setTransferSheetOpen(true) }} disabled={isGenerating}><span>⇄</span><div><strong>转账给某人</strong><small>选一个人单独转积分，立即到账，他会先接话</small></div><i>›</i></button>}<button className="reply-helper-action image-send-action" onClick={() => chatImageInputRef.current?.click()} disabled={imageBusy || pendingImages.length >= CHAT_IMAGE_LIMIT}><span>▣</span><div><strong>{imageBusy ? '图片处理中…' : '发送图片'}</strong><small>{pendingImages.length ? `已选 ${pendingImages.length}/${CHAT_IMAGE_LIMIT} 张，可以再加一句话一起发` : `从相册选图，最多 ${CHAT_IMAGE_LIMIT} 张；需要模型支持识图`}</small></div><i>›</i></button><input ref={chatImageInputRef} type="file" accept="image/*" multiple hidden onChange={(event) => { const files = event.currentTarget.files; void addChatImages(files).finally(() => { if (chatImageInputRef.current) chatImageInputRef.current.value = '' }); setComposerToolsOpen(false) }} /></section></div>}
+    {phoneGamesId && activeConversation?.id === phoneGamesId && activeConversation.phone && !activeConversation.phone.dm && <PhoneGames key={phoneGamesId} current={activeConversation.phone.game} members={[{ id: 'user', name: identityFor(activeConversation).name }, ...(activeConversation.participantIds || []).map((id) => characters.find((item) => item.id === id)).filter((item): item is Character => Boolean(item)).map((item) => ({ id: item.id, name: item.name }))]} onClose={() => setPhoneGamesId(null)} onPlay={(kind, players, mode, task) => void playPhoneGame(activeConversation, kind, players, mode, task)} />}
     {redPacketSheetOpen && activeConversation?.phone && <RedPacketSendSheet dm={Boolean(activeConversation.phone.dm)} memberCount={(activeConversation.participantIds || []).length} onSend={sendRedPacket} onClose={() => setRedPacketSheetOpen(false)} />}
     {transferSheetOpen && activeConversation?.phone && <TransferSheet members={(activeConversation.participantIds?.length ? activeConversation.participantIds : [activeConversation.characterId]).map((id) => characters.find((item) => item.id === id)).filter((item): item is Character => Boolean(item)).map((item) => ({ id: item.id, name: item.name }))} onSend={sendTransfer} onClose={() => setTransferSheetOpen(false)} />}
     {redPacketView && activeConversation && (() => { const list = readRedPackets(); const found = findRedPacket(list, activeConversation.id, redPacketView.info, redPacketView.near); return <RedPacketDetail info={redPacketView.info} packet={found} ordinal={found ? redPacketOrdinal(list, found) : undefined} onClose={() => setRedPacketView(null)} /> })()}
@@ -4341,7 +4373,7 @@ function UpdateCard() {
     }
   }
 
-  return <section className="update-card"><strong>应用更新</strong><p>主动检查并拉取最新网页版本，不会删除角色、聊天记录或本地设置。</p><small>当前版本：v126 · 2026.10.16 工坊超时不再重复生成</small><button onClick={refresh} disabled={state === 'checking'}>{state === 'checking' ? '正在检查更新…' : state === 'error' ? '更新失败，点我重试' : '强制刷新到最新版'}</button></section>
+  return <section className="update-card"><strong>应用更新</strong><p>主动检查并拉取最新网页版本，不会删除角色、聊天记录或本地设置。</p><small>当前版本：v127 · 2026.10.16 群互动小游戏与私聊防串场</small><button onClick={refresh} disabled={state === 'checking'}>{state === 'checking' ? '正在检查更新…' : state === 'error' ? '更新失败，点我重试' : '强制刷新到最新版'}</button></section>
 }
 
 function PersonaPage({ identities, selectedId, isBound, onSelect, onAdd, onDelete, onUpdate, onBack }: { identities: UserIdentity[]; selectedId: string; isBound: boolean; onSelect: (id: string) => void; onAdd: () => void; onDelete: (id: string) => void; onUpdate: (patch: Partial<UserIdentity>) => void; onBack: () => void }) {

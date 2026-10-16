@@ -1,0 +1,37 @@
+.phone-games-layer { background: #f6f4ef; }
+.phone-games-body { overflow-y: auto; padding: 12px 20px calc(28px + env(safe-area-inset-bottom)); display: flex; flex-direction: column; gap: 20px; }
+.phone-game-kinds { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 8px; }
+.phone-game-kinds button { border: 1px solid #dedbd4; background: #fff; border-radius: 14px; padding: 18px 4px; color: #353b37; display: flex; flex-direction: column; align-items: center; gap: 12px; font-size: 12px; }
+.phone-game-kinds button[aria-pressed="true"] { border-color: #44715f; background: #e7efe8; box-shadow: 0 0 0 1px #44715f; }
+.phone-game-kinds b { font-size: 26px; }
+.phone-game-intro { margin: 0; color: #657068; line-height: 1.7; font-size: 14px; }
+.phone-game-people, .phone-game-truth { border: 1px solid #dedbd4; border-radius: 14px; padding: 14px; margin: 0; color: #353b37; }
+.phone-game-people legend, .phone-game-truth legend { padding: 0 5px; font-size: 14px; }
+.phone-game-people > div { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 12px; clear: both; }
+.phone-game-people label, .phone-game-truth label { display: flex; align-items: center; gap: 6px; min-height: 32px; font-size: 14px; overflow-wrap: anywhere; }
+.phone-games-layer input { accent-color: #44715f; width: 17px; height: 17px; flex-shrink: 0; }
+.phone-game-select-all { display: block; margin: 0 0 12px auto; border: 0; background: none; color: #44715f; padding: 4px; font-size: 13px; }
+.phone-game-custom { display: flex; flex-direction: column; gap: 10px; font-size: 14px; }
+.phone-game-custom textarea { resize: vertical; width: 100%; box-sizing: border-box; background: #fff; border: 1px solid #dedbd4; border-radius: 12px; padding: 12px; font: inherit; line-height: 1.6; color: #353b37; }
+.phone-game-play { border: 0; background: #365f4e; color: #fff; border-radius: 12px; min-height: 50px; padding: 12px; font-size: 16px; }
+.phone-game-play:disabled { opacity: .4; }
+.phone-game-foot { text-align: center; color: #657068; font-size: 12px; }
+.phone-game-card { width: min(330px, 88%); margin: 16px auto; padding: 18px; border: 1px solid #d7dfd6; border-radius: 18px; background: linear-gradient(150deg, #f9fcf5, #edf3ea); color: #2d4337; box-shadow: 0 5px 18px #2038290a; text-align: left; box-sizing: border-box; overflow-wrap: anywhere; }
+.phone-game-card > header { display: flex; gap: 12px; align-items: center; }
+.phone-game-card > header > span { font-size: 28px; }
+.phone-game-card header div { display: flex; flex-direction: column; gap: 4px; }
+.phone-game-card header strong { font-size: 16px; }
+.phone-game-card small { font-size: 12px; color: #6a786f; }
+.phone-game-target { font-size: 14px; margin: 20px 0 10px; }
+.phone-game-task { font-size: 16px; line-height: 1.7; margin: 0 0 8px; white-space: pre-wrap; }
+.phone-game-card > footer { display: flex; gap: 8px; margin-top: 16px; border-top: 1px solid #d7dfd6; padding-top: 12px; }
+.phone-game-card footer button { background: #365f4e; color: #fff; padding: 10px; border: 0; border-radius: 8px; font-size: 13px; flex: 1; }
+.phone-game-card footer button:last-child { background: #e0e8dd; color: #365f4e; flex: 0 0 auto; }
+.phone-game-card footer button:disabled { opacity: .5; }
+.phone-game-hands { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 10px; margin-top: 20px; }
+.phone-game-hands > div { display: flex; align-items: center; flex-direction: column; gap: 8px; padding: 12px 3px; background: #fff; border-radius: 8px; border: 1px solid #e2e6df; color: #25392e; }
+.phone-game-hands b { font-size: 22px; }
+.phone-game-hands .red b { color: #b44e4e; }
+.phone-game-hands em { font-style: normal; font-size: 10px; color: #365f4e; background: #e7efe8; padding: 3px 6px; border-radius: 5px; }
+.phone-game-winner { margin: 14px 0 8px; font-size: 14px; font-weight: 600; }
+.phone-game-rule { display: block; line-height: 1.6; }
