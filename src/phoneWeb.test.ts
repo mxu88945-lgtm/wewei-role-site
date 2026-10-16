@@ -11,6 +11,19 @@ describe('phoneWeb', () => {
     const note = buildWebNote('某剧上映', '10月20日上映', [{ title: 'A', url: 'u', content: '内容' }])
     expect(note).toContain('【联网结果】')
     expect(note).toContain('10月20日上映')
-    expect(buildWebNote('x', '', [])).toBe('')
+    expect(buildWebNote('x', '', [])).toContain('没有搜到')
+  })
+})
+
+describe('v129 web search accuracy', () => {
+  it('turns chatty asks into a query and borrows context for vague ones', async () => {
+    const { buildSearchQuery } = await import('./phoneWeb')
+    expect(buildSearchQuery('你们帮我搜一下马斯克今天发布的新车')).toContain('马斯克今天发布的新车')
+    expect(buildSearchQuery('你们去搜下新闻', ['今天马斯克发布了新车'])).toContain('马斯克')
+  })
+  it('still tells the model the date and not to call the user a liar when nothing is found', () => {
+    const note = buildWebNote('马斯克 新车', '', [])
+    expect(note).toContain('没有搜到')
+    expect(note).toContain('不要说她骗人')
   })
 })

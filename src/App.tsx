@@ -14,7 +14,7 @@ import MessageContent, { isPendingAssistantText } from './MessageContent'
 import PhoneStatusWidget from './PhoneStatusWidget'
 import PhoneLockScreen from './PhoneLockScreen'
 import PhoneWebSettings from './PhoneWebSettings'
-import { TAVILY_KEY_STORAGE, needsWebSearch, tavilySearch } from './phoneWeb'
+import { TAVILY_KEY_STORAGE, buildSearchQuery, needsWebSearch, tavilySearch } from './phoneWeb'
 import { createBlankCharacter, importCharacterCard, normalizeStoredCharacter, LIBRARY_ROLES, type Character, type LibraryRole } from './characterCard'
 import { type MomentSeed } from './Moments'
 import { Forum } from './Forum'
@@ -3374,7 +3374,8 @@ function App() {
         phoneWebNoteRef.current = null
         if (webKey && needsWebSearch(visibleText)) {
           try {
-            const note = await tavilySearch(webKey, visibleText)
+            const earlierUserTexts = baseMessages.filter((item) => item.role === 'user').slice(-4, -1).map((item) => item.text || '')
+            const note = await tavilySearch(webKey, buildSearchQuery(visibleText, earlierUserTexts))
             if (note) phoneWebNoteRef.current = { conversationId: conversation.id, note, at: Date.now() }
           } catch (error) { setChatError(error instanceof Error ? `${error.message}，这轮先不联网回复` : '联网失败，这轮先不联网回复') }
         }
@@ -4402,7 +4403,7 @@ function UpdateCard() {
     }
   }
 
-  return <section className="update-card"><strong>应用更新</strong><p>主动检查并拉取最新网页版本，不会删除角色、聊天记录或本地设置。</p><small>当前版本：v128 · 2026.10.16 微信式更多功能面板</small><button onClick={refresh} disabled={state === 'checking'}>{state === 'checking' ? '正在检查更新…' : state === 'error' ? '更新失败，点我重试' : '强制刷新到最新版'}</button></section>
+  return <section className="update-card"><strong>应用更新</strong><p>主动检查并拉取最新网页版本，不会删除角色、聊天记录或本地设置。</p><small>当前版本：v129 · 2026.10.16 联网搜新闻更准</small><button onClick={refresh} disabled={state === 'checking'}>{state === 'checking' ? '正在检查更新…' : state === 'error' ? '更新失败，点我重试' : '强制刷新到最新版'}</button></section>
 }
 
 function PersonaPage({ identities, selectedId, isBound, onSelect, onAdd, onDelete, onUpdate, onBack }: { identities: UserIdentity[]; selectedId: string; isBound: boolean; onSelect: (id: string) => void; onAdd: () => void; onDelete: (id: string) => void; onUpdate: (patch: Partial<UserIdentity>) => void; onBack: () => void }) {
