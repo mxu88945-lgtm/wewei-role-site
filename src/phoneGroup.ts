@@ -161,7 +161,7 @@ export function phoneFinalGuard(speakerName: string, userName: string, now = new
 
 /** Safety net: whatever the model still emits, a phone message never carries status/scene panels or tags. */
 const STATUS_FIELD = /(衣着|状态|心境|内心(?:想法|独白)?|对.{1,8}(?:态度|认知)|当前(?:进度|状态)|好感|场景|时间|地点)\s*[:：]/
-const PHONE_REASONING_OPENING = /^(?:\s|[#*_>—-])*(?:[\p{Script=Han}A-Za-z0-9·_-]{1,20})?(?:人设(?:立场)?与反应分析|人设分析|角色(?:立场|反应|视角|语气|风格|设定)?分析|人物(?:立场|反应|视角|语气|风格|设定)?分析|回复(?:思路|分析|策略|规划)|内部(?:思考|分析)|思考过程)\s*[:：]?|^(?:\s|[#*_>—-])*(?:【[^】\n]{1,12}视角】|\[[^\]\n]{1,12}视角\]|(?:现在|当前)(?:情况|局面|状态)\s*[:：]|态度与反应\s*[:：])/iu
+const PHONE_REASONING_OPENING = /^(?:\s|[#*_>—-])*(?:[\p{Script=Han}A-Za-z0-9·_-]{1,20})?(?:人设(?:立场)?与反应分析|人设分析|角色(?:立场|反应|视角|语气|风格|设定)?分析|人物(?:立场|反应|视角|语气|风格|设定)?分析|回复(?:思路|分析|策略|规划)|内部(?:思考|分析)|思考过程)\s*[:：]?|^(?:\s|[#*_>—-])*(?:【[^】\n]{1,12}视角】|\[[^\]\n]{1,12}视角\]|(?:现在|当前)(?:情况|局面|状态)\s*[:：]|态度与反应\s*[:：]|看用户(?:的)?(?:输入|消息|发言)\s*[:：]|用户(?:在[^\n：:]{1,8})?(?:输入|问|说)[^\n：:]{0,8}[:：]|检查(?:群聊|聊天)记录|分析(?:一下)?用户)/iu
 const PHONE_FINAL_HEADING = /(?:^|\n)\s*(?:#{1,6}\s*)?(?:(?:最终|正式|可发送的?|群聊|微信|建议的?)\s*)?(?:回复|发言|消息|输出|成稿)(?:内容)?\s*[:：]\s*/iu
 const isStatusLine = (line: string) => {
   const t = line.trim()
@@ -356,15 +356,20 @@ export function phoneDmRules(speakerName: string, userName: string) {
 type PeekMessage = { role: string; text: string; characterId?: string; phoneNotice?: boolean }
 
 /** 私聊里给角色看的“群里最近在聊什么”：只看 TA 自己在的小手机群，每个群最近几条。 */
-export function buildDmGroupPeek(groups: Array<{ title: string; participantIds?: string[]; messages: PeekMessage[]; phone?: { dm?: boolean } }>, characterId: string, nameOf: (message: PeekMessage) => string, perGroup = 14) {
+export function buildDmGroupPeek(groups: Array<{ title: string; participantIds?: string[]; messages: PeekMessage[]; phone?: { dm?: boolean }; contextSummary?: string; contextSummaryRevision?: number; historyRevision?: number }>, characterId: string, nameOf: (message: PeekMessage) => string, perGroup = 14, userEarlier = 10) {
+  const line = (message: PeekMessage, max: number) => `${nameOf(message)}：${(message.text || '').replace(/<[^>]+>/g, ' ').replace(/\s+/g, ' ').trim().slice(0, max)}`
   const blocks = groups
     .filter((group) => group.phone && !group.phone.dm && group.participantIds?.includes(characterId) && group.messages.length)
     .map((group) => {
-      const lines = group.messages.filter((message) => (message.role === 'user' || message.role === 'assistant') && !message.phoneNotice).slice(-perGroup)
-        .map((message) => `${nameOf(message)}：${(message.text || '').replace(/<[^>]+>/g, ' ').replace(/\s+/g, ' ').trim().slice(0, 80)}`)
-      return `「${group.title}」最近：\n${lines.join('\n')}`
+      const spoken = group.messages.filter((message) => (message.role === 'user' || message.role === 'assistant') && !message.phoneNotice)
+      const tail = spoken.slice(-perGroup)
+      // 群里刷得快：她自己更早说过的话（吃了什么、去了哪）单独留一份，私聊里才接得上。
+      const earlierUser = spoken.slice(0, -perGroup).filter((message) => message.role === 'user').slice(-userEarlier)
+      const summary = group.contextSummary && (group.contextSummaryRevision || 0) === (group.historyRevision || 0)
+        ? clip(cleanPhoneOutput(sanitizeAssistantOutput(group.contextSummary)), 900) : ''
+      return [`「${group.title}」`, summary && `较早群聊摘要：${summary}`, earlierUser.length ? `她在群里更早说过：\n${earlierUser.map((message) => line(message, 120)).join('\n')}` : '', `最近：\n${tail.map((message) => line(message, 80)).join('\n')}`].filter(Boolean).join('\n')
     })
-  return blocks.length ? `【你在的群最近在聊】（你都看过；私聊里可以提、可以吐槽，但别整段复述）\n${blocks.join('\n\n')}` : ''
+  return blocks.length ? `【你在的群最近在聊】（你都看过；私聊里可以提、可以吐槽，但别整段复述。她问“群里说过什么”就从这里找，找不到就老实说没看到）\n${blocks.join('\n\n')}` : ''
 }
 
 /** Group requests receive only the current speaker's own DM, never another member's. */

@@ -384,3 +384,19 @@ describe('v122 group count + perspective leak', () => {
     expect(containsPhoneReasoning('现在几点了？')).toBe(false)
   })
 })
+
+describe('v124 dm peek and reasoning leak', () => {
+  it('keeps her earlier group lines and the group summary in dm peek', async () => {
+    const { buildDmGroupPeek } = await import('./phoneGroup')
+    const messages = [{ role: 'user', text: '早饭吃了砂锅粥' }, ...Array.from({ length: 20 }, (_, i) => ({ role: 'assistant', characterId: 'b', text: `闲聊${i}` }))]
+    const peek = buildDmGroupPeek([{ title: '群', participantIds: ['a', 'b'], phone: {}, messages, contextSummary: '大家劝她喝温水', contextSummaryRevision: 0, historyRevision: 0 }], 'a', (m) => m.role === 'user' ? '周' : 'b')
+    expect(peek).toContain('早饭吃了砂锅粥')
+    expect(peek).toContain('大家劝她喝温水')
+  })
+  it('flags the 看用户输入 style leak', async () => {
+    const { containsPhoneReasoning } = await import('./phoneGroup')
+    expect(containsPhoneReasoning('看用户输入：“群里不是说我吃了什么嘛～”')).toBe(true)
+    expect(containsPhoneReasoning('用户在私聊里问谢聿衡：吃了什么')).toBe(true)
+    expect(containsPhoneReasoning('早上好呀，吃了吗')).toBe(false)
+  })
+})
