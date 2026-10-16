@@ -18,3 +18,17 @@ describe('splitPhoneBubbles', () => {
     expect(splitPhoneBubbles('嘴上全是对账查岗的派头，私下里找周导讨奖励倒是一秒都没落下。').map((item) => item.text)).toEqual(['嘴上全是对账查岗的派头', '私下里找周导讨奖励倒是一秒都没落下。'])
   })
 })
+
+describe('closing quotes stay with their sentence', () => {
+  it('keeps ” and 」 attached after a full stop', () => {
+    const a = splitPhoneBubbles('“想明抢又碰不得，所以只能在不近也不远处看着。”')
+    expect(a.map((b) => b.text)).toEqual(['“想明抢又碰不得，所以只能在不近也不远处看着。”'])
+    const b = splitPhoneBubbles('「爱，本质无疑。是因为，人多得拥挤。」')
+    expect(b.every((x) => !/^[”」]$/.test(x.text))).toBe(true)
+    expect(b[b.length - 1].text.endsWith('」')).toBe(true)
+  })
+  it('merges a lone closer line into the previous bubble', () => {
+    const c = splitPhoneBubbles('“看着。\n”')
+    expect(c.map((x) => x.text)).toEqual(['“看着。”'])
+  })
+})
