@@ -180,8 +180,32 @@ export function containsPhoneReasoning(text: string) {
     || PHONE_REASONING_OPENING.test(value)
 }
 
+const PLAN_BULLET = /^\s*(?:[-*•·]|\d+[.、)])\s+\S/
+const PLAN_HEADING = /^\s*[^\s：:]{0,12}(?:态度|分析|思路|策略|语气|风格|要点|定位|反应)\s*[:：]\s*$/
+const PLAN_META = /微信短句|[1１一][-—~～到][4４四]\s*条|规则(?:限定|限制|要求)|被规则|按人设|人设(?:要求|逻辑)|角色沉浸|带点(?:角色|冷硬|自嘲)|戏外吐槽，|输出(?:格式|要求)/
+
+/** 有的模型不写“分析：”标题，直接列一段“X态度：- 承认… - 微信短句，1-4条”的草稿再说正文：砍掉草稿段。 */
+function stripPlanBlock(text: string) {
+  const lines = text.split('\n')
+  let last = -1
+  let strong = 0
+  const scan = Math.min(lines.length, 18)
+  for (let index = 0; index < scan; index += 1) {
+    const line = lines[index]
+    const heading = PLAN_HEADING.test(line)
+    const meta = PLAN_META.test(line)
+    if (heading || meta || PLAN_BULLET.test(line)) {
+      last = index
+      if (heading || meta) strong += 1
+    }
+  }
+  if (last < 0 || strong < 2) return text
+  const rest = lines.slice(last + 1).join('\n').trim()
+  return rest || text
+}
+
 function stripPhoneReasoning(text: string) {
-  const value = text.trimStart()
+  const value = stripPlanBlock(text.trimStart()).trimStart()
   if (!PHONE_REASONING_OPENING.test(value)) return value
   const final = PHONE_FINAL_HEADING.exec(value)
   return final ? value.slice((final.index || 0) + final[0].length).trimStart() : ''

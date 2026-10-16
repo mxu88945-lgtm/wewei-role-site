@@ -423,3 +423,15 @@ describe('v131 offstage AI identity', () => {
     }
   })
 })
+
+describe('v132 untitled plan drafts are stripped', () => {
+  it('drops the 态度/bullet draft before the real message', async () => {
+    const { cleanPhoneOutput } = await import('./phoneGroup')
+    const raw = ['沈衍的动作被规则限定，但他嘴上在群里聊戏可从不认输。', '周惟惟抓住了戏里沈衍最大的痛脚。', '双标、控制欲、破防的逻辑。', '沈衍态度：', '- 承认双标', '但在他那套逻辑里', '- 戏外吐槽，带点角色沉浸，但又知道自己是在“辩解”。', '- 微信短句，1-4条，带点冷硬、自嘲与占有欲。', '在这件事上，我承认我确实双标得彻底。', '但你不一样。'].join('\n')
+    expect(cleanPhoneOutput(raw)).toBe('在这件事上，我承认我确实双标得彻底。\n但你不一样。')
+  })
+  it('keeps ordinary chat lines', async () => {
+    const { cleanPhoneOutput } = await import('./phoneGroup')
+    expect(cleanPhoneOutput('别闹\n四点半了，喝水')).toBe('别闹\n四点半了，喝水')
+  })
+})
