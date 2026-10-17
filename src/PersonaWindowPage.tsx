@@ -3,13 +3,16 @@ import type { ApiConfig } from './chatApi'
 import type { Character } from './characterCard'
 import type { Conversation } from './conversationLifecycle'
 import type { LongMemoryMap } from './memoryEngine'
+import type { StoryProject } from './storyProject'
+import type { ChatApiMessage } from './chatApi'
+import { applyMacros } from './regexEngine'
 import { CHAT_IMAGE_LIMIT, prepareChatImage, type ChatImage } from './chatImages'
 import { CHAT_RENDER_WINDOW, earlierChatMessageCount, earlierChatWindowAnchor, resolveChatWindowStart } from './chatWindow'
 import { createKeyboardScrollPin, VIEWPORT_CHANGE_EVENT, VIEWPORT_WILL_CHANGE_EVENT } from './keyboardScrollPin'
 import MessageContent, { isPendingAssistantText } from './MessageContent'
-import { buildPastLifeMemory, deletePersona, disablePersona, enablePersona, PERSONA_MEMORY_EVERY, pendingPersonaMemoryMessages, switchPersona, updatePersona, type PersonaMemoryEntry, type PersonaMessage } from './personaWindow'
+import { buildPersonaSetting, collectPastLifeMemory, deletePersona, disablePersona, enablePersona, PERSONA_MEMORY_EVERY, pendingPersonaMemoryMessages, switchPersona, updatePersona, type PersonaMemoryEntry, type PersonaMessage } from './personaWindow'
 import { hydratePersonaStore, setPersonaState, usePersonaHydrated, usePersonaState } from './personaWindowStore'
-import { extractPersonaMemory, generatePersonaReply, getPersonaRuntime, setPersonaError, stopPersonaReply, subscribePersonaRuntime, type PersonaRuntimeDeps } from './personaWindowRuntime'
+import { buildPersonaRequest, extractPersonaMemory, generatePersonaReply, getPersonaRuntime, setPersonaError, stopPersonaReply, subscribePersonaRuntime, type PersonaRuntimeDeps } from './personaWindowRuntime'
 
 import './persona-window.css'
 
@@ -25,6 +28,9 @@ type Props = {
   maxTokens: number
   streaming: boolean
   memoryLength: number
+  /** Same global worldbook as the main story chat. */
+  globalWorldbook?: string
+  storyProjects?: StoryProject[]
   onBack: () => void
 }
 
@@ -72,6 +78,8 @@ export default function PersonaWindowPage(props: Props) {
   const [menuMessageId, setMenuMessageId] = useState<number | null>(null)
   const [windowAnchors, setWindowAnchors] = useState<Record<string, number | null>>({})
   const [libraryQuery, setLibraryQuery] = useState('')
+  const [pastLifeOpen, setPastLifeOpen] = useState(false)
+  const [requestOpen, setRequestOpen] = useState(false)
   const listRef = useRef<HTMLDivElement>(null)
   const composerRef = useRef<HTMLDivElement>(null)
   const textareaRef = useRef<HTMLTextAreaElement>(null)
@@ -101,8 +109,10 @@ export default function PersonaWindowPage(props: Props) {
       maxTokens: props.maxTokens,
       streaming: props.streaming,
       memoryLength: props.memoryLength,
-      // Read-only snapshot of this character's phone/story memories, built per request.
-      pastLife: () => buildPastLifeMemory({ character, conversations, memoryEntries }),
+      // Read-only snapshot of this character's phone/story life, built per request.
+      pastLife: () => collectPastLifeMemory({ character, characters, conversations, memoryEntries, userName: identity.name }).text,
+      globalWorldbook: props.globalWorldbook || '',
+      setting: () => buildPersonaSetting({ character, characters, conversations, storyProjects: props.storyProjects || [] }),
     }
   }
 
@@ -261,7 +271,7 @@ export default function PersonaWindowPage(props: Props) {
     const available = characters.filter((character) => !enabled.some((item) => item.characterId === character.id) && (!query || character.name.toLocaleLowerCase().includes(query) || (character.libraryGroup || '').toLocaleLowerCase().includes(query)))
     const hidden = (characterId: string) => state.personas.some((item) => item.characterId === characterId && !item.enabled)
     return <section className="chat-page persona-window-page">{header}{switcher}<div className="persona-panel">
-      <div className="privacy-note">每个人格都有自己的对话和长期记忆，彼此不会混用，也不会出现在聊天列表、小手机或剧本项目里。打开「前世记忆」后，他会只读地参考自己在小手机和长剧情里的记忆。</div>
+      <div className="privacy-note">每个人格都有自己的对话和长期记忆，彼此不会混用，也不会出现在聊天列表、小手机或剧本项目里。打开「前世记忆」后，他会记得自己在小手机和长剧情里和你经历过的事（只读）；他在小手机里也会记得这扇窗口里的事。</div>
       <h3 className="persona-section-title">已启用的人格（{enabled.length}）</h3>
       {enabled.length === 0 && <p className="persona-empty">还没有人格。从下面的角色库里选一个加入吧。</p>}
       {enabled.map((item) => {
@@ -291,9 +301,24 @@ export default function PersonaWindowPage(props: Props) {
     const pendingCount = pendingPersonaMemoryMessages(active).length
     const memoryBusy = Boolean(runtime.memoryBusy[active.id])
     return <section className="chat-page persona-window-page">{header}{switcher}<div className="persona-panel">
-      <div className="privacy-note">这份记忆只属于「{activeCharacter.name}」的人格窗口：不会写进小手机、长剧情或其他人格。每攒 {PERSONA_MEMORY_EVERY} 条新消息自动整理一次（当前待整理 {pendingCount} 条）。</div>
+      <div className="privacy-note">这份记忆只属于「{activeCharacter.name}」的人格窗口：不会写进小手机、长剧情或其他人格（小手机里的 TA 会只读地记得这里的事，别人看不到）。每攒 {PERSONA_MEMORY_EVERY} 条新消息自动整理一次（当前待整理 {pendingCount} 条）。</div>
       <div className="persona-toggle-row"><div><strong>自动整理记忆</strong><small>用「设置 → 长记忆」里的记忆 API，没填时沿用聊天渠道。</small></div><button className={`switch ${active.autoMemory !== false ? 'on' : ''}`} aria-label="自动整理记忆" {...tap(() => setPersonaState((current) => updatePersona(current, active.id, (item) => ({ ...item, autoMemory: item.autoMemory === false }))))}><span /></button></div>
-      <div className="persona-toggle-row"><div><strong>前世记忆</strong><small>只读参考 TA 在小手机与长剧情里的记忆（上限约 6000 字），从不写回。</small></div><button className={`switch ${active.pastLifeEnabled !== false ? 'on' : ''}`} aria-label="前世记忆" {...tap(() => setPersonaState((current) => updatePersona(current, active.id, (item) => ({ ...item, pastLifeEnabled: item.pastLifeEnabled === false }))))}><span /></button></div>
+      <div className="persona-toggle-row"><div><strong>前世记忆</strong><small>TA 记得自己在小手机与长剧情里和你经历过的事（最新的优先，上限约 10000 字），只读，从不写回。</small></div><button className={`switch ${active.pastLifeEnabled !== false ? 'on' : ''}`} aria-label="前世记忆" {...tap(() => setPersonaState((current) => updatePersona(current, active.id, (item) => ({ ...item, pastLifeEnabled: item.pastLifeEnabled === false }))))}><span /></button></div>
+      {(() => {
+        const past = collectPastLifeMemory({ character: activeCharacter, characters, conversations, memoryEntries, userName: identity.name })
+        const pastText = applyMacros(past.text, activeCharacter, identity.name)
+        const deps = requestOpen ? depsFor(active.characterId) : null
+        const request: ChatApiMessage[] = deps ? buildPersonaRequest(active, active.messages.filter((item) => item.text.trim() || item.images?.length), deps) : []
+        const contentText = (message: ChatApiMessage) => typeof message.content === 'string' ? message.content : message.content.map((part) => part.type === 'text' ? part.text : '[图片]').join('\n')
+        return <div className="persona-source-card">
+          <strong>前世记忆来源</strong>
+          <small>{active.pastLifeEnabled === false ? '（前世记忆已关闭，下面只是预览，不会发送）' : ''}找到 {past.relatedConversationCount} 段有 TA 的小手机/长剧情对话，带入 {past.sources.length} 段 · 约 {pastText.length.toLocaleString()} 字{past.characterIds.length > 1 ? ` · 合并了 ${past.characterIds.length} 张同名角色卡` : ''}</small>
+          {past.sources.length > 0 && <ul>{past.sources.map((item, index) => <li key={`${item.conversationId}-${index}`}>{item.kind}｜{item.title} · {item.source === 'memory' ? '记忆' : item.source === 'summary' ? '摘要' : item.source === 'card' ? '角色卡记忆' : '最近对话节选'} · {item.chars} 字</li>)}</ul>}
+          {!past.sources.length && <small>还没有可带入的前世经历：TA 在小手机和长剧情里还没有对话或记忆。</small>}
+          {pastText && <details open={pastLifeOpen} onToggle={(event) => setPastLifeOpen((event.currentTarget as HTMLDetailsElement).open)}><summary>查看注入的前世记忆原文</summary>{pastLifeOpen && <pre>{pastText}</pre>}</details>}
+          <details open={requestOpen} onToggle={(event) => setRequestOpen((event.currentTarget as HTMLDetailsElement).open)}><summary>请求预览 · 下一次发送给模型的完整内容</summary>{requestOpen && <div className="persona-request-preview"><small>共 {request.length} 段 · {request.reduce((sum, message) => sum + contentText(message).length, 0).toLocaleString()} 字符（只查看，不发送）</small>{request.map((message, index) => <details key={index}><summary>{index + 1}. {message.role === 'system' ? '幕后设定 / 记忆' : message.role === 'user' ? '用户消息' : '角色回复'}</summary><pre>{contentText(message)}</pre></details>)}</div>}</details>
+        </div>
+      })()}
       {notice && <div className="memory-auto-notice">{notice}</div>}
       <div className="persona-memory-actions">
         <button className="primary-button" disabled={memoryBusy} {...tap(() => { const deps = depsFor(active.characterId); if (deps && !memoryBusy) void extractPersonaMemory(active.id, deps, true) })}>{memoryBusy ? '正在整理…' : '立即整理新对话'}</button>
@@ -317,7 +342,7 @@ export default function PersonaWindowPage(props: Props) {
     {error && <div className="chat-error" role="alert"><button className="chat-error-action" {...tap(() => setPersonaError(active.id, ''))}><span>连接提示</span>{error}</button><button className="chat-error-close" aria-label="关闭提示" {...tap(() => setPersonaError(active.id, ''))}>×</button></div>}
     <div ref={listRef} className="message-list persona-message-list" onScroll={onScroll}>
       {earlierCount > 0 && <button type="button" className="chat-load-earlier" onClick={loadEarlier}>加载更早 {earlierCount} 条</button>}
-      {messages.length === 0 && <div className="persona-intro">{avatarOf(activeCharacter, 'large')}<strong>{activeCharacter.name}</strong><p>这是只属于 {activeCharacter.name} 的窗口。这里的对话与记忆独立存放{active.pastLifeEnabled !== false ? '，TA 隐约记得小手机和长剧情里的前世' : ''}。</p><button className="soft-button" {...tap(letThemSpeak)}>让 TA 先开口</button></div>}
+      {messages.length === 0 && <div className="persona-intro">{avatarOf(activeCharacter, 'large')}<strong>{activeCharacter.name}</strong><p>这是只属于 {activeCharacter.name} 的窗口。这里的对话与记忆独立存放{active.pastLifeEnabled !== false ? '，TA 记得自己在小手机和长剧情里和你经历过的事' : ''}。</p><button className="soft-button" {...tap(letThemSpeak)}>让 TA 先开口</button></div>}
       {rendered.map((message) => {
         const isUser = message.role === 'user'
         const streamingNow = !isUser && generating && message.id === lastMessage?.id

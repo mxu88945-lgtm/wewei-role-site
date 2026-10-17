@@ -21,6 +21,7 @@ import {
   applyPersonaMemoryExtraction,
   PERSONA_MEMORY_BATCH,
   PERSONA_WINDOW_PRESET,
+  PERSONA_FINAL_GUARD,
   type PersonaMessage,
   type PersonaWindow,
 } from './personaWindow'
@@ -42,6 +43,10 @@ export type PersonaRuntimeDeps = {
   memoryLength: number
   /** Built lazily, read-only, only when the persona's 前世记忆 switch is on. */
   pastLife: () => string
+  /** The same global worldbook the main story chat uses. */
+  globalWorldbook?: string
+  /** Story-project world / story cast background for this character (人设补充). */
+  setting?: () => string
 }
 
 type RuntimeSnapshot = { generating: Record<string, boolean>; memoryBusy: Record<string, boolean>; errors: Record<string, string>; notices: Record<string, string> }
@@ -79,24 +84,24 @@ export const PERSONA_MEMORY_INJECT = '以下是{{char}}在这扇独立窗口里�
 export function buildPersonaRequest(persona: PersonaWindow, history: PersonaMessage[], deps: PersonaRuntimeDeps): ChatApiMessage[] {
   const character = personaCharacter(deps.character)
   const compressedUntil = personaCompressedUntil(persona)
+  const setting = deps.setting?.().trim() || ''
+  const pastLife = persona.pastLifeEnabled !== false ? deps.pastLife().trim() : ''
   const messages = buildChatPrompt({
     mode: 'story',
     character,
     user: deps.user,
     messages: history.map((item) => ({ role: item.role, text: item.text, images: item.images })),
     preset: PERSONA_WINDOW_PRESET,
-    globalWorldbook: '',
+    globalWorldbook: deps.globalWorldbook || '',
+    // Inside the main system prompt, right after the card: who he is, then his own past.
+    // This window's own memory follows it (after-main-prompt), so it wins on conflicts.
+    storyProjectContext: [setting, pastLife].filter(Boolean).join('\n\n') || undefined,
     memory: { entries: personaMemoriesForPrompt(persona), injectPosition: 'after-main-prompt', injectPrompt: PERSONA_MEMORY_INJECT },
     memoryLength: deps.memoryLength,
     contextSummary: compressedUntil > 0 ? persona.contextSummary : undefined,
     compressedUntil: compressedUntil > 0 ? compressedUntil : undefined,
   })
-  const pastLife = persona.pastLifeEnabled !== false ? deps.pastLife().trim() : ''
-  if (pastLife) {
-    // Background, below this window's own memory: right before the chat history.
-    const historyAt = messages.findIndex((item) => item.role !== 'system')
-    messages.splice(historyAt < 0 ? messages.length : historyAt, 0, { role: 'system', content: pastLife })
-  }
+  messages.push({ role: 'system', content: applyMacros(PERSONA_FINAL_GUARD, character, deps.user.name) })
   if (!history.some((item) => item.role === 'user')) {
     messages.push({ role: 'user', content: applyMacros('（{{user}}推开了这扇只属于{{char}}的窗。）', character, deps.user.name) })
   }

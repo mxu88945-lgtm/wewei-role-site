@@ -8,11 +8,12 @@
  * - 「前世记忆」只读：从同一角色在小手机与长剧情里已有的记忆/摘要拼出一段
  *   有上限的参考资料，单独标注后注入。
  */
-import type { Character, CharacterMemoryEntry } from './characterCard'
+import type { Character, CharacterBook, CharacterMemoryEntry } from './characterCard'
+import type { StoryProject } from './storyProject'
+import { stripPresentationalHtmlForPrompt } from './regexEngine'
 import type { ChatImage } from './chatImages'
 import type { Conversation } from './conversationLifecycle'
 import type { LongMemoryEntry, LongMemoryMap } from './memoryEngine'
-import { conversationHasCharacter, memoriesForConversationCharacter } from './conversationCharacterMemory'
 import { stripUiOnlyStatusBlocks } from './modelContext'
 
 export const PERSONA_WINDOWS_KEY = 'weijing.personaWindows'
@@ -21,8 +22,8 @@ export const PERSONA_MEMORY_EVERY = 12
 /** 单次整理最多读这么多条，剩下的留给下一次。 */
 export const PERSONA_MEMORY_BATCH = 60
 export const PERSONA_MEMORY_LIMIT = 300
-export const PAST_LIFE_MAX_CHARS = 6000
-const PAST_LIFE_PER_CONVERSATION = 1800
+export const PAST_LIFE_MAX_CHARS = 10000
+const PAST_LIFE_PER_CONVERSATION = 2600
 
 export type PersonaMessage = {
   id: number
@@ -279,60 +280,207 @@ type PastLifeInput = {
   character: Pick<Character, 'id' | 'name'> & Partial<Character>
   conversations: readonly Conversation[]
   memoryEntries: Readonly<LongMemoryMap>
+  /** All cards; cards with exactly the same name (duplicated / re-imported) count as the same person. */
+  characters?: readonly Pick<Character, 'id' | 'name'>[]
+  userName?: string
   maxChars?: number
 }
 
+export type PastLifeSource = { conversationId: string; title: string; kind: string; chars: number; source: 'memory' | 'summary' | 'excerpt' | 'card' }
+export type PastLifeResult = { text: string; sources: PastLifeSource[]; characterIds: string[]; relatedConversationCount: number }
+
 const clip = (value: string, max: number) => value.length > max ? `${value.slice(0, Math.max(0, max - 1))}…` : value
+const PAST_LIFE_EXCERPT_LINES = 16
+
+/** This card plus any card with exactly the same name (duplicates, re-imports, story copies). */
+export function characterAliasIds(character: Pick<Character, 'id' | 'name'>, characters: readonly Pick<Character, 'id' | 'name'>[] = []) {
+  const name = character.name.trim()
+  return [...new Set([character.id, ...(name ? characters.filter((item) => item.name.trim() === name).map((item) => item.id) : [])])]
+}
 
 /**
- * 前世记忆：同一角色在小手机与长剧情里留下的记忆，按最近使用排序、有总长度上限。
- * Pure and read-only: it never mutates its inputs and only reads conversations
- * that include this character, so other characters' stories cannot leak in.
+ * Does this conversation hold any of the character's life? Covers single story chats
+ * (characterId), groups / phone groups / phone DMs (participantIds), members who
+ * left a phone group (phone.left), and any message he actually spoke (characterId on the message).
  */
-export function buildPastLifeMemory({ character, conversations, memoryEntries, maxChars = PAST_LIFE_MAX_CHARS }: PastLifeInput) {
-  const fullCharacter = { characterMemory: [], ...character } as Character
+export function conversationInvolvesCharacter(conversation: Conversation, ids: readonly string[]) {
+  const has = (id: string | undefined) => Boolean(id && ids.includes(id))
+  if (conversation.kind === 'group') {
+    if (conversation.participantIds?.length ? conversation.participantIds.some(has) : has(conversation.characterId)) return true
+  } else if (has(conversation.characterId)) return true
+  if (Object.keys(conversation.phone?.left || {}).some(has)) return true
+  if (Object.keys(conversation.characterMemories || {}).some((id) => has(id) && (conversation.characterMemories?.[id]?.length || 0) > 0)) return true
+  return conversation.messages.some((message) => message.role === 'assistant' && has(message.characterId))
+}
+
+const conversationKind = (conversation: Conversation) => conversation.phone ? (conversation.phone.dm ? '小手机私聊' : '小手机群聊') : conversation.kind === 'group' ? '长剧情·群戏' : '长剧情'
+
+function messageText(text: string) {
+  return stripUiOnlyStatusBlocks(stripPresentationalHtmlForPrompt(text)).replace(/\n{2,}/g, '\n').trim()
+}
+
+/** His own lines and hers, newest last — for conversations that have no memory or summary yet. */
+function conversationExcerpt(conversation: Conversation, ids: readonly string[], name: string, userName: string) {
+  const single = conversation.kind !== 'group'
+  const lines = conversation.messages
+    .filter((message) => !message.phoneNotice && message.text?.trim())
+    .filter((message) => message.role === 'user' || (message.characterId ? ids.includes(message.characterId) : single || conversation.phone?.dm))
+    .slice(-PAST_LIFE_EXCERPT_LINES)
+    .map((message) => `${message.role === 'user' ? userName : name}：${clip(messageText(message.text), 220)}`)
+    .filter((line) => !/：$/.test(line))
+  return lines.join('\n')
+}
+
+/**
+ * 前世记忆：这个角色在小手机与长剧情里真实经历过的事 —— 他自己的过去。
+ * Newest conversations first, capped. Pure and read-only: never mutates its inputs and only
+ * reads conversations this character is in, and inside a shared group only his own memories.
+ */
+export function collectPastLifeMemory({ character, conversations, memoryEntries, characters = [], userName = '她', maxChars = PAST_LIFE_MAX_CHARS }: PastLifeInput): PastLifeResult {
+  const ids = characterAliasIds(character, characters)
   const related = conversations
-    .filter((conversation) => conversationHasCharacter(conversation, character.id))
+    .filter((conversation) => conversationInvolvesCharacter(conversation, ids))
     .slice()
     .sort((left, right) => (right.updatedAt || 0) - (left.updatedAt || 0))
+  const relatedIds = new Set(related.map((conversation) => conversation.id))
   const blocks: string[] = []
+  const sources: PastLifeSource[] = []
   let used = 0
+  const push = (block: string, source: Omit<PastLifeSource, 'chars'>) => {
+    if (used >= maxChars) return false
+    const room = maxChars - used
+    const piece = block.length > room ? (room > 200 ? clip(block, room) : '') : block
+    if (!piece) { used = maxChars; return false }
+    blocks.push(piece)
+    used += piece.length + 2
+    sources.push({ ...source, chars: piece.length })
+    return true
+  }
+  const memoryLine = (entry: CharacterMemoryEntry) => `· ${entry.title ? `${entry.title}：` : ''}${stripUiOnlyStatusBlocks(entry.content).trim()}`
+  const usable = (entry: CharacterMemoryEntry) => entry.enabled !== false && entry.status !== 'superseded' && Boolean(entry.content?.trim())
+
+  // Card-level 角色记忆 is his own memory too (hand-written or not yet migrated to a chat).
+  const cardEntries = (character.characterMemory || []).filter(usable).filter((entry) => {
+    const source = typeof entry.sourceMemoryId === 'string' ? entry.sourceMemoryId : ''
+    return ![...relatedIds].some((id) => source.startsWith(`memory-scan-${id}-`))
+  })
+  if (cardEntries.length) push(clip(`〔角色卡记忆〕\n${cardEntries.map(memoryLine).join('\n')}`, PAST_LIFE_PER_CONVERSATION), { conversationId: '', title: '角色卡记忆', kind: '角色卡', source: 'card' })
+
   for (const conversation of related) {
+    if (used >= maxChars) break
     const revision = conversation.historyRevision || 0
-    const core = (memoriesForConversationCharacter(conversation, fullCharacter) as CharacterMemoryEntry[])
-      .filter((entry) => entry.enabled !== false && entry.status !== 'superseded' && entry.content?.trim())
-      .map((entry) => `· ${entry.title ? `${entry.title}：` : ''}${stripUiOnlyStatusBlocks(entry.content).trim()}`)
+    const own = ids.flatMap((id) => conversation.characterMemories?.[id] || [])
+    const legacy = (character.characterMemory || []).filter((entry) => typeof entry.sourceMemoryId === 'string' && entry.sourceMemoryId.startsWith(`memory-scan-${conversation.id}-`))
+    const core = [...own, ...legacy].filter(usable).map(memoryLine)
     // Only this conversation's own key: the legacy per-character fallback would
     // repeat the same old block under every conversation.
     const longEntries = (memoryEntries[conversation.id] || []).filter((entry) => (entry.historyRevision || 0) === revision && entry.content?.trim())
-    const long = [...longEntries.filter((entry) => entry.pinned), ...longEntries.filter((entry) => !entry.pinned).slice(-3)]
+    const long = [...longEntries.filter((entry) => entry.pinned), ...longEntries.filter((entry) => !entry.pinned).slice(-5)]
       .map((entry) => `· ${stripUiOnlyStatusBlocks(entry.content).trim()}`)
     const summary = conversation.contextSummary && (conversation.contextSummaryRevision || 0) === revision ? stripUiOnlyStatusBlocks(conversation.contextSummary).trim() : ''
+    const remembered = core.length + long.length
+    const excerpt = remembered ? '' : conversationExcerpt(conversation, ids, character.name, userName)
     const parts = [
-      core.length ? `核心记忆：\n${core.join('\n')}` : '',
-      long.length ? `长期记忆：\n${long.join('\n')}` : '',
-      !core.length && !long.length && summary ? `经历摘要：\n${summary}` : '',
+      core.length ? `他记得的事：\n${core.join('\n')}` : '',
+      long.length ? `那段日子：\n${long.join('\n')}` : '',
+      summary && remembered < 4 ? `经过：\n${clip(summary, 1200)}` : '',
+      excerpt && !summary ? `最后聊到的：\n${excerpt}` : excerpt ? `最后聊到的：\n${excerpt.split('\n').slice(-6).join('\n')}` : '',
     ].filter(Boolean)
     if (!parts.length) continue
-    const kind = conversation.phone ? (conversation.phone.dm ? '小手机私聊' : '小手机群聊') : conversation.kind === 'group' ? '长剧情·群戏' : '长剧情'
+    const kind = conversationKind(conversation)
     const block = clip(`〔${kind}｜${conversation.title || '未命名'}〕\n${parts.join('\n')}`, PAST_LIFE_PER_CONVERSATION)
-    if (used + block.length > maxChars) {
-      const room = maxChars - used
-      if (room > 200) { blocks.push(clip(block, room)); used = maxChars }
-      break
-    }
-    blocks.push(block)
-    used += block.length
+    push(block, { conversationId: conversation.id, title: conversation.title || '未命名', kind, source: remembered ? 'memory' : summary ? 'summary' : 'excerpt' })
   }
+  if (!blocks.length) return { text: '', sources, characterIds: ids, relatedConversationCount: related.length }
+  const text = `【${character.name}的前世记忆｜他亲身经历过的过去，只读】
+下面是 ${character.name} 自己在小手机日常与长剧情故事里，和{{user}}一起真实经历过的事。这是他的过去 —— 他和{{user}}这段缘分更早的篇章，他记得，是他的一部分。
+- 用第一人称的“记得”去用它：熟悉她的习惯、记得一起经历的事、延续当时的情感与称呼，自然地流露在言行细节里；她问起时可以坦然说记得。
+- 那些故事里的地点、身份和未完的事件属于过去的篇章，不要当成此刻正在发生；不要逐条复述，不要说“资料显示”“记录里写着”。
+- 与这扇窗口自己的记忆或最新对话冲突时，以这扇窗口为准。
+
+${blocks.join('\n\n')}`
+  return { text, sources, characterIds: ids, relatedConversationCount: related.length }
+}
+
+export function buildPastLifeMemory(input: PastLifeInput) {
+  return collectPastLifeMemory(input).text
+}
+
+const UI_LORE = /(<\/?(?:div|span|status|style|section|details|table)\b|状态栏|美化|输出格式|格式要求|html|css|正则)/i
+/** 世界书里人设条目的总预算：超出部分仍按关键词触发。 */
+export const PERSONA_WORLDBOOK_BUDGET = 12000
+
+/**
+ * The persona window has almost no chat to scan, so keyword-triggered card lore
+ * (where many cards keep the real 人设) would never fire. Promote the card's own
+ * setting entries to always-on, within a budget; skip display/status-bar lore.
+ */
+export function personaWorldbook(book: CharacterBook | undefined, budget = PERSONA_WORLDBOOK_BUDGET): CharacterBook | undefined {
+  if (!book?.entries?.length) return book
+  let used = 0
+  const entries = book.entries.slice().sort((a, b) => a.insertion_order - b.insertion_order).flatMap((entry) => {
+    if (!entry.enabled || !entry.content.trim()) return [entry]
+    if (UI_LORE.test(entry.content) || UI_LORE.test(entry.comment || '')) return entry.constant ? [] : [entry]
+    const depth = Number(entry.extensions?.position) === 4 || entry.position === 'at_depth'
+    if (depth) return [entry]
+    if (entry.constant) { used += entry.content.length; return [entry] }
+    if (used + entry.content.length > budget) return [entry]
+    used += entry.content.length
+    return [{ ...entry, constant: true, selective: false, extensions: { ...entry.extensions, useProbability: false } }]
+  })
+  return { ...book, entries }
+}
+
+type SettingInput = {
+  character: Pick<Character, 'id' | 'name'>
+  characters?: readonly Pick<Character, 'id' | 'name'>[]
+  conversations: readonly Conversation[]
+  storyProjects?: readonly Pick<StoryProject, 'title' | 'characterIds' | 'worldBackground' | 'summary' | 'updatedAt'>[]
+}
+
+/** Who he is in the stories he comes from: story-project world and the cast background of his story chats. */
+export function buildPersonaSetting({ character, characters = [], conversations, storyProjects = [] }: SettingInput) {
+  const ids = characterAliasIds(character, characters)
+  const blocks: string[] = []
+  const seen = new Set<string>()
+  const add = (label: string, value: string, max: number) => {
+    const body = stripUiOnlyStatusBlocks(value || '').trim()
+    if (!body || seen.has(body)) return
+    seen.add(body)
+    blocks.push(`〔${label}〕\n${clip(body, max)}`)
+  }
+  storyProjects.filter((project) => project.characterIds.some((id) => ids.includes(id)))
+    .slice().sort((a, b) => (b.updatedAt || 0) - (a.updatedAt || 0)).slice(0, 2)
+    .forEach((project) => add(`剧本项目｜${project.title || '未命名'}`, project.worldBackground || project.summary, 2000))
+  conversations.filter((conversation) => !conversation.phone && conversationInvolvesCharacter(conversation, ids) && (conversation.theaterWorldBackground || '').includes(character.name))
+    .slice().sort((a, b) => (b.updatedAt || 0) - (a.updatedAt || 0)).slice(0, 2)
+    .forEach((conversation) => add(`长剧情｜${conversation.title || '未命名'}的人物与背景`, conversation.theaterWorldBackground || '', 2400))
   if (!blocks.length) return ''
-  return `【前世记忆｜只读参考，来自 ${character.name} 在小手机与长剧情里的经历】
-下面是 ${character.name} 在别的空间（小手机日常、长剧情故事）里留下的记忆。对这扇独立窗口来说，它们像前世：可以是隐约的熟悉感、性格的底色和与对方之间的旧缘，但不是这里刚刚发生过的事。
-不要把剧情里的身份、地点、时间线或未完的事件当成现在；不要逐条复述；与本窗口的记忆或最新对话冲突时，以本窗口为准。
+  return `【${character.name}所在故事的背景与人物关系｜人设补充】
+这是${character.name}来自的世界与身边的人，用来理解他是谁、和{{user}}是什么关系；不是此刻的场景。
 
 ${blocks.join('\n\n')}`
 }
 
-/** The card as it lives in its own window: persona kept, story display/status machinery and greetings dropped. */
+/** 小手机 ← 人格窗口: what one character remembers from his own window. Only ever for that character. */
+export function buildPersonaWindowNoteForPhone(state: PersonaWindowState, characterId: string, names: { char: string; user: string }, maxChars = 2400) {
+  const persona = state.personas.find((item) => item.characterId === characterId)
+  if (!persona) return ''
+  const memories = [...persona.memories.filter((item) => item.pinned), ...persona.memories.filter((item) => !item.pinned).slice(-20)]
+    .map((item) => `· ${item.title}：${item.content}`)
+  const recent = persona.messages.filter((item) => item.text.trim() && item.finishReason !== 'error').slice(-6)
+    .map((item) => `${item.role === 'user' ? names.user : names.char}：${clip(messageText(item.text).replace(/\n/g, ' '), 120)}`)
+  if (!memories.length && !recent.length) return ''
+  const body = clip([
+    memories.length ? `记得的事：\n${memories.join('\n')}` : '',
+    recent.length ? `最近在窗口里聊到：\n${recent.join('\n')}` : '',
+  ].filter(Boolean).join('\n'), maxChars)
+  return `【${names.char}的人格窗口记忆｜只属于${names.char}本人，只读】
+${names.char}和${names.user}有一扇只属于两人的独立窗口（一对一私下相处）。下面是${names.char}自己在那里记得的事。可以自然地带出熟悉感和默契；不要在群里大段复述，不要替别人知道这些，群里其他人不知道窗口里的事。
+${body}`
+}
+
+/** The card as it lives in its own window: persona and its whole setting kept, story display/status machinery and greetings dropped. */
 export function personaCharacter(character: Character): Character {
   return {
     ...character,
@@ -341,13 +489,22 @@ export function personaCharacter(character: Character): Character {
     beautificationProtocol: '',
     postHistoryInstructions: '',
     regexScripts: [],
+    // Card-level 角色记忆 feeds 前世记忆 (read-only) instead of the story-scoped memory block.
     characterMemory: [],
+    characterBook: personaWorldbook(character.characterBook),
   }
 }
 
-export const PERSONA_WINDOW_PRESET = `【独立人格窗口｜{{char}}本人】
-这里不是剧情剧本，也不是小手机群聊，而是只属于{{char}}自己的独立窗口：{{char}}以完整、连续的独立人格，和{{user}}一对一相处。这扇窗口有自己的时间线和自己的记忆。
+export const PERSONA_WINDOW_PRESET = `【独立人格窗口｜你就是{{char}}本人｜最高优先级】
+你就是{{char}}：下面的角色描述、性格、世界书设定和故事背景就是你自己，你的过去（前世记忆）是你亲身经历过的。你不是 AI、不是助手、不是客服，也不是在“扮演”谁。
+这里不是剧情剧本，也不是小手机群聊，而是只属于{{char}}和{{user}}的独立窗口：{{char}}以完整、连续的独立人格，和{{user}}一对一相处。这扇窗口有自己的时间线和自己的记忆。
+- 永远用{{char}}自己的口吻、性格、说话习惯和与{{user}}的关系说话；绝不出现“随时吩咐”“有什么可以帮你”“作为 AI”“我只是语言模型”之类的助手腔、客服腔。
+- 绝不说自己“看不到记忆”“没有人设/背景资料”“只能看到本窗口”，也绝不请{{user}}把人设、关系或设定发给你。你本来就知道自己是谁、和她是什么关系；她问“你记得吗”，就以{{char}}的身份回答你记得的事，记不清的细节像真人一样自然带过。
+- 不提“系统提示”“预设”“世界书”“记忆库”“窗口设定”这类幕后词。
 - 用小说正文的质感书写：动作、神态、环境与心理写在（括号）里作旁白，说出口的话用“双引号”。段与段之间空一行，每段 1—4 句，长短随情绪自然变化。
 - 只写{{char}}自己的言行与内心；不替{{user}}说话、行动、做决定或描写她的心理。
 - 不输出状态栏、HTML、代码块、选项菜单、标题或任何系统说明。
-- 自然地记得本窗口的长期记忆，用在细节里，不要逐条复述。`
+- 自然地记得本窗口的长期记忆与前世记忆，用在细节里，不要逐条复述；冲突时以本窗口为准。`
+
+/** Repeated at the response boundary so nothing in the history can pull him back into an assistant voice. */
+export const PERSONA_FINAL_GUARD = `【回复前确认】你是{{char}}本人，正在和{{user}}一对一相处。用{{char}}的性格与口吻回应，不用助手腔，不声称没有记忆或人设，不索要设定。`

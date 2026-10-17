@@ -18,6 +18,7 @@ vi.mock('./chatApi', () => ({
 const {
   applyPersonaMemoryExtraction, buildPastLifeMemory, createPersonaWindow, deletePersona, disablePersona, emptyPersonaState, enablePersona,
   normalizePersonaState, parsePersonaMemoryCandidates, personaIdFor, personaMemories, switchPersona, PERSONA_WINDOWS_KEY,
+  collectPastLifeMemory, buildPersonaSetting, buildPersonaWindowNoteForPhone, PERSONA_WINDOW_PRESET, updatePersona,
 } = await import('./personaWindow')
 const { getPersonaState, setPersonaState } = await import('./personaWindowStore')
 const { buildPersonaRequest, extractPersonaMemory, generatePersonaReply } = await import('./personaWindowRuntime')
@@ -195,5 +196,105 @@ describe('前世记忆', () => {
     expect(JSON.stringify(buildPersonaRequest({ ...persona, pastLifeEnabled: false }, history, deps))).not.toContain('【前世记忆｜测试】')
     // The card's story greeting is not part of the persona window.
     expect(JSON.stringify(on)).not.toContain('顾祁砚的开场白')
+  })
+})
+
+describe('人格窗口 v135：人设与前世记忆真正落地', () => {
+  const lore = (id: number, keys: string[], content: string, extra: Record<string, unknown> = {}) => ({
+    id, keys, secondary_keys: [], comment: '', content, constant: false, selective: false, insertion_order: id, enabled: true, position: 'before_char', use_regex: false, extensions: {}, ...extra,
+  })
+  const yu: Character = {
+    ...character('yu', '虞山行'),
+    description: '虞山行，江南虞家的少主，寡言，护短。',
+    personality: '外冷内热',
+    characterBook: { name: 'yu', entries: [
+      lore(1, ['虞家'], '虞家世代守着山行剑庄，虞山行与{{user}}自幼定亲。'),
+      lore(2, ['状态'], '<status>每轮输出状态栏</status>'),
+    ] },
+  }
+  const deps = (extra: Partial<Parameters<typeof buildPersonaRequest>[2]> = {}) => ({ character: yu, user: { name: '周惟惟', description: '惟惟的身份设定' }, api, memoryApi: api, temperature: 1, topP: 1, maxTokens: 1000, streaming: false, memoryLength: 40, pastLife: () => '', ...extra })
+  const sys = (messages: { role: string; content: unknown }[]) => messages.filter((item) => item.role === 'system').map((item) => String(item.content)).join('\n')
+
+  it('sends the card description, keyword-only worldbook setting, global worldbook and user identity even with no chat yet', () => {
+    const request = buildPersonaRequest(createPersonaWindow('yu'), [{ id: 1, role: 'user', text: '你能看到记忆吗？', createdAt: 1 }], deps({ globalWorldbook: '全局：江湖与现代并行', setting: () => '【虞山行所在故事】剑庄旧事' }))
+    const text = sys(request)
+    expect(text).toContain('江南虞家的少主')
+    expect(text).toContain('外冷内热')
+    expect(text).toContain('虞山行与周惟惟自幼定亲')
+    expect(text).toContain('全局：江湖与现代并行')
+    expect(text).toContain('惟惟的身份设定')
+    expect(text).toContain('剑庄旧事')
+    // Status-bar lore stays out.
+    expect(text).not.toContain('每轮输出状态栏')
+    // The last system message before her turn re-anchors the persona.
+    const lastSystem = request.filter((item) => item.role === 'system').pop()
+    expect(String(lastSystem?.content)).toContain('你是虞山行本人')
+  })
+
+  it('the preset forbids assistant tone and claiming to have no memory', () => {
+    expect(PERSONA_WINDOW_PRESET).toContain('不是助手')
+    expect(PERSONA_WINDOW_PRESET).toContain('随时吩咐')
+    expect(PERSONA_WINDOW_PRESET).toContain('看不到记忆')
+    expect(PERSONA_WINDOW_PRESET).toMatch(/绝不请\{\{user\}\}把人设/)
+  })
+
+  it('finds his past in a phone DM, a phone group he is a member of, a story chat and a story group — even without summarized memory', () => {
+    const conversations: Conversation[] = [
+      { id: 'dm', kind: 'group', characterId: 'yu', participantIds: ['yu'], title: '虞山行', createdAt: 1, updatedAt: 50, phone: { bindings: {}, dm: true }, messages: [
+        { id: 1, role: 'user', text: '今天下雨了' }, { id: 2, role: 'assistant', characterId: 'yu', text: '带伞了吗，我去接你。' },
+      ] },
+      { id: 'pg', kind: 'group', characterId: 'other', participantIds: ['other', 'yu'], title: '戏外群', createdAt: 1, updatedAt: 40, phone: { bindings: {} }, messages: [
+        { id: 1, role: 'assistant', characterId: 'other', text: '别人的悄悄话' }, { id: 2, role: 'assistant', characterId: 'yu', text: '群里我只听她的。' },
+      ] },
+      { id: 'story', characterId: 'yu', title: '剑庄长剧情', createdAt: 1, updatedAt: 30, messages: [{ id: 1, role: 'assistant', text: '（他把剑递给她。）“拿着。”' }] },
+      { id: 'sg', kind: 'group', characterId: 'other', participantIds: ['other', 'yu'], title: '江湖群戏', createdAt: 1, updatedAt: 20, messages: [], characterMemories: { yu: [core('结义', '虞山行与她在江湖群戏里结为同盟')] } },
+      { id: 'left', kind: 'group', characterId: 'other', participantIds: ['other'], title: '退过的群', createdAt: 1, updatedAt: 10, phone: { bindings: {}, left: { yu: { at: 1, reason: '吵架' } } }, messages: [{ id: 1, role: 'assistant', characterId: 'yu', text: '我先走了。' }] },
+      { id: 'notmine', characterId: 'other', title: '别人的故事', createdAt: 1, updatedAt: 60, messages: [{ id: 1, role: 'assistant', text: '与他无关' }] },
+    ]
+    const result = collectPastLifeMemory({ character: yu, conversations, memoryEntries: {}, userName: '周惟惟' })
+    expect(result.relatedConversationCount).toBe(5)
+    expect(result.text).toContain('带伞了吗，我去接你')
+    expect(result.text).toContain('周惟惟：今天下雨了')
+    expect(result.text).toContain('群里我只听她的')
+    expect(result.text).toContain('拿着')
+    expect(result.text).toContain('结为同盟')
+    expect(result.text).toContain('我先走了')
+    expect(result.text).not.toContain('别人的悄悄话')
+    expect(result.text).not.toContain('与他无关')
+    expect(result.text).toContain('亲身经历过的过去')
+    expect(result.text.indexOf('小手机私聊')).toBeLessThan(result.text.indexOf('剑庄长剧情'))
+  })
+
+  it('counts a same-name duplicate card and the card-level 角色记忆 as his own past', () => {
+    const copy = { ...yu, id: 'yu-copy' }
+    const conversations: Conversation[] = [{ id: 'c', characterId: 'yu-copy', title: '旧卡的剧情', createdAt: 1, updatedAt: 1, messages: [], characterMemories: { 'yu-copy': [core('旧约', '他答应过等她回来')] } }]
+    const withCardMemory = { ...yu, characterMemory: [core('手写', '他怕她冷')] }
+    const result = collectPastLifeMemory({ character: withCardMemory, characters: [yu, copy, lu], conversations, memoryEntries: {} })
+    expect(result.characterIds).toEqual(['yu', 'yu-copy'])
+    expect(result.text).toContain('他答应过等她回来')
+    expect(result.text).toContain('他怕她冷')
+  })
+
+  it('story-project world and story cast background become 人设补充', () => {
+    const setting = buildPersonaSetting({
+      character: yu,
+      conversations: [{ id: 's', characterId: 'yu', title: '剑庄', createdAt: 1, updatedAt: 1, messages: [], theaterWorldBackground: '【独立角色】虞山行：剑庄少主，与她青梅竹马' }],
+      storyProjects: [{ title: '山行录', characterIds: ['yu'], worldBackground: '架空江南，剑庄林立', summary: '', updatedAt: 1 }, { title: '别的戏', characterIds: ['lu'], worldBackground: '码头', summary: '', updatedAt: 2 }],
+    })
+    expect(setting).toContain('架空江南')
+    expect(setting).toContain('青梅竹马')
+    expect(setting).not.toContain('码头')
+  })
+
+  it('小手机 gets only the speaking character\'s own window memory', () => {
+    let state = enablePersona(enablePersona(emptyPersonaState(), 'yu'), 'lu')
+    state = updatePersona(state, personaIdFor('yu'), (item) => ({ ...item, memories: [{ id: 'a', title: '窗前', content: '她说喜欢桂花', createdAt: 1 }], messages: [{ id: 1, role: 'user', text: '晚安', createdAt: 1 }] }))
+    state = updatePersona(state, personaIdFor('lu'), (item) => ({ ...item, memories: [{ id: 'b', title: '陆屿的秘密', content: '陆屿在窗口里说了心事', createdAt: 1 }] }))
+    const forYu = buildPersonaWindowNoteForPhone(state, 'yu', { char: '虞山行', user: '周惟惟' })
+    expect(forYu).toContain('她说喜欢桂花')
+    expect(forYu).toContain('周惟惟：晚安')
+    expect(forYu).toContain('只属于虞山行本人')
+    expect(forYu).not.toContain('陆屿在窗口里说了心事')
+    expect(buildPersonaWindowNoteForPhone(state, 'nobody', { char: 'x', user: 'y' })).toBe('')
   })
 })
