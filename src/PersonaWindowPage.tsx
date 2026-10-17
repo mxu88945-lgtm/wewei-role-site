@@ -121,6 +121,8 @@ export default function PersonaWindowPage(props: Props) {
   const active = enabled.find((item) => item.id === state.activeId) || enabled[0]
   const activeCharacter = active ? characters.find((character) => character.id === active.characterId) : undefined
   const [view, setView] = useState<View>(() => 'chat')
+  // 从设置页进记忆/管理时记住，返回键要回到设置页而不是直接回聊天
+  const [viewReturn, setViewReturn] = useState<'settings' | null>(null)
   const [switcherOpen, setSwitcherOpen] = useState(false)
   const [drawerOpen, setDrawerOpen] = useState(false)
   const [sidebarOpen, setSidebarOpen] = useState(false)
@@ -430,7 +432,7 @@ export default function PersonaWindowPage(props: Props) {
   }
 
   const header = <header className="chat-header persona-header">
-    <button className="icon-button persona-back" aria-label={view === 'chat' && active ? '打开聊天侧栏' : active ? '返回聊天' : '返回首页'} aria-expanded={view === 'chat' && active ? sidebarOpen : undefined} {...tap(() => { setSwitcherOpen(false); if (view !== 'chat' && active) setView('chat'); else if (active) openSidebar(); else onBack() })}>{view === 'chat' && active ? <svg width="23" height="23" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.7" strokeLinecap="round" aria-hidden="true"><path d="M4 7h16M4 12h12M4 17h8" /></svg> : '‹'}</button>
+    <button className="icon-button persona-back" aria-label={view === 'chat' && active ? '打开聊天侧栏' : viewReturn === 'settings' ? '返回设置' : active ? '返回聊天' : '返回首页'} aria-expanded={view === 'chat' && active ? sidebarOpen : undefined} {...tap(() => { setSwitcherOpen(false); if (view !== 'chat' && active) { if (viewReturn === 'settings') { setViewReturn(null); setView('chat'); setSettingsPanel('home'); setDrawerOpen(true) } else setView('chat') } else if (active) openSidebar(); else onBack() })}>{view === 'chat' && active ? <svg width="23" height="23" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.7" strokeLinecap="round" aria-hidden="true"><path d="M4 7h16M4 12h12M4 17h8" /></svg> : '‹'}</button>
     <button className="chat-identity persona-identity" aria-label="切换人格" aria-expanded={switcherOpen} {...tap(() => setSwitcherOpen((open) => !open))}>
       {activeCharacter ? (activeCharacter.avatar ? <img src={activeCharacter.avatar} alt="" /> : <span>{activeCharacter.name.slice(-1)}</span>) : <span>✧</span>}
       <div><strong>{view === 'manage' ? '管理人格' : view === 'memory' ? `${activeCharacter?.name || ''} · 记忆` : activeCharacter?.name || '人格窗口'}</strong><small>{generating ? '正在回应…' : `点这里切换人格${enabled.length > 1 ? ` · 共 ${enabled.length} 位` : ''}`}</small></div>
@@ -450,7 +452,7 @@ export default function PersonaWindowPage(props: Props) {
           return <button key={item.id} className={item.id === active?.id ? 'persona-room-card active' : 'persona-room-card'} aria-current={item.id === active?.id} {...tap(() => choosePersona(item.id))}>{avatarOf(character, 'small')}<span className="persona-room-info"><strong>{character?.name}{generating && <i> · 回复中…</i>}</strong><small>{character?.tagline || character?.libraryGroup || '独立人格'}</small></span><em>{item.threads.length} 段</em></button>
         })}
       </div>
-      <button className="persona-room-manage" {...tap(() => { setSwitcherOpen(false); setView('manage') })}>＋ 添加 / 管理人格</button>
+      <button className="persona-room-manage" {...tap(() => { setSwitcherOpen(false); setViewReturn(null); setView('manage') })}>＋ 添加 / 管理人格</button>
     </div>
   </div>
 
@@ -596,7 +598,7 @@ export default function PersonaWindowPage(props: Props) {
           <button className="persona-settings-close" aria-label="关闭" {...tap(() => { setDrawerOpen(false); setRenaming(null) })}>×</button>
         </header>}
         <div className="right-drawer-scroll">
-          {drawerOpen && settingsPanel === 'home' && <PersonaSettingsHome promptLength={active.systemPrompt?.trim().length || 0} memoryCount={active.memories.length} threadCount={active.threads.length} threadTitle={thread?.title || ''} channelName={resolvePersonaApi(active, props.apiChannels, props.api).name} modelName={resolvePersonaApi(active, props.apiChannels, props.api).modelName || ''} pastLifeEnabled={active.pastLifeEnabled !== false} onNavigate={setSettingsPanel} onThreads={openSidebar} onMemory={() => { setDrawerOpen(false); setView('memory') }} onManage={() => { setDrawerOpen(false); setView('manage') }} onTogglePastLife={togglePastLife} tap={tap} />}
+          {drawerOpen && settingsPanel === 'home' && <PersonaSettingsHome promptLength={active.systemPrompt?.trim().length || 0} memoryCount={active.memories.length} threadCount={active.threads.length} threadTitle={thread?.title || ''} channelName={resolvePersonaApi(active, props.apiChannels, props.api).name} modelName={resolvePersonaApi(active, props.apiChannels, props.api).modelName || ''} pastLifeEnabled={active.pastLifeEnabled !== false} onNavigate={setSettingsPanel} onThreads={openSidebar} onMemory={() => { setDrawerOpen(false); setViewReturn('settings'); setView('memory') }} onManage={() => { setDrawerOpen(false); setViewReturn('settings'); setView('manage') }} onTogglePastLife={togglePastLife} tap={tap} />}
           {sidebarOpen && <section className="drawer-compact-group persona-threads">
             <h3 className="persona-section-title">最近</h3>
             {active.threads.slice().sort((a, b) => (b.updatedAt || 0) - (a.updatedAt || 0)).map((item) => {
@@ -633,7 +635,7 @@ export default function PersonaWindowPage(props: Props) {
             {active.systemPrompt?.trim() && <button className="danger-link" {...tap(() => { if (window.confirm(`清空给「${activeCharacter.name}」的补充提示词？默认相处规则、对话和记忆都会保留。`)) setPersonaState((current) => updatePersona(current, active.id, (item) => ({ ...item, systemPrompt: '' }))) })}>清空补充，使用默认规则</button>}
           </section>}
         </div>
-        {sidebarOpen && <nav className="persona-history-footer" aria-label="人格窗口导航"><button {...tap(() => { setSidebarOpen(false); setView('manage') })}>管理人格 <span>›</span></button><div className="persona-history-actions"><button type="button" className="persona-circle-btn" aria-label="回到惟镜首页" title="回到惟镜首页" {...tap(onBack)}><svg viewBox="0 0 24 24" width="24" height="24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><path d="M3 10.5 12 3l9 7.5" /><path d="M5 9.5V21h14V9.5" /></svg></button><button type="button" className="persona-circle-btn" aria-label="新聊天" title="新聊天" {...tap(() => { setPersonaState((current) => addPersonaThread(current, active.id)); setSidebarOpen(false); setPendingImages([]); setMenuMessageId(null); setRenaming(null) })}><svg viewBox="0 0 24 24" width="24" height="24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><path d="M12 20h9" /><path d="M16.5 3.5a2.12 2.12 0 0 1 3 3L7 19l-4 1 1-4Z" /></svg></button></div></nav>}
+        {sidebarOpen && <nav className="persona-history-footer" aria-label="人格窗口导航"><button {...tap(() => { setSidebarOpen(false); setViewReturn(null); setView('manage') })}>管理人格 <span>›</span></button><div className="persona-history-actions"><button type="button" className="persona-circle-btn" aria-label="回到惟镜首页" title="回到惟镜首页" {...tap(onBack)}><svg viewBox="0 0 24 24" width="24" height="24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><path d="M3 10.5 12 3l9 7.5" /><path d="M5 9.5V21h14V9.5" /></svg></button><button type="button" className="persona-circle-btn" aria-label="新聊天" title="新聊天" {...tap(() => { setPersonaState((current) => addPersonaThread(current, active.id)); setSidebarOpen(false); setPendingImages([]); setMenuMessageId(null); setRenaming(null) })}><svg viewBox="0 0 24 24" width="24" height="24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><path d="M12 20h9" /><path d="M16.5 3.5a2.12 2.12 0 0 1 3 3L7 19l-4 1 1-4Z" /></svg></button></div></nav>}
       </aside>
     </div>}
     {viewerImage && <div className="chat-image-viewer" role="dialog" aria-modal="true" aria-label="查看图片" onClick={() => setViewerImage(null)}><img src={viewerImage.dataUrl} alt="" /><button type="button" aria-label="关闭图片">×</button></div>}
