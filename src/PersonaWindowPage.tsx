@@ -140,6 +140,15 @@ export default function PersonaWindowPage(props: Props) {
   const [memoryLimit, setMemoryLimit] = useState(30)
   const [scrollProgress, setScrollProgress] = useState(100)
   const listRef = useRef<HTMLDivElement>(null)
+  const [scrollControlsHidden, setScrollControlsHidden] = useState(false)
+  const scrollHideTimer = useRef<number | null>(null)
+  // 滚轮 3 秒无操作自动隐入，滚动/点击时再浮现
+  const pokeScrollControls = () => {
+    setScrollControlsHidden(false)
+    if (scrollHideTimer.current) window.clearTimeout(scrollHideTimer.current)
+    scrollHideTimer.current = window.setTimeout(() => setScrollControlsHidden(true), 3000)
+  }
+  useEffect(() => () => { if (scrollHideTimer.current) window.clearTimeout(scrollHideTimer.current) }, [])
   const composerRef = useRef<HTMLDivElement>(null)
   const textareaRef = useRef<HTMLTextAreaElement>(null)
   const imageInputRef = useRef<HTMLInputElement>(null)
@@ -159,6 +168,9 @@ export default function PersonaWindowPage(props: Props) {
   const rendered = windowStart > 0 ? messages.slice(windowStart) : messages
   const tasks = thread?.tasks || []
   const activeTasks = tasks.filter(taskIsActive)
+  // 滚轮初次出现时也开始 3 秒隐入计时
+  const hasMessages = messages.length > 0
+  useEffect(() => { if (hasMessages) pokeScrollControls() }, [hasMessages])
   const tasksByMessage = new Map<number, typeof tasks>()
   for (const task of tasks) if (task.sourceMessageId !== undefined) tasksByMessage.set(task.sourceMessageId, [...(tasksByMessage.get(task.sourceMessageId) || []), task])
 
@@ -270,6 +282,7 @@ export default function PersonaWindowPage(props: Props) {
     stickRef.current = list.scrollHeight - list.scrollTop - list.clientHeight <= 96
     const extent = list.scrollHeight - list.clientHeight
     setScrollProgress(extent > 0 ? Math.max(0, Math.min(100, Math.round(list.scrollTop / extent * 100))) : 100)
+    pokeScrollControls()
   }
 
   const scrollChat = (target: 'top' | 'up' | 'down' | 'bottom' | number) => {
@@ -281,6 +294,7 @@ export default function PersonaWindowPage(props: Props) {
     if (target === 'top' && earlierCount > 0 && list.scrollTop <= 10) { loadEarlier(); return }
     list.scrollTo({ top: Math.max(0, Math.min(extent, top)), behavior: 'auto' })
     onScroll()
+    pokeScrollControls()
   }
 
   const loadEarlier = () => {
@@ -547,7 +561,7 @@ export default function PersonaWindowPage(props: Props) {
         </div>
       })}
     </div>
-    {messages.length > 0 && !drawerOpen && !sidebarOpen && !viewerImage && <nav className="persona-scroll-controls" aria-label="上下浏览聊天"><button aria-label="上翻或加载更早对话" {...tap(() => scrollChat('top'))}>⇈</button><button aria-label="向上翻一页" {...tap(() => scrollChat('up'))}>↑</button><input type="range" aria-label="当前已载入对话的滚动位置" min={0} max={100} value={scrollProgress} onChange={(event) => scrollChat(Number(event.target.value))} /><button aria-label="向下翻一页" {...tap(() => scrollChat('down'))}>↓</button><button aria-label="跳到最新消息" {...tap(() => scrollChat('bottom'))}>⇊</button></nav>}
+    {messages.length > 0 && !drawerOpen && !sidebarOpen && !viewerImage && <nav className={`persona-scroll-controls${scrollControlsHidden ? ' is-hidden' : ''}`} aria-label="上下浏览聊天"><button aria-label="上翻或加载更早对话" {...tap(() => scrollChat('top'))}>⇈</button><button aria-label="向上翻一页" {...tap(() => scrollChat('up'))}>↑</button><input type="range" aria-label="当前已载入对话的滚动位置" min={0} max={100} value={scrollProgress} onChange={(event) => scrollChat(Number(event.target.value))} /><button aria-label="向下翻一页" {...tap(() => scrollChat('down'))}>↓</button><button aria-label="跳到最新消息" {...tap(() => scrollChat('bottom'))}>⇊</button></nav>}
     {activeTasks.length > 0 && !drawerOpen && !sidebarOpen && <PersonaTaskPin tasks={activeTasks} tap={tap} onOpen={() => { setSidebarOpen(false); setSettingsPanel('tasks'); setDrawerOpen(true) }} />}
     <div ref={composerRef} className={`composer persona-composer${pendingImages.length || imageBusy ? ' has-images' : ''}`}>
       {(pendingImages.length > 0 || imageBusy) && <div className="composer-images" aria-label="待发送图片">{pendingImages.map((image) => <div key={image.id}><img src={image.dataUrl} alt="" role="button" aria-label="查看大图" onClick={() => setViewerImage(image)} /><button type="button" aria-label="移除图片" onClick={() => setPendingImages((current) => current.filter((item) => item.id !== image.id))}>×</button></div>)}{imageBusy && <span className="composer-images-busy">处理中…</span>}</div>}
