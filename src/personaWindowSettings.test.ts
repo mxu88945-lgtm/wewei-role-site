@@ -69,7 +69,7 @@ describe('人格设置：提示词、背景和窗口范围 (v138)', () => {
 
   it('renders grouped navigation with readable descriptions and a switch, not inline cramped controls', () => {
     const noop = () => undefined
-    const markup = renderToStaticMarkup(createElement(PersonaSettingsHome, { promptLength: 38, memoryCount: 7, threadCount: 2, threadTitle: '窗口 2', channelName: '很长的渠道名称', modelName: 'long-model-name', pastLifeEnabled: true, onNavigate: noop, onMemory: noop, onManage: noop, onTogglePastLife: noop, tap: () => ({ onPointerUp: noop, onClick: noop }) }))
+    const markup = renderToStaticMarkup(createElement(PersonaSettingsHome, { promptLength: 38, memoryCount: 7, threadCount: 2, threadTitle: '窗口 2', channelName: '很长的渠道名称', modelName: 'long-model-name', pastLifeEnabled: true, onNavigate: noop, onThreads: noop, onMemory: noop, onManage: noop, onTogglePastLife: noop, tap: () => ({ onPointerUp: noop, onClick: noop }) }))
     for (const title of ['系统提示词', '相处方式、语气与表达偏好', '38 字', '7 条', '2 个', '模型与渠道', 'aria-pressed="true"']) expect(markup).toContain(title)
     expect(markup).not.toMatch(/<input|<select|<textarea/)
   })
