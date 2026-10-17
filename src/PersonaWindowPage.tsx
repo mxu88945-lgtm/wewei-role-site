@@ -579,7 +579,7 @@ export default function PersonaWindowPage(props: Props) {
       })}
     </div>
     {messages.length > 0 && !drawerOpen && !sidebarOpen && !viewerImage && (personaJump.up || personaJump.down) && <nav className={`persona-jump-controls${personaJump.visible ? ' visible' : ''}`} aria-label="快速浏览对话">{personaJump.up && <button aria-label="回到顶部" {...tap(() => scrollChat('top'))}>↑</button>}{personaJump.down && <button aria-label="跳到最新消息" {...tap(() => scrollChat('bottom'))}>↓</button>}</nav>}
-    {activeTasks.length > 0 && !drawerOpen && !sidebarOpen && <PersonaTaskPin tasks={activeTasks} tap={tap} onOpen={() => { setSidebarOpen(false); setSettingsPanel('tasks'); setDrawerOpen(true) }} />}
+    {activeTasks.length > 0 && !drawerOpen && !sidebarOpen && <PersonaTaskPin tasks={activeTasks} tap={tap} onOpen={() => { setSidebarOpen(false); setSettingsPanel('tasks'); setDrawerOpen(true) }} onDone={(id) => taskAction(id, 'done')} />}
     <div ref={composerRef} className={`composer persona-composer${pendingImages.length || imageBusy ? ' has-images' : ''}`}>
       {(pendingImages.length > 0 || imageBusy) && <div className="composer-images" aria-label="待发送图片">{pendingImages.map((image) => <div key={image.id}><img src={image.dataUrl} alt="" role="button" aria-label="查看大图" onClick={() => setViewerImage(image)} /><button type="button" aria-label="移除图片" onClick={() => setPendingImages((current) => current.filter((item) => item.id !== image.id))}>×</button></div>)}{imageBusy && <span className="composer-images-busy">处理中…</span>}</div>}
       <button className="composer-plus" aria-label="添加图片" {...tap(() => imageInputRef.current?.click())}>＋</button>
