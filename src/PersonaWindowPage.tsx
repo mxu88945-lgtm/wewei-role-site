@@ -14,9 +14,11 @@ import MessageContent, { isPendingAssistantText } from './MessageContent'
 import { personaReplyText } from './personaWindowPresentation'
 import PersonaSettingsHome, { type PersonaSettingsPanel } from './PersonaSettingsHome'
 import PersonaAppearanceSettings, { type PersonaAppearanceControls } from './PersonaAppearanceSettings'
+import { PersonaTaskCards, PersonaTaskPanel, PersonaTaskPin } from './PersonaTaskCards'
+import { createPersonaTask, taskIsActive, updatePersonaTask } from './personaTasks'
 import { PersonaMemoryInspection, PersonaRecallReceipt } from './PersonaMemoryInspection'
 import { canLockPersonaMemory, PERSONA_LOCKED_BUDGET } from './personaWindowMemory'
-import { activeThread, addPersonaThread, buildPersonaSetting, collectPastLifeMemory, deletePersona, deletePersonaThread, deletePersonaMessage, disablePersona, enablePersona, PERSONA_MEMORY_EVERY, PERSONA_WINDOW_PRESET, pendingPersonaMemoryCount, personaMemoryApi, renamePersonaThread, resolvePersonaApi, switchPersona, switchPersonaThread, updatePersona, type PersonaMemoryEntry, type PersonaMessage, type PersonaWindow } from './personaWindow'
+import { activeThread, addPersonaThread, buildPersonaSetting, collectPastLifeMemory, deletePersona, deletePersonaThread, deletePersonaMessage, disablePersona, enablePersona, PERSONA_MEMORY_EVERY, PERSONA_WINDOW_PRESET, pendingPersonaMemoryCount, personaMemoryApi, renamePersonaThread, resolvePersonaApi, switchPersona, switchPersonaThread, updatePersona, updatePersonaThread, type PersonaMemoryEntry, type PersonaMessage, type PersonaWindow } from './personaWindow'
 import { hydratePersonaStore, setPersonaState, usePersonaHydrated, usePersonaState } from './personaWindowStore'
 import { buildPersonaRequest, extractPersonaMemory, generatePersonaReply, getPersonaRuntime, setPersonaError, stopPersonaReply, subscribePersonaRuntime, type PersonaRuntimeDeps } from './personaWindowRuntime'
 
@@ -135,6 +137,8 @@ export default function PersonaWindowPage(props: Props) {
   const [pastLifeOpen, setPastLifeOpen] = useState(false)
   const [requestOpen, setRequestOpen] = useState(false)
   const [memoryUiNotice, setMemoryUiNotice] = useState('')
+  const [memoryLimit, setMemoryLimit] = useState(30)
+  const [scrollProgress, setScrollProgress] = useState(100)
   const listRef = useRef<HTMLDivElement>(null)
   const composerRef = useRef<HTMLDivElement>(null)
   const textareaRef = useRef<HTMLTextAreaElement>(null)
@@ -153,6 +157,10 @@ export default function PersonaWindowPage(props: Props) {
   const windowStart = resolveChatWindowStart(messages, thread ? windowAnchors[thread.id] : null)
   const earlierCount = earlierChatMessageCount(windowStart)
   const rendered = windowStart > 0 ? messages.slice(windowStart) : messages
+  const tasks = thread?.tasks || []
+  const activeTasks = tasks.filter(taskIsActive)
+  const tasksByMessage = new Map<number, typeof tasks>()
+  for (const task of tasks) if (task.sourceMessageId !== undefined) tasksByMessage.set(task.sourceMessageId, [...(tasksByMessage.get(task.sourceMessageId) || []), task])
 
   const depsFor = (characterId: string): PersonaRuntimeDeps | null => {
     // Always the live, full card from the character library (description, personality, lore…).
@@ -190,7 +198,8 @@ export default function PersonaWindowPage(props: Props) {
     if (stickRef.current) list.scrollTop = list.scrollHeight
   }, [messages, view, threadId])
 
-  useEffect(() => { stickRef.current = true }, [threadId])
+  useEffect(() => { stickRef.current = true; setScrollProgress(100) }, [threadId])
+  useEffect(() => { setMemoryLimit(30) }, [active?.id])
 
   // The drawer is an input-bearing layer: give it the app height like other 惟境 sheets.
   useEffect(() => {
@@ -227,9 +236,11 @@ export default function PersonaWindowPage(props: Props) {
     const sync = () => {
       if (!composer) return
       list.style.setProperty('--composer-clearance', `${Math.max(122, Math.ceil(composer.getBoundingClientRect().height) + 42)}px`)
+      const page = composer.closest<HTMLElement>('.persona-window-page')
+      if (page) page.style.setProperty('--persona-scroll-bottom', `${Math.max(0, Math.ceil(page.getBoundingClientRect().bottom - composer.getBoundingClientRect().top)) + 12}px`)
     }
     const arm = () => { pin.arm() }
-    const repin = () => { pin.pin() }
+    const repin = () => { sync(); pin.pin() }
     const release = () => { pin.release() }
     const composerObserver = composer && typeof ResizeObserver !== 'undefined' ? new ResizeObserver(sync) : null
     const listObserver = typeof ResizeObserver !== 'undefined' ? new ResizeObserver(repin) : null
@@ -257,6 +268,19 @@ export default function PersonaWindowPage(props: Props) {
     const list = listRef.current
     if (!list) return
     stickRef.current = list.scrollHeight - list.scrollTop - list.clientHeight <= 96
+    const extent = list.scrollHeight - list.clientHeight
+    setScrollProgress(extent > 0 ? Math.max(0, Math.min(100, Math.round(list.scrollTop / extent * 100))) : 100)
+  }
+
+  const scrollChat = (target: 'top' | 'up' | 'down' | 'bottom' | number) => {
+    const list = listRef.current
+    if (!list) return
+    const extent = Math.max(0, list.scrollHeight - list.clientHeight)
+    const top = typeof target === 'number' ? extent * target / 100 : target === 'top' ? 0 : target === 'bottom' ? extent : list.scrollTop + (target === 'up' ? -1 : 1) * list.clientHeight * .8
+    stickRef.current = target === 'bottom' || (typeof target === 'number' && target === 100)
+    if (target === 'top' && earlierCount > 0 && list.scrollTop <= 10) { loadEarlier(); return }
+    list.scrollTo({ top: Math.max(0, Math.min(extent, top)), behavior: 'auto' })
+    onScroll()
   }
 
   const loadEarlier = () => {
@@ -294,6 +318,17 @@ export default function PersonaWindowPage(props: Props) {
     if (!active || generating) return
     const deps = depsFor(active.characterId)
     if (deps) void generatePersonaReply(active.id, deps, { regenerate: true, threadId })
+  }
+
+  const taskReact = (id: string) => {
+    if (!active || generating) return
+    const deps = depsFor(active.characterId)
+    if (deps) void generatePersonaReply(active.id, deps, { threadId, taskCompletionId: id })
+  }
+  const taskAction = (id: string, action: 'done' | 'cancel') => {
+    if (!active) return
+    setPersonaState((current) => updatePersonaThread(current, active.id, threadId, (item) => ({ ...item, tasks: updatePersonaTask(item.tasks || [], id, action) })))
+    if (action === 'done') taskReact(id)
   }
 
   const resend = (message: PersonaMessage) => {
@@ -457,8 +492,10 @@ export default function PersonaWindowPage(props: Props) {
         <button className="primary-button" disabled={memoryBusy} {...tap(() => { const deps = depsFor(active.characterId); if (deps && !memoryBusy) void extractPersonaMemory(active.id, deps, true) })}>{memoryBusy ? '正在整理…' : `手动提炼新对话（${pendingCount} 条）`}</button>
         <button className="secondary-button" {...tap(() => updateActiveMemories((entries) => [...entries, { id: crypto.randomUUID(), title: '手写记忆', content: '', createdAt: Date.now() }]))}>＋ 手写一条</button>
       </div>
+      <h3 className="persona-section-title">长期记忆（{active.memories.length}）</h3>
+      <div className="persona-memory-scroll" role="region" aria-label="长期记忆列表，可在框内滚动" tabIndex={0}>
       {active.memories.length === 0 && <div className="empty-memory"><span>✦</span><strong>还没有长期记忆</strong><p>多聊几句，或点上面的按钮整理。</p></div>}
-      {active.memories.slice().reverse().map((entry) => <article key={entry.id} className={`memory-entry ${entry.pinned ? 'pinned' : ''}`}>
+      {active.memories.slice().reverse().slice(0, memoryLimit).map((entry) => <article key={entry.id} className={`memory-entry ${entry.pinned ? 'pinned' : ''}`}>
         <input className="persona-memory-title" value={entry.title} onFocus={scrollFieldIntoView} onChange={(event) => { const value = event.target.value; updateActiveMemories((entries) => entries.map((item) => item.id === entry.id ? { ...item, title: value, autoGenerated: false, updatedAt: Date.now() } : item)) }} />
         <small>{entry.createdAt ? new Date(entry.createdAt).toLocaleString() : ''}{entry.autoGenerated ? ' · TA 提炼，待确认' : ' · 你确认'}{entry.locked ? ' · 🔒 高权重锁定' : ''}{entry.sourceThreadId ? ` · 来源：${active.threads.find((item) => item.id === entry.sourceThreadId)?.title || '已删除的窗口'}` : ''}</small>
         <textarea rows={4} value={entry.content} onFocus={scrollFieldIntoView} placeholder="写下要他长期记住的事" onChange={(event) => { const value = event.target.value; updateActiveMemories((entries) => entries.map((item) => item.id === entry.id ? { ...item, content: value, autoGenerated: false, updatedAt: Date.now() } : item)) }} />
@@ -469,11 +506,13 @@ export default function PersonaWindowPage(props: Props) {
           <button className="danger-link" {...tap(() => updateActiveMemories((entries) => entries.filter((item) => item.id !== entry.id)))}>删除</button>
         </div>
       </article>)}
+      {active.memories.length > memoryLimit && <button className="secondary-button" {...tap(() => setMemoryLimit((count) => count + 30))}>加载更多记忆（还剩 {active.memories.length - memoryLimit} 条）</button>}
+      </div>
     </div></section>
   }
 
   const lastMessage = messages[messages.length - 1]
-  return <section className="chat-page persona-window-page">{header}{switcher}
+  return <section className={`chat-page persona-window-page${activeTasks.length ? ' has-task-pin' : ''}`}>{header}{switcher}
     {error && <div className="chat-error" role="alert"><button className="chat-error-action" {...tap(() => setPersonaError(threadId, ''))}><span>连接提示</span>{error}</button><button className="chat-error-close" aria-label="关闭提示" {...tap(() => setPersonaError(threadId, ''))}>×</button></div>}
     <div ref={listRef} className="message-list persona-message-list" onScroll={onScroll}>
       {earlierCount > 0 && <button type="button" className="chat-load-earlier" onClick={loadEarlier}>加载更早 {earlierCount} 条</button>}
@@ -504,9 +543,12 @@ export default function PersonaWindowPage(props: Props) {
           </div>}
           {!isUser && (message.finishReason === 'length' || message.finishReason === 'max_tokens') && <span className="message-finish-note">回复达到上限，可点 ▶ 让 TA 接着说</span>}
           {!isUser && message.recallSources?.length ? <PersonaRecallReceipt sources={message.recallSources} persona={active} /> : null}
+          {!isUser && tasksByMessage.has(message.id) && <PersonaTaskCards tasks={tasksByMessage.get(message.id)!} busy={generating} onAction={taskAction} onReact={taskReact} tap={tap} />}
         </div>
       })}
     </div>
+    {messages.length > 0 && !drawerOpen && !sidebarOpen && !viewerImage && <nav className="persona-scroll-controls" aria-label="上下浏览聊天"><button aria-label="上翻或加载更早对话" {...tap(() => scrollChat('top'))}>⇈</button><button aria-label="向上翻一页" {...tap(() => scrollChat('up'))}>↑</button><input type="range" aria-label="当前已载入对话的滚动位置" min={0} max={100} value={scrollProgress} onChange={(event) => scrollChat(Number(event.target.value))} /><button aria-label="向下翻一页" {...tap(() => scrollChat('down'))}>↓</button><button aria-label="跳到最新消息" {...tap(() => scrollChat('bottom'))}>⇊</button></nav>}
+    {activeTasks.length > 0 && !drawerOpen && !sidebarOpen && <PersonaTaskPin tasks={activeTasks} tap={tap} onOpen={() => { setSidebarOpen(false); setSettingsPanel('tasks'); setDrawerOpen(true) }} />}
     <div ref={composerRef} className={`composer persona-composer${pendingImages.length || imageBusy ? ' has-images' : ''}`}>
       {(pendingImages.length > 0 || imageBusy) && <div className="composer-images" aria-label="待发送图片">{pendingImages.map((image) => <div key={image.id}><img src={image.dataUrl} alt="" role="button" aria-label="查看大图" onClick={() => setViewerImage(image)} /><button type="button" aria-label="移除图片" onClick={() => setPendingImages((current) => current.filter((item) => item.id !== image.id))}>×</button></div>)}{imageBusy && <span className="composer-images-busy">处理中…</span>}</div>}
       <button className="composer-plus" aria-label="添加图片" {...tap(() => imageInputRef.current?.click())}>＋</button>
@@ -521,7 +563,7 @@ export default function PersonaWindowPage(props: Props) {
         {!sidebarOpen && <header className={`persona-settings-header ${settingsPanel === 'home' ? 'is-home' : ''}`}>
           {settingsPanel !== 'home' && <button className="persona-settings-back" aria-label="返回设置" {...tap(() => { setSettingsPanel('home'); setRenaming(null) })}>‹</button>}
           {settingsPanel === 'home' && avatarOf(activeCharacter, 'large')}
-          <div><small>{settingsPanel === 'home' ? '人格窗口' : activeCharacter.name}</small><h2>{settingsPanel === 'home' ? activeCharacter.name : { model: '模型与渠道', prompts: '系统提示词', appearance: '外观与文字' }[settingsPanel]}</h2>{settingsPanel === 'home' && <p>和 {identity.name}，在这里慢慢相处。</p>}</div>
+          <div><small>{settingsPanel === 'home' ? '人格窗口' : activeCharacter.name}</small><h2>{settingsPanel === 'home' ? activeCharacter.name : { model: '模型与渠道', prompts: '系统提示词', appearance: '外观与文字', tasks: '任务卡' }[settingsPanel]}</h2>{settingsPanel === 'home' && <p>和 {identity.name}，在这里慢慢相处。</p>}</div>
           <button className="persona-settings-close" aria-label="关闭" {...tap(() => { setDrawerOpen(false); setRenaming(null) })}>×</button>
         </header>}
         <div className="right-drawer-scroll">
@@ -553,6 +595,7 @@ export default function PersonaWindowPage(props: Props) {
             }))} />
           </section>}
           {drawerOpen && settingsPanel === 'appearance' && <PersonaAppearanceSettings controls={props.appearanceControls} appearance={active.appearance} name={activeCharacter.name} avatar={activeCharacter.avatar} tap={tap} onChange={(appearance) => setPersonaState((current) => updatePersona(current, active.id, (item) => ({ ...item, appearance })))} />}
+          {drawerOpen && settingsPanel === 'tasks' && <PersonaTaskPanel key={threadId} tasks={tasks} enabled={active.tasksEnabled !== false} busy={generating} tap={tap} onEnabled={() => setPersonaState((current) => updatePersona(current, active.id, (item) => ({ ...item, tasksEnabled: item.tasksEnabled === false })))} onCreate={(text, minutes) => setPersonaState((current) => updatePersonaThread(current, active.id, threadId, (item) => ({ ...item, tasks: [...(item.tasks || []), createPersonaTask(crypto.randomUUID(), text, minutes)] })))} onAction={taskAction} onReact={taskReact} />}
           {drawerOpen && settingsPanel === 'prompts' && <section className="persona-prompt-panel">
             <div className="persona-prompt-note"><strong>背景参考，自然相处</strong><p>角色卡提供性格、口吻与故事来历。这里不会自动扮演原卡身份，也不会把你当作原故事女主。</p></div>
             <label className="persona-prompt-label" htmlFor="persona-custom-prompt">给 {activeCharacter.name} 的补充提示词<span>{(active.systemPrompt || '').length.toLocaleString()} / 16,000</span></label>

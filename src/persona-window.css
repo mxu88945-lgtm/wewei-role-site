@@ -189,3 +189,45 @@ button.persona-settings-row:active { background: var(--theme-accent-soft); }
 .persona-appearance-settings .appearance-color-row { gap: 10px; min-width: 0; }
 .persona-appearance-settings .appearance-color-row input { flex-shrink: 0; }
 .persona-appearance-settings .wallpaper-controls select { font-size: 16px; }
+
+/* Memory grows inside this frame, not the surrounding settings page. */
+.persona-memory-scroll { flex: 0 0 auto; height: clamp(240px, 54dvh, 560px); min-height: 0; overflow-y: auto; overscroll-behavior-y: contain; -webkit-overflow-scrolling: touch; scrollbar-gutter: stable; display: flex; flex-direction: column; gap: 12px; padding: 10px; border: 1px solid var(--theme-accent-soft-strong); border-radius: 22px; background: rgba(255,255,255,.3); }
+.persona-memory-scroll > * { flex-shrink: 0; }
+.persona-memory-scroll .memory-entry { margin: 0; }
+.persona-panel > * { flex-shrink: 0; }
+.persona-memory-scroll:focus-visible, .persona-task-list:focus-visible { outline: 2px solid var(--theme-accent); outline-offset: -2px; }
+
+.persona-scroll-controls { position: absolute; z-index: 35; right: 4px; bottom: var(--persona-scroll-bottom, 132px); display: grid; justify-items: center; gap: 3px; padding: 5px 2px; border: 1px solid var(--theme-accent-soft-strong); border-radius: 18px; color: var(--theme-accent-text); background: rgba(255,255,255,.92); box-shadow: 0 4px 16px rgba(57,41,67,.08); }
+.persona-scroll-controls button { width: 30px; min-height: 30px; padding: 0; border: 0; border-radius: 50%; background: transparent; color: inherit; font-size: 17px; }
+.persona-scroll-controls input { writing-mode: vertical-lr; direction: ltr; width: 26px; height: clamp(36px, 9dvh, 78px); margin: 3px 0; accent-color: var(--theme-accent); touch-action: none; }
+.persona-scroll-controls button:focus-visible { outline: 2px solid var(--theme-accent); }
+.persona-message-list { padding-right: 42px; }
+@media (max-height: 500px) { .persona-scroll-controls { gap: 0; padding-block: 2px; } .persona-scroll-controls input { display: none; } .persona-scroll-controls button { min-height: 26px; height: 26px; } }
+
+.persona-task-panel { display: grid; gap: 14px; }
+.persona-task-panel .persona-memory-field > input, .persona-task-duration input { box-sizing: border-box; min-width: 0; width: 100%; padding: 10px; border: 1px solid rgba(125,104,141,.15); border-radius: 12px; background: white; font: inherit; font-size: 16px; }
+.persona-task-duration { display: flex; align-items: center; gap: 10px; color: #8a7d94; font-size: 12px; }
+.persona-task-duration input { max-width: 100px; }
+.persona-task-list { max-height: 48dvh; overflow-y: auto; overscroll-behavior-y: contain; padding: 2px; }
+.persona-task-cards { display: grid; gap: 10px; margin: 8px 0; }
+.persona-task-card { display: grid; gap: 10px; padding: 16px; border: 1px solid var(--theme-accent-soft-strong); border-radius: 20px; background: color-mix(in srgb, var(--theme-accent-soft) 55%, white); color: var(--chat-text-color); }
+.persona-task-label { color: var(--theme-accent-text); font-size: 11px; }
+.persona-task-card > strong { overflow-wrap: anywhere; font-size: 14px; line-height: 1.7; }
+.persona-task-count { font-size: 13px; font-variant-numeric: tabular-nums; }
+.persona-task-progress { height: 4px; overflow: hidden; border-radius: 4px; background: var(--theme-accent-soft-strong); }
+.persona-task-progress i { display: block; height: 100%; background: var(--theme-accent); }
+.persona-task-actions { display: flex; gap: 8px; }
+.persona-task-actions button { flex: 1; min-height: 36px; padding: 6px 10px; border: 0; border-radius: 12px; color: var(--theme-accent-text); background: rgba(255,255,255,.85); font: inherit; font-size: 12px; }
+.persona-task-card.due { border-color: #d39b8b; }
+.persona-task-card.due .persona-task-count { color: #ad6b59; }
+.persona-task-card.done { opacity: .8; }
+.persona-task-pin { position: absolute; z-index: 35; top: calc(76px + env(safe-area-inset-top)); left: 18px; right: 18px; }
+.persona-task-pin > button { display: flex; justify-content: space-between; gap: 10px; align-items: center; width: 100%; min-height: 38px; padding: 8px 12px; border: 1px solid var(--theme-accent-soft-strong); border-radius: 14px; color: var(--theme-accent-text); background: rgba(255,255,255,.94); text-align: left; font: inherit; font-size: 12px; overflow: hidden; white-space: nowrap; text-overflow: ellipsis; }
+.persona-task-pin span { flex-shrink: 0; font-size: 10px; }
+.persona-task-pin strong { min-width: 0; overflow: hidden; text-overflow: ellipsis; font-weight: 600; }
+.has-task-pin .persona-message-list { padding-top: calc(134px + env(safe-area-inset-top)); }
+.persona-task-toast { position: fixed; z-index: 90; top: calc(70px + env(safe-area-inset-top)); left: 50%; transform: translateX(-50%); width: min(360px, calc(100vw - 32px)); display: flex; align-items: center; gap: 8px; padding: 12px; border: 1px solid var(--theme-accent-soft-strong); border-radius: 18px; background: #fffaf5; color: #695349; box-shadow: 0 8px 28px rgba(75,44,26,.15); }
+.persona-task-toast > div { flex: 1; min-width: 0; }
+.persona-task-toast strong, .persona-task-toast small { display: block; font-size: 12px; line-height: 1.6; overflow-wrap: anywhere; }
+.persona-task-toast small { max-height: 4.8em; overflow: hidden; }
+.persona-task-toast button { flex-shrink: 0; min-height: 38px; padding: 8px; border: 0; border-radius: 12px; background: #f5eae1; color: inherit; font: inherit; font-size: 12px; }

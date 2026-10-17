@@ -64,9 +64,10 @@ import { buildSharedTheaterBackground, createDirectorCharacter, createDirectorTe
 import CharacterWorkshop from './CharacterWorkshop'
 import StoryProjectManager from './StoryProjectManager'
 import PersonaWindowPage from './PersonaWindowPage'
-import { getPersonaState, hydratePersonaStore, isPersonaStoreHydrated, usePersonaAppearanceScope } from './personaWindowStore'
+import { getPersonaState, hydratePersonaStore, isPersonaStoreHydrated, setPersonaState, usePersonaAppearanceScope } from './personaWindowStore'
 import { personaWallpaper, personaWallpaperKey, resolvePersonaAppearance } from './personaAppearance'
-import { buildPersonaWindowNoteForPhone, PERSONA_WINDOWS_KEY } from './personaWindow'
+import { startPersonaTaskClock, type PersonaTaskDue } from './personaTaskClock'
+import { buildPersonaWindowNoteForPhone, PERSONA_WINDOWS_KEY, switchPersona, switchPersonaThread } from './personaWindow'
 import { normalizeStoryProjects, type StoryProject } from './storyProject'
 import { buildStoryProjectPrompt, selectConversationStoryProject } from './storyProjectPrompt'
 import { buildAutomaticContinuityInput, captureAssistantMessageIds, hasUnprocessedAssistantMessages, mergeAutomaticContinuity, parseAutomaticContinuityResponse } from './storyContinuity'
@@ -416,6 +417,17 @@ function PhaseElapsed({ label, startedAt }: { label: string; startedAt: number }
 
 function App() {
   const [page, setPage] = useState<Page>('home')
+  const [taskDueNotices, setTaskDueNotices] = useState<PersonaTaskDue[]>([])
+  const taskToastSuppressUntil = useRef(0)
+  const taskToastTap = (action: () => void) => ({
+    onPointerUp: (event: React.PointerEvent) => {
+      if (event.pointerType !== 'touch') return
+      event.preventDefault()
+      taskToastSuppressUntil.current = Date.now() + 500
+      action()
+    },
+    onClick: () => { if (Date.now() >= taskToastSuppressUntil.current) action() },
+  })
   const [history, setHistory] = useState<HistoryEntry[]>([])
   const [drawer, setDrawer] = useState<Drawer | null>(null)
   const [conversationMenuId, setConversationMenuId] = useState<string | null>(null)
@@ -463,6 +475,7 @@ function App() {
   }, [])
   // 人格窗口数据单独存放；启动就读进来，备份时才拿得到最新内容。
   useEffect(() => { void hydratePersonaStore() }, [])
+  useEffect(() => startPersonaTaskClock((due) => setTaskDueNotices((current) => [...current, ...due].slice(-10))), [])
   useEffect(() => { durableGet<ForumThread[]>('weijing.forum').then((stored) => { if (stored && !forumThreadsRef.current.length) forumThreadsRef.current = stored }).catch(() => undefined) }, [])
   const handleForumChange = useCallback((threads: ForumThread[]) => { forumThreadsRef.current = threads }, [])
   const phoneWebNoteRef = useRef<{ conversationId: string; note: string; at: number } | null>(null)
@@ -4027,6 +4040,7 @@ function App() {
 
   return <div className="app-shell"><main ref={phoneCanvasRef} className={`phone-canvas theme-${displayAppearance.theme.mode} ${page === 'chat' || page === 'persona-window' ? 'chat-canvas' : ''}`} style={{ '--ui-font-scale': displayAppearance.uiScale / 100, '--ui-font-weight': displayAppearance.uiWeight, '--ui-heading-font-weight': Math.min(800, displayAppearance.uiWeight + 100), '--chat-font-size': `${displayAppearance.fontSize}px`, '--chat-text-color': displayAppearance.textColor, '--chat-narration-color': displayAppearance.narrationColor, '--chat-quote-color': displayAppearance.quoteColor, '--chat-base-color': displayAppearance.baseColor } as React.CSSProperties}>
     <input ref={fileInputRef} className="hidden-file-input" type="file" accept="image/png,.png,application/json,.json" onChange={(event) => handleCharacterFile(event.target.files?.[0])} />
+    {taskDueNotices.length > 0 && <div className="persona-task-toast" role="status"><div><strong>⏰ 任务时间到了{taskDueNotices.length > 1 ? ` · 还有 ${taskDueNotices.length - 1} 项` : ''}</strong><small>{taskDueNotices[0].text}</small></div><button {...taskToastTap(() => { const due = taskDueNotices[0]; const persona = getPersonaState().personas.find((item) => item.id === due.personaId && item.enabled); if (persona && characters.some((item) => item.id === persona.characterId) && persona.threads.some((item) => item.id === due.threadId)) { setPersonaState((current) => switchPersonaThread(switchPersona(current, due.personaId), due.personaId, due.threadId)); if (page !== 'persona-window') navigate('persona-window') } setTaskDueNotices((current) => current.slice(1)) })}>查看</button><button aria-label="关闭任务到期提示" {...taskToastTap(() => setTaskDueNotices((current) => current.slice(1)))}>×</button></div>}
     <input ref={conversationTxtInputRef} className="hidden-file-input" type="file" accept="text/plain,.txt" onChange={(event) => { void importConversationTxt(event.target.files?.[0]) }} />
     {page === 'persona-window' && <PersonaWindowPage characters={characters} conversations={conversations} memoryEntries={memoryEntries} identity={globalIdentity} api={api} apiChannels={apiChannels} memoryApiFor={(characterId) => { const config = memoryConfigs[characterId] || defaultMemoryConfig(); return config.useGlobalApi === false ? config.api : globalMemoryApi }} temperature={temperature} topP={topP} maxTokens={maxTokens} streaming={streaming} memoryLength={memoryLength} globalWorldbook={worldbook} storyProjects={storyProjects} appearanceControls={{ values: displayAppearance, themes: allThemes, wallpaper: displayWallpaper, ready: persistenceReady && wallpaperHydrationReady, upload: wallpaperUploads[wallpaperEditKey], error: wallpaperStorageError, onWallpaperChange: updateChatWallpaper, onWallpaperUpload: (file) => { void uploadChatWallpaper(file) }, onWallpaperReset: resetChatWallpaper }} onBack={goBack} />}
     {page === 'story-projects' && <StoryProjectManager projects={storyProjects} characters={characters} conversations={conversations} identities={identities} api={api} apiChannels={apiChannels} onBack={goBack} onChange={setStoryProjects} />}
@@ -4430,7 +4444,7 @@ function UpdateCard() {
     }
   }
 
-  return <section className="update-card"><strong>应用更新</strong><p>主动检查并拉取最新网页版本，不会删除角色、聊天记录或本地设置。</p><small>当前版本：v141 · 2026.10.17 人格重发与独立外观</small><button onClick={refresh} disabled={state === 'checking'}>{state === 'checking' ? '正在检查更新…' : state === 'error' ? '更新失败，点我重试' : '强制刷新到最新版'}</button></section>
+  return <section className="update-card"><strong>应用更新</strong><p>主动检查并拉取最新网页版本，不会删除角色、聊天记录或本地设置。</p><small>当前版本：v142 · 2026.10.17 记忆滚动框与人格任务卡</small><button onClick={refresh} disabled={state === 'checking'}>{state === 'checking' ? '正在检查更新…' : state === 'error' ? '更新失败，点我重试' : '强制刷新到最新版'}</button></section>
 }
 
 function PersonaPage({ identities, selectedId, isBound, onSelect, onAdd, onDelete, onUpdate, onBack }: { identities: UserIdentity[]; selectedId: string; isBound: boolean; onSelect: (id: string) => void; onAdd: () => void; onDelete: (id: string) => void; onUpdate: (patch: Partial<UserIdentity>) => void; onBack: () => void }) {
