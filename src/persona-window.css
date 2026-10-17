@@ -1,0 +1,57 @@
+/* 人格窗口：沿用聊天页的外壳（chat-canvas / chat-header / message-list / composer），
+   只补自己的面板和切换器。不在消息上用 backdrop-filter（iOS 长对话会卡）。 */
+.persona-window-page { position: relative; }
+.persona-header .persona-identity { justify-self: center; max-width: 100%; min-width: 0; }
+.persona-header .persona-identity div { min-width: 0; }
+.persona-header .persona-identity strong { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.persona-back { font-size: 26px; line-height: 1; }
+
+.persona-switcher { position: absolute; z-index: 40; top: calc(62px + env(safe-area-inset-top)); left: 50%; transform: translateX(-50%); width: min(calc(100% - 40px), 360px); max-height: 52%; overflow-y: auto; padding: 8px; display: grid; gap: 4px; border-radius: 20px; background: rgba(252,250,253,.97); box-shadow: 0 16px 40px rgba(57,41,67,.18); }
+.persona-switcher button { display: flex; align-items: center; gap: 10px; width: 100%; min-height: 46px; padding: 6px 10px; border: 0; border-radius: 14px; color: #4e4852; background: transparent; text-align: left; font-weight: 700; }
+.persona-switcher button.active { color: var(--theme-accent-text); background: var(--theme-accent-soft); }
+.persona-switcher button i { margin-left: auto; font-style: normal; color: #9a919e; }
+.persona-switcher .persona-switcher-manage { justify-content: center; color: var(--theme-accent-text); font-weight: 800; }
+
+.persona-avatar { flex: 0 0 auto; width: 42px; height: 42px; display: grid; place-items: center; overflow: hidden; border-radius: 15px; color: #fff; font-weight: 800; background: linear-gradient(145deg, #8561dc, #e099c1); }
+.persona-avatar.small { width: 32px; height: 32px; border-radius: 11px; font-size: 13px; }
+.persona-avatar.large { width: 72px; height: 72px; border-radius: 24px; font-size: 26px; }
+.persona-avatar img { width: 100%; height: 100%; object-fit: cover; }
+
+/* Manage / memory views: one scrolling panel inside the canvas (no fixed sheet), so the
+   app-height shrink on keyboard open keeps fields above the keyboard. */
+.persona-panel { flex: 1; min-height: 0; overflow-y: auto; -webkit-overflow-scrolling: touch; overscroll-behavior-y: contain; padding: calc(84px + env(safe-area-inset-top)) 18px calc(28px + env(safe-area-inset-bottom)); display: flex; flex-direction: column; gap: 12px; }
+html[data-standalone][data-kb] .persona-panel { padding-bottom: 16px; }
+.persona-section-title { margin: 8px 2px 0; color: #6f6674; font-size: 13px; font-weight: 800; }
+.persona-empty { margin: 4px 2px; color: #9a939e; font-size: 13px; }
+.persona-card { padding: 12px; display: grid; gap: 10px; border-radius: 20px; background: #efedf0; }
+.persona-card.active { box-shadow: inset 0 0 0 2px var(--theme-accent-soft-strong); }
+.persona-card-main { display: flex; align-items: center; gap: 12px; padding: 0; border: 0; color: inherit; background: transparent; text-align: left; }
+.persona-card-main strong, .persona-card-main small, .persona-library-item strong, .persona-library-item small { display: block; }
+.persona-card-main small, .persona-library-item small { margin-top: 3px; color: #9a939e; font-size: 11px; }
+.persona-card-actions { display: flex; align-items: center; justify-content: space-between; gap: 10px; }
+.persona-search { width: 100%; min-height: 42px; padding: 9px 14px; border: 1px solid rgba(93,69,108,.12); border-radius: 14px; background: #fff; font: inherit; }
+.persona-library { display: grid; gap: 6px; }
+.persona-library-item { display: flex; align-items: center; gap: 10px; padding: 8px 10px; border: 0; border-radius: 16px; color: #4e4852; background: #f4f2f5; text-align: left; }
+.persona-library-item span { flex: 1; min-width: 0; }
+.persona-library-item i { font-style: normal; color: var(--theme-accent-text); font-size: 20px; }
+.persona-hidden-list { padding: 10px 12px; border-radius: 16px; background: #f4f2f5; color: #6f6674; font-size: 13px; }
+.persona-hidden-row { display: flex; align-items: center; justify-content: space-between; gap: 10px; padding: 8px 0 0; }
+.persona-toggle-row { display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: 14px 16px; border-radius: 20px; background: #efedf0; }
+.persona-toggle-row strong, .persona-toggle-row small { display: block; }
+.persona-toggle-row small { margin-top: 4px; color: #9a939e; font-size: 11px; line-height: 1.5; }
+.persona-toggle-row .switch { flex: 0 0 auto; }
+.persona-memory-actions { display: grid; grid-template-columns: 1fr auto; gap: 8px; }
+.persona-memory-title { width: 100%; padding: 4px 0; border: 0; border-bottom: 1px solid rgba(93,69,108,.12); background: transparent; color: #4e4852; font: inherit; font-weight: 800; }
+.persona-panel .memory-entry textarea { width: 100%; min-height: 84px; }
+
+/* Chat view: novel prose, full-width flat assistant text. */
+.persona-message-list .message-row.assistant .message-flat-body { width: 100%; }
+.persona-intro { margin: auto 8px; display: grid; justify-items: center; gap: 10px; text-align: center; color: #7d7482; }
+.persona-intro strong { color: #4e4852; font-size: 18px; }
+.persona-intro p { margin: 0; font-size: 13px; line-height: 1.7; }
+.persona-typing { color: var(--chat-narration-color, #7f7089); font-size: var(--chat-font-size, 16px); }
+.persona-message-menu { display: inline-flex; gap: 2px; margin-left: 4px; padding: 2px; border-radius: 12px; background: rgba(248,244,250,.94); box-shadow: 0 4px 14px rgba(57,41,67,.1); }
+.persona-message-menu button { min-height: 30px; padding: 4px 10px; border: 0; border-radius: 10px; color: #6f6674; background: transparent; font-size: 12px; font-weight: 700; }
+.persona-message-menu button.danger { color: #b0566c; }
+.persona-message-menu button:disabled { opacity: .4; }
+.persona-memory-fab { position: absolute; z-index: 36; right: 14px; top: calc(66px + env(safe-area-inset-top)); min-height: 28px; padding: 4px 11px; border: 0; border-radius: 999px; color: var(--theme-accent-text); background: rgba(248,244,250,.9); box-shadow: 0 4px 12px rgba(57,41,67,.1); font-size: 11px; font-weight: 800; }
