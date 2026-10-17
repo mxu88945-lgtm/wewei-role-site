@@ -15,6 +15,19 @@ describe('character-card mixed markup', () => {
     expect(isFullHtmlDocument('<style>.bubble{border-radius:18px}</style><div class="bubble">妈在？</div>')).toBe(true)
   })
 
+  it('does not turn pretty-printed HTML indentation into visible blank lines', () => {
+    const source = `<div class="inline-chat-container">
+      <div class="sender-name">秦放</div>
+      <div class="ios-bubble">
+        <p class="message-text">到家了吗？</p>
+      </div>
+    </div>`
+    const result = normalizeMixedMarkup(source)
+    expect(result).not.toContain('<br>')
+    expect(result).not.toContain('message-paragraph-break')
+    expect(result).toContain('<p class="message-text">到家了吗？</p>')
+  })
+
   it('visually paragraphs a long single-block Chinese narrative without changing its text', () => {
     const source = '他乡，承受着怀孕的辛苦，还要面对那些恶毒的言语和替身的羞辱。她一个人到底是怎么熬过来的？当她知道自己怀孕，满心欢喜却又充满恐惧的时候，我却在为了方玫跟她大发雷霆。我甚至还对她说，这个孩子生下来要给方玫养。顾荒低下头，看着你那只轻轻抚摸着小腹的手。那只手曾经在无数个深夜里为他调音，如今却只能独自护着你们的孩子。'
     const paragraphs = plainTextParagraphs(source)

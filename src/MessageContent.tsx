@@ -136,7 +136,7 @@ export function normalizeMixedMarkup(value: string) {
 
   const parts = protectedSource.split(/(<[^>]+>|\uE000PROTECTED_\d+\uE001)/g)
   let compactDepth = 0
-  return parts.map((part) => {
+  return parts.map((part, index) => {
     const protectedMatch = part.match(/^\uE000PROTECTED_(\d+)\uE001$/)
     if (protectedMatch) return protectedBlocks[Number(protectedMatch[1])] || ''
     if (part.startsWith('<') && part.endsWith('>')) {
@@ -146,6 +146,14 @@ export function normalizeMixedMarkup(value: string) {
         else if (!/\/\s*>$/.test(part)) compactDepth += 1
       }
       return part
+    }
+    // Pretty-printed card HTML contains indentation-only text nodes between
+    // tags. Turning those source-code newlines into <br> elements inflates a
+    // compact inline phone card into several screens of blank space.
+    if (!part.trim() && part.includes('\n')) {
+      const previous = parts[index - 1] || ''
+      const next = parts[index + 1] || ''
+      if (previous.startsWith('<') && previous.endsWith('>') && next.startsWith('<') && next.endsWith('>')) return ''
     }
     const compactPanel = compactDepth > 0
     const autoParagraph = !compactPanel && !part.includes('```') && part.trim().length >= 100

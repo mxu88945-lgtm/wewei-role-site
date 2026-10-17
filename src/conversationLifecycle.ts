@@ -1,12 +1,13 @@
 import type { PhoneGameRound } from './phoneGames'
 import type { ChatImage } from './chatImages'
+import type { ChatAttachment } from './chatAttachments'
 import type { DirectorTemplateConfig } from './directorTemplate'
 import type { Character, CharacterMemoryEntry } from './characterCard'
 import type { LongMemoryEntry } from './memoryEngine'
 import type { StoryScript, StoryVariable } from './storyScripts'
 
 export type ReplyAlternative = { text: string; finishReason?: string | null; contextSnapshotId?: string }
-export type Message = { id: number; role: 'user' | 'assistant'; text: string; images?: ChatImage[]; characterId?: string; finishReason?: string | null; alternatives?: ReplyAlternative[]; selectedAlternative?: number; contextSnapshotId?: string; /** 小手机群里的系统小字（例如剧情更新提醒），不发给模型、不算发言。 */ phoneNotice?: boolean; /** 本条游戏的固定抽签结果。 */ phoneGame?: PhoneGameRound; /** 小手机「引用回复」：被引用那句的快照（约 80 字）。 */ quote?: { messageId: string; author: string; text: string } }
+export type Message = { id: number; role: 'user' | 'assistant'; text: string; images?: ChatImage[]; /** 小手机发送并已提取正文的文字附件。 */ attachments?: ChatAttachment[]; characterId?: string; finishReason?: string | null; alternatives?: ReplyAlternative[]; selectedAlternative?: number; contextSnapshotId?: string; /** 小手机群里的系统小字（例如剧情更新提醒），不发给模型、不算发言。 */ phoneNotice?: boolean; /** 本条游戏的固定抽签结果。 */ phoneGame?: PhoneGameRound; /** 小手机「引用回复」：被引用那句的快照（约 80 字）。 */ quote?: { messageId: string; author: string; text: string } }
 
 export type ConversationContextSnapshot = {
   memories: LongMemoryEntry[]
