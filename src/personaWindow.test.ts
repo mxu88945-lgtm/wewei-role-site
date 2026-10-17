@@ -18,6 +18,7 @@ vi.mock('./chatApi', () => ({
 const {
   applyPersonaMemoryExtraction, buildPastLifeMemory, createPersonaWindow, deletePersona, disablePersona, emptyPersonaState, enablePersona,
   normalizePersonaState, parsePersonaMemoryCandidates, personaIdFor, personaMemories, switchPersona, PERSONA_WINDOWS_KEY,
+  addPersonaThread, switchPersonaThread, renamePersonaThread, deletePersonaThread, activeThread, resolvePersonaApi, personaMemoryApi, firstThreadIdFor, pendingPersonaMemoryMessages,
   collectPastLifeMemory, buildPersonaSetting, buildPersonaWindowNoteForPhone, PERSONA_WINDOW_PRESET, updatePersona,
 } = await import('./personaWindow')
 const { getPersonaState, setPersonaState } = await import('./personaWindowStore')
@@ -83,7 +84,7 @@ describe('persona window state', () => {
     const state = normalizePersonaState({ activeId: 'nope', personas: [{ characterId: 'gu', messages: [{ id: 1, role: 'user', text: '在吗' }, { role: 'x' }], memories: [{ content: '' }, { title: 't', content: 'c' }] }, { characterId: 'gu' }, 'junk'] })
     expect(state.personas).toHaveLength(1)
     expect(state.activeId).toBe(personaIdFor('gu'))
-    expect(state.personas[0].messages).toHaveLength(1)
+    expect(state.personas[0].threads[0].messages).toHaveLength(1)
     expect(state.personas[0].memories).toHaveLength(1)
     expect(state.personas[0].pastLifeEnabled).toBe(true)
     expect(state.personas[0].autoMemory).toBe(true)
@@ -100,19 +101,19 @@ describe('persona window state', () => {
 describe('memory isolation between personas', () => {
   it('writes extracted memories into exactly one persona and advances only its cursor', async () => {
     setPersonaState((state) => enablePersona(enablePersona(state, 'gu'), 'lu'))
-    setPersonaState((state) => ({ ...state, personas: state.personas.map((item) => ({ ...item, messages: [
+    setPersonaState((state) => ({ ...state, personas: state.personas.map((item) => ({ ...item, threads: [{ ...item.threads[0], messages: [
       { id: 1, role: 'user', text: `跟${item.characterId}说：我养了九只玄凤`, createdAt: 1 },
       { id: 2, role: 'assistant', text: '“九只？”', createdAt: 2 },
-    ] })) }))
+    ] }] })) }))
     completions.push('{"memories":[{"title":"玄凤","content":"她养了九只玄凤"}]}')
     await extractPersonaMemory(personaIdFor('gu'), { character: gu, user: { name: '周惟惟', description: '' }, memoryApi: api }, true)
     const state = getPersonaState()
     const guPersona = state.personas.find((item) => item.characterId === 'gu')!
     const luPersona = state.personas.find((item) => item.characterId === 'lu')!
     expect(guPersona.memories.map((item) => item.content)).toEqual(['她养了九只玄凤'])
-    expect(guPersona.memoryThroughId).toBe(2)
+    expect(guPersona.threads[0].memoryThroughId).toBe(2)
     expect(luPersona.memories).toEqual([])
-    expect(luPersona.memoryThroughId).toBeUndefined()
+    expect(luPersona.threads[0].memoryThroughId).toBeUndefined()
     // The request only carried this persona's own turns.
     const sent = JSON.stringify(requests[0].messages)
     expect(sent).toContain('跟gu说')
@@ -143,8 +144,8 @@ describe('persona chats stay out of conversations', () => {
       pastLife: () => buildPastLifeMemory({ character: gu, conversations: frozen, memoryEntries }),
     }, { text: '今天好累' })
     const persona = getPersonaState().personas[0]
-    expect(persona.messages.map((item) => item.role)).toEqual(['user', 'assistant'])
-    expect(persona.messages[1].text).toContain('我在')
+    expect(persona.threads[0].messages.map((item) => item.role)).toEqual(['user', 'assistant'])
+    expect(persona.threads[0].messages[1].text).toContain('我在')
     expect(JSON.stringify(frozen)).toBe(before)
     expect(frozen.some((conversation) => conversation.messages.some((message) => message.text === '今天好累'))).toBe(false)
     // Persona windows have their own durable key, and it is restored into IndexedDB with backups.
@@ -288,7 +289,7 @@ describe('人格窗口 v135：人设与前世记忆真正落地', () => {
 
   it('小手机 gets only the speaking character\'s own window memory', () => {
     let state = enablePersona(enablePersona(emptyPersonaState(), 'yu'), 'lu')
-    state = updatePersona(state, personaIdFor('yu'), (item) => ({ ...item, memories: [{ id: 'a', title: '窗前', content: '她说喜欢桂花', createdAt: 1 }], messages: [{ id: 1, role: 'user', text: '晚安', createdAt: 1 }] }))
+    state = updatePersona(state, personaIdFor('yu'), (item) => ({ ...item, memories: [{ id: 'a', title: '窗前', content: '她说喜欢桂花', createdAt: 1 }], threads: [{ ...item.threads[0], messages: [{ id: 1, role: 'user', text: '晚安', createdAt: 1 }] }] }))
     state = updatePersona(state, personaIdFor('lu'), (item) => ({ ...item, memories: [{ id: 'b', title: '陆屿的秘密', content: '陆屿在窗口里说了心事', createdAt: 1 }] }))
     const forYu = buildPersonaWindowNoteForPhone(state, 'yu', { char: '虞山行', user: '周惟惟' })
     expect(forYu).toContain('她说喜欢桂花')
@@ -296,5 +297,118 @@ describe('人格窗口 v135：人设与前世记忆真正落地', () => {
     expect(forYu).toContain('只属于虞山行本人')
     expect(forYu).not.toContain('陆屿在窗口里说了心事')
     expect(buildPersonaWindowNoteForPhone(state, 'nobody', { char: 'x', user: 'y' })).toBe('')
+  })
+})
+
+describe('人格窗口 v136：多窗口、记忆共享与模型切换', () => {
+  const user = { name: '周惟惟', description: '' }
+  const say = (id: number, role: 'user' | 'assistant', text: string) => ({ id, role, text, createdAt: id })
+
+  it('migrates old single-window data into a first window losslessly', () => {
+    const old = { version: 1, activeId: personaIdFor('gu'), personas: [{ id: personaIdFor('gu'), characterId: 'gu', createdAt: 5, updatedAt: 9, enabled: true,
+      messages: [say(1, 'user', '在吗'), say(2, 'assistant', '“在。”')], memories: [{ id: 'm', title: '茶', content: '她每天喝茶', createdAt: 3 }],
+      memoryThroughId: 2, contextSummary: '旧摘要', compressedThroughId: 1, pastLifeEnabled: false }] }
+    const state = normalizePersonaState(old)
+    expect(state.version).toBe(2)
+    const persona = state.personas[0]
+    expect(persona.threads).toHaveLength(1)
+    expect(persona.activeThreadId).toBe(firstThreadIdFor(persona.id))
+    expect(persona.threads[0]).toMatchObject({ title: '窗口 1', createdAt: 5, updatedAt: 9, memoryThroughId: 2, contextSummary: '旧摘要', compressedThroughId: 1 })
+    expect(persona.threads[0].messages.map((item) => item.text)).toEqual(['在吗', '“在。”'])
+    expect(persona.memories[0].content).toBe('她每天喝茶')
+    expect(persona.pastLifeEnabled).toBe(false)
+    expect('messages' in persona).toBe(false)
+    // Normalizing v2 again is stable (backup → restore round trip).
+    expect(normalizePersonaState(JSON.parse(JSON.stringify(state)))).toEqual(state)
+  })
+
+  it('adds, switches, renames and deletes windows; deleting keeps the persona memory', () => {
+    let state = enablePersona(emptyPersonaState(), 'gu', 1)
+    const id = personaIdFor('gu')
+    state = applyPersonaMemoryExtraction(state, id, [{ id: 'a', title: '称呼', content: '她喜欢被叫惟惟', createdAt: 1 }], 0)
+    state = addPersonaThread(state, id, 2)
+    let persona = state.personas[0]
+    expect(persona.threads).toHaveLength(2)
+    const second = persona.threads[1]
+    expect(persona.activeThreadId).toBe(second.id)
+    expect(second.title).toBe('窗口 2')
+    state = renamePersonaThread(state, id, second.id, '  深夜  ')
+    state = switchPersonaThread(state, id, firstThreadIdFor(id))
+    expect(activeThread(state.personas[0]).id).toBe(firstThreadIdFor(id))
+    state = deletePersonaThread(state, id, firstThreadIdFor(id))
+    persona = state.personas[0]
+    expect(persona.threads.map((item) => item.title)).toEqual(['深夜'])
+    expect(persona.activeThreadId).toBe(second.id)
+    expect(persona.memories).toHaveLength(1)
+    state = deletePersonaThread(state, id, second.id)
+    expect(state.personas[0].threads).toHaveLength(1)
+    expect(state.personas[0].threads[0].messages).toEqual([])
+  })
+
+  it('shares memory across windows of one persona, isolates personas, and keeps a per-window cursor', async () => {
+    setPersonaState((state) => addPersonaThread(enablePersona(enablePersona(state, 'gu'), 'lu'), personaIdFor('gu')))
+    const guId = personaIdFor('gu')
+    const [w1, w2] = getPersonaState().personas.find((item) => item.id === guId)!.threads
+    setPersonaState((state) => updatePersona(state, guId, (item) => ({ ...item, threads: [
+      { ...w1, messages: [say(1, 'user', '窗口一：我养了九只玄凤'), say(2, 'assistant', '“九只？”')] },
+      { ...w2, messages: [say(1, 'user', '窗口二：我每天喝茶'), say(2, 'assistant', '“少喝点。”'), say(3, 'user', '才不'), say(4, 'assistant', '“嗯。”')] },
+    ] })))
+    completions.push('{"memories":[{"title":"玄凤","content":"她养了九只玄凤"}]}')
+    await extractPersonaMemory(guId, { character: gu, user, memoryApi: api }, false, w1.id)
+    let gup = getPersonaState().personas.find((item) => item.id === guId)!
+    expect(gup.threads[0].memoryThroughId).toBe(2)
+    expect(gup.threads[1].memoryThroughId).toBeUndefined()
+    expect(pendingPersonaMemoryMessages(gup.threads[1])).toHaveLength(4)
+    // Window 2's ids overlap window 1's (1, 2…) but are still pending: cursors are per window.
+    completions.push('{"memories":[{"title":"喝茶","content":"她每天喝茶"}]}')
+    await extractPersonaMemory(guId, { character: gu, user, memoryApi: api }, true)
+    gup = getPersonaState().personas.find((item) => item.id === guId)!
+    expect(gup.threads[1].memoryThroughId).toBe(4)
+    expect(gup.memories.map((item) => item.content)).toEqual(['她养了九只玄凤', '她每天喝茶'])
+    expect(JSON.stringify(requests[1].messages)).toContain('窗口二')
+    expect(JSON.stringify(requests[1].messages)).not.toContain('窗口一：我养了')
+    expect(JSON.stringify(requests[1].messages)).toContain('她养了九只玄凤') // dedupe sees shared memory
+    // Nothing left: a third run does not re-send either window.
+    await extractPersonaMemory(guId, { character: gu, user, memoryApi: api }, true)
+    expect(requests).toHaveLength(2)
+    expect(getPersonaState().personas.find((item) => item.characterId === 'lu')!.memories).toEqual([])
+    // Both windows' requests carry the shared memory.
+    const deps = { character: gu, user, api, memoryApi: api, temperature: 1, topP: 1, maxTokens: 1000, streaming: false, memoryLength: 40, pastLife: () => '' }
+    for (const thread of gup.threads) expect(JSON.stringify(buildPersonaRequest(gup, thread.messages, deps, thread))).toContain('她每天喝茶')
+    const lup = getPersonaState().personas.find((item) => item.characterId === 'lu')!
+    expect(JSON.stringify(buildPersonaRequest(lup, [say(1, 'user', '嗨')], { ...deps, character: lu }))).not.toContain('她每天喝茶')
+  })
+
+  it('a reply goes into the window it was sent from', async () => {
+    setPersonaState((state) => addPersonaThread(enablePersona(state, 'gu'), personaIdFor('gu')))
+    const [w1, w2] = getPersonaState().personas[0].threads
+    await generatePersonaReply(personaIdFor('gu'), { character: gu, user, api, memoryApi: api, temperature: 1, topP: 1, maxTokens: 1000, streaming: false, memoryLength: 40, pastLife: () => '' }, { text: '去窗口一', threadId: w1.id })
+    const persona = getPersonaState().personas[0]
+    expect(persona.threads.find((item) => item.id === w1.id)!.messages.map((item) => item.text)).toEqual(['去窗口一', '（他笑了笑。）“我在。”'])
+    expect(persona.threads.find((item) => item.id === w2.id)!.messages).toEqual([])
+  })
+
+  it('小手机 uses the most recently updated window', () => {
+    let state = addPersonaThread(enablePersona(emptyPersonaState(), 'gu', 1), personaIdFor('gu'), 2)
+    const [w1, w2] = state.personas[0].threads
+    state = updatePersona(state, personaIdFor('gu'), (item) => ({ ...item, threads: [{ ...w1, updatedAt: 50, messages: [say(1, 'user', '新窗口的话')] }, { ...w2, updatedAt: 10, messages: [say(1, 'user', '旧窗口的话')] }] }))
+    const note = buildPersonaWindowNoteForPhone(state, 'gu', { char: '顾祁砚', user: '周惟惟' })
+    expect(note).toContain('新窗口的话')
+    expect(note).not.toContain('旧窗口的话')
+  })
+
+  it('channel override: follows main chat by default, uses the chosen channel/model, falls back when deleted; memory API falls back to it', () => {
+    const main = { id: 'main', name: '主渠道', platform: 'openai' as const, protocol: 'openai' as const, maxTokenField: 'auto' as const, baseUrl: 'https://a/v1', apiKey: 'k', modelName: 'main-model' }
+    const claude = { ...main, id: 'c', name: 'Claude', protocol: 'anthropic' as const, platform: 'anthropic' as const, baseUrl: 'https://b/v1', modelName: 'claude-x' }
+    const channels = [main, claude]
+    expect(resolvePersonaApi({}, channels, main).id).toBe('main')
+    expect(resolvePersonaApi({ apiChannelId: 'c' }, channels, main).modelName).toBe('claude-x')
+    expect(resolvePersonaApi({ apiChannelId: 'c', modelName: 'claude-y' }, channels, main).modelName).toBe('claude-y')
+    expect(resolvePersonaApi({ apiChannelId: 'gone' }, channels, main).id).toBe('main')
+    const chosen = resolvePersonaApi({ apiChannelId: 'c' }, channels, main)
+    expect(personaMemoryApi({ baseUrl: '', apiKey: '', modelName: '' }, chosen).modelName).toBe('claude-x')
+    expect(personaMemoryApi({ baseUrl: 'https://m/v1', apiKey: 'k', modelName: 'mem' }, chosen).modelName).toBe('mem')
+    const state = normalizePersonaState({ personas: [{ characterId: 'gu', apiChannelId: 'c', modelName: ' claude-y ' }] })
+    expect(state.personas[0]).toMatchObject({ apiChannelId: 'c', modelName: 'claude-y' })
   })
 })

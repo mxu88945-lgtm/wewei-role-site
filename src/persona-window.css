@@ -54,7 +54,6 @@ html[data-standalone][data-kb] .persona-panel { padding-bottom: 16px; }
 .persona-message-menu button { min-height: 30px; padding: 4px 10px; border: 0; border-radius: 10px; color: #6f6674; background: transparent; font-size: 12px; font-weight: 700; }
 .persona-message-menu button.danger { color: #b0566c; }
 .persona-message-menu button:disabled { opacity: .4; }
-.persona-memory-fab { position: absolute; z-index: 36; right: 14px; top: calc(66px + env(safe-area-inset-top)); min-height: 28px; padding: 4px 11px; border: 0; border-radius: 999px; color: var(--theme-accent-text); background: rgba(248,244,250,.9); box-shadow: 0 4px 12px rgba(57,41,67,.1); font-size: 11px; font-weight: 800; }
 
 .persona-source-card { display: grid; gap: 6px; padding: 14px 16px; border-radius: 20px; background: #efedf0; }
 .persona-source-card > small, .persona-source-card li { color: #8a838e; font-size: 11px; line-height: 1.5; }
@@ -63,3 +62,31 @@ html[data-standalone][data-kb] .persona-panel { padding-bottom: 16px; }
 .persona-source-card pre { white-space: pre-wrap; word-break: break-word; max-height: 50vh; overflow: auto; margin: 6px 0 0; padding: 10px; border-radius: 12px; background: rgba(255,255,255,.7); font-size: 11px; line-height: 1.55; }
 .persona-request-preview { display: grid; gap: 4px; }
 .persona-request-preview > small { color: #8a838e; font-size: 11px; }
+
+/* v136: 角色库收纳、方形小头像、••• 抽屉（窗口列表 / 记忆 / 模型）。 */
+.persona-library-toggle { margin-top: 8px; min-height: 40px; padding: 0 4px; display: flex; align-items: center; justify-content: space-between; border: 0; color: #6f6674; background: transparent; font-size: 13px; font-weight: 800; }
+.persona-library-toggle i { font-style: normal; color: var(--theme-accent-text); font-size: 12px; }
+/* The avatar is a <span> too: only the text column may flex, or the avatar stretches into a wide strip. */
+.persona-library-item > span:not(.persona-avatar) { flex: 1; min-width: 0; }
+.persona-library-item > .persona-avatar, .persona-card-main > .persona-avatar { flex: 0 0 48px; width: 48px; height: 48px; border-radius: 16px; font-size: 16px; }
+.persona-library-item .persona-avatar img, .persona-card-main .persona-avatar img { width: 48px; height: 48px; object-fit: cover; display: block; }
+.persona-library-item strong, .persona-library-item small { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+
+html[data-standalone] .persona-drawer-layer { bottom: auto; }
+.persona-drawer .drawer-section-title { flex-wrap: wrap; }
+.persona-drawer-hint { display: block; color: #9a939e; font-size: 10px; font-weight: 600; }
+.persona-drawer .drawer-inline-setting > span { display: grid; gap: 2px; }
+.persona-thread-row { display: flex; align-items: center; gap: 4px; padding: 4px 8px 4px 6px; border-top: 1px solid rgba(75,61,83,.06); }
+.persona-thread-row.active { background: var(--theme-accent-soft); }
+.persona-thread-main { flex: 1; min-width: 0; padding: 8px; border: 0; display: grid; gap: 4px; color: #49434d; background: transparent; text-align: left; }
+.persona-thread-main > span { display: flex; align-items: baseline; justify-content: space-between; gap: 8px; }
+.persona-thread-main strong, .persona-thread-main small { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.persona-thread-main strong { font-size: 13px; }
+.persona-thread-main time { flex: 0 0 auto; color: #a39ba7; font-size: 10px; }
+.persona-thread-main small { color: #948c98; font-size: 11px; }
+.persona-thread-action { flex: 0 0 auto; min-height: 30px; padding: 4px 8px; border: 0; border-radius: 10px; color: #7d7581; background: rgba(255,255,255,.6); font-size: 11px; font-weight: 700; }
+.persona-thread-action.danger { color: #b0566c; }
+.persona-thread-row.editing input { flex: 1; min-width: 0; min-height: 38px; padding: 8px 10px; border: 1px solid rgba(93,69,108,.12); border-radius: 12px; background: #fff; font: inherit; font-size: 16px; }
+.persona-model-picker { margin: 4px 12px 12px; }
+.persona-model-picker label { grid-template-columns: 64px minmax(0, 1fr); }
+.persona-model-picker select, .persona-model-picker input { font-size: 16px; }

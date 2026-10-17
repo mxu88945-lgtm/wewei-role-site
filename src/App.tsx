@@ -4019,7 +4019,7 @@ function App() {
   return <div className="app-shell"><main ref={phoneCanvasRef} className={`phone-canvas theme-${chatTheme} ${page === 'chat' || page === 'persona-window' ? 'chat-canvas' : ''}`} style={{ '--ui-font-scale': uiFontScale / 100, '--ui-font-weight': uiFontWeight, '--ui-heading-font-weight': Math.min(800, uiFontWeight + 100), '--chat-font-size': `${chatFontSize}px`, '--chat-text-color': chatTextColor, '--chat-narration-color': chatNarrationColor, '--chat-quote-color': chatQuoteColor, '--chat-base-color': chatBaseColor } as React.CSSProperties}>
     <input ref={fileInputRef} className="hidden-file-input" type="file" accept="image/png,.png,application/json,.json" onChange={(event) => handleCharacterFile(event.target.files?.[0])} />
     <input ref={conversationTxtInputRef} className="hidden-file-input" type="file" accept="text/plain,.txt" onChange={(event) => { void importConversationTxt(event.target.files?.[0]) }} />
-    {page === 'persona-window' && <PersonaWindowPage characters={characters} conversations={conversations} memoryEntries={memoryEntries} identity={globalIdentity} api={api} memoryApiFor={(characterId) => memoryConfigFor(characterId).api} temperature={temperature} topP={topP} maxTokens={maxTokens} streaming={streaming} memoryLength={memoryLength} globalWorldbook={worldbook} storyProjects={storyProjects} onBack={goBack} />}
+    {page === 'persona-window' && <PersonaWindowPage characters={characters} conversations={conversations} memoryEntries={memoryEntries} identity={globalIdentity} api={api} apiChannels={apiChannels} memoryApiFor={(characterId) => { const config = memoryConfigs[characterId] || defaultMemoryConfig(); return config.useGlobalApi === false ? config.api : globalMemoryApi }} temperature={temperature} topP={topP} maxTokens={maxTokens} streaming={streaming} memoryLength={memoryLength} globalWorldbook={worldbook} storyProjects={storyProjects} onBack={goBack} />}
     {page === 'story-projects' && <StoryProjectManager projects={storyProjects} characters={characters} conversations={conversations} identities={identities} api={api} apiChannels={apiChannels} onBack={goBack} onChange={setStoryProjects} />}
     {page === 'chat' && <WallpaperLayers key={wallpaperKey} wallpaper={currentWallpaper} avatar={activeCharacter.avatar} themeColor={chatBaseColor} />}
     {page === 'home' && <section className="home-dashboard">
@@ -4421,7 +4421,7 @@ function UpdateCard() {
     }
   }
 
-  return <section className="update-card"><strong>应用更新</strong><p>主动检查并拉取最新网页版本，不会删除角色、聊天记录或本地设置。</p><small>当前版本：v135 · 2026.10.17 人格窗口带上人设与前世记忆</small><button onClick={refresh} disabled={state === 'checking'}>{state === 'checking' ? '正在检查更新…' : state === 'error' ? '更新失败，点我重试' : '强制刷新到最新版'}</button></section>
+  return <section className="update-card"><strong>应用更新</strong><p>主动检查并拉取最新网页版本，不会删除角色、聊天记录或本地设置。</p><small>当前版本：v136 · 2026.10.17 人格窗口多窗口与模型切换</small><button onClick={refresh} disabled={state === 'checking'}>{state === 'checking' ? '正在检查更新…' : state === 'error' ? '更新失败，点我重试' : '强制刷新到最新版'}</button></section>
 }
 
 function PersonaPage({ identities, selectedId, isBound, onSelect, onAdd, onDelete, onUpdate, onBack }: { identities: UserIdentity[]; selectedId: string; isBound: boolean; onSelect: (id: string) => void; onAdd: () => void; onDelete: (id: string) => void; onUpdate: (patch: Partial<UserIdentity>) => void; onBack: () => void }) {
