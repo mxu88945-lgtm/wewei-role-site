@@ -16,7 +16,7 @@ import './theme-cute-icons.css'
 import './memoryApiEnhancements'
 
 const APP_SCOPE = '/wewei-role-site/'
-const SERVICE_WORKER_RELEASE = '2026-10-17-persona-tasks-scroll-v142'
+const SERVICE_WORKER_RELEASE = '2026-10-17-phone-files-spacing-v143'
 
 if ('serviceWorker' in navigator) {
   let reloadingForUpdate = false

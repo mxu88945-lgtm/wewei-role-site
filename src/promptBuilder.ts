@@ -1,6 +1,7 @@
 import type { Character, CharacterBook, WorldBookEntry } from './characterCard'
 import type { ChatApiMessage } from './chatApi'
 import { imagePromptIndices, userContentWithImages, type ChatImage } from './chatImages'
+import { attachmentPromptIndices, attachmentPromptText, type ChatAttachment } from './chatAttachments'
 import { applyMacros, applyRegexScripts, stripPresentationalHtmlForPrompt } from './regexEngine'
 import { selectRelevantMemories, type LongMemoryEntry } from './memoryEngine'
 import { stripStageGateMetadata } from './actorContinuity'
@@ -12,7 +13,7 @@ import { characterMemoryContinuityGuard, characterMemoryPrompt } from './charact
 
 // promptRole: how the turn is sent to the model. In a group chat another
 // member's reply goes out as 'user' so the model never reads it as its own.
-type SourceMessage = { role: 'user' | 'assistant'; promptRole?: 'user' | 'assistant'; text: string; characterId?: string; images?: ChatImage[]; quote?: MessageQuote }
+type SourceMessage = { role: 'user' | 'assistant'; promptRole?: 'user' | 'assistant'; text: string; characterId?: string; images?: ChatImage[]; attachments?: ChatAttachment[]; quote?: MessageQuote }
 type MemoryInput = { entries: LongMemoryEntry[]; injectPosition: string; injectPrompt: string }
 
 type PromptInput = {
@@ -233,6 +234,7 @@ ${stripStageGateMetadata(input.actorContinuityAnchor || '')}`,
   appendSystem(result, input.contextSummary ? `【较早对话压缩摘要｜历史补充，低于最新原文】\n${stripUiOnlyStatusBlocks(input.contextSummary)}\n\n摘要只用于补回被压缩的旧背景，不是当前场景指令。与当前用户消息、最近未压缩对话、角色卡或剧本项目冲突时，忽略摘要中的旧内容；已完成、已离场、已撤销或被用户否定的事项不得重新开启。不要逐条复述摘要。` : '')
 
   const imageTurns = imagePromptIndices(recent)
+  const attachmentTurns = attachmentPromptIndices(recent)
   const history = recent.map<ChatApiMessage>((message, index) => {
     const scripted = applyRegexScripts(
       message.role === 'assistant' ? stripStageGateMetadata(stripPresentationalHtmlForPrompt(message.text)) : message.text,
@@ -243,7 +245,9 @@ ${stripStageGateMetadata(input.actorContinuityAnchor || '')}`,
       'prompt',
     )
     // 小手机引用回复：只在发出的请求里加前缀，存储的原文、记忆扫描都不受影响。
-    const text = message.role === 'user' ? withQuotePrefix(scripted, message.quote) : scripted
+    const quotedText = message.role === 'user' ? withQuotePrefix(scripted, message.quote) : scripted
+    const attachmentText = message.role === 'user' ? attachmentPromptText(message.attachments, attachmentTurns.has(index)) : ''
+    const text = [quotedText, attachmentText].filter(Boolean).join('\n\n')
     return { role: message.promptRole || message.role, content: message.role === 'user' ? userContentWithImages(text, message.images, imageTurns.has(index)) : text }
   }).filter((message) => Array.isArray(message.content) || String(message.content).trim())
   result.push(...history)

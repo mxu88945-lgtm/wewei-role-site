@@ -21,6 +21,7 @@ describe('引用回复：文本与提示词', () => {
     expect(clipQuoteText(long)).toBe(`${'字'.repeat(80)}…`)
     expect(buildMessageQuote({ id: 12, text: '在吗' }, '陆屿')).toEqual({ messageId: '12', author: '陆屿', text: '在吗' })
     expect(buildMessageQuote({ id: 13, text: '', images: [{}] }, '陆屿').text).toBe('[图片]')
+    expect(buildMessageQuote({ id: 14, text: '', attachments: [{ name: '剧情.txt' }] }, '陆屿').text).toBe('[文件：剧情.txt]')
   })
 
   it('前缀格式固定，空引用不加', () => {

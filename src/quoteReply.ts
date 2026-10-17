@@ -14,8 +14,10 @@ export function clipQuoteText(text: string, limit = QUOTE_TEXT_LIMIT) {
   return chars.length > limit ? `${chars.slice(0, limit).join('')}…` : plain
 }
 
-export function buildMessageQuote(message: { id: number | string; text: string; images?: unknown[] }, author: string): MessageQuote {
-  const text = clipQuoteText(message.text) || (message.images?.length ? '[图片]' : '')
+export function buildMessageQuote(message: { id: number | string; text: string; images?: unknown[]; attachments?: Array<{ name?: string }> }, author: string): MessageQuote {
+  const text = clipQuoteText(message.text)
+    || (message.attachments?.length ? `[文件：${message.attachments.map((item) => item.name || '未命名文件').join('、')}]` : '')
+    || (message.images?.length ? '[图片]' : '')
   return { messageId: String(message.id), author: author.trim() || '对方', text }
 }
 
