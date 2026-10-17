@@ -142,8 +142,13 @@ export default function PersonaWindowPage(props: Props) {
   const listRef = useRef<HTMLDivElement>(null)
   const [scrollControlsHidden, setScrollControlsHidden] = useState(false)
   const scrollHideTimer = useRef<number | null>(null)
-  // 滚轮 3 秒无操作自动隐入，滚动/点击时再浮现
+  // 滚轮 3 秒无操作自动隐入，滚动/点击时再浮现；输入框聚焦（键盘打开）时不打扰
   const pokeScrollControls = () => {
+    if (textareaRef.current && document.activeElement === textareaRef.current) {
+      setScrollControlsHidden(true)
+      if (scrollHideTimer.current) window.clearTimeout(scrollHideTimer.current)
+      return
+    }
     setScrollControlsHidden(false)
     if (scrollHideTimer.current) window.clearTimeout(scrollHideTimer.current)
     scrollHideTimer.current = window.setTimeout(() => setScrollControlsHidden(true), 3000)
@@ -566,7 +571,7 @@ export default function PersonaWindowPage(props: Props) {
     <div ref={composerRef} className={`composer persona-composer${pendingImages.length || imageBusy ? ' has-images' : ''}`}>
       {(pendingImages.length > 0 || imageBusy) && <div className="composer-images" aria-label="待发送图片">{pendingImages.map((image) => <div key={image.id}><img src={image.dataUrl} alt="" role="button" aria-label="查看大图" onClick={() => setViewerImage(image)} /><button type="button" aria-label="移除图片" onClick={() => setPendingImages((current) => current.filter((item) => item.id !== image.id))}>×</button></div>)}{imageBusy && <span className="composer-images-busy">处理中…</span>}</div>}
       <button className="composer-plus" aria-label="添加图片" {...tap(() => imageInputRef.current?.click())}>＋</button>
-      <textarea ref={textareaRef} rows={1} value={draft} onChange={(event) => setDraft(event.target.value)} placeholder={generating ? '可以先写下一条，停止后再发送' : `对${activeCharacter.name}说……`} />
+      <textarea ref={textareaRef} rows={1} value={draft} onChange={(event) => setDraft(event.target.value)} onFocus={() => { setScrollControlsHidden(true); if (scrollHideTimer.current) window.clearTimeout(scrollHideTimer.current) }} placeholder={generating ? '可以先写下一条，停止后再发送' : `对${activeCharacter.name}说……`} />
       <button className={`send-button ${generating ? 'stop' : ''}`} aria-label={generating ? '停止生成' : '发送'} {...tap(send)}>{generating ? '■' : '↑'}</button>
       <input ref={imageInputRef} type="file" accept="image/*" multiple hidden onChange={(event) => { const files = event.currentTarget.files; void addImages(files).finally(() => { if (imageInputRef.current) imageInputRef.current.value = '' }) }} />
     </div>
