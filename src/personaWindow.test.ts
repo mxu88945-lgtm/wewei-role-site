@@ -374,9 +374,9 @@ describe('人格窗口 v136：多窗口、记忆共享与模型切换', () => {
     await extractPersonaMemory(guId, { character: gu, user, memoryApi: api }, true)
     expect(requests).toHaveLength(2)
     expect(getPersonaState().personas.find((item) => item.characterId === 'lu')!.memories).toEqual([])
-    // Both windows' requests carry the shared memory.
+    // Both windows can retrieve the shared ordinary memory when the topic asks for it.
     const deps = { character: gu, user, api, memoryApi: api, temperature: 1, topP: 1, maxTokens: 1000, streaming: false, memoryLength: 40, pastLife: () => '' }
-    for (const thread of gup.threads) expect(JSON.stringify(buildPersonaRequest(gup, thread.messages, deps, thread))).toContain('她每天喝茶')
+    for (const thread of gup.threads) expect(JSON.stringify(buildPersonaRequest(gup, [...thread.messages, say(99, 'user', '我每天喝茶的习惯你还记得吗？')], deps, thread))).toContain('她每天喝茶')
     const lup = getPersonaState().personas.find((item) => item.characterId === 'lu')!
     expect(JSON.stringify(buildPersonaRequest(lup, [say(1, 'user', '嗨')], { ...deps, character: lu }))).not.toContain('她每天喝茶')
   })

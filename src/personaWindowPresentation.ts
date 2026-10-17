@@ -34,6 +34,8 @@ export function stripPersonaFormatInstructions(value: string) {
  */
 export function personaReplyText(value: string) {
   return stripUiOnlyStatusBlocks(sanitizeAssistantOutput(value))
+    .replace(/\[\s*(?:记忆|记住|存记忆|memory|搜索|旧文)\s*[:：][^\]\n]*(?:\]|$)/gi, '')
+    .replace(/\[(?:记(?:忆|住)?|存记忆|memory|搜(?:索)?|旧(?:文)?)?$/gi, '')
     .replace(/<(scene|scenario|details)\b[^>]*>[\s\S]*?(?:<\/\1\s*>|$)/gi, '')
     .replace(/<(style|script|head)\b[^>]*>[\s\S]*?(?:<\/\1\s*>|$)/gi, '')
     .replace(/```(?:css|javascript|js)\b[^\n]*\n[\s\S]*?(?:```|$)/gi, '')
