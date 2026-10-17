@@ -155,6 +155,19 @@ describe('人格分层记忆的实际运行流程 (v139)', () => {
     expect(current().memories).toHaveLength(1)
   })
 
+  it('resends the original text and image as a new turn, preserving the source and earlier replies', async () => {
+    const image = { id: 'photo', dataUrl: 'data:image/png;base64,YQ==', width: 30, height: 80 }
+    await generatePersonaReply(persona.id, deps, { text: '看看这张图', images: [image] })
+    const original = JSON.parse(JSON.stringify(current().threads[0].messages)) as PersonaMessage[]
+    await generatePersonaReply(persona.id, deps, { text: original[0].text, images: original[0].images, threadId: persona.activeThreadId })
+    const messages = current().threads[0].messages
+    expect(messages.slice(0, 2)).toEqual(original)
+    expect(messages[2]).toMatchObject({ role: 'user', text: '看看这张图', images: [image] })
+    expect(messages[2].id).toBeGreaterThan(original[1].id)
+    const request = mock.calls[1].messages
+    expect(request[request.length - 1]?.content).toEqual([{ type: 'text', text: '看看这张图' }, { type: 'image_url', image_url: { url: image.dataUrl, detail: 'auto' } }])
+  })
+
   it('deleting a reply does not recycle its source number after restore and resend', async () => {
     await generatePersonaReply(persona.id, deps, { text: '第一条' })
     setPersonaState((state) => deletePersonaMessage(state, persona.id, persona.threads[0].id, 2))

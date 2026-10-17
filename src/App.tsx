@@ -64,7 +64,8 @@ import { buildSharedTheaterBackground, createDirectorCharacter, createDirectorTe
 import CharacterWorkshop from './CharacterWorkshop'
 import StoryProjectManager from './StoryProjectManager'
 import PersonaWindowPage from './PersonaWindowPage'
-import { getPersonaState, hydratePersonaStore, isPersonaStoreHydrated } from './personaWindowStore'
+import { getPersonaState, hydratePersonaStore, isPersonaStoreHydrated, usePersonaAppearanceScope } from './personaWindowStore'
+import { personaWallpaper, personaWallpaperKey, resolvePersonaAppearance } from './personaAppearance'
 import { buildPersonaWindowNoteForPhone, PERSONA_WINDOWS_KEY } from './personaWindow'
 import { normalizeStoryProjects, type StoryProject } from './storyProject'
 import { buildStoryProjectPrompt, selectConversationStoryProject } from './storyProjectPrompt'
@@ -639,6 +640,13 @@ function App() {
   const themeMarkId = scopedConversation ? scopedConversation.themePresetId : defaultThemePresetId
   const wallpaperKey = effectiveThemeId ? themeWallpaperKey(effectiveThemeId) : wallpaperScopeKey(activeConversation, activeCharacter.id)
   const currentWallpaper = normalizeWallpaper(chatWallpapers[wallpaperKey], chatBaseColor)
+  const personaAppearanceScope = usePersonaAppearanceScope(characters)
+  const visiblePersona = page === 'persona-window' ? personaAppearanceScope : undefined
+  const personaDefaults = { theme: { id: effectiveThemeId, name: [...builtInThemes, ...customThemes].find((item) => item.id === effectiveThemeId)?.name || '应用默认', mode: chatTheme, baseColor: chatBaseColor, textColor: chatTextColor, narrationColor: chatNarrationColor, quoteColor: chatQuoteColor, frost: chatBackgroundFrost }, fontSize: chatFontSize, uiScale: uiFontScale, uiWeight: uiFontWeight, baseColor: chatBaseColor, textColor: chatTextColor, narrationColor: chatNarrationColor, quoteColor: chatQuoteColor }
+  const displayAppearance = resolvePersonaAppearance(visiblePersona?.appearance, personaDefaults)
+  const displayAvatar = visiblePersona ? characters.find((item) => item.id === visiblePersona.characterId)?.avatar : activeCharacter.avatar
+  const displayWallpaper = visiblePersona ? personaWallpaper(chatWallpapers, visiblePersona.id, displayAppearance.theme.id, displayAppearance.baseColor) : currentWallpaper
+  const wallpaperEditKey = visiblePersona ? personaWallpaperKey(visiblePersona.id, displayAppearance.theme.id) : wallpaperKey
   // globalIdentity: home, 小手机 lists, forum, background ticks. identityFor(conversation):
   // inside one conversation (its bound persona, else global). identity: whatever the
   // current page is about — the open chat's persona on chat pages, global elsewhere.
@@ -823,29 +831,30 @@ function App() {
   const updateChatWallpaper = (patch: Partial<ChatWallpaper>) => {
     if (!wallpaperHydrationReady) return
     if ('source' in patch || 'image' in patch || 'enabled' in patch) {
-      wallpaperUploadTickets.current.begin(wallpaperKey)
-      setWallpaperUploads((current) => ({ ...current, [wallpaperKey]: { busy: false, message: '' } }))
+      wallpaperUploadTickets.current.begin(wallpaperEditKey)
+      setWallpaperUploads((current) => ({ ...current, [wallpaperEditKey]: { busy: false, message: '' } }))
     }
-    setChatWallpapers((current) => ({ ...current, [wallpaperKey]: normalizeWallpaper({ ...normalizeWallpaper(current[wallpaperKey], chatBaseColor), ...patch }, chatBaseColor) }))
+    setChatWallpapers((current) => ({ ...current, [wallpaperEditKey]: normalizeWallpaper({ ...displayWallpaper, ...patch }, displayAppearance.baseColor) }))
   }
   const resetChatWallpaper = () => {
     if (!wallpaperHydrationReady) return
-    wallpaperUploadTickets.current.begin(wallpaperKey)
-    setWallpaperUploads((current) => ({ ...current, [wallpaperKey]: { busy: false, message: '' } }))
-    setChatWallpapers((current) => { const next = { ...current }; delete next[wallpaperKey]; return next })
+    wallpaperUploadTickets.current.begin(wallpaperEditKey)
+    setWallpaperUploads((current) => ({ ...current, [wallpaperEditKey]: { busy: false, message: '' } }))
+    setChatWallpapers((current) => { const next = { ...current }; delete next[wallpaperEditKey]; return next })
   }
   const uploadChatWallpaper = async (file: File) => {
     if (!wallpaperHydrationReady) return
     // Capture before decoding: navigating to another chat must never redirect
     // an in-flight image to the newly selected character/group.
-    const scope = wallpaperKey
-    const themeColor = chatBaseColor
+    const scope = wallpaperEditKey
+    const themeColor = displayAppearance.baseColor
+    const initialWallpaper = displayWallpaper
     const ticket = wallpaperUploadTickets.current.begin(scope)
     setWallpaperUploads((current) => ({ ...current, [scope]: { busy: true, message: '正在处理图片…' } }))
     try {
       const image = await readWallpaperImage(file)
       if (!wallpaperUploadTickets.current.isCurrent(scope, ticket)) return
-      setChatWallpapers((current) => ({ ...current, [scope]: normalizeWallpaper({ ...normalizeWallpaper(current[scope], themeColor), image, source: 'image', enabled: true }, themeColor) }))
+      setChatWallpapers((current) => ({ ...current, [scope]: normalizeWallpaper({ ...normalizeWallpaper(current[scope] ?? initialWallpaper, themeColor), image, source: 'image', enabled: true }, themeColor) }))
       setWallpaperUploads((current) => ({ ...current, [scope]: { busy: false, message: '图片已载入，会自动保存到这份独立壁纸。' } }))
     } catch (error) {
       if (!wallpaperUploadTickets.current.isCurrent(scope, ticket)) return
@@ -997,15 +1006,15 @@ function App() {
   useEffect(() => write('weijing.chatLayout', chatLayout), [chatLayout])
   useEffect(() => { write('weijing.uiFontScale', uiFontScale); write('weijing.uiFontWeight', uiFontWeight) }, [uiFontScale, uiFontWeight])
   useEffect(() => { if (!themeBoundRef.current) write('weijing.chatTheme', chatTheme) }, [chatTheme])
-  useEffect(() => syncPwaThemeColor(chatBaseColor), [chatBaseColor])
-  const currentWallpaperImage = wallpaperImage(currentWallpaper, activeCharacter.avatar)
+  useEffect(() => syncPwaThemeColor(displayAppearance.baseColor), [displayAppearance.baseColor])
+  const currentWallpaperImage = wallpaperImage(displayWallpaper, displayAvatar)
   useEffect(() => {
     // Full-screen iOS PWA: the chat wallpaper runs under the notch, so the top fade
     // (--wall-top) and the root background take the wallpaper's own top-edge colour.
     const root = document.documentElement
-    if (page !== 'chat') { root.style.backgroundColor = chatBaseColor; return }
+    if (page !== 'chat' && page !== 'persona-window') { root.style.backgroundColor = displayAppearance.baseColor; return }
     let cancelled = false
-    const wallpaper = { enabled: currentWallpaper.enabled, source: currentWallpaper.source, image: '', imageOpacity: currentWallpaper.imageOpacity, color: currentWallpaper.color, colorOpacity: currentWallpaper.colorOpacity }
+    const wallpaper = { enabled: displayWallpaper.enabled, source: displayWallpaper.source, image: '', imageOpacity: displayWallpaper.imageOpacity, color: displayWallpaper.color, colorOpacity: displayWallpaper.colorOpacity }
     const apply = (hex: string) => {
       if (cancelled) return
       root.style.setProperty('--wall-top', hex)
@@ -1013,15 +1022,15 @@ function App() {
       try { localStorage.setItem('weijing.wallTopColor', hex) } catch { /* private mode: next launch falls back to the theme colour */ }
     }
     const applyBottom = (hex: string) => { if (!cancelled) root.style.setProperty('--wall-bottom', hex) }
-    if (!currentWallpaperImage) { const hex = wallpaperTopColor(wallpaper, chatBaseColor); apply(hex); applyBottom(hex) }
+    if (!currentWallpaperImage) { const hex = wallpaperTopColor(wallpaper, displayAppearance.baseColor); apply(hex); applyBottom(hex) }
     else {
       const height = Number.parseFloat(root.style.height) || window.innerHeight || 844
       const aspect = (window.innerWidth || 390) / height
-      void sampleImageTopColor(currentWallpaperImage, aspect).then((top) => apply(wallpaperTopColor(wallpaper, chatBaseColor, top)))
-      void sampleImageTopColor(currentWallpaperImage, aspect, .12, true).then((bottom) => applyBottom(wallpaperTopColor(wallpaper, chatBaseColor, bottom)))
+      void sampleImageTopColor(currentWallpaperImage, aspect).then((top) => apply(wallpaperTopColor(wallpaper, displayAppearance.baseColor, top)))
+      void sampleImageTopColor(currentWallpaperImage, aspect, .12, true).then((bottom) => applyBottom(wallpaperTopColor(wallpaper, displayAppearance.baseColor, bottom)))
     }
     return () => { cancelled = true }
-  }, [page, chatBaseColor, currentWallpaperImage, currentWallpaper.enabled, currentWallpaper.source, currentWallpaper.color, currentWallpaper.imageOpacity, currentWallpaper.colorOpacity])
+  }, [page, displayAppearance.baseColor, currentWallpaperImage, displayWallpaper.enabled, displayWallpaper.source, displayWallpaper.color, displayWallpaper.imageOpacity, displayWallpaper.colorOpacity])
   useEffect(() => write('weijing.customThemes', customThemes), [customThemes])
   useEffect(() => { write('weijing.petEnabled', petEnabled); write('weijing.petVariant', petVariant); write('weijing.petPosition', petPosition) }, [petEnabled, petVariant, petPosition])
   useEffect(() => write('weijing.groupReplyMode', groupReplyMode), [groupReplyMode])
@@ -4016,12 +4025,12 @@ function App() {
     </div>
   }
 
-  return <div className="app-shell"><main ref={phoneCanvasRef} className={`phone-canvas theme-${chatTheme} ${page === 'chat' || page === 'persona-window' ? 'chat-canvas' : ''}`} style={{ '--ui-font-scale': uiFontScale / 100, '--ui-font-weight': uiFontWeight, '--ui-heading-font-weight': Math.min(800, uiFontWeight + 100), '--chat-font-size': `${chatFontSize}px`, '--chat-text-color': chatTextColor, '--chat-narration-color': chatNarrationColor, '--chat-quote-color': chatQuoteColor, '--chat-base-color': chatBaseColor } as React.CSSProperties}>
+  return <div className="app-shell"><main ref={phoneCanvasRef} className={`phone-canvas theme-${displayAppearance.theme.mode} ${page === 'chat' || page === 'persona-window' ? 'chat-canvas' : ''}`} style={{ '--ui-font-scale': displayAppearance.uiScale / 100, '--ui-font-weight': displayAppearance.uiWeight, '--ui-heading-font-weight': Math.min(800, displayAppearance.uiWeight + 100), '--chat-font-size': `${displayAppearance.fontSize}px`, '--chat-text-color': displayAppearance.textColor, '--chat-narration-color': displayAppearance.narrationColor, '--chat-quote-color': displayAppearance.quoteColor, '--chat-base-color': displayAppearance.baseColor } as React.CSSProperties}>
     <input ref={fileInputRef} className="hidden-file-input" type="file" accept="image/png,.png,application/json,.json" onChange={(event) => handleCharacterFile(event.target.files?.[0])} />
     <input ref={conversationTxtInputRef} className="hidden-file-input" type="file" accept="text/plain,.txt" onChange={(event) => { void importConversationTxt(event.target.files?.[0]) }} />
-    {page === 'persona-window' && <PersonaWindowPage characters={characters} conversations={conversations} memoryEntries={memoryEntries} identity={globalIdentity} api={api} apiChannels={apiChannels} memoryApiFor={(characterId) => { const config = memoryConfigs[characterId] || defaultMemoryConfig(); return config.useGlobalApi === false ? config.api : globalMemoryApi }} temperature={temperature} topP={topP} maxTokens={maxTokens} streaming={streaming} memoryLength={memoryLength} globalWorldbook={worldbook} storyProjects={storyProjects} onBack={goBack} />}
+    {page === 'persona-window' && <PersonaWindowPage characters={characters} conversations={conversations} memoryEntries={memoryEntries} identity={globalIdentity} api={api} apiChannels={apiChannels} memoryApiFor={(characterId) => { const config = memoryConfigs[characterId] || defaultMemoryConfig(); return config.useGlobalApi === false ? config.api : globalMemoryApi }} temperature={temperature} topP={topP} maxTokens={maxTokens} streaming={streaming} memoryLength={memoryLength} globalWorldbook={worldbook} storyProjects={storyProjects} appearanceControls={{ values: displayAppearance, themes: allThemes, wallpaper: displayWallpaper, ready: persistenceReady && wallpaperHydrationReady, upload: wallpaperUploads[wallpaperEditKey], error: wallpaperStorageError, onWallpaperChange: updateChatWallpaper, onWallpaperUpload: (file) => { void uploadChatWallpaper(file) }, onWallpaperReset: resetChatWallpaper }} onBack={goBack} />}
     {page === 'story-projects' && <StoryProjectManager projects={storyProjects} characters={characters} conversations={conversations} identities={identities} api={api} apiChannels={apiChannels} onBack={goBack} onChange={setStoryProjects} />}
-    {page === 'chat' && <WallpaperLayers key={wallpaperKey} wallpaper={currentWallpaper} avatar={activeCharacter.avatar} themeColor={chatBaseColor} />}
+    {(page === 'chat' || page === 'persona-window') && <WallpaperLayers key={wallpaperEditKey} wallpaper={displayWallpaper} avatar={displayAvatar} themeColor={displayAppearance.baseColor} />}
     {page === 'home' && <section className="home-dashboard">
       <header className="home-heading"><p className="eyebrow">WeiWei Role</p><h1>{pageTitle}</h1><p>选择今天要进入的空间。</p></header>
       <div className="home-entrances">
@@ -4421,7 +4430,7 @@ function UpdateCard() {
     }
   }
 
-  return <section className="update-card"><strong>应用更新</strong><p>主动检查并拉取最新网页版本，不会删除角色、聊天记录或本地设置。</p><small>当前版本：v140 · 2026.10.17 人格左侧栏与图片缩略图</small><button onClick={refresh} disabled={state === 'checking'}>{state === 'checking' ? '正在检查更新…' : state === 'error' ? '更新失败，点我重试' : '强制刷新到最新版'}</button></section>
+  return <section className="update-card"><strong>应用更新</strong><p>主动检查并拉取最新网页版本，不会删除角色、聊天记录或本地设置。</p><small>当前版本：v141 · 2026.10.17 人格重发与独立外观</small><button onClick={refresh} disabled={state === 'checking'}>{state === 'checking' ? '正在检查更新…' : state === 'error' ? '更新失败，点我重试' : '强制刷新到最新版'}</button></section>
 }
 
 function PersonaPage({ identities, selectedId, isBound, onSelect, onAdd, onDelete, onUpdate, onBack }: { identities: UserIdentity[]; selectedId: string; isBound: boolean; onSelect: (id: string) => void; onAdd: () => void; onDelete: (id: string) => void; onUpdate: (patch: Partial<UserIdentity>) => void; onBack: () => void }) {

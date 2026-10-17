@@ -50,7 +50,7 @@ html[data-standalone][data-kb] .persona-panel { padding-bottom: 16px; }
 .persona-intro strong { color: #4e4852; font-size: 18px; }
 .persona-intro p { margin: 0; font-size: 13px; line-height: 1.7; }
 .persona-typing { color: var(--chat-narration-color, #7f7089); font-size: var(--chat-font-size, 16px); }
-.persona-message-menu { display: inline-flex; gap: 2px; margin-left: 4px; padding: 2px; border-radius: 12px; background: rgba(248,244,250,.94); box-shadow: 0 4px 14px rgba(57,41,67,.1); }
+.persona-message-menu { display: inline-flex; flex-wrap: wrap; justify-content: flex-end; max-width: calc(100% - 38px); gap: 2px; margin-left: 4px; padding: 2px; border-radius: 12px; background: rgba(248,244,250,.94); box-shadow: 0 4px 14px rgba(57,41,67,.1); }
 .persona-message-menu button { min-height: 30px; padding: 4px 10px; border: 0; border-radius: 10px; color: #6f6674; background: transparent; font-size: 12px; font-weight: 700; }
 .persona-message-menu button.danger { color: #b0566c; }
 .persona-message-menu button:disabled { opacity: .4; }
@@ -176,3 +176,16 @@ button.persona-settings-row:active { background: var(--theme-accent-soft); }
 .persona-message-list .persona-message-images.count-1 img { width: auto; height: auto; max-width: min(180px, 55vw); max-height: 220px; object-fit: contain; }
 .persona-message-list .persona-message-images:not(.count-1) img { width: 100%; height: auto; max-height: 108px; aspect-ratio: 1; object-fit: cover; }
 @media (prefers-reduced-motion: reduce) { .persona-history-sidebar { animation: none; } }
+
+.persona-appearance-settings { display: grid; gap: 14px; min-width: 0; }
+.persona-appearance-settings .theme-choice-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+.persona-appearance-settings .theme-choice-grid button { min-width: 0; }
+.persona-appearance-settings .theme-choice-grid strong { white-space: normal; overflow-wrap: anywhere; }
+.persona-appearance-settings .appearance-card, .persona-appearance-settings .theme-choice-card { padding: 14px; }
+.persona-appearance-range { display: grid; gap: 10px; padding: 10px 0; font-size: 13px; }
+.persona-appearance-range > span { display: flex; justify-content: space-between; gap: 12px; }
+.persona-appearance-range output { color: var(--theme-accent-text); }
+.persona-appearance-range input { width: 100%; accent-color: var(--theme-accent); }
+.persona-appearance-settings .appearance-color-row { gap: 10px; min-width: 0; }
+.persona-appearance-settings .appearance-color-row input { flex-shrink: 0; }
+.persona-appearance-settings .wallpaper-controls select { font-size: 16px; }

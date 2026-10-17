@@ -59,7 +59,7 @@ export function normalizeWallpaper(value: unknown, themeColor = '#f5f1f8'): Chat
 
 export function normalizeWallpapers(value: unknown): ChatWallpapers {
   if (!value || typeof value !== 'object' || Array.isArray(value)) return {}
-  return Object.fromEntries(Object.entries(value).filter(([key, item]) => /^(?:character|conversation|theme):.+/.test(key) && item && typeof item === 'object' && !Array.isArray(item)).map(([key, item]) => [key, normalizeWallpaper(item)]))
+  return Object.fromEntries(Object.entries(value).filter(([key, item]) => /^(?:character|conversation|theme|persona):.+/.test(key) && item && typeof item === 'object' && !Array.isArray(item)).map(([key, item]) => [key, normalizeWallpaper(item)]))
 }
 
 /** Migrate once, to one scope only. Even an empty new map is an intentional saved configuration. */
