@@ -13,7 +13,9 @@ import { createKeyboardScrollPin, VIEWPORT_CHANGE_EVENT, VIEWPORT_WILL_CHANGE_EV
 import MessageContent, { isPendingAssistantText } from './MessageContent'
 import { personaReplyText } from './personaWindowPresentation'
 import PersonaSettingsHome, { type PersonaSettingsPanel } from './PersonaSettingsHome'
-import { activeThread, addPersonaThread, buildPersonaSetting, collectPastLifeMemory, deletePersona, deletePersonaThread, disablePersona, enablePersona, PERSONA_MEMORY_EVERY, PERSONA_WINDOW_PRESET, pendingPersonaMemoryCount, personaMemoryApi, renamePersonaThread, resolvePersonaApi, switchPersona, switchPersonaThread, updatePersona, updatePersonaThread, type PersonaMemoryEntry, type PersonaMessage, type PersonaWindow } from './personaWindow'
+import { PersonaMemoryInspection, PersonaRecallReceipt } from './PersonaMemoryInspection'
+import { canLockPersonaMemory, PERSONA_LOCKED_BUDGET } from './personaWindowMemory'
+import { activeThread, addPersonaThread, buildPersonaSetting, collectPastLifeMemory, deletePersona, deletePersonaThread, deletePersonaMessage, disablePersona, enablePersona, PERSONA_MEMORY_EVERY, PERSONA_WINDOW_PRESET, pendingPersonaMemoryCount, personaMemoryApi, renamePersonaThread, resolvePersonaApi, switchPersona, switchPersonaThread, updatePersona, type PersonaMemoryEntry, type PersonaMessage, type PersonaWindow } from './personaWindow'
 import { hydratePersonaStore, setPersonaState, usePersonaHydrated, usePersonaState } from './personaWindowStore'
 import { buildPersonaRequest, extractPersonaMemory, generatePersonaReply, getPersonaRuntime, setPersonaError, stopPersonaReply, subscribePersonaRuntime, type PersonaRuntimeDeps } from './personaWindowRuntime'
 
@@ -129,6 +131,7 @@ export default function PersonaWindowPage(props: Props) {
   const [libraryQuery, setLibraryQuery] = useState('')
   const [pastLifeOpen, setPastLifeOpen] = useState(false)
   const [requestOpen, setRequestOpen] = useState(false)
+  const [memoryUiNotice, setMemoryUiNotice] = useState('')
   const listRef = useRef<HTMLDivElement>(null)
   const composerRef = useRef<HTMLDivElement>(null)
   const textareaRef = useRef<HTMLTextAreaElement>(null)
@@ -325,7 +328,10 @@ export default function PersonaWindowPage(props: Props) {
 
   const updateActiveMemories = (transform: (entries: PersonaMemoryEntry[]) => PersonaMemoryEntry[]) => {
     if (!active) return
-    setPersonaState((current) => updatePersona(current, active.id, (item) => ({ ...item, memories: transform(item.memories) })))
+    const memories = transform(active.memories)
+    if (!canLockPersonaMemory(memories)) { setMemoryUiNotice(`锁定层最多 12 条、合计 ${PERSONA_LOCKED_BUDGET} 字；请先精简内容或取消部分锁定。`); return }
+    setMemoryUiNotice('')
+    setPersonaState((current) => updatePersona(current, active.id, (item) => ({ ...item, memories })))
   }
 
   const scrollFieldIntoView = (event: React.FocusEvent<HTMLElement>) => {
@@ -391,9 +397,13 @@ export default function PersonaWindowPage(props: Props) {
     const pendingCount = pendingPersonaMemoryCount(active)
     const memoryBusy = Boolean(runtime.memoryBusy[active.id])
     return <section className="chat-page persona-window-page">{header}{switcher}<div className="persona-panel">
-      <div className="privacy-note">这份记忆只属于「{activeCharacter.name}」（TA 的 {active.threads.length} 个窗口共用）：不会写进小手机、长剧情或其他人格（小手机里的 TA 会只读地记得这里的事，别人看不到）。每攒 {PERSONA_MEMORY_EVERY} 条新消息自动整理一次（当前待整理 {pendingCount} 条）。</div>
-      <div className="persona-toggle-row"><div><strong>自动整理记忆</strong><small>用「设置 → 长记忆」里的记忆 API，没填时沿用聊天渠道。</small></div><button className={`switch ${active.autoMemory !== false ? 'on' : ''}`} aria-label="自动整理记忆" {...tap(() => setPersonaState((current) => updatePersona(current, active.id, (item) => ({ ...item, autoMemory: item.autoMemory === false }))))}><span /></button></div>
-      <div className="persona-toggle-row"><div><strong>前世记忆</strong><small>TA 记得自己在小手机与长剧情里和你经历过的事（最新的优先，上限约 10000 字），只读，从不写回。</small></div><button className={`switch ${active.pastLifeEnabled !== false ? 'on' : ''}`} aria-label="前世记忆" {...tap(() => setPersonaState((current) => updatePersona(current, active.id, (item) => ({ ...item, pastLifeEnabled: item.pastLifeEnabled === false }))))}><span /></button></div>
+      <div className="privacy-note">这份记忆只属于「{activeCharacter.name}」，TA 的 {active.threads.length} 个窗口共用。平时在本地按话题找旧原文，不额外调用模型；重要内容可随回复存为待确认线索。每累积 {PERSONA_MEMORY_EVERY} 条才维护连续性档案，至少保留最近 96 条原文，旧文完整保留、可再召回。</div>
+      <div className="persona-toggle-row"><div><strong>自动维护连续性</strong><small>满 240 条后用记忆 API 整理；关闭后仍可手动提炼与检索原文。</small></div><button className={`switch ${active.autoMemory !== false ? 'on' : ''}`} aria-label="自动维护连续性" aria-pressed={active.autoMemory !== false} {...tap(() => setPersonaState((current) => updatePersona(current, active.id, (item) => ({ ...item, autoMemory: item.autoMemory === false }))))}><span /></button></div>
+      <div className="persona-toggle-row"><div><strong>自动原文召回</strong><small>相关话题自动找原话，重复片段冷却 4 轮；明确询问往事时可再次找回。</small></div><button className={`switch ${active.recallEnabled !== false ? 'on' : ''}`} aria-label="自动原文召回" aria-pressed={active.recallEnabled !== false} {...tap(() => setPersonaState((current) => updatePersona(current, active.id, (item) => ({ ...item, recallEnabled: item.recallEnabled === false }))))}><span /></button></div>
+      <label className="persona-memory-field"><strong>旧文检索范围</strong><select aria-label="旧文检索范围" value={active.recallScope || 'persona'} onChange={(event) => { const recallScope = event.target.value === 'thread' ? 'thread' as const : 'persona' as const; setPersonaState((current) => updatePersona(current, active.id, (item) => ({ ...item, recallScope }))) }}><option value="persona">这个人格的全部窗口</option><option value="thread">仅当前窗口</option></select><small>自动召回与主动查阅使用同一范围，始终不会读取其他人格。</small></label>
+      <label className="persona-memory-field"><strong>关键词与别名</strong><textarea rows={2} maxLength={4000} value={active.memoryAliases || ''} onFocus={scrollFieldIntoView} placeholder="每行一组，例如：小米|米米|小鹦鹉" onChange={(event) => { const memoryAliases = event.target.value; setPersonaState((current) => updatePersona(current, active.id, (item) => ({ ...item, memoryAliases }))) }} /><small>用 | 分隔同一事物的不同叫法，自动保存。</small></label>
+      <PersonaMemoryInspection audit={runtime.memoryAudits[threadId]} />
+      <div className="persona-toggle-row"><div><strong>前世记忆</strong><small>只读参考小手机交流与长剧情故事，不自动续演原卡剧情。</small></div><button className={`switch ${active.pastLifeEnabled !== false ? 'on' : ''}`} aria-label="前世记忆" {...tap(() => setPersonaState((current) => updatePersona(current, active.id, (item) => ({ ...item, pastLifeEnabled: item.pastLifeEnabled === false }))))}><span /></button></div>
       {(() => {
         const past = collectPastLifeMemory({ character: activeCharacter, characters, conversations, memoryEntries, userName: identity.name })
         const pastText = applyMacros(past.text, activeCharacter, identity.name)
@@ -410,17 +420,20 @@ export default function PersonaWindowPage(props: Props) {
         </div>
       })()}
       {notice && <div className="memory-auto-notice">{notice}</div>}
+      {memoryUiNotice && <div className="memory-auto-notice" role="status">{memoryUiNotice}</div>}
       <div className="persona-memory-actions">
-        <button className="primary-button" disabled={memoryBusy} {...tap(() => { const deps = depsFor(active.characterId); if (deps && !memoryBusy) void extractPersonaMemory(active.id, deps, true) })}>{memoryBusy ? '正在整理…' : '立即整理新对话'}</button>
+        <button className="primary-button" disabled={memoryBusy} {...tap(() => { const deps = depsFor(active.characterId); if (deps && !memoryBusy) void extractPersonaMemory(active.id, deps, true) })}>{memoryBusy ? '正在整理…' : `手动提炼新对话（${pendingCount} 条）`}</button>
         <button className="secondary-button" {...tap(() => updateActiveMemories((entries) => [...entries, { id: crypto.randomUUID(), title: '手写记忆', content: '', createdAt: Date.now() }]))}>＋ 手写一条</button>
       </div>
       {active.memories.length === 0 && <div className="empty-memory"><span>✦</span><strong>还没有长期记忆</strong><p>多聊几句，或点上面的按钮整理。</p></div>}
       {active.memories.slice().reverse().map((entry) => <article key={entry.id} className={`memory-entry ${entry.pinned ? 'pinned' : ''}`}>
         <input className="persona-memory-title" value={entry.title} onFocus={scrollFieldIntoView} onChange={(event) => { const value = event.target.value; updateActiveMemories((entries) => entries.map((item) => item.id === entry.id ? { ...item, title: value, autoGenerated: false, updatedAt: Date.now() } : item)) }} />
-        <small>{entry.createdAt ? new Date(entry.createdAt).toLocaleString() : ''}{entry.autoGenerated ? ' · 自动整理' : ' · 手写/已编辑'}</small>
+        <small>{entry.createdAt ? new Date(entry.createdAt).toLocaleString() : ''}{entry.autoGenerated ? ' · TA 提炼，待确认' : ' · 你确认'}{entry.locked ? ' · 🔒 高权重锁定' : ''}{entry.sourceThreadId ? ` · 来源：${active.threads.find((item) => item.id === entry.sourceThreadId)?.title || '已删除的窗口'}` : ''}</small>
         <textarea rows={4} value={entry.content} onFocus={scrollFieldIntoView} placeholder="写下要他长期记住的事" onChange={(event) => { const value = event.target.value; updateActiveMemories((entries) => entries.map((item) => item.id === entry.id ? { ...item, content: value, autoGenerated: false, updatedAt: Date.now() } : item)) }} />
         <div className="memory-entry-actions">
           <button className="soft-button" {...tap(() => updateActiveMemories((entries) => entries.map((item) => item.id === entry.id ? { ...item, pinned: !item.pinned } : item)))}>{entry.pinned ? '取消核心' : '设为核心记忆'}</button>
+          <button className="soft-button" {...tap(() => updateActiveMemories((entries) => entries.map((item) => item.id === entry.id ? { ...item, locked: !item.locked } : item)))}>{entry.locked ? '取消锁定' : '🔒 高权重锁定'}</button>
+          {entry.autoGenerated && <button className="soft-button" {...tap(() => updateActiveMemories((entries) => entries.map((item) => item.id === entry.id ? { ...item, autoGenerated: false, updatedAt: Date.now() } : item)))}>确认为长期事实</button>}
           <button className="danger-link" {...tap(() => updateActiveMemories((entries) => entries.filter((item) => item.id !== entry.id)))}>删除</button>
         </div>
       </article>)}
@@ -452,11 +465,12 @@ export default function PersonaWindowPage(props: Props) {
             {menuMessageId === message.id && <span className="persona-message-menu">
               <button {...tap(() => { void navigator.clipboard?.writeText(message.text).catch(() => undefined); setMenuMessageId(null) })}>复制</button>
               {!isUser && message.id === lastMessage?.id && <button disabled={generating} {...tap(() => { setMenuMessageId(null); regenerate() })}>重新生成</button>}
-              <button className="danger" {...tap(() => { if (window.confirm('删除这条消息？')) setPersonaState((current) => updatePersonaThread(current, active.id, threadId, (item) => ({ ...item, messages: item.messages.filter((entry) => entry.id !== message.id) }))); setMenuMessageId(null) })}>删除</button>
+              <button className="danger" {...tap(() => { if (window.confirm('删除这条消息？')) setPersonaState((current) => deletePersonaMessage(current, active.id, threadId, message.id)); setMenuMessageId(null) })}>删除</button>
             </span>}
             {!isUser && message.id === lastMessage?.id && !generating && <button className="continue-turn-button" aria-label="让 TA 继续说" title="继续" {...tap(letThemSpeak)}>▶</button>}
           </div>}
           {!isUser && (message.finishReason === 'length' || message.finishReason === 'max_tokens') && <span className="message-finish-note">回复达到上限，可点 ▶ 让 TA 接着说</span>}
+          {!isUser && message.recallSources?.length ? <PersonaRecallReceipt sources={message.recallSources} persona={active} /> : null}
         </div>
       })}
     </div>

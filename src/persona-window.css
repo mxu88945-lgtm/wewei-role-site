@@ -140,3 +140,15 @@ button.persona-settings-row:active { background: var(--theme-accent-soft); }
   .persona-settings-value { max-width: 56px; }
 }
 @media (prefers-reduced-motion: reduce) { .persona-drawer { animation: none; } }
+
+.persona-memory-field { display: grid; gap: 8px; padding: 15px; border: 1px solid rgba(125,104,141,.1); border-radius: 18px; background: rgba(255,255,255,.55); }
+.persona-memory-field strong { color: #73617f; font-size: 13px; }
+.persona-memory-field small { color: #9a8aa6; font-size: 11px; line-height: 1.6; }
+.persona-memory-field select, .persona-memory-field textarea { box-sizing: border-box; width: 100%; min-width: 0; padding: 10px; border: 1px solid rgba(125,104,141,.15); border-radius: 12px; background: #fff; color: #665471; font: inherit; font-size: 16px; }
+.persona-recall-receipt { margin: 6px 0 12px; color: var(--theme-accent-text); font-size: 11px; }
+.persona-recall-receipt summary { cursor: pointer; padding: 6px 0; }
+.persona-recall-receipt > div { padding: 10px; margin-top: 7px; border: 1px solid var(--theme-accent-soft-strong); border-radius: 13px; background: rgba(255,255,255,.55); }
+.persona-recall-receipt small { color: #9b8ba6; }
+.persona-recall-receipt pre { white-space: pre-wrap; overflow-wrap: anywhere; max-height: 45vh; overflow: auto; font: inherit; line-height: 1.8; }
+.persona-memory-inspection small { overflow-wrap: anywhere; }
+.persona-window-page .memory-entry-actions { display: flex; flex-wrap: wrap; gap: 8px; }
