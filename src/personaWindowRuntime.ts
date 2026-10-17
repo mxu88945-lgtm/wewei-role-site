@@ -5,8 +5,7 @@ import type { ChatImage } from './chatImages'
 import { isApiChannelComplete } from './apiChannels'
 import { buildChatPrompt } from './promptBuilder'
 import { applyMacros } from './regexEngine'
-import { sanitizeAssistantOutput } from './outputSanitizer'
-import { stripUiOnlyStatusBlocks } from './modelContext'
+import { personaReplyText, stripPersonaFormatInstructions } from './personaWindowPresentation'
 import { AUTO_COMPRESSION_FAILURE_COOLDOWN_MS, planAutoContextCompression } from './contextCompression'
 import {
   nextPersonaMessageId,
@@ -97,15 +96,15 @@ export function buildPersonaRequest(persona: PersonaWindow, history: PersonaMess
     mode: 'story',
     character,
     user: deps.user,
-    messages: history.map((item) => ({ role: item.role, text: item.text, images: item.images })),
+    messages: history.map((item) => ({ role: item.role, text: item.role === 'assistant' ? personaReplyText(item.text) : item.text, images: item.images })),
     preset: PERSONA_WINDOW_PRESET,
-    globalWorldbook: deps.globalWorldbook || '',
+    globalWorldbook: stripPersonaFormatInstructions(deps.globalWorldbook || ''),
     // Inside the main system prompt, right after the card: who he is, then his own past.
     // This window's own memory follows it (after-main-prompt), so it wins on conflicts.
-    storyProjectContext: [setting, pastLife].filter(Boolean).join('\n\n') || undefined,
-    memory: { entries: personaMemoriesForPrompt(persona), injectPosition: 'after-main-prompt', injectPrompt: PERSONA_MEMORY_INJECT },
+    storyProjectContext: [setting, pastLife].map(stripPersonaFormatInstructions).filter(Boolean).join('\n\n') || undefined,
+    memory: { entries: personaMemoriesForPrompt(persona).map((item) => ({ ...item, content: personaReplyText(item.content) })), injectPosition: 'after-main-prompt', injectPrompt: PERSONA_MEMORY_INJECT },
     memoryLength: deps.memoryLength,
-    contextSummary: compressedUntil > 0 ? thread.contextSummary : undefined,
+    contextSummary: compressedUntil > 0 ? personaReplyText(thread.contextSummary || '') : undefined,
     compressedUntil: compressedUntil > 0 ? compressedUntil : undefined,
   })
   messages.push({ role: 'system', content: applyMacros(PERSONA_FINAL_GUARD, character, deps.user.name) })
@@ -190,11 +189,11 @@ export async function generatePersonaReply(personaId: string, deps: PersonaRunti
       onDelta: (delta) => {
         output += delta
         if (flushTimer !== null) return
-        flushTimer = setTimeout(() => { flushTimer = null; writeReply(sanitizeAssistantOutput(output)) }, 80)
+        flushTimer = setTimeout(() => { flushTimer = null; writeReply(personaReplyText(output)) }, 80)
       },
     })
     if (flushTimer !== null) { clearTimeout(flushTimer); flushTimer = null }
-    const finalText = sanitizeAssistantOutput(output).trim()
+    const finalText = personaReplyText(output)
     if (!finalText) throw new Error('模型没有返回正文，换个说法再试一次。')
     writeReply(finalText, { finishReason: result.finishReason }, false)
     const done = Date.now()
@@ -205,7 +204,7 @@ export async function generatePersonaReply(personaId: string, deps: PersonaRunti
     }, 1200)
   } catch (error) {
     if (flushTimer !== null) { clearTimeout(flushTimer); flushTimer = null }
-    const partial = sanitizeAssistantOutput(output).trim()
+    const partial = personaReplyText(output)
     if (controller.signal.aborted) {
       if (partial) writeReply(partial, { finishReason: 'stop' }, false)
       else removeReply()
@@ -230,7 +229,7 @@ async function extractThreadMemory(persona: PersonaWindow, thread: PersonaThread
   const pending = pendingPersonaMemoryMessages(thread).slice(0, PERSONA_MEMORY_BATCH)
   if (pending.length < 2) return null
   const character = personaCharacter(deps.character)
-  const transcript = pending.map((item) => `${item.role === 'user' ? deps.user.name : character.name}：${stripUiOnlyStatusBlocks(item.text)}${item.images?.length ? `（附图 ${item.images.length} 张）` : ''}`).join('\n\n')
+  const transcript = pending.map((item) => `${item.role === 'user' ? deps.user.name : character.name}：${item.role === 'assistant' ? personaReplyText(item.text) : item.text}${item.images?.length ? `（附图 ${item.images.length} 张）` : ''}`).join('\n\n')
   // Dedupe against the persona's latest shared memory (another window may have just added some).
   const known = (findPersona(persona.id)?.memories || persona.memories).slice(-40).map((item) => `- ${item.title}：${item.content}`).join('\n') || '暂无'
   let raw = ''
@@ -308,7 +307,7 @@ export async function maybeCompressPersonaContext(personaId: string, deps: Perso
       onDelta: (delta) => { summary += delta },
       messages: [
         { role: 'system', content: '你是对话上下文压缩器。请输出一份完整、可替代旧原文的合并摘要，作为低优先级历史补充。只写已经发生或明确确认的事：两人聊过的事、约定、情绪转折、称呼与关系变化、对方的近况与喜好。新内容纠正旧摘要时以新内容为准。不得续写、不得虚构、不得解释任务。' },
-        { role: 'user', content: `${compressedUntil > 0 && thread.contextSummary ? `已有摘要（请合并）：\n${thread.contextSummary}\n\n` : ''}本次新增待压缩对话：\n${plan.pendingMessages.map((item) => `${item.role === 'user' ? deps.user.name : name}：${stripUiOnlyStatusBlocks(item.text)}`).join('\n\n')}` },
+        { role: 'user', content: `${compressedUntil > 0 && thread.contextSummary ? `已有摘要（请合并）：\n${thread.contextSummary}\n\n` : ''}本次新增待压缩对话：\n${plan.pendingMessages.map((item) => `${item.role === 'user' ? deps.user.name : name}：${item.role === 'assistant' ? personaReplyText(item.text) : item.text}`).join('\n\n')}` },
       ],
     })
     if (!summary.trim()) throw new Error('empty summary')

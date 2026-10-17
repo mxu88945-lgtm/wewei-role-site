@@ -15,6 +15,7 @@ import type { ChatImage } from './chatImages'
 import type { Conversation } from './conversationLifecycle'
 import type { LongMemoryEntry, LongMemoryMap } from './memoryEngine'
 import { stripUiOnlyStatusBlocks } from './modelContext'
+import { PERSONA_DISPLAY_LORE, stripPersonaFormatInstructions } from './personaWindowPresentation'
 import type { ApiConfig } from './chatApi'
 import { isApiChannelComplete, resolveApiChannel, type ApiChannel } from './apiChannels'
 
@@ -531,7 +532,6 @@ export function buildPastLifeMemory(input: PastLifeInput) {
   return collectPastLifeMemory(input).text
 }
 
-const UI_LORE = /(<\/?(?:div|span|status|style|section|details|table)\b|状态栏|美化|输出格式|格式要求|html|css|正则)/i
 /** 世界书里人设条目的总预算：超出部分仍按关键词触发。 */
 export const PERSONA_WORLDBOOK_BUDGET = 12000
 
@@ -545,7 +545,8 @@ export function personaWorldbook(book: CharacterBook | undefined, budget = PERSO
   let used = 0
   const entries = book.entries.slice().sort((a, b) => a.insertion_order - b.insertion_order).flatMap((entry) => {
     if (!entry.enabled || !entry.content.trim()) return [entry]
-    if (UI_LORE.test(entry.content) || UI_LORE.test(entry.comment || '')) return entry.constant ? [] : [entry]
+    // Removing only constant=true let keyword and depth entries reactivate later.
+    if (PERSONA_DISPLAY_LORE.test(entry.content) || PERSONA_DISPLAY_LORE.test(entry.comment || '')) return []
     const depth = Number(entry.extensions?.position) === 4 || entry.position === 'at_depth'
     if (depth) return [entry]
     if (entry.constant) { used += entry.content.length; return [entry] }
@@ -609,6 +610,11 @@ ${body}`
 export function personaCharacter(character: Character): Character {
   return {
     ...character,
+    description: stripPersonaFormatInstructions(character.description),
+    personality: stripPersonaFormatInstructions(character.personality),
+    scenario: stripPersonaFormatInstructions(character.scenario),
+    systemPrompt: stripPersonaFormatInstructions(character.systemPrompt),
+    mesExample: stripPersonaFormatInstructions(character.mesExample),
     greeting: '',
     alternateGreetings: [],
     beautificationProtocol: '',
@@ -629,8 +635,10 @@ export const PERSONA_WINDOW_PRESET = `【独立人格窗口｜你就是{{char}}�
 - 用小说正文的质感书写：动作、神态、环境与心理写在（括号）里作旁白，说出口的话用“双引号”。段与段之间空一行，每段 1—4 句，长短随情绪自然变化。
 - 只写{{char}}自己的言行与内心；不替{{user}}说话、行动、做决定或描写她的心理。
 - 不输出状态栏、HTML、代码块、选项菜单、标题或任何系统说明。
+- 原角色卡里的美化协议、场景栏、心理栏和示例模板在这里全部停用。心理描写直接写进自然旁白，不使用 psychology、scene、status 等结构标签。
 - 自然地记得本窗口的长期记忆与前世记忆，用在细节里，不要逐条复述；冲突时以本窗口为准。`
 
 /** Repeated at the response boundary so nothing in the history can pull him back into an assistant voice. */
 export const PERSONA_FINAL_GUARD = `【回复前确认】你是{{char}}本人，正在和{{user}}一对一相处。你的人设、故事背景、前世记忆和这扇窗口的记忆都已经在上面的设定里，你都知道。用{{char}}的性格与口吻回应，不用助手腔，不声称没有记忆或人设，不索要设定，不写“（注：……）”之类的出戏说明。
-如果这扇窗口里更早的回复用过助手/客服腔，或说过“没收到人设/记忆”“靠盲猜”，那是出了错：不要延续，也不要再提，直接以{{char}}本人自然地接上。`
+如果这扇窗口里更早的回复用过助手/客服腔，或说过“没收到人设/记忆”“靠盲猜”，那是出了错：不要延续，也不要再提，直接以{{char}}本人自然地接上。
+只输出小说正文：原卡美化和格式模板不适用于这里，不输出场景栏、状态栏、心理栏、HTML、代码块或结构标签。心理描写写进（自然旁白），不能单独加标签。`

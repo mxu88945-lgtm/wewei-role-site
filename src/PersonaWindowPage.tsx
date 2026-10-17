@@ -11,6 +11,7 @@ import { CHAT_IMAGE_LIMIT, prepareChatImage, type ChatImage } from './chatImages
 import { CHAT_RENDER_WINDOW, earlierChatMessageCount, earlierChatWindowAnchor, resolveChatWindowStart } from './chatWindow'
 import { createKeyboardScrollPin, VIEWPORT_CHANGE_EVENT, VIEWPORT_WILL_CHANGE_EVENT } from './keyboardScrollPin'
 import MessageContent, { isPendingAssistantText } from './MessageContent'
+import { personaReplyText } from './personaWindowPresentation'
 import { activeThread, addPersonaThread, buildPersonaSetting, collectPastLifeMemory, deletePersona, deletePersonaThread, disablePersona, enablePersona, PERSONA_MEMORY_EVERY, pendingPersonaMemoryCount, personaMemoryApi, renamePersonaThread, resolvePersonaApi, switchPersona, switchPersonaThread, updatePersona, updatePersonaThread, type PersonaMemoryEntry, type PersonaMessage, type PersonaWindow } from './personaWindow'
 import { hydratePersonaStore, setPersonaState, usePersonaHydrated, usePersonaState } from './personaWindowStore'
 import { buildPersonaRequest, extractPersonaMemory, generatePersonaReply, getPersonaRuntime, setPersonaError, stopPersonaReply, subscribePersonaRuntime, type PersonaRuntimeDeps } from './personaWindowRuntime'
@@ -425,7 +426,7 @@ export default function PersonaWindowPage(props: Props) {
             <div className="message-author"><div className="message-avatar">{avatar ? <img src={avatar} alt="" /> : name.slice(-1)}</div><span>{name}</span></div>
             <div className="message-flat-body">
               {message.images?.length ? <div className={`message-images count-${Math.min(message.images.length, 4)}`}>{message.images.map((image) => <button type="button" key={image.id} aria-label="查看图片" onClick={() => setViewerImage(image)}><img src={image.dataUrl} alt="" loading="lazy" decoding="async" /></button>)}</div> : null}
-              {streamingNow && (!message.text || isPendingAssistantText(message.text)) ? <div className="persona-typing">（{activeCharacter.name}正在回应…）</div> : (message.text.trim() ? <MessageContent text={message.text} role={message.role} character={activeCharacter} userName={identity.name} layout="flat" streaming={streamingNow} noStatus /> : null)}
+              {streamingNow && (!message.text || isPendingAssistantText(message.text)) ? <div className="persona-typing">（{activeCharacter.name}正在回应…）</div> : (message.text.trim() ? <MessageContent text={isUser ? message.text : personaReplyText(message.text)} role={message.role} character={activeCharacter} userName={identity.name} layout="flat" streaming={streamingNow} noStatus /> : null)}
             </div>
           </div>
           {!streamingNow && <div className="message-action-row">
