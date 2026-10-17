@@ -42,9 +42,17 @@ export function PersonaTaskPanel({ tasks, enabled, busy, onEnabled, onCreate, on
   </section>
 }
 
-export function PersonaTaskPin({ tasks, onOpen, tap }: { tasks: PersonaTask[]; onOpen: () => void; tap: PersonaTap }) {
+export function PersonaTaskPin({ tasks, onOpen, onDone, tap }: { tasks: PersonaTask[]; onOpen: () => void; onDone: (id: string) => void; tap: PersonaTap }) {
   const now = useTaskTime(tasks)
   const first = tasks[0]
   if (!first) return null
-  return <div className="persona-task-pin"><button {...tap(onOpen)}><strong>◷ {first.text}</strong><span>{first.dueAt <= now ? '⏰ 时间到了' : taskClock(first.dueAt - now)}{tasks.length > 1 ? ` · 共 ${tasks.length} 项` : ''} ›</span></button></div>
+  const overdue = first.dueAt <= now
+  return <div className="persona-task-pin" role="status" aria-label={`任务倒计时：${first.text}`}>
+    <button className="persona-task-pin-body" {...tap(onOpen)} aria-label={`查看任务：${first.text}`}>
+      <strong>{first.text}</strong>
+      <span className="persona-task-pin-clock">{overdue ? '⏰ 时间到了' : taskClock(first.dueAt - now)}</span>
+      {tasks.length > 1 && <em>共 {tasks.length} 项 ›</em>}
+    </button>
+    <button className="persona-task-pin-done" {...tap(() => onDone(first.id))} aria-label={`完成任务：${first.text}`}>完成</button>
+  </div>
 }
