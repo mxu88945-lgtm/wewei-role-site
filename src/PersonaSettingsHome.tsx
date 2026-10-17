@@ -1,6 +1,6 @@
 import type { PointerEvent } from 'react'
 
-export type PersonaSettingsPanel = 'home' | 'threads' | 'model' | 'prompts'
+export type PersonaSettingsPanel = 'home' | 'model' | 'prompts'
 type Tap = (action: () => void) => { onPointerUp: (event: PointerEvent) => void; onClick: () => void }
 type IconName = 'prompt' | 'memory' | 'past' | 'windows' | 'model' | 'people'
 const ICONS: Record<IconName, string> = {
@@ -23,9 +23,9 @@ function Row({ icon, title, description, value, onSelect, tap }: { icon: IconNam
   </button>
 }
 
-export default function PersonaSettingsHome({ promptLength, memoryCount, threadCount, threadTitle, channelName, modelName, pastLifeEnabled, onNavigate, onMemory, onManage, onTogglePastLife, tap }: {
+export default function PersonaSettingsHome({ promptLength, memoryCount, threadCount, threadTitle, channelName, modelName, pastLifeEnabled, onNavigate, onThreads, onMemory, onManage, onTogglePastLife, tap }: {
   promptLength: number; memoryCount: number; threadCount: number; threadTitle: string; channelName: string; modelName: string; pastLifeEnabled: boolean
-  onNavigate: (panel: PersonaSettingsPanel) => void; onMemory: () => void; onManage: () => void; onTogglePastLife: () => void; tap: Tap
+  onNavigate: (panel: PersonaSettingsPanel) => void; onThreads: () => void; onMemory: () => void; onManage: () => void; onTogglePastLife: () => void; tap: Tap
 }) {
   return <div className="persona-settings-home">
     <p className="persona-settings-caption">你们的相处</p>
@@ -39,7 +39,7 @@ export default function PersonaSettingsHome({ promptLength, memoryCount, threadC
     </section>
     <p className="persona-settings-caption">窗口与连接</p>
     <section className="persona-settings-group" aria-label="窗口与连接">
-      <Row icon="windows" title="聊天窗口" description={threadTitle || '查看、新开与整理窗口'} value={`${threadCount} 个`} onSelect={() => onNavigate('threads')} tap={tap} />
+      <Row icon="windows" title="聊天窗口" description={threadTitle || '在左侧栏查看、新开与整理窗口'} value={`${threadCount} 个`} onSelect={onThreads} tap={tap} />
       <Row icon="model" title="模型与渠道" description={modelName || '选择这个人格使用的回复模型'} value={channelName} onSelect={() => onNavigate('model')} tap={tap} />
       <Row icon="people" title="管理人格" description="添加、切换与收纳你的独立人格" onSelect={onManage} tap={tap} />
     </section>
