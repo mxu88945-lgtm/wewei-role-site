@@ -20,6 +20,7 @@ import type { PersonaRecallSource } from './personaWindowMemory'
 import { personaMemoryEntryAvailable } from './personaWindowMemory'
 import type { ApiConfig } from './chatApi'
 import { normalizePersonaAppearance, type PersonaAppearance } from './personaAppearance'
+import { normalizePersonaTasks, type PersonaTask } from './personaTasks'
 import { isApiChannelComplete, resolveApiChannel, type ApiChannel } from './apiChannels'
 
 export const PERSONA_WINDOWS_KEY = 'weijing.personaWindows'
@@ -39,6 +40,8 @@ export type PersonaMessage = {
   createdAt: number
   finishReason?: string | null
   recallSources?: PersonaRecallSource[]
+  /** Application completion event used to regenerate this reply without forging a user turn. */
+  taskCompletionId?: string
 }
 
 export type PersonaMemoryEntry = {
@@ -72,6 +75,7 @@ export type PersonaThread = {
   recallLedger?: Record<string, number>
   /** 单调递增，删消息后不复用旧文编号。 */
   messageSequence?: number
+  tasks?: PersonaTask[]
 }
 
 export type PersonaWindow = {
@@ -103,6 +107,7 @@ export type PersonaWindow = {
   memoryAliases?: string
   /** Appearance belongs to this persona; all its threads share it. */
   appearance?: PersonaAppearance
+  tasksEnabled?: boolean
 }
 
 export const PERSONA_STATE_VERSION = 2
@@ -122,7 +127,7 @@ function normalizeMessage(value: unknown): PersonaMessage | null {
   if (!Number.isFinite(id) || !role) return null
   const images = Array.isArray(value.images) ? (value.images as ChatImage[]).filter((image) => image && typeof image.dataUrl === 'string') : undefined
   const recallSources = (Array.isArray(value.recallSources) ? value.recallSources : []).filter(isRecord).filter((source) => text(source.threadId) && Number.isSafeInteger(source.messageId) && (source.role === 'user' || source.role === 'assistant')).slice(0, 20).map((source): PersonaRecallSource => ({ threadId: text(source.threadId), messageId: Number(source.messageId), title: text(source.title), role: source.role === 'user' ? 'user' : 'assistant', createdAt: Number(source.createdAt) || 0 }))
-  return { id, role, text: text(value.text), createdAt: Number(value.createdAt) || 0, ...(images?.length ? { images } : {}), ...(value.finishReason !== undefined ? { finishReason: (value.finishReason as string | null) } : {}), ...(recallSources.length ? { recallSources } : {}) }
+  return { id, role, text: text(value.text), createdAt: Number(value.createdAt) || 0, ...(images?.length ? { images } : {}), ...(value.finishReason !== undefined ? { finishReason: (value.finishReason as string | null) } : {}), ...(recallSources.length ? { recallSources } : {}), ...(role === 'assistant' && text(value.taskCompletionId) ? { taskCompletionId: text(value.taskCompletionId) } : {}) }
 }
 
 function normalizeMemory(value: unknown): PersonaMemoryEntry | null {
@@ -161,6 +166,7 @@ function normalizeThread(raw: Record<string, unknown>, fallbackId: string, index
     ...(Number(raw.summaryUpdatedAt) ? { summaryUpdatedAt: Number(raw.summaryUpdatedAt) } : {}),
     ...(isRecord(raw.recallLedger) ? { recallLedger: Object.fromEntries(Object.entries(raw.recallLedger).filter(([, turn]) => typeof turn === 'number' && Number.isSafeInteger(turn) && turn >= 0).sort((a, b) => Number(b[1]) - Number(a[1])).slice(0, 120)) as Record<string, number> } : {}),
     ...(Number.isSafeInteger(Number(raw.messageSequence)) && Number(raw.messageSequence) > 0 ? { messageSequence: Number(raw.messageSequence) } : {}),
+    ...(Array.isArray(raw.tasks) ? { tasks: normalizePersonaTasks(raw.tasks) } : {}),
   }
 }
 
@@ -206,6 +212,7 @@ export function normalizePersonaState(value: unknown): PersonaWindowState {
       ...(raw.recallScope === 'thread' ? { recallScope: 'thread' } : {}),
       ...(text(raw.memoryAliases).trim() ? { memoryAliases: text(raw.memoryAliases).slice(0, 4000) } : {}),
       ...(normalizePersonaAppearance(raw.appearance) ? { appearance: normalizePersonaAppearance(raw.appearance) } : {}),
+      ...(raw.tasksEnabled === false ? { tasksEnabled: false } : {}),
     })
   }
   const activeId = text(value.activeId)
@@ -336,6 +343,7 @@ export function deletePersonaMessage(state: PersonaWindowState, personaId: strin
       ...thread,
       messageSequence: Math.max(thread.messageSequence || 0, nextPersonaMessageId(thread.messages) - 1),
       messages: thread.messages.filter((message) => message.id !== messageId),
+      tasks: thread.tasks?.filter((task) => task.sourceMessageId !== messageId),
       ...(invalidates ? { contextSummary: undefined, compressedThroughId: undefined, summaryFallback: undefined, summaryUpdatedAt: undefined } : {}),
     }
   })

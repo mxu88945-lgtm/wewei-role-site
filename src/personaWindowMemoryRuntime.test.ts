@@ -5,6 +5,7 @@ import type { Character } from './characterCard'
 import { createPersonaWindow, deletePersonaMessage, emptyPersonaState, normalizePersonaState, type PersonaMessage, type PersonaWindow } from './personaWindow'
 import { getPersonaState, setPersonaState } from './personaWindowStore'
 import { generatePersonaReply, maybeCompressPersonaContext, stopPersonaReply, type PersonaRuntimeDeps } from './personaWindowRuntime'
+import { createPersonaTask } from './personaTasks'
 
 type Options = { api: ApiConfig; messages: ChatApiMessage[]; maxTokens: number; signal: AbortSignal; onDelta: (delta: string) => void }
 type Reply = string | Error | ((options: Options) => Promise<void>)
@@ -166,6 +167,59 @@ describe('人格分层记忆的实际运行流程 (v139)', () => {
     expect(messages[2].id).toBeGreaterThan(original[1].id)
     const request = mock.calls[1].messages
     expect(request[request.length - 1]?.content).toEqual([{ type: 'text', text: '看看这张图' }, { type: 'image_url', image_url: { url: image.dataUrl, detail: 'auto' } }])
+  })
+
+  it('creates at most one task after successful generation, hides controls, respects the off switch and deduplicates active cards', async () => {
+    mock.replies.push('记下了。[提醒:出门带文件|10][提醒:第二张|3]', '仍记着。[提醒:出门带文件|10]')
+    await generatePersonaReply(persona.id, deps, { text: '十分钟后提醒我带文件' })
+    expect(current().threads[0].tasks).toHaveLength(1)
+    expect(current().threads[0].tasks?.[0]).toMatchObject({ text: '出门带文件', sourceMessageId: 2 })
+    expect(current().threads[0].messages[1].text).toBe('记下了。')
+    await generatePersonaReply(persona.id, deps, { text: '记着吧' })
+    expect(current().threads[0].tasks).toHaveLength(1)
+    setPersonaState((state) => ({ ...state, personas: [{ ...current(), tasksEnabled: false }] }))
+    mock.replies.push('知道了。[提醒:不该建卡|5]')
+    await generatePersonaReply(persona.id, deps, { text: '关掉任务卡了' })
+    expect(current().threads[0].tasks).toHaveLength(1)
+    expect(current().threads[0].messages[5].text).toBe('知道了。')
+    expect(String(mock.calls[2].messages[0].content)).not.toContain('【任务卡】仅对')
+  })
+
+  it('completion response stays in the source window without storing a forged user turn, and can be regenerated', async () => {
+    const threadId = persona.activeThreadId
+    const task = { ...createPersonaTask('done', '带文件', 1), doneAt: Date.now() }
+    setPersonaState((state) => ({ ...state, personas: [{ ...current(), activeThreadId: 'other', threads: [{ ...current().threads[0], tasks: [task] }, { ...current().threads[0], id: 'other', title: '另一个窗口' }] }] }))
+    await generatePersonaReply(persona.id, deps, { threadId: 'other', taskCompletionId: task.id })
+    expect(mock.calls).toHaveLength(0)
+    await generatePersonaReply(persona.id, deps, { threadId, taskCompletionId: task.id })
+    expect(current().threads[0].messages).toHaveLength(1)
+    expect(current().threads[0].messages[0]).toMatchObject({ role: 'assistant', taskCompletionId: task.id })
+    expect(current().threads[1].messages).toEqual([])
+    expect(String(mock.calls[0].messages[0].content)).toContain('应用事件，不是用户打字')
+    expect(current().threads[0].tasks?.[0].reactedAt).toBeDefined()
+    await generatePersonaReply(persona.id, deps, { threadId, taskCompletionId: task.id })
+    expect(mock.calls).toHaveLength(1)
+    await generatePersonaReply(persona.id, deps, { threadId, regenerate: true })
+    expect(mock.calls).toHaveLength(2)
+    expect(String(mock.calls[1].messages[0].content)).toContain('用户刚刚点击完成')
+    expect(current().threads[0].messages).toHaveLength(1)
+  })
+
+  it('stopped generation never creates tasks and a failed completion response remains retryable', async () => {
+    let release: () => void = () => undefined
+    mock.replies.push((options) => new Promise<void>((resolve) => { options.onDelta('未完成。[提醒:不能创建|1]'); release = resolve }))
+    const pending = generatePersonaReply(persona.id, deps, { text: '提醒我一下' })
+    stopPersonaReply(persona.activeThreadId)
+    release()
+    await pending
+    expect(current().threads[0].tasks || []).toEqual([])
+    const task = { ...createPersonaTask('retry', '带文件', 1), doneAt: Date.now() }
+    setPersonaState((state) => ({ ...state, personas: [{ ...current(), threads: [{ ...current().threads[0], tasks: [task] }] }] }))
+    mock.replies.push(new Error('network down'))
+    await generatePersonaReply(persona.id, deps, { taskCompletionId: task.id })
+    expect(current().threads[0].tasks?.[0].reactedAt).toBeUndefined()
+    await generatePersonaReply(persona.id, deps, { taskCompletionId: task.id })
+    expect(current().threads[0].tasks?.[0].reactedAt).toBeDefined()
   })
 
   it('deleting a reply does not recycle its source number after restore and resend', async () => {

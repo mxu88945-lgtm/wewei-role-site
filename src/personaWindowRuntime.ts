@@ -7,6 +7,7 @@ import { isApiChannelComplete } from './apiChannels'
 import { activeEntries } from './promptBuilder'
 import { applyMacros } from './regexEngine'
 import { personaReplyText, stripPersonaFormatInstructions } from './personaWindowPresentation'
+import { parsePersonaTask, personaTaskStatus, PERSONA_TASK_PROMPT, taskIsActive } from './personaTasks'
 import { AUTO_COMPRESSION_FAILURE_COOLDOWN_MS, planAutoContextCompression } from './contextCompression'
 import { buildPersonaMemoryContext, clipPersonaText, commitPersonaRecallLedger, parsePersonaMemoryTool, personaContinuityFallback, personaContinuitySourceUnchanged, personaContinuityTranscript, personaMemorySaves, personaRecentHistory, PERSONA_MEMORY_TOOLS, readPersonaOriginal, searchPersonaHistory, type PersonaMemoryAudit, type PersonaRecallSource } from './personaWindowMemory'
 import {
@@ -120,6 +121,8 @@ export function planPersonaRequest(persona: PersonaWindow, history: PersonaMessa
     `【用户资料参考｜不自动认作故事女主】${deps.user.name}\n${deps.user.description}`,
     memory.text,
     PERSONA_MEMORY_TOOLS,
+    persona.tasksEnabled !== false && PERSONA_TASK_PROMPT,
+    personaTaskStatus(thread.tasks),
     // Keep the core boundary in the FIRST system too (some relays drop later system messages).
     PERSONA_FINAL_GUARD,
   ].filter(Boolean).join('\n\n')
@@ -164,11 +167,14 @@ export function consolidatePersonaMessages(messages: ChatApiMessage[]): ChatApiM
 /** Visible history for a request: no empty placeholders, no failed turns. */
 const requestHistory = (messages: PersonaMessage[]) => messages.filter((item) => item.text.trim() || item.images?.length)
 
-export async function generatePersonaReply(personaId: string, deps: PersonaRuntimeDeps, input: { text?: string; images?: ChatImage[]; regenerate?: boolean; threadId?: string } = {}) {
+export async function generatePersonaReply(personaId: string, deps: PersonaRuntimeDeps, input: { text?: string; images?: ChatImage[]; regenerate?: boolean; threadId?: string; taskCompletionId?: string } = {}) {
   const persona = findPersona(personaId)
   if (!persona) return
   const thread = activeThread(persona, input.threadId)
   if (!thread || runtime.generating[thread.id]) return
+  const completionId = input.taskCompletionId || (input.regenerate ? thread.messages[thread.messages.length - 1]?.taskCompletionId : undefined)
+  const completedTask = completionId ? thread.tasks?.find((task) => task.id === completionId && task.doneAt !== undefined && task.canceledAt === undefined && (input.regenerate || task.reactedAt === undefined)) : undefined
+  if (completionId && !completedTask) return
   const threadId = thread.id
   if (!isApiChannelComplete(deps.api)) { setPersonaError(threadId, '这个人格用的 API 还没配置完整：到 ••• → 模型 换一个渠道，或到 设置 → API 连接 填写。'); return }
   setPersonaError(threadId, '')
@@ -185,11 +191,11 @@ export async function generatePersonaReply(personaId: string, deps: PersonaRunti
   }
   const withUser = [...base, ...additions]
   const replyId = Math.max(nextPersonaMessageId(withUser), firstId + additions.length)
-  const placeholder: PersonaMessage = { id: replyId, role: 'assistant', text: '', createdAt: now }
+  const placeholder: PersonaMessage = { id: replyId, role: 'assistant', text: '', createdAt: now, ...(completedTask ? { taskCompletionId: completedTask.id } : {}) }
   const history = requestHistory(withUser)
-  const promptThread = { ...thread, messages: withUser }
+  const promptThread = { ...thread, messages: withUser, tasks: thread.tasks?.filter((task) => !input.regenerate || task.sourceMessageId !== thread.messages[thread.messages.length - 1]?.id) }
   const touch = (state: Parameters<typeof updatePersona>[0], at: number) => updatePersona(state, personaId, (item) => ({ ...item, updatedAt: at }))
-  setPersonaState((state) => touch(updatePersonaThread(state, personaId, threadId, (item) => ({ ...item, messages: [...withUser, placeholder], messageSequence: replyId, updatedAt: now })), now))
+  setPersonaState((state) => touch(updatePersonaThread(state, personaId, threadId, (item) => ({ ...item, messages: [...withUser, placeholder], tasks: item.tasks?.filter((task) => !input.regenerate || task.sourceMessageId !== thread.messages[thread.messages.length - 1]?.id), messageSequence: replyId, updatedAt: now })), now))
   const controller = new AbortController()
   controllers.set(threadId, controller)
   setFlag('generating', threadId, true)
@@ -203,6 +209,11 @@ export async function generatePersonaReply(personaId: string, deps: PersonaRunti
   try {
     const plan = planPersonaRequest(persona, history, deps, input.regenerate ? { ...promptThread, recallLedger: {} } : promptThread)
     const request = plan.messages.slice()
+    if (completedTask) {
+      const event = `【应用事件，不是用户打字】用户刚刚点击完成当前窗口的任务「${completedTask.text}」。用时由应用记录：${personaTaskStatus([completedTask], now)}。请简短自然地回应这次完成，不复述系统说明，不新增任务。`
+      request[0] = { role: 'system', content: `${systemText(request[0])}\n\n${event}` }
+      request.push({ role: 'user', content: event })
+    }
     const sources = new Map<string, PersonaRecallSource>(plan.memory.audit.sources.map((source) => [`${source.threadId}|${source.messageId}`, source]))
     const rememberAudit = () => patchRuntime((current) => ({ ...current, memoryAudits: { ...current.memoryAudits, [threadId]: { ...plan.memory.audit, sources: [...sources.values()] } } }))
     rememberAudit()
@@ -234,7 +245,8 @@ export async function generatePersonaReply(personaId: string, deps: PersonaRunti
       writeReply('')
     }
     if (flushTimer !== null) { clearTimeout(flushTimer); flushTimer = null }
-    const finalText = personaReplyText(output)
+    const task = !completedTask && findPersona(personaId)?.tasksEnabled !== false ? parsePersonaTask(output, `${threadId}:${replyId}:task`, Date.now(), replyId) : undefined
+    const finalText = personaReplyText(output) || (task ? '给你记在任务卡里了。' : '')
     if (!finalText) throw new Error('模型没有返回正文，换个说法再试一次。')
     writeReply(finalText, { finishReason: result?.finishReason, ...(sources.size ? { recallSources: [...sources.values()] } : {}) }, false)
     const done = Date.now()
@@ -242,7 +254,7 @@ export async function generatePersonaReply(personaId: string, deps: PersonaRunti
     const saves = personaMemorySaves(output, threadId, sourceIds, done)
     setPersonaState((state) => {
       const withMemory = updatePersona(state, personaId, (item) => ({ ...item, memories: mergePersonaMemories(item.memories, saves) }))
-      return touch(updatePersonaThread(withMemory, personaId, threadId, (item) => ({ ...commitPersonaRecallLedger(item, [...sources.keys()], plan.memory.turn), updatedAt: done })), done)
+      return touch(updatePersonaThread(withMemory, personaId, threadId, (item) => ({ ...commitPersonaRecallLedger(item, [...sources.keys()], plan.memory.turn), ...(completedTask ? { tasks: item.tasks?.map((entry) => entry.id === completedTask.id ? { ...entry, reactedAt: done } : entry) } : task && !item.tasks?.some((existing) => taskIsActive(existing) && existing.text === task.text) ? { tasks: [...(item.tasks || []), task] } : {}), updatedAt: done })), done)
     })
     setTimeout(() => {
       void maybeCompressPersonaContext(personaId, deps, threadId)

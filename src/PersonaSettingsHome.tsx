@@ -1,6 +1,6 @@
 import type { PointerEvent } from 'react'
 
-export type PersonaSettingsPanel = 'home' | 'model' | 'prompts' | 'appearance'
+export type PersonaSettingsPanel = 'home' | 'model' | 'prompts' | 'appearance' | 'tasks'
 type Tap = (action: () => void) => { onPointerUp: (event: PointerEvent) => void; onClick: () => void }
 type IconName = 'prompt' | 'memory' | 'past' | 'windows' | 'model' | 'people' | 'appearance'
 const ICONS: Record<IconName, string> = {
@@ -34,6 +34,7 @@ export default function PersonaSettingsHome({ promptLength, memoryCount, threadC
       <Row icon="prompt" title="系统提示词" description="相处方式、语气与表达偏好" value={promptLength ? `${promptLength.toLocaleString()} 字` : '默认规则'} onSelect={() => onNavigate('prompts')} tap={tap} />
       <Row icon="memory" title="记忆" description="长期记忆 · 同一人格的窗口共用" value={`${memoryCount} 条`} onSelect={onMemory} tap={tap} />
       <Row icon="appearance" title="外观与文字" description="主题、壁纸、字号与文字颜色" onSelect={() => onNavigate('appearance')} tap={tap} />
+      <Row icon="past" title="任务卡" description="当前窗口的倒计时、完成与取消" onSelect={() => onNavigate('tasks')} tap={tap} />
       <div className="persona-settings-row persona-settings-toggle">
         <Icon name="past" /><span className="persona-settings-copy"><strong>前世记忆</strong><small>过往交流与故事参考，不接续原剧情</small></span>
         <button className={`switch ${pastLifeEnabled ? 'on' : ''}`} aria-label="前世记忆" aria-pressed={pastLifeEnabled} {...tap(onTogglePastLife)}><span /></button>
