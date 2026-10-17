@@ -237,10 +237,13 @@ button.persona-settings-row:active { background: var(--theme-accent-soft); }
 .persona-task-card.due { border-color: #d39b8b; }
 .persona-task-card.due .persona-task-count { color: #ad6b59; }
 .persona-task-card.done { opacity: .8; }
-.persona-task-pin { position: absolute; z-index: 35; top: calc(76px + env(safe-area-inset-top)); left: 18px; right: 18px; }
-.persona-task-pin > button { display: flex; justify-content: space-between; gap: 10px; align-items: center; width: 100%; min-height: 38px; padding: 8px 12px; border: 1px solid var(--theme-accent-soft-strong); border-radius: 14px; color: var(--theme-accent-text); background: rgba(255,255,255,.94); text-align: left; font: inherit; font-size: 12px; overflow: hidden; white-space: nowrap; text-overflow: ellipsis; }
-.persona-task-pin span { flex-shrink: 0; font-size: 10px; }
-.persona-task-pin strong { min-width: 0; overflow: hidden; text-overflow: ellipsis; font-weight: 600; }
+.persona-task-pin { position: absolute; z-index: 36; top: calc(72px + env(safe-area-inset-top)); right: 10px; display: flex; align-items: stretch; gap: 0; max-width: min(68vw, 260px); border-radius: 18px; background: rgba(255,255,255,.96); box-shadow: 0 10px 28px rgba(62,43,75,.16); border: 1px solid var(--theme-accent-soft-strong); overflow: hidden; animation: persona-task-pin-in .25s ease; }
+.persona-task-pin-body { flex: 1; min-width: 0; display: grid; gap: 2px; padding: 9px 10px 9px 12px; border: 0; background: transparent; color: #4e4852; text-align: left; font: inherit; }
+.persona-task-pin-body strong { font-size: 12px; font-weight: 700; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.persona-task-pin-clock { font-size: 20px; font-weight: 800; color: var(--theme-accent-text); font-variant-numeric: tabular-nums; }
+.persona-task-pin-body em { font-style: normal; font-size: 10px; color: #9a919e; }
+.persona-task-pin-done { flex-shrink: 0; align-self: center; margin-right: 8px; padding: 8px 14px; border: 0; border-radius: 12px; background: var(--theme-accent); color: #fff; font: inherit; font-size: 13px; font-weight: 800; }
+@keyframes persona-task-pin-in { from { opacity: 0; transform: translateY(-8px) scale(.96); } }
 .has-task-pin .persona-message-list { padding-top: calc(134px + env(safe-area-inset-top)); }
 .persona-task-toast { position: fixed; z-index: 90; top: calc(70px + env(safe-area-inset-top)); left: 50%; transform: translateX(-50%); width: min(360px, calc(100vw - 32px)); display: flex; align-items: center; gap: 8px; padding: 12px; border: 1px solid var(--theme-accent-soft-strong); border-radius: 18px; background: #fffaf5; color: #695349; box-shadow: 0 8px 28px rgba(75,44,26,.15); }
 .persona-task-toast > div { flex: 1; min-width: 0; }
