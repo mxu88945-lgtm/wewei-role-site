@@ -16,7 +16,7 @@ import './theme-cute-icons.css'
 import './memoryApiEnhancements'
 
 const APP_SCOPE = '/wewei-role-site/'
-const SERVICE_WORKER_RELEASE = '2026-10-16-plan-leak-v132'
+const SERVICE_WORKER_RELEASE = '2026-10-17-pending-image-viewer-v133'
 
 if ('serviceWorker' in navigator) {
   let reloadingForUpdate = false

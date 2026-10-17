@@ -575,7 +575,7 @@ button { cursor: pointer; }
 .composer.has-images { grid-template-areas: "thumbs thumbs thumbs" "plus input send"; }
 .composer-images { grid-area: thumbs; display: flex; gap: 7px; overflow-x: auto; padding: 2px 2px 4px; }
 .composer-images > div { position: relative; flex: 0 0 auto; width: 58px; height: 58px; }
-.composer-images img { width: 100%; height: 100%; object-fit: cover; border-radius: 13px; display: block; }
+.composer-images img { width: 100%; height: 100%; object-fit: cover; border-radius: 13px; display: block;  cursor: zoom-in; }
 .composer-images button { position: absolute; top: -5px; right: -5px; width: 22px; height: 22px; border: 0; border-radius: 50%; color: #fff; background: rgba(40,32,46,.72); font-size: 14px; line-height: 22px; padding: 0; }
 .composer-images-busy { align-self: center; color: #8a818e; font-size: 11px; padding: 0 6px; }
 .image-send-action { margin-top: 0; }
