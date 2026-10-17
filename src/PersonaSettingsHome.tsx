@@ -1,10 +1,11 @@
 import type { PointerEvent } from 'react'
 
-export type PersonaSettingsPanel = 'home' | 'model' | 'prompts'
+export type PersonaSettingsPanel = 'home' | 'model' | 'prompts' | 'appearance'
 type Tap = (action: () => void) => { onPointerUp: (event: PointerEvent) => void; onClick: () => void }
-type IconName = 'prompt' | 'memory' | 'past' | 'windows' | 'model' | 'people'
+type IconName = 'prompt' | 'memory' | 'past' | 'windows' | 'model' | 'people' | 'appearance'
 const ICONS: Record<IconName, string> = {
   prompt: 'M9 4h6M10 4v16m4-16v16M9 4H7a4 4 0 0 0 0 8h3',
+  appearance: 'M12 3a9 9 0 1 0 0 18h2a2 2 0 0 0 1-3.7 1.5 1.5 0 0 1 .8-2.8H18a3 3 0 0 0 3-3A9 9 0 0 0 12 3ZM7 10h.01M10 7h.01M15 7h.01M17 11h.01',
   memory: 'm12 3 8 9-8 9-8-9 8-9Z',
   past: 'M3 11a9 9 0 1 1 3 8M3 5v6h6m3-4v5l3 2',
   windows: 'M4 5h16v14H4V5Zm0 4h16M8 5v4',
@@ -32,6 +33,7 @@ export default function PersonaSettingsHome({ promptLength, memoryCount, threadC
     <section className="persona-settings-group" aria-label="相处与记忆">
       <Row icon="prompt" title="系统提示词" description="相处方式、语气与表达偏好" value={promptLength ? `${promptLength.toLocaleString()} 字` : '默认规则'} onSelect={() => onNavigate('prompts')} tap={tap} />
       <Row icon="memory" title="记忆" description="长期记忆 · 同一人格的窗口共用" value={`${memoryCount} 条`} onSelect={onMemory} tap={tap} />
+      <Row icon="appearance" title="外观与文字" description="主题、壁纸、字号与文字颜色" onSelect={() => onNavigate('appearance')} tap={tap} />
       <div className="persona-settings-row persona-settings-toggle">
         <Icon name="past" /><span className="persona-settings-copy"><strong>前世记忆</strong><small>过往交流与故事参考，不接续原剧情</small></span>
         <button className={`switch ${pastLifeEnabled ? 'on' : ''}`} aria-label="前世记忆" aria-pressed={pastLifeEnabled} {...tap(onTogglePastLife)}><span /></button>

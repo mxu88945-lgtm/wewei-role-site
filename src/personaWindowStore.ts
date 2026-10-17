@@ -1,6 +1,7 @@
-import { useSyncExternalStore } from 'react'
+import { useCallback, useSyncExternalStore } from 'react'
 import { durableGet, durableSet } from './persistentStore'
 import { emptyPersonaState, normalizePersonaState, PERSONA_WINDOWS_KEY, type PersonaWindowState } from './personaWindow'
+import type { PersonaAppearance } from './personaAppearance'
 
 /**
  * 人格窗口的数据单独存在 IndexedDB 的 weijing.personaWindows 里（也进备份），
@@ -62,4 +63,19 @@ export function usePersonaState() {
 
 export function usePersonaHydrated() {
   return useSyncExternalStore(subscribe, isPersonaStoreHydrated, isPersonaStoreHydrated)
+}
+
+type AppearanceScope = { id: string; characterId: string; appearance?: PersonaAppearance }
+let appearanceScope: AppearanceScope | undefined
+/** Stable during streaming: the app shell only rerenders for appearance/persona changes. */
+export function getPersonaAppearanceScope(characters?: readonly { id: string }[]) {
+  const available = (item: PersonaWindowState['personas'][number]) => item.enabled && (!characters || characters.some((character) => character.id === item.characterId))
+  const active = state.personas.find((item) => item.id === state.activeId && available(item)) || state.personas.find(available)
+  if (!active) { appearanceScope = undefined; return appearanceScope }
+  if (appearanceScope?.id !== active.id || appearanceScope.characterId !== active.characterId || appearanceScope.appearance !== active.appearance) appearanceScope = { id: active.id, characterId: active.characterId, appearance: active.appearance }
+  return appearanceScope
+}
+export function usePersonaAppearanceScope(characters: readonly { id: string }[]) {
+  const snapshot = useCallback(() => getPersonaAppearanceScope(characters), [characters])
+  return useSyncExternalStore(subscribe, snapshot, snapshot)
 }

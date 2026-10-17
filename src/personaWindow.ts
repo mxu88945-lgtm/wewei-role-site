@@ -19,6 +19,7 @@ import { PERSONA_DISPLAY_LORE, stripPersonaFormatInstructions } from './personaW
 import type { PersonaRecallSource } from './personaWindowMemory'
 import { personaMemoryEntryAvailable } from './personaWindowMemory'
 import type { ApiConfig } from './chatApi'
+import { normalizePersonaAppearance, type PersonaAppearance } from './personaAppearance'
 import { isApiChannelComplete, resolveApiChannel, type ApiChannel } from './apiChannels'
 
 export const PERSONA_WINDOWS_KEY = 'weijing.personaWindows'
@@ -100,6 +101,8 @@ export type PersonaWindow = {
   recallEnabled?: boolean
   recallScope?: 'persona' | 'thread'
   memoryAliases?: string
+  /** Appearance belongs to this persona; all its threads share it. */
+  appearance?: PersonaAppearance
 }
 
 export const PERSONA_STATE_VERSION = 2
@@ -202,6 +205,7 @@ export function normalizePersonaState(value: unknown): PersonaWindowState {
       ...(raw.recallEnabled === false ? { recallEnabled: false } : {}),
       ...(raw.recallScope === 'thread' ? { recallScope: 'thread' } : {}),
       ...(text(raw.memoryAliases).trim() ? { memoryAliases: text(raw.memoryAliases).slice(0, 4000) } : {}),
+      ...(normalizePersonaAppearance(raw.appearance) ? { appearance: normalizePersonaAppearance(raw.appearance) } : {}),
     })
   }
   const activeId = text(value.activeId)

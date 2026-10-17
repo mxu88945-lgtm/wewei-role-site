@@ -13,6 +13,7 @@ import { createKeyboardScrollPin, VIEWPORT_CHANGE_EVENT, VIEWPORT_WILL_CHANGE_EV
 import MessageContent, { isPendingAssistantText } from './MessageContent'
 import { personaReplyText } from './personaWindowPresentation'
 import PersonaSettingsHome, { type PersonaSettingsPanel } from './PersonaSettingsHome'
+import PersonaAppearanceSettings, { type PersonaAppearanceControls } from './PersonaAppearanceSettings'
 import { PersonaMemoryInspection, PersonaRecallReceipt } from './PersonaMemoryInspection'
 import { canLockPersonaMemory, PERSONA_LOCKED_BUDGET } from './personaWindowMemory'
 import { activeThread, addPersonaThread, buildPersonaSetting, collectPastLifeMemory, deletePersona, deletePersonaThread, deletePersonaMessage, disablePersona, enablePersona, PERSONA_MEMORY_EVERY, PERSONA_WINDOW_PRESET, pendingPersonaMemoryCount, personaMemoryApi, renamePersonaThread, resolvePersonaApi, switchPersona, switchPersonaThread, updatePersona, type PersonaMemoryEntry, type PersonaMessage, type PersonaWindow } from './personaWindow'
@@ -40,6 +41,7 @@ type Props = {
   globalWorldbook?: string
   storyProjects?: StoryProject[]
   onBack: () => void
+  appearanceControls: PersonaAppearanceControls
 }
 
 type View = 'chat' | 'manage' | 'memory'
@@ -294,6 +296,24 @@ export default function PersonaWindowPage(props: Props) {
     if (deps) void generatePersonaReply(active.id, deps, { regenerate: true, threadId })
   }
 
+  const resend = (message: PersonaMessage) => {
+    if (!active || generating || message.role !== 'user' || (!message.text.trim() && !message.images?.length)) return
+    const deps = depsFor(active.characterId)
+    if (!deps) return
+    setMenuMessageId(null)
+    stickRef.current = true
+    setWindowAnchors((current) => ({ ...current, [threadId]: null }))
+    void generatePersonaReply(active.id, deps, { text: message.text, images: message.images, threadId })
+  }
+
+  const editForResend = (message: PersonaMessage) => {
+    if ((draft.trim() || pendingImages.length) && !window.confirm('输入框里已有未发送的内容，要替换成这条消息吗？')) return
+    setDraft(message.text)
+    setPendingImages(message.images ? [...message.images] : [])
+    setMenuMessageId(null)
+    textareaRef.current?.focus({ preventScroll: true })
+  }
+
   const addImages = async (files: FileList | null) => {
     const list = Array.from(files || []).slice(0, Math.max(0, CHAT_IMAGE_LIMIT - pendingImages.length))
     if (!list.length || !active) return
@@ -476,6 +496,7 @@ export default function PersonaWindowPage(props: Props) {
             <button className="message-action-trigger" aria-label="消息操作" {...tap(() => setMenuMessageId(menuMessageId === message.id ? null : message.id))}>•••</button>
             {menuMessageId === message.id && <span className="persona-message-menu">
               <button {...tap(() => { void navigator.clipboard?.writeText(message.text).catch(() => undefined); setMenuMessageId(null) })}>复制</button>
+              {isUser && <><button disabled={generating || imageBusy} {...tap(() => resend(message))}>重新发送</button><button disabled={imageBusy} {...tap(() => editForResend(message))}>编辑后重发</button></>}
               {!isUser && message.id === lastMessage?.id && <button disabled={generating} {...tap(() => { setMenuMessageId(null); regenerate() })}>重新生成</button>}
               <button className="danger" {...tap(() => { if (window.confirm('删除这条消息？')) setPersonaState((current) => deletePersonaMessage(current, active.id, threadId, message.id)); setMenuMessageId(null) })}>删除</button>
             </span>}
@@ -500,7 +521,7 @@ export default function PersonaWindowPage(props: Props) {
         {!sidebarOpen && <header className={`persona-settings-header ${settingsPanel === 'home' ? 'is-home' : ''}`}>
           {settingsPanel !== 'home' && <button className="persona-settings-back" aria-label="返回设置" {...tap(() => { setSettingsPanel('home'); setRenaming(null) })}>‹</button>}
           {settingsPanel === 'home' && avatarOf(activeCharacter, 'large')}
-          <div><small>{settingsPanel === 'home' ? '人格窗口' : activeCharacter.name}</small><h2>{settingsPanel === 'home' ? activeCharacter.name : { model: '模型与渠道', prompts: '系统提示词' }[settingsPanel]}</h2>{settingsPanel === 'home' && <p>和 {identity.name}，在这里慢慢相处。</p>}</div>
+          <div><small>{settingsPanel === 'home' ? '人格窗口' : activeCharacter.name}</small><h2>{settingsPanel === 'home' ? activeCharacter.name : { model: '模型与渠道', prompts: '系统提示词', appearance: '外观与文字' }[settingsPanel]}</h2>{settingsPanel === 'home' && <p>和 {identity.name}，在这里慢慢相处。</p>}</div>
           <button className="persona-settings-close" aria-label="关闭" {...tap(() => { setDrawerOpen(false); setRenaming(null) })}>×</button>
         </header>}
         <div className="right-drawer-scroll">
@@ -531,6 +552,7 @@ export default function PersonaWindowPage(props: Props) {
               return { ...next, ...(patch.apiChannelId ? { apiChannelId: patch.apiChannelId } : {}), ...(patch.apiChannelId && patch.modelName ? { modelName: patch.modelName } : {}) }
             }))} />
           </section>}
+          {drawerOpen && settingsPanel === 'appearance' && <PersonaAppearanceSettings controls={props.appearanceControls} appearance={active.appearance} name={activeCharacter.name} avatar={activeCharacter.avatar} tap={tap} onChange={(appearance) => setPersonaState((current) => updatePersona(current, active.id, (item) => ({ ...item, appearance })))} />}
           {drawerOpen && settingsPanel === 'prompts' && <section className="persona-prompt-panel">
             <div className="persona-prompt-note"><strong>背景参考，自然相处</strong><p>角色卡提供性格、口吻与故事来历。这里不会自动扮演原卡身份，也不会把你当作原故事女主。</p></div>
             <label className="persona-prompt-label" htmlFor="persona-custom-prompt">给 {activeCharacter.name} 的补充提示词<span>{(active.systemPrompt || '').length.toLocaleString()} / 16,000</span></label>
