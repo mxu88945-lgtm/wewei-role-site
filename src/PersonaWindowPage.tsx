@@ -436,12 +436,20 @@ export default function PersonaWindowPage(props: Props) {
     {view === 'chat' && active ? <button className="more-button" aria-label="窗口与设置" aria-expanded={drawerOpen} {...tap(() => { setSwitcherOpen(false); setSidebarOpen(false); setSettingsPanel('home'); setDrawerOpen(true) })}>•••</button> : <button className="more-button" aria-label="返回聊天" {...tap(() => { setSwitcherOpen(false); setView('chat') })}>✓</button>}
   </header>
 
-  const switcher = switcherOpen && <div className="persona-switcher" role="menu" aria-label="切换人格">
-    {enabled.map((item) => {
-      const character = characters.find((entry) => entry.id === item.characterId)
-      return <button key={item.id} role="menuitemradio" aria-checked={item.id === active?.id} className={item.id === active?.id ? 'active' : ''} {...tap(() => choosePersona(item.id))}>{avatarOf(character, 'small')}<span>{character?.name}</span>{item.threads.some((entry) => runtime.generating[entry.id]) && <i>…</i>}</button>
-    })}
-    <button className="persona-switcher-manage" {...tap(() => { setSwitcherOpen(false); setView('manage') })}>＋ 添加 / 管理人格</button>
+  // 北极星式房间抽屉：所有人格摆在一页，点卡即切；切换走 choosePersona，各人格的对话/记忆本就按 id 隔离
+  const switcher = switcherOpen && <div className="persona-room-drawer" role="dialog" aria-modal="true" aria-label="切换人格">
+    <div className="persona-room-scrim" {...tap(() => setSwitcherOpen(false))} />
+    <div className="persona-room-panel">
+      <div className="persona-room-head"><strong>切换人格</strong><small>共 {enabled.length} 位 · 点卡即切</small></div>
+      <div className="persona-room-list">
+        {enabled.map((item) => {
+          const character = characters.find((entry) => entry.id === item.characterId)
+          const generating = item.threads.some((entry) => runtime.generating[entry.id])
+          return <button key={item.id} className={item.id === active?.id ? 'persona-room-card active' : 'persona-room-card'} aria-current={item.id === active?.id} {...tap(() => choosePersona(item.id))}>{avatarOf(character, 'small')}<span className="persona-room-info"><strong>{character?.name}{generating && <i> · 回复中…</i>}</strong><small>{character?.tagline || character?.libraryGroup || '独立人格'}</small></span><em>{item.threads.length} 段</em></button>
+        })}
+      </div>
+      <button className="persona-room-manage" {...tap(() => { setSwitcherOpen(false); setView('manage') })}>＋ 添加 / 管理人格</button>
+    </div>
   </div>
 
   if (!hydrated) return <section className="chat-page persona-window-page">{header}<div className="persona-panel"><p className="persona-empty">正在读取人格窗口…</p></div></section>
