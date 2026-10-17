@@ -45,8 +45,7 @@ import { assignLibraryGroup, setLibraryGroupMembers, effectiveLibraryRole, group
 import { activeCharacterMemory, characterMemoryEntryFromConversation, characterMemoryExtractionPrompt, characterMemorySummaryProtocol, parseCharacterMemoryCandidates, splitCharacterMemorySummary } from './characterMemory'
 import { ChatApiError, completeChat, fetchApiModels, testApiConnection, type ApiConfig, type ApiModel } from './chatApi'
 import { buildChatPrompt } from './promptBuilder'
-import { CHAT_IMAGE_LIMIT, prepareChatImage, type ChatImage } from './chatImages'
-import { CHAT_ATTACHMENT_ACCEPT, CHAT_ATTACHMENT_LIMIT, attachmentSizeLabel, prepareChatAttachment, type ChatAttachment } from './chatAttachments'
+import { CHAT_IMAGE_LIMIT, CHAT_VIDEO_MAX_FRAMES, prepareChatImage, prepareChatVideo, type ChatImage } from './chatImages'
 import { captureTemporaryPlot, consumeTemporaryPlot, withAssistantRetryInstruction, withFinalTemporaryPlotInstruction } from './temporaryPlot'
 import { checkAndRepairTemporaryPlot, reviewTemporaryPlotReply } from './temporaryPlotReview'
 import { resolveChatScrollTarget, type ChatScrollSnapshot } from './chatScroll'
@@ -506,11 +505,8 @@ function App() {
   const [composerToolsOpen, setComposerToolsOpen] = useState(false)
   const [pendingImages, setPendingImages] = useState<ChatImage[]>([])
   const [imageBusy, setImageBusy] = useState(false)
-  const [pendingAttachments, setPendingAttachments] = useState<ChatAttachment[]>([])
-  const [attachmentBusy, setAttachmentBusy] = useState(false)
   const [viewerImage, setViewerImage] = useState<ChatImage | null>(null)
   const chatImageInputRef = useRef<HTMLInputElement>(null)
-  const chatAttachmentInputRef = useRef<HTMLInputElement>(null)
   const [replyHelperState, setReplyHelperState] = useState<'idle' | 'generating'>('idle')
   const [replyHelperApiId, setReplyHelperApiId] = useState(() => read('weijing.replyHelperApiId', ''))
   const [replyHelperModelName, setReplyHelperModelName] = useState(() => read('weijing.replyHelperModelName', ''))
@@ -3301,38 +3297,30 @@ function App() {
     setImageBusy(true)
     try {
       const prepared: ChatImage[] = []
-      for (const file of list) prepared.push(await prepareChatImage(file))
+      for (const file of list) {
+        if (file.type.startsWith('video/')) {
+          // 视频抽帧：按秒抽帧转成图片发给模型看
+          const frames = await prepareChatVideo(file, Math.min(CHAT_VIDEO_MAX_FRAMES, Math.max(1, CHAT_IMAGE_LIMIT - pendingImages.length - prepared.length)))
+          prepared.push(...frames)
+        } else {
+          prepared.push(await prepareChatImage(file))
+        }
+      }
       setPendingImages((current) => [...current, ...prepared].slice(0, CHAT_IMAGE_LIMIT))
       setChatError('')
     } catch (error) {
-      setChatError(error instanceof Error ? error.message : '图片处理失败，换一张试试。')
-    } finally { setImageBusy(false) }
-  }
-
-  const addChatAttachments = async (files: FileList | null) => {
-    const list = Array.from(files || []).slice(0, Math.max(0, CHAT_ATTACHMENT_LIMIT - pendingAttachments.length))
-    if (!list.length) { if (files?.length) setChatError(`一次最多发送 ${CHAT_ATTACHMENT_LIMIT} 个文件。`); return }
-    setAttachmentBusy(true)
-    try {
-      const prepared: ChatAttachment[] = []
-      for (const file of list) prepared.push(await prepareChatAttachment(file))
-      setPendingAttachments((current) => [...current, ...prepared].slice(0, CHAT_ATTACHMENT_LIMIT))
-      setChatError('')
-    } catch (error) {
       setChatError(error instanceof Error ? error.message : '文件处理失败，换一个试试。')
-    } finally { setAttachmentBusy(false) }
+    } finally { setImageBusy(false) }
   }
 
   const sendMessage = async (textOverride?: string, historyOverride?: Message[], conversationOverride?: Conversation, phoneGame?: PhoneGameRound) => {
     const text = (textOverride ?? draft).trim()
     // Only a composer send carries the staged pictures; edit/resend paths pass textOverride.
     const images = textOverride === undefined ? pendingImages : []
-    const attachments = textOverride === undefined && activeConversation?.phone ? pendingAttachments : []
-    if (!text && !images.length && !attachments.length && textOverride === undefined && activeConversation?.phone && !isGenerating) { await phoneChatterRound(activeConversation); return }
-    if (!text && !images.length && !attachments.length) return
-    if ((imageBusy || attachmentBusy) && textOverride === undefined) return
+    if (!text && !images.length && textOverride === undefined && activeConversation?.phone && !isGenerating) { await phoneChatterRound(activeConversation); return }
+    if (!text && !images.length) return
+    if (imageBusy && textOverride === undefined) return
     if (images.length) setPendingImages([])
-    if (attachments.length) setPendingAttachments([])
     let conversation = conversationOverride || activeConversation
     if (!conversation) {
       conversation = { ...createConversation(activeCharacter), personaId: activePersonaId }
@@ -3354,14 +3342,13 @@ function App() {
         return { id, name: character?.name || '' }
       })
       const visibleText = stripParticipantMentions(text, participants)
-      const routingText = visibleText || (attachments.length ? `我发送了文件附件：${attachments.map((item) => item.name).join('、')}，请读完后回应。` : '')
       // 引用回复只属于小手机，并且只跟着输入框发送（编辑重发等路径不带）。
       const activeQuote = conversation.phone && textOverride === undefined && quoteDraft?.conversationId === conversation.id ? { messageId: quoteDraft.messageId, author: quoteDraft.author, text: quoteDraft.text } : undefined
-      if (activeQuote && (visibleText || images.length || attachments.length)) setQuoteDraft(null)
+      if (activeQuote && (visibleText || images.length)) setQuoteDraft(null)
       const quotedIds = conversation.phone ? quotedParticipantIds(activeQuote, participants, sourceMessages) : []
       // 被引用的成员和 @ 一样算被点名。
       const mentionedIds = prioritizeAddressed(findMentionedParticipantIds(text, participants), quotedIds)
-      const userMessage = visibleText || images.length || attachments.length ? { id: nextMessageId(sourceMessages), role: 'user' as const, text: visibleText, ...(phoneGame ? { phoneGame } : {}), ...(images.length ? { images } : {}), ...(attachments.length ? { attachments } : {}), ...(activeQuote ? { quote: activeQuote } : {}) } : null
+      const userMessage = visibleText || images.length ? { id: nextMessageId(sourceMessages), role: 'user' as const, text: visibleText, ...(phoneGame ? { phoneGame } : {}), ...(images.length ? { images } : {}), ...(activeQuote ? { quote: activeQuote } : {}) } : null
       let baseMessages: Message[] = userMessage ? [...sourceMessages, userMessage] : sourceMessages
       let storyUpdatedNames: string[] = []
       phoneStoryNoteRef.current = null
@@ -3393,10 +3380,10 @@ function App() {
       const lastSpeakerId = [...baseMessages].reverse().find((item) => item.role === 'assistant' && !item.phoneNotice)?.characterId
       const phoneMode = conversation.phone?.mode || 'free'
       const phoneNamedIds = conversation.phone ? findNamedParticipantIds(visibleText, participants) : []
-      const smartPicked = !phoneGame && conversation.phone && phoneMode === 'smart' ? await pickSmartSpeakers(conversation, baseMessages, participants, withQuotePrefix(routingText, activeQuote), storyUpdatedNames) : []
+      const smartPicked = !phoneGame && conversation.phone && phoneMode === 'smart' ? await pickSmartSpeakers(conversation, baseMessages, participants, withQuotePrefix(visibleText, activeQuote), storyUpdatedNames) : []
       const smartIds = smartPicked.length && quotedIds.length ? prioritizeAddressed(smartPicked, quotedIds) : smartPicked
       const speakerIds = phoneGame ? phoneGameSpeakers(phoneGame, participantIds) : conversation.phone?.dm ? participantIds.slice(0, 1) : conversation.phone
-        ? smartIds.length ? smartIds : phoneMode === 'smart' ? lurkFallback(participantIds, [...mentionedIds, ...phoneNamedIds], lastSpeakerId) : selectPhoneSpeakers({ mode: phoneMode, participantIds, mentionedIds, namedIds: phoneNamedIds, lastSpeakerId, text: routingText })
+        ? smartIds.length ? smartIds : phoneMode === 'smart' ? lurkFallback(participantIds, [...mentionedIds, ...phoneNamedIds], lastSpeakerId) : selectPhoneSpeakers({ mode: phoneMode, participantIds, mentionedIds, namedIds: phoneNamedIds, lastSpeakerId, text: visibleText })
         : selectGroupSpeakerIds({ participantIds, mentionedIds, mode: groupReplyMode, directorCharacterId: conversation.directorCharacterId, lastSpeakerId, text })
       // @所有人 / @全员：群里每个角色都要出来说一句（导演不算）。
       const everyoneCalled = Boolean(!phoneGame && conversation.phone && !conversation.phone.dm && mentionsEveryone(visibleText))
@@ -3406,7 +3393,7 @@ function App() {
       }
       if (!phoneGame && conversation.phone && !conversation.phone.dm && phoneMode === 'smart' && !everyoneCalled) {
         // 话筒：其余每个群友同时拿到话筒，各自判断接不接（并行、只回接/不接）。
-        const extra = await passPhoneMic(conversation, baseMessages, participants, withQuotePrefix(routingText, activeQuote), speakerIds)
+        const extra = await passPhoneMic(conversation, baseMessages, participants, withQuotePrefix(visibleText, activeQuote), speakerIds)
         speakerIds.push(...extra.filter((id) => !speakerIds.includes(id)))
       }
       if (!phoneGame && conversation.phone && !conversation.phone.dm) {
@@ -3464,7 +3451,7 @@ function App() {
       if (groupMemoryConfig.autoEvery > 0 && groupMessages.length - summarizedCount >= groupMemoryConfig.autoEvery && groupMemoryConfig.api.apiKey) void summarizeMemory(groupMessages, conversation, memoryCharacter)
       return
     }
-    const userMessage = { id: nextMessageId(sourceMessages), role: 'user' as const, text, ...(images.length ? { images } : {}), ...(attachments.length ? { attachments } : {}) }
+    const userMessage = { id: nextMessageId(sourceMessages), role: 'user' as const, text, ...(images.length ? { images } : {}) }
     const baseMessages: Message[] = [...sourceMessages, userMessage]
     await generateAssistant(conversation, baseMessages)
   }
@@ -3988,11 +3975,10 @@ function App() {
     if (packetInfo) displayText = displayText.replace(packetInfo.line, '').replace(/\n{2,}/g, '\n').trim()
     const transferInfo = activeConversation?.phone && isUser ? parseTransferLine(displayText) : null
     if (transferInfo) displayText = displayText.replace(transferInfo.line, '').replace(/\n{2,}/g, '\n').trim()
-    if (isUser && !displayText && !message.images?.length && !message.attachments?.length && !packetInfo && !transferInfo) return null
+    if (isUser && !displayText && !message.images?.length && !packetInfo && !transferInfo) return null
     if (!isUser && !isGenerating && isPendingAssistantText(message.text || '')) return null
     const streaming = message.role === 'assistant' && isGenerating && message.id === messages[messages.length - 1]?.id
     const imageGrid = message.images?.length ? <div className={`message-images count-${Math.min(message.images.length, 4)}`}>{message.images.map((image) => <button type="button" key={image.id} aria-label="查看图片" onClick={() => setViewerImage(image)}><img src={image.dataUrl} alt="" loading="lazy" decoding="async" style={message.images!.length === 1 ? { aspectRatio: `${image.width} / ${image.height}` } : undefined} /></button>)}</div> : null
-    const attachmentCards = message.attachments?.length ? <div className="message-attachments" aria-label="文件附件">{message.attachments.map((attachment) => <article key={attachment.id} className="message-attachment-card"><span aria-hidden="true">文</span><div><strong>{attachment.name}</strong><small>{attachmentSizeLabel(attachment.size)} · 已作为附件给角色读取{attachment.truncated ? ' · 已读取前 24000 字' : ''}</small></div></article>)}</div> : null
     // Opening message of a solo chat: card home pages (Tavo / SillyTavern style) can
     // jump to another opening, which replaces this message's text in place.
     const openingConversationId = activeConversation?.id
@@ -4003,7 +3989,7 @@ function App() {
     const textContent = phaseStartedAt !== undefined ? <PhaseElapsed label={displayText} startedAt={phaseStartedAt} /> : displayText ? <MessageContent text={displayText} role={message.role} character={messageCharacter} noStatus={Boolean(activeConversation?.phone)} userName={identity.name} layout={chatLayout} streaming={streaming} greetings={openingGreetings} onSelectGreeting={selectOpening} /> : null
     const quoteExists = Boolean(message.quote && messages.some((item) => String(item.id) === message.quote!.messageId))
     const quoteBlock = isUser && message.quote && activeConversation?.phone ? <button type="button" className={`phone-message-quote${quoteExists ? '' : ' missing'}`} aria-label={quoteExists ? `跳到被引用的消息：${message.quote.author}` : '被引用的消息已不在'} disabled={!quoteExists} onClick={() => jumpToQuoted(message.quote!.messageId)}><b>{message.quote.author}：</b>{message.quote.text}</button> : null
-    const body = imageGrid || attachmentCards ? <>{imageGrid}{attachmentCards}{textContent}</> : textContent
+    const body = imageGrid ? <>{imageGrid}{textContent}</> : textContent
     const packetList = packetInfo ? readRedPackets() : []
     const packetFound = packetInfo && activeConversation ? findRedPacket(packetList, activeConversation.id, packetInfo, message.id) : null
     const packetCard = packetInfo && activeConversation ? <RedPacketCard info={packetInfo} packet={packetFound} ordinal={packetFound ? redPacketOrdinal(packetList, packetFound) : undefined} onOpen={() => setRedPacketView({ info: packetInfo, near: message.id })} /> : null
@@ -4020,7 +4006,6 @@ function App() {
       // 像微信一样：每个气泡单独一行、各带头像；动作小灰字夹在中间。
       const pieces: React.ReactNode[] = []
       if (imageGrid) pieces.push(imageGrid)
-      if (attachmentCards) pieces.push(attachmentCards)
       if (phaseStartedAt !== undefined) pieces.push(<div className="wx-bubble">{textContent}</div>)
       bubbles.forEach((bubble) => pieces.push(bubble.kind === 'act' ? <p className="wx-act">{bubble.text}</p> : <div className="wx-bubble">{bubble.text}</div>))
       if (streaming && !bubbles.length && phaseStartedAt === undefined) pieces.push(<div className="wx-bubble wx-typing">···</div>)
@@ -4192,7 +4177,7 @@ function App() {
 
     {page === 'group-greeting-picker' && <GroupGreetingPicker characters={groupGreetingCharacters} userName={groupGreetingUserName} onCancel={() => { const creatingFromConversation = Boolean(newConversationSourceId); setNewConversationSourceId(null); if (creatingFromConversation) replacePage('chat'); else goBack() }} onConfirm={beginGroupWithGreeting} />}
 
-    {page === 'chat' && <section className={`chat-page${activeConversation?.phone ? ' phone-chat' : ''}`}><header className="chat-header"><button className="icon-button drawer-trigger" aria-label="打开对话列表" onClick={() => setDrawer('left')}>☰</button><button className="chat-identity" onClick={() => navigate('character-detail')}>{activeConversation?.phone?.avatar ? <img src={activeConversation.phone.avatar} alt="" /> : activeCharacter.avatar ? <img src={activeCharacter.avatar} alt="" /> : <span>{activeCharacter.name.slice(-1)}</span>}<div><strong>{activeConversation?.kind === 'group' ? shownTitle(activeConversation) : activeCharacter.name}</strong><small>{isGenerating ? '正在回应…' : (activeConversation ? shownTitle(activeConversation) : '') || `${identity.name} · 沉浸共演中`}</small></div></button>{activeConversation?.phone ? <button className="more-button" aria-label="聊天信息" onClick={() => setPhoneModesOpen(true)}>•••</button> : <button className="more-button" aria-label="打开聊天设置" onClick={() => setDrawer('right')}>•••</button>}</header>{activeConversation?.phone && phoneModesOpen && <PhoneChatInfo key={activeConversation.id} title={shownTitle(activeConversation)} dm={Boolean(activeConversation.phone.dm)} members={(activeConversation.participantIds?.length ? activeConversation.participantIds : [activeConversation.characterId]).map((id) => characters.find((item) => item.id === id)).filter((item): item is Character => Boolean(item)).map((item) => ({ id: item.id, name: item.name, avatar: item.avatar }))} notice={activeNotice(activeConversation.phone.notice)} mode={activeConversation.phone.mode === 'named' ? 'free' : activeConversation.phone.mode || 'free'} onMode={(mode) => { const id = activeConversation.id; setConversations((list) => list.map((item) => item.id === id && item.phone ? { ...item, phone: { ...item.phone, mode } } : item)) }} onSaveNotice={(text, hours) => { const id = activeConversation.id; const now = Date.now(); setConversations((list) => list.map((item) => item.id === id && item.phone ? { ...item, phone: { ...item.phone, notice: text ? { text, at: now, until: hours > 0 ? now + hours * 3600000 : null } : undefined } } : item)) }} onClose={() => setPhoneModesOpen(false)} onSearch={() => { setPhoneModesOpen(false); navigate('chat-search') }} onGroupSettings={activeConversation.phone.dm ? undefined : () => { setPhoneModesOpen(false); openPhonePage(activeConversation) }} onChatSettings={() => { setPhoneModesOpen(false); setDrawer('right') }} />}{chatError && <div className="chat-error" role="alert"><button className="chat-error-action" onClick={() => navigate(chatErrorIsPlot ? 'temporary-plot' : 'api')}><span>{chatErrorIsPlot ? '剧情安排提示' : '连接提示'}</span>{chatError}<i>{chatErrorIsPlot ? '查看幕后安排 ›' : '前往 API 设置 ›'}</i></button>{chatErrorIsPlot && activeConversation?.temporaryPlot && <button className="chat-error-end-plot" onClick={() => { const id = activeConversation.id; setConversations((current) => current.map((item) => item.id === id ? { ...item, temporaryPlot: undefined, updatedAt: Date.now() } : item)); setChatError('') }}>已落实，结束安排</button>}<button className="chat-error-close" aria-label="关闭提示" title="关闭提示" onClick={() => setChatError('')}>×</button></div>}<div ref={messageListRef} className="message-list" onScroll={updateChatJump}>{earlierChatCount > 0 && <button type="button" className="chat-load-earlier" onClick={loadEarlierChatMessages}>加载更早 {earlierChatCount} 条</button>}{renderedChatMessages.map((message, offset) => { const row = contextSummaryBoundary > 0 && chatWindowStart + offset === contextSummaryBoundary && contextSummaryBoundary < messages.length ? [<div key="context-summary-divider" className="context-summary-divider" role="note">以上 {contextSummaryBoundary} 条已在后台整理进上下文摘要</div>, renderChatMessage(message)] : renderChatMessage(message); const at = activeConversation?.phone && showPhoneTimeDivider(messages[chatWindowStart + offset - 1], message) ? messageTime(message) : undefined; return at === undefined ? row : [<div key={`time-${message.id}`} className="phone-time-divider" role="note">{phoneTimeLabel(at)}</div>, row] })}<div ref={messageListLayoutMarkerRef} className="message-list-layout-marker" aria-hidden="true" /></div>{(chatJump.up || chatJump.down) && <nav className={`chat-jump-controls ${chatJump.visible ? 'visible' : ''}`} aria-label="快速浏览对话" aria-hidden={!chatJump.visible}>{chatJump.up && <button tabIndex={chatJump.visible ? 0 : -1} onClick={() => jumpChat('top')} aria-label="回到对话顶部">↑</button>}{chatJump.down && <button tabIndex={chatJump.visible ? 0 : -1} onClick={() => jumpChat('bottom')} aria-label="跳到最新消息">↓</button>}</nav>}<div ref={composerDockRef} className={`${composerExpanded ? 'composer has-expanded' : 'composer'}${composerCanExpand ? ' can-expand' : ''}${pendingImages.length || imageBusy || (activeConversation?.phone && (pendingAttachments.length || attachmentBusy)) ? ' has-images' : ''}${activeConversation?.phone && quoteDraft?.conversationId === activeConversation.id ? ' has-quote' : ''}`}>{(pendingImages.length > 0 || imageBusy) && <div className="composer-images" aria-label="待发送图片">{pendingImages.map((image) => <div key={image.id}><img src={image.dataUrl} alt="" role="button" aria-label="查看大图" onClick={(event) => { event.stopPropagation(); setViewerImage(image) }} /><button type="button" aria-label="移除图片" onClick={() => setPendingImages((current) => current.filter((item) => item.id !== image.id))}>×</button></div>)}{imageBusy && <span className="composer-images-busy">处理中…</span>}</div>}{activeConversation?.phone && (pendingAttachments.length > 0 || attachmentBusy) && <div className="composer-files" aria-label="待发送文件">{pendingAttachments.map((attachment) => <div key={attachment.id}><span aria-hidden="true">文</span><b>{attachment.name}</b><button type="button" aria-label="移除文件" onClick={() => setPendingAttachments((current) => current.filter((item) => item.id !== attachment.id))}>×</button></div>)}{attachmentBusy && <small>读取中…</small>}</div>}{activeConversation?.phone && quoteDraft?.conversationId === activeConversation.id && <div className="composer-quote" aria-label="引用回复"><span><b>{quoteDraft.author}：</b>{quoteDraft.text}</span><button type="button" aria-label="取消引用" onClick={() => setQuoteDraft(null)}>×</button></div>}<button className="composer-plus" aria-label="打开输入工具" onClick={() => setComposerToolsOpen(true)}>{replyHelperState === 'generating' ? '…' : '＋'}</button><textarea ref={composerRef} rows={1} value={draft} onChange={(event) => { const value = event.target.value; setDraft(value); if (activeConversation?.kind === 'group' && /[@＠]$/.test(value) && value.length > draft.length) { event.currentTarget.blur(); setMentionPickerOpen(true) } }} placeholder={replyHelperState === 'generating' ? 'AI 帮答正在起草…' : isGenerating ? '可以先写下一条，停止后再发送' : activeConversation?.phone ? '说点什么……' : groupReplyMode === 'specified' && activeConversation?.kind === 'group' ? '输入 @ 选择回答的角色……' : '写下你的回应……'} />{composerCanExpand && <button className="composer-expand" aria-label="展开长消息编辑器" title="展开编辑" onClick={() => setComposerExpanded(true)}>⛶</button>}<button className={`send-button ${isGenerating ? 'stop' : ''}`} aria-label={isGenerating ? '停止生成' : '发送'} onClick={() => isGenerating && activeConversation ? abortConversation(activeConversation.id) : sendMessage()}>{isGenerating ? '■' : '↑'}</button></div>{composerExpanded && <div className="composer-expanded-layer" role="dialog" aria-modal="true" aria-label="长消息编辑器"><header><button className="expanded-collapse" aria-label="收起编辑器" onClick={() => { setComposerExpanded(false); window.requestAnimationFrame(() => composerRef.current?.focus()) }}>‹</button><div><strong>长消息编辑</strong><small>{draft.length} 字 · 草稿实时保留</small></div><button className="expanded-tools" aria-label="打开输入工具" onClick={() => setComposerToolsOpen(true)}>＋</button></header><textarea ref={expandedComposerRef} value={draft} onChange={(event) => { const value = event.target.value; setDraft(value); if (activeConversation?.kind === 'group' && /[@＠]$/.test(value) && value.length > draft.length) { event.currentTarget.blur(); setMentionPickerOpen(true) } }} placeholder={replyHelperState === 'generating' ? 'AI 帮答正在起草…' : '在这里慢慢写完整段落……'} /><footer><button className="expanded-done" onClick={() => { setComposerExpanded(false); window.requestAnimationFrame(() => composerRef.current?.focus()) }}>收起</button><button className={isGenerating ? 'expanded-send stop' : 'expanded-send'} disabled={!draft.trim() && !pendingImages.length && !(activeConversation?.phone && pendingAttachments.length) && !isGenerating} onClick={() => { if (isGenerating && activeConversation) { abortConversation(activeConversation.id); return } setComposerExpanded(false); void sendMessage() }}>{isGenerating ? '停止生成' : '发送'}</button></footer></div>}</section>}
+    {page === 'chat' && <section className={`chat-page${activeConversation?.phone ? ' phone-chat' : ''}`}><header className="chat-header"><button className="icon-button drawer-trigger" aria-label="打开对话列表" onClick={() => setDrawer('left')}>☰</button><button className="chat-identity" onClick={() => navigate('character-detail')}>{activeConversation?.phone?.avatar ? <img src={activeConversation.phone.avatar} alt="" /> : activeCharacter.avatar ? <img src={activeCharacter.avatar} alt="" /> : <span>{activeCharacter.name.slice(-1)}</span>}<div><strong>{activeConversation?.kind === 'group' ? shownTitle(activeConversation) : activeCharacter.name}</strong><small>{isGenerating ? '正在回应…' : (activeConversation ? shownTitle(activeConversation) : '') || `${identity.name} · 沉浸共演中`}</small></div></button>{activeConversation?.phone ? <button className="more-button" aria-label="聊天信息" onClick={() => setPhoneModesOpen(true)}>•••</button> : <button className="more-button" aria-label="打开聊天设置" onClick={() => setDrawer('right')}>•••</button>}</header>{activeConversation?.phone && phoneModesOpen && <PhoneChatInfo key={activeConversation.id} title={shownTitle(activeConversation)} dm={Boolean(activeConversation.phone.dm)} members={(activeConversation.participantIds?.length ? activeConversation.participantIds : [activeConversation.characterId]).map((id) => characters.find((item) => item.id === id)).filter((item): item is Character => Boolean(item)).map((item) => ({ id: item.id, name: item.name, avatar: item.avatar }))} notice={activeNotice(activeConversation.phone.notice)} mode={activeConversation.phone.mode === 'named' ? 'free' : activeConversation.phone.mode || 'free'} onMode={(mode) => { const id = activeConversation.id; setConversations((list) => list.map((item) => item.id === id && item.phone ? { ...item, phone: { ...item.phone, mode } } : item)) }} onSaveNotice={(text, hours) => { const id = activeConversation.id; const now = Date.now(); setConversations((list) => list.map((item) => item.id === id && item.phone ? { ...item, phone: { ...item.phone, notice: text ? { text, at: now, until: hours > 0 ? now + hours * 3600000 : null } : undefined } } : item)) }} onClose={() => setPhoneModesOpen(false)} onSearch={() => { setPhoneModesOpen(false); navigate('chat-search') }} onGroupSettings={activeConversation.phone.dm ? undefined : () => { setPhoneModesOpen(false); openPhonePage(activeConversation) }} onChatSettings={() => { setPhoneModesOpen(false); setDrawer('right') }} />}{chatError && <div className="chat-error" role="alert"><button className="chat-error-action" onClick={() => navigate(chatErrorIsPlot ? 'temporary-plot' : 'api')}><span>{chatErrorIsPlot ? '剧情安排提示' : '连接提示'}</span>{chatError}<i>{chatErrorIsPlot ? '查看幕后安排 ›' : '前往 API 设置 ›'}</i></button>{chatErrorIsPlot && activeConversation?.temporaryPlot && <button className="chat-error-end-plot" onClick={() => { const id = activeConversation.id; setConversations((current) => current.map((item) => item.id === id ? { ...item, temporaryPlot: undefined, updatedAt: Date.now() } : item)); setChatError('') }}>已落实，结束安排</button>}<button className="chat-error-close" aria-label="关闭提示" title="关闭提示" onClick={() => setChatError('')}>×</button></div>}<div ref={messageListRef} className="message-list" onScroll={updateChatJump}>{earlierChatCount > 0 && <button type="button" className="chat-load-earlier" onClick={loadEarlierChatMessages}>加载更早 {earlierChatCount} 条</button>}{renderedChatMessages.map((message, offset) => { const row = contextSummaryBoundary > 0 && chatWindowStart + offset === contextSummaryBoundary && contextSummaryBoundary < messages.length ? [<div key="context-summary-divider" className="context-summary-divider" role="note">以上 {contextSummaryBoundary} 条已在后台整理进上下文摘要</div>, renderChatMessage(message)] : renderChatMessage(message); const at = activeConversation?.phone && showPhoneTimeDivider(messages[chatWindowStart + offset - 1], message) ? messageTime(message) : undefined; return at === undefined ? row : [<div key={`time-${message.id}`} className="phone-time-divider" role="note">{phoneTimeLabel(at)}</div>, row] })}<div ref={messageListLayoutMarkerRef} className="message-list-layout-marker" aria-hidden="true" /></div>{(chatJump.up || chatJump.down) && <nav className={`chat-jump-controls ${chatJump.visible ? 'visible' : ''}`} aria-label="快速浏览对话" aria-hidden={!chatJump.visible}>{chatJump.up && <button tabIndex={chatJump.visible ? 0 : -1} onClick={() => jumpChat('top')} aria-label="回到对话顶部">↑</button>}{chatJump.down && <button tabIndex={chatJump.visible ? 0 : -1} onClick={() => jumpChat('bottom')} aria-label="跳到最新消息">↓</button>}</nav>}<div ref={composerDockRef} className={`${composerExpanded ? 'composer has-expanded' : 'composer'}${composerCanExpand ? ' can-expand' : ''}${pendingImages.length || imageBusy ? ' has-images' : ''}${activeConversation?.phone && quoteDraft?.conversationId === activeConversation.id ? ' has-quote' : ''}`}>{(pendingImages.length > 0 || imageBusy) && <div className="composer-images" aria-label="待发送图片">{pendingImages.map((image) => <div key={image.id}><img src={image.dataUrl} alt="" role="button" aria-label="查看大图" onClick={(event) => { event.stopPropagation(); setViewerImage(image) }} /><button type="button" aria-label="移除图片" onClick={() => setPendingImages((current) => current.filter((item) => item.id !== image.id))}>×</button></div>)}{imageBusy && <span className="composer-images-busy">处理中…</span>}</div>}{activeConversation?.phone && quoteDraft?.conversationId === activeConversation.id && <div className="composer-quote" aria-label="引用回复"><span><b>{quoteDraft.author}：</b>{quoteDraft.text}</span><button type="button" aria-label="取消引用" onClick={() => setQuoteDraft(null)}>×</button></div>}<button className="composer-plus" aria-label="打开输入工具" onClick={() => setComposerToolsOpen(true)}>{replyHelperState === 'generating' ? '…' : '＋'}</button><textarea ref={composerRef} rows={1} value={draft} onChange={(event) => { const value = event.target.value; setDraft(value); if (activeConversation?.kind === 'group' && /[@＠]$/.test(value) && value.length > draft.length) { event.currentTarget.blur(); setMentionPickerOpen(true) } }} placeholder={replyHelperState === 'generating' ? 'AI 帮答正在起草…' : isGenerating ? '可以先写下一条，停止后再发送' : activeConversation?.phone ? '说点什么……' : groupReplyMode === 'specified' && activeConversation?.kind === 'group' ? '输入 @ 选择回答的角色……' : '写下你的回应……'} />{composerCanExpand && <button className="composer-expand" aria-label="展开长消息编辑器" title="展开编辑" onClick={() => setComposerExpanded(true)}>⛶</button>}<button className={`send-button ${isGenerating ? 'stop' : ''}`} aria-label={isGenerating ? '停止生成' : '发送'} onClick={() => isGenerating && activeConversation ? abortConversation(activeConversation.id) : sendMessage()}>{isGenerating ? '■' : '↑'}</button></div>{composerExpanded && <div className="composer-expanded-layer" role="dialog" aria-modal="true" aria-label="长消息编辑器"><header><button className="expanded-collapse" aria-label="收起编辑器" onClick={() => { setComposerExpanded(false); window.requestAnimationFrame(() => composerRef.current?.focus()) }}>‹</button><div><strong>长消息编辑</strong><small>{draft.length} 字 · 草稿实时保留</small></div><button className="expanded-tools" aria-label="打开输入工具" onClick={() => setComposerToolsOpen(true)}>＋</button></header><textarea ref={expandedComposerRef} value={draft} onChange={(event) => { const value = event.target.value; setDraft(value); if (activeConversation?.kind === 'group' && /[@＠]$/.test(value) && value.length > draft.length) { event.currentTarget.blur(); setMentionPickerOpen(true) } }} placeholder={replyHelperState === 'generating' ? 'AI 帮答正在起草…' : '在这里慢慢写完整段落……'} /><footer><button className="expanded-done" onClick={() => { setComposerExpanded(false); window.requestAnimationFrame(() => composerRef.current?.focus()) }}>收起</button><button className={isGenerating ? 'expanded-send stop' : 'expanded-send'} disabled={!draft.trim() && !pendingImages.length && !isGenerating} onClick={() => { if (isGenerating && activeConversation) { abortConversation(activeConversation.id); return } setComposerExpanded(false); void sendMessage() }}>{isGenerating ? '停止生成' : '发送'}</button></footer></div>}</section>}
 
     {page === 'more' && <><BackHeader title="设置" onBack={goBack} /><section className="settings-stack compact-settings">{[[['API 连接', 'api'], ['用户身份', 'identity']], [['模型设置', 'model'], ['模型预设', 'preset'], ['全局世界书', 'worldbook'], ['长记忆', 'memory']], [['应用设置', 'settings']]].map((group, index) => <div className="settings-group" key={index}>{group.map(([label, target]) => <button key={label} onClick={() => navigate(target as Page)}><span>{label}</span><span>›</span></button>)}</div>)}</section></>}
 
@@ -4265,18 +4250,13 @@ function App() {
             <span aria-hidden="true"><svg viewBox="0 0 32 32"><path d="M6 11h19l-5-5m6 15H7l5 5" /></svg></span>
             <strong>转账</strong>
           </button>}
-          {activeConversation?.phone && <button className="reply-helper-action file-send-action" aria-label="发送文件附件" onClick={() => chatAttachmentInputRef.current?.click()} disabled={attachmentBusy || pendingAttachments.length >= CHAT_ATTACHMENT_LIMIT || isGenerating}>
-            <span aria-hidden="true"><svg viewBox="0 0 32 32"><path d="M9 4h10l5 5v19H9z" /><path d="M19 4v6h5M12 16h9M12 21h9" /></svg></span>
-            <strong>{attachmentBusy ? '读取中…' : '文件'}</strong>
-          </button>}
-          <button className="reply-helper-action image-send-action" aria-label="发送图片" onClick={() => chatImageInputRef.current?.click()} disabled={imageBusy || pendingImages.length >= CHAT_IMAGE_LIMIT}>
+          <button className="reply-helper-action image-send-action" aria-label="发送图片或视频" onClick={() => chatImageInputRef.current?.click()} disabled={imageBusy || pendingImages.length >= CHAT_IMAGE_LIMIT}>
             <span aria-hidden="true"><svg viewBox="0 0 32 32"><rect x="5" y="6" width="22" height="20" rx="2" /><circle cx="12" cy="12" r="2" /><path d="m7 23 6-6 4 4 3-3 5 5" /></svg></span>
-            <strong>{imageBusy ? '处理中…' : '图片'}</strong>
+            <strong>{imageBusy ? '处理中…' : '图片/视频'}</strong>
           </button>
         </div>
-        <p>{replyHelperState === 'generating' ? 'AI 正在读取当前聊天并起草回复' : pendingAttachments.length ? `已选 ${pendingAttachments.length}/${CHAT_ATTACHMENT_LIMIT} 个文件，发送后角色会读取正文` : pendingImages.length ? `已选 ${pendingImages.length}/${CHAT_IMAGE_LIMIT} 张图片` : 'AI 帮答只填入输入框，由你确认后再发送'}</p>
-        <input ref={chatImageInputRef} type="file" accept="image/*" multiple hidden onChange={(event) => { const files = event.currentTarget.files; void addChatImages(files).finally(() => { if (chatImageInputRef.current) chatImageInputRef.current.value = '' }); setComposerToolsOpen(false) }} />
-        <input ref={chatAttachmentInputRef} type="file" accept={CHAT_ATTACHMENT_ACCEPT} multiple hidden onChange={(event) => { const files = event.currentTarget.files; void addChatAttachments(files).finally(() => { if (chatAttachmentInputRef.current) chatAttachmentInputRef.current.value = '' }); setComposerToolsOpen(false) }} />
+        <p>{replyHelperState === 'generating' ? 'AI 正在读取当前聊天并起草回复' : pendingImages.length ? `已选 ${pendingImages.length}/${CHAT_IMAGE_LIMIT} 张图片` : 'AI 帮答只填入输入框，由你确认后再发送'}</p>
+        <input ref={chatImageInputRef} type="file" accept="image/*,video/*" multiple hidden onChange={(event) => { const files = event.currentTarget.files; void addChatImages(files).finally(() => { if (chatImageInputRef.current) chatImageInputRef.current.value = '' }); setComposerToolsOpen(false) }} />
       </section>
     </div>}
     {phoneGamesId && activeConversation?.id === phoneGamesId && activeConversation.phone && !activeConversation.phone.dm && <PhoneGames key={phoneGamesId} current={activeConversation.phone.game} members={[{ id: 'user', name: identityFor(activeConversation).name }, ...(activeConversation.participantIds || []).map((id) => characters.find((item) => item.id === id)).filter((item): item is Character => Boolean(item)).map((item) => ({ id: item.id, name: item.name }))]} onClose={() => setPhoneGamesId(null)} onPlay={(kind, players, mode, task) => void playPhoneGame(activeConversation, kind, players, mode, task)} />}
@@ -4472,7 +4452,7 @@ function UpdateCard() {
     }
   }
 
-  return <section className="update-card"><strong>应用更新</strong><p>主动检查并拉取最新网页版本，不会删除角色、聊天记录或本地设置。</p><small>当前版本：v143 · 2026.10.17 小手机文件附件与线上气泡间距修复</small><button onClick={refresh} disabled={state === 'checking'}>{state === 'checking' ? '正在检查更新…' : state === 'error' ? '更新失败，点我重试' : '强制刷新到最新版'}</button></section>
+  return <section className="update-card"><strong>应用更新</strong><p>主动检查并拉取最新网页版本，不会删除角色、聊天记录或本地设置。</p><small>当前版本：v142 · 2026.10.17 记忆滚动框与人格任务卡</small><button onClick={refresh} disabled={state === 'checking'}>{state === 'checking' ? '正在检查更新…' : state === 'error' ? '更新失败，点我重试' : '强制刷新到最新版'}</button></section>
 }
 
 function PersonaPage({ identities, selectedId, isBound, onSelect, onAdd, onDelete, onUpdate, onBack }: { identities: UserIdentity[]; selectedId: string; isBound: boolean; onSelect: (id: string) => void; onAdd: () => void; onDelete: (id: string) => void; onUpdate: (patch: Partial<UserIdentity>) => void; onBack: () => void }) {
