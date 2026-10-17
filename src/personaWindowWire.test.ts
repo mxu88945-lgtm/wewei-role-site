@@ -29,9 +29,9 @@ function mockFetch(reply: string) {
 }
 afterEach(() => { vi.unstubAllGlobals() })
 
-async function send(protocol: 'openai' | 'anthropic', history: { id: number; role: 'user' | 'assistant'; text: string; createdAt: number }[] = [], options: { character?: Character; reply?: string } = {}) {
+async function send(protocol: 'openai' | 'anthropic', history: { id: number; role: 'user' | 'assistant'; text: string; createdAt: number }[] = [], options: { character?: Character; reply?: string; systemPrompt?: string } = {}) {
   setPersonaState(() => enablePersona(emptyPersonaState(), 'yu'))
-  setPersonaState((state) => ({ ...state, personas: state.personas.map((item) => ({ ...item, threads: [{ ...item.threads[0], messages: history }] })) }))
+  setPersonaState((state) => ({ ...state, personas: state.personas.map((item) => ({ ...item, systemPrompt: options.systemPrompt, threads: [{ ...item.threads[0], messages: history }] })) }))
   const bodies = mockFetch(options.reply ?? '（他抬眼。）“来了。”')
   await generatePersonaReply(personaIdFor('yu'), {
     character: options.character ?? yu, user: { name: '周惟惟', description: '惟惟的身份' }, api: { baseUrl: 'https://relay.test/v1', apiKey: 'k', modelName: 'm', protocol }, memoryApi: { baseUrl: '', apiKey: '', modelName: '' },
@@ -75,7 +75,7 @@ describe('persona window — what actually goes on the wire', () => {
     for (const piece of ['独立人格窗口', '虞山行，市委书记', '外冷内热', '他从不打官腔', '虞书记与周惟惟相识十年', '他答应过雨天去接她', '惟惟的身份']) expect(first).toContain(piece)
     expect(roles.slice(-2)).toEqual(['system', 'user'])
     expect(String(messages[messages.length - 1].content)).toContain('你记得我吗？')
-    expect(String(messages[messages.length - 2].content)).toContain('你是虞山行本人')
+    expect(String(messages[messages.length - 2].content)).toContain('你是名为虞山行的 AI 人格')
     expect(String(messages[messages.length - 2].content)).toContain('客服腔')
     const saved = getPersonaState().personas[0].threads[0].messages
     expect(saved[saved.length - 1].text).toContain("来了")
@@ -84,7 +84,7 @@ describe('persona window — what actually goes on the wire', () => {
   it('Anthropic native: everything lands in the system field', async () => {
     const body = await send('anthropic')
     const system = JSON.stringify(body.system)
-    for (const piece of ['虞山行，市委书记', '虞书记与周惟惟相识十年', '他答应过雨天去接她', '你是虞山行本人']) expect(system).toContain(piece)
+    for (const piece of ['虞山行，市委书记', '虞书记与周惟惟相识十年', '他答应过雨天去接她', '你是名为虞山行的 AI 人格']) expect(system).toContain(piece)
     expect((body.messages as WireMessage[]).every((item) => item.role !== 'system')).toBe(true)
   })
 
@@ -94,5 +94,15 @@ describe('persona window — what actually goes on the wire', () => {
     ])
     expect(out.map((item) => item.role)).toEqual(['system', 'user', 'assistant', 'system'])
     expect(out[0].content).toBe('A\n\nB')
+  })
+
+  it.each(['openai', 'anthropic'] as const)('%s: persona preferences and background boundaries survive the actual transport', async (protocol) => {
+    const body = await send(protocol, [], { systemPrompt: '说话直接一些，可以表达自己的想法。' })
+    const firstSystem = protocol === 'anthropic' ? JSON.stringify(body.system) : String((body.messages as WireMessage[])[0].content)
+    expect(firstSystem).toContain('说话直接一些，可以表达自己的想法。')
+    expect(firstSystem).toContain('角色卡只是背景参考，不是当前剧情')
+    expect(firstSystem).toContain('不编造记忆')
+    expect(firstSystem).not.toContain('【用户主角控制权')
+    expect(firstSystem).not.toContain('你不是 AI')
   })
 })

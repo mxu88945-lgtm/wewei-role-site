@@ -2,7 +2,7 @@ import { stripUiOnlyStatusBlocks } from './modelContext'
 import { sanitizeAssistantOutput } from './outputSanitizer'
 
 // Only used by 人格窗口. Never change the card or the story/phone renderer.
-export const PERSONA_DISPLAY_LORE = /(<\/?(?:div|span|status|[a-z][\w-]*_status|scene|psychology|style|section|details|table)\b|状态栏|美化|输出格式|格式要求|html|css|正则)/i
+export const PERSONA_DISPLAY_LORE = /(<\/?(?:div|span|status|[a-z][\w-]*_status|scene|scenario|psychology|style|section|details|table)\b|状态栏|美化|输出格式|格式要求|html|css|正则)/i
 const FORMAT_HEADING = /(?:美化|状态栏|输出格式|格式要求|回复格式|输出模板|显示规则|psychology|html|css|正则)/i
 const HEADING = /^\s*(?:#{1,6}\s+[^\n]+|【[^】]+】|\[[^\]]+\])/
 const FORMAT_SENTENCE = /(?:状态栏|美化|输出格式|格式要求|回复格式|输出模板|显示规则|正则替换|(?:输出|使用|保留|包裹|闭合).{0,24}(?:标签|HTML|CSS)|<\/?(?:psychology|scene|status|[a-z][\w-]*_status)\b)/i
@@ -12,7 +12,7 @@ export function stripPersonaFormatInstructions(value: string) {
   const source = value
     .replace(/```(?:html|xml|css|javascript|js)\b[^\n]*\n[\s\S]*?(?:```|$)/gi, '')
     .replace(/<(output_format|format_rules|beautification|style|script)\b[^>]*>[\s\S]*?(?:<\/\1\s*>|$)/gi, '')
-    .replace(/<(psychology|scene|status|[a-z][\w-]*_status)\b[^>]*>[\s\S]*?(?:<\/\1\s*>|$)/gi, '')
+    .replace(/<(psychology|scene|scenario|status|[a-z][\w-]*_status)\b[^>]*>[\s\S]*?(?:<\/\1\s*>|$)/gi, '')
   let skipSection = false
   const clean = source.split('\n').flatMap((line) => {
     const heading = HEADING.exec(line)
@@ -34,7 +34,7 @@ export function stripPersonaFormatInstructions(value: string) {
  */
 export function personaReplyText(value: string) {
   return stripUiOnlyStatusBlocks(sanitizeAssistantOutput(value))
-    .replace(/<(scene|details)\b[^>]*>[\s\S]*?(?:<\/\1\s*>|$)/gi, '')
+    .replace(/<(scene|scenario|details)\b[^>]*>[\s\S]*?(?:<\/\1\s*>|$)/gi, '')
     .replace(/<(style|script|head)\b[^>]*>[\s\S]*?(?:<\/\1\s*>|$)/gi, '')
     .replace(/```(?:css|javascript|js)\b[^\n]*\n[\s\S]*?(?:```|$)/gi, '')
     .replace(/```(?:html|xml)?[ \t]*(?:\r?\n)?/gi, '')
