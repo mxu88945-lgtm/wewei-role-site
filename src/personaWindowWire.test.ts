@@ -29,12 +29,12 @@ function mockFetch(reply: string) {
 }
 afterEach(() => { vi.unstubAllGlobals() })
 
-async function send(protocol: 'openai' | 'anthropic', history: { id: number; role: 'user' | 'assistant'; text: string; createdAt: number }[] = []) {
+async function send(protocol: 'openai' | 'anthropic', history: { id: number; role: 'user' | 'assistant'; text: string; createdAt: number }[] = [], options: { character?: Character; reply?: string } = {}) {
   setPersonaState(() => enablePersona(emptyPersonaState(), 'yu'))
   setPersonaState((state) => ({ ...state, personas: state.personas.map((item) => ({ ...item, threads: [{ ...item.threads[0], messages: history }] })) }))
-  const bodies = mockFetch('（他抬眼。）“来了。”')
+  const bodies = mockFetch(options.reply ?? '（他抬眼。）“来了。”')
   await generatePersonaReply(personaIdFor('yu'), {
-    character: yu, user: { name: '周惟惟', description: '惟惟的身份' }, api: { baseUrl: 'https://relay.test/v1', apiKey: 'k', modelName: 'm', protocol }, memoryApi: { baseUrl: '', apiKey: '', modelName: '' },
+    character: options.character ?? yu, user: { name: '周惟惟', description: '惟惟的身份' }, api: { baseUrl: 'https://relay.test/v1', apiKey: 'k', modelName: 'm', protocol }, memoryApi: { baseUrl: '', apiKey: '', modelName: '' },
     temperature: 1, topP: 1, maxTokens: 800, streaming: false, memoryLength: 40,
     pastLife: () => '【虞山行的前世记忆】小手机私聊：他答应过雨天去接她。',
   }, { text: '你记得我吗？' })
@@ -42,6 +42,26 @@ async function send(protocol: 'openai' | 'anthropic', history: { id: number; rol
 }
 
 describe('persona window — what actually goes on the wire', () => {
+  it.each(['openai', 'anthropic'] as const)('%s: original-card display templates stay off the wire and raw psychology comes back as prose', async (protocol) => {
+    const character = {
+      ...yu,
+      systemPrompt: '他从不打官腔。\n【输出格式】\n始终套用原卡蓝色美化栏。',
+      mesExample: '“来我身边。”\n<psychology>原卡心理模板</psychology>',
+      characterBook: { ...yu.characterBook!, entries: [
+        ...yu.characterBook!.entries,
+        { ...yu.characterBook!.entries[0], id: 2, keys: ['记得'], constant: false, content: '触发旧卡套壳：必须输出状态栏。' },
+      ] },
+    }
+    const body = await send(protocol, [], { character, reply: '（他抬眼。）“来了。”\n<psychology>他心里一暖。</psychology><yu_status>好感：90</yu_status>' })
+    const wire = JSON.stringify(body)
+    for (const piece of ['始终套用原卡蓝色美化栏', '原卡心理模板', '触发旧卡套壳']) expect(wire).not.toContain(piece)
+    for (const piece of ['虞山行，市委书记', '他从不打官腔', '他答应过雨天去接她']) expect(wire).toContain(piece)
+    const savedMessages = getPersonaState().personas[0].threads[0].messages
+    const saved = savedMessages[savedMessages.length - 1].text
+    expect(saved).toContain('他心里一暖。')
+    expect(saved).not.toMatch(/<|好感/)
+  })
+
   it('OpenAI-compatible: one leading system message carries 预设, 人设, 世界书, 系统提示 and 前世记忆; reminder sits right before her turn', async () => {
     const body = await send('openai', [
       { id: 1, role: 'user', text: '你好', createdAt: 1 },
