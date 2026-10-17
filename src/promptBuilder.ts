@@ -74,7 +74,7 @@ function secondaryPass(entry: WorldBookEntry, source: string) {
   }
 }
 
-function activeEntries(book: CharacterBook | undefined, source: string) {
+export function activeEntries(book: CharacterBook | undefined, source: string) {
   return (book?.entries || [])
     .filter((entry) => {
       if (!entry.enabled || !entry.content.trim()) return false

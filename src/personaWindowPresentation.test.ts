@@ -79,7 +79,7 @@ describe('人格窗口：原卡美化隔离 (v137)', () => {
   })
 
   it('does not flash partial tags, unclosed status or CSS during streaming', () => {
-    for (const tail of ['<psych', '</psycho', '<status>好感：90', '<scene>旧场景', '<style>.old{color:red}']) {
+    for (const tail of ['<psych', '</psycho', '<status>好感：90', '<scene>旧场景', '<scenario>私人起居室', '<style>.old{color:red}']) {
       expect(personaReplyText(`“我在。”${tail}`)).toBe('“我在。”')
     }
     expect(personaReplyText('“我在。”<psychology>他很安心。')).toBe('“我在。”\n他很安心。')

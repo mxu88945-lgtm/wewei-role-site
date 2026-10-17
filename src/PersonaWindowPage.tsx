@@ -12,7 +12,8 @@ import { CHAT_RENDER_WINDOW, earlierChatMessageCount, earlierChatWindowAnchor, r
 import { createKeyboardScrollPin, VIEWPORT_CHANGE_EVENT, VIEWPORT_WILL_CHANGE_EVENT } from './keyboardScrollPin'
 import MessageContent, { isPendingAssistantText } from './MessageContent'
 import { personaReplyText } from './personaWindowPresentation'
-import { activeThread, addPersonaThread, buildPersonaSetting, collectPastLifeMemory, deletePersona, deletePersonaThread, disablePersona, enablePersona, PERSONA_MEMORY_EVERY, pendingPersonaMemoryCount, personaMemoryApi, renamePersonaThread, resolvePersonaApi, switchPersona, switchPersonaThread, updatePersona, updatePersonaThread, type PersonaMemoryEntry, type PersonaMessage, type PersonaWindow } from './personaWindow'
+import PersonaSettingsHome, { type PersonaSettingsPanel } from './PersonaSettingsHome'
+import { activeThread, addPersonaThread, buildPersonaSetting, collectPastLifeMemory, deletePersona, deletePersonaThread, disablePersona, enablePersona, PERSONA_MEMORY_EVERY, PERSONA_WINDOW_PRESET, pendingPersonaMemoryCount, personaMemoryApi, renamePersonaThread, resolvePersonaApi, switchPersona, switchPersonaThread, updatePersona, updatePersonaThread, type PersonaMemoryEntry, type PersonaMessage, type PersonaWindow } from './personaWindow'
 import { hydratePersonaStore, setPersonaState, usePersonaHydrated, usePersonaState } from './personaWindowStore'
 import { buildPersonaRequest, extractPersonaMemory, generatePersonaReply, getPersonaRuntime, setPersonaError, stopPersonaReply, subscribePersonaRuntime, type PersonaRuntimeDeps } from './personaWindowRuntime'
 
@@ -74,6 +75,7 @@ function timeLabel(at: number) {
 /** Channel + model for one persona (same fields as the main chat's member API binding). */
 function PersonaModelPicker({ persona, channels, mainApi, onChange, onFocus }: { persona: PersonaWindow; channels: ApiChannel[]; mainApi: ApiChannel; onChange: (patch: { apiChannelId?: string; modelName?: string }) => void; onFocus: (event: React.FocusEvent<HTMLElement>) => void }) {
   const listId = useId()
+  const tap = useOneTap()
   const follows = !persona.apiChannelId || !channels.some((item) => item.id === persona.apiChannelId)
   const channel = follows ? mainApi : channels.find((item) => item.id === persona.apiChannelId) || mainApi
   const [models, setModels] = useState<ApiModel[]>([])
@@ -93,7 +95,7 @@ function PersonaModelPicker({ persona, channels, mainApi, onChange, onFocus }: {
   }
   return <div className="member-api-binding persona-model-picker">
     <label><span>回复渠道</span><select value={follows ? '' : channel.id} onChange={(event) => onChange(event.target.value ? { apiChannelId: event.target.value, modelName: undefined } : { apiChannelId: undefined, modelName: undefined })}><option value="">跟随主聊天（{mainApi.name}）</option>{channels.map((item) => <option key={item.id} value={item.id}>{item.name}</option>)}</select></label>
-    {!follows && <label><span>回复模型</span><div className="member-model-field"><input list={listId} value={persona.modelName || ''} onFocus={onFocus} onChange={(event) => onChange({ apiChannelId: persona.apiChannelId, modelName: event.target.value || undefined })} placeholder={channel.modelName || '手动填写模型名称'} autoCapitalize="none" autoCorrect="off" /><button type="button" onClick={load} disabled={loading}>{loading ? '获取中…' : '获取模型'}</button></div></label>}
+    {!follows && <label><span>回复模型</span><div className="member-model-field"><input list={listId} value={persona.modelName || ''} onFocus={onFocus} onChange={(event) => onChange({ apiChannelId: persona.apiChannelId, modelName: event.target.value || undefined })} placeholder={channel.modelName || '手动填写模型名称'} autoCapitalize="none" autoCorrect="off" /><button type="button" {...tap(() => { void load() })} disabled={loading}>{loading ? '获取中…' : '获取模型'}</button></div></label>}
     <datalist id={listId}>{models.map((model) => <option value={model.id} key={model.id} />)}</datalist>
     {!follows && models.length > 0 && <label><span>模型列表</span><select value={models.some((model) => model.id === persona.modelName) ? persona.modelName : ''} onChange={(event) => { if (event.target.value) onChange({ apiChannelId: persona.apiChannelId, modelName: event.target.value }) }}><option value="">从 {models.length} 个模型中选择</option>{models.map((model) => <option value={model.id} key={model.id}>{model.id}</option>)}</select></label>}
     {message && <small className="member-model-message">{message}</small>}
@@ -115,6 +117,7 @@ export default function PersonaWindowPage(props: Props) {
   const [view, setView] = useState<View>(() => 'chat')
   const [switcherOpen, setSwitcherOpen] = useState(false)
   const [drawerOpen, setDrawerOpen] = useState(false)
+  const [settingsPanel, setSettingsPanel] = useState<PersonaSettingsPanel>('home')
   const [renaming, setRenaming] = useState<{ id: string; title: string } | null>(null)
   const [libraryOpen, setLibraryOpen] = useState<boolean | null>(null)
   const [draft, setDraft] = useState('')
@@ -130,6 +133,7 @@ export default function PersonaWindowPage(props: Props) {
   const composerRef = useRef<HTMLDivElement>(null)
   const textareaRef = useRef<HTMLTextAreaElement>(null)
   const imageInputRef = useRef<HTMLInputElement>(null)
+  const settingsRef = useRef<HTMLElement>(null)
   const stickRef = useRef(true)
   const prependRef = useRef<{ height: number; top: number } | null>(null)
   const tap = useOneTap()
@@ -187,6 +191,20 @@ export default function PersonaWindowPage(props: Props) {
     if (!drawerOpen) return
     const applyAppHeight = (window as Window & { __weijingApplyAppHeight?: () => void }).__weijingApplyAppHeight
     applyAppHeight?.()
+    const previousFocus = document.activeElement as HTMLElement | null
+    const focusable = () => Array.from(settingsRef.current?.querySelectorAll<HTMLElement>('button:not(:disabled), input:not(:disabled), select:not(:disabled), textarea:not(:disabled), summary') || [])
+    focusable()[0]?.focus({ preventScroll: true })
+    const onKeyDown = (event: KeyboardEvent) => {
+      if (event.key === 'Escape') { event.preventDefault(); setDrawerOpen(false); setRenaming(null); return }
+      if (event.key !== 'Tab') return
+      const controls = focusable()
+      const first = controls[0], last = controls[controls.length - 1]
+      if (!first || !last) return
+      if (event.shiftKey && (document.activeElement === first || !settingsRef.current?.contains(document.activeElement))) { event.preventDefault(); last.focus() }
+      else if (!event.shiftKey && (document.activeElement === last || !settingsRef.current?.contains(document.activeElement))) { event.preventDefault(); first.focus() }
+    }
+    window.addEventListener('keydown', onKeyDown)
+    return () => { window.removeEventListener('keydown', onKeyDown); if (previousFocus?.isConnected) previousFocus.focus({ preventScroll: true }) }
   }, [drawerOpen])
 
   // Composer clearance and iOS keyboard pinning (same rules as the main chat).
@@ -323,7 +341,7 @@ export default function PersonaWindowPage(props: Props) {
       {activeCharacter ? (activeCharacter.avatar ? <img src={activeCharacter.avatar} alt="" /> : <span>{activeCharacter.name.slice(-1)}</span>) : <span>✧</span>}
       <div><strong>{view === 'manage' ? '管理人格' : view === 'memory' ? `${activeCharacter?.name || ''} · 记忆` : activeCharacter?.name || '人格窗口'}</strong><small>{generating ? '正在回应…' : enabled.length > 1 ? `点这里切换 · 共 ${enabled.length} 个人格` : '独立人格窗口'}</small></div>
     </button>
-    {view === 'chat' && active ? <button className="more-button" aria-label="窗口与设置" aria-expanded={drawerOpen} {...tap(() => { setSwitcherOpen(false); setDrawerOpen(true) })}>•••</button> : <button className="more-button" aria-label="返回聊天" {...tap(() => { setSwitcherOpen(false); setView('chat') })}>✓</button>}
+    {view === 'chat' && active ? <button className="more-button" aria-label="窗口与设置" aria-expanded={drawerOpen} {...tap(() => { setSwitcherOpen(false); setSettingsPanel('home'); setDrawerOpen(true) })}>•••</button> : <button className="more-button" aria-label="返回聊天" {...tap(() => { setSwitcherOpen(false); setView('chat') })}>✓</button>}
   </header>
 
   const switcher = switcherOpen && <div className="persona-switcher" role="menu" aria-label="切换人格">
@@ -343,7 +361,7 @@ export default function PersonaWindowPage(props: Props) {
     const libraryShown = libraryOpen ?? (enabled.length === 0 || Boolean(query))
     const hidden = (characterId: string) => state.personas.some((item) => item.characterId === characterId && !item.enabled)
     return <section className="chat-page persona-window-page">{header}{switcher}<div className="persona-panel">
-      <div className="privacy-note">每个人格都有自己的对话和长期记忆，彼此不会混用，也不会出现在聊天列表、小手机或剧本项目里。打开「前世记忆」后，他会记得自己在小手机和长剧情里和你经历过的事（只读）；他在小手机里也会记得这扇窗口里的事。</div>
+      <div className="privacy-note">每个人格都有自己的对话和长期记忆。角色卡只提供背景与性格参考，不会自动接续原卡剧情。打开「前世记忆」后，可参考小手机里的过往交流和长剧情里的共同故事（只读）；他在小手机里也能参考自己在这扇窗口的记忆。</div>
       <h3 className="persona-section-title">已启用的人格（{enabled.length}）</h3>
       {enabled.length === 0 && <p className="persona-empty">还没有人格。从下面的角色库里选一个加入吧。</p>}
       {enabled.map((item) => {
@@ -414,7 +432,7 @@ export default function PersonaWindowPage(props: Props) {
     {error && <div className="chat-error" role="alert"><button className="chat-error-action" {...tap(() => setPersonaError(threadId, ''))}><span>连接提示</span>{error}</button><button className="chat-error-close" aria-label="关闭提示" {...tap(() => setPersonaError(threadId, ''))}>×</button></div>}
     <div ref={listRef} className="message-list persona-message-list" onScroll={onScroll}>
       {earlierCount > 0 && <button type="button" className="chat-load-earlier" onClick={loadEarlier}>加载更早 {earlierCount} 条</button>}
-      {messages.length === 0 && <div className="persona-intro">{avatarOf(activeCharacter, 'large')}<strong>{activeCharacter.name}</strong><p>这是只属于 {activeCharacter.name} 的窗口。这里的对话与记忆独立存放{active.pastLifeEnabled !== false ? '，TA 记得自己在小手机和长剧情里和你经历过的事' : ''}。</p><button className="soft-button" {...tap(letThemSpeak)}>让 TA 先开口</button></div>}
+      {messages.length === 0 && <div className="persona-intro">{avatarOf(activeCharacter, 'large')}<strong>{activeCharacter.name}</strong><p>从这里，慢慢熟悉彼此。角色卡留作背景参考，你们的关系从此刻的交流继续。</p><button className="soft-button" {...tap(letThemSpeak)}>让 TA 先开口</button></div>}
       {rendered.map((message) => {
         const isUser = message.role === 'user'
         const streamingNow = !isUser && generating && message.id === lastMessage?.id
@@ -450,11 +468,17 @@ export default function PersonaWindowPage(props: Props) {
       <input ref={imageInputRef} type="file" accept="image/*" multiple hidden onChange={(event) => { const files = event.currentTarget.files; void addImages(files).finally(() => { if (imageInputRef.current) imageInputRef.current.value = '' }) }} />
     </div>
     {drawerOpen && <div className="drawer-layer persona-drawer-layer" role="presentation">
-      <button className="drawer-backdrop" aria-label="关闭" onClick={() => { setDrawerOpen(false); setRenaming(null) }} />
-      <aside className="app-drawer right-drawer persona-drawer" aria-label="窗口与设置">
-        <header className="drawer-character compact"><div><small>人格窗口</small><h2>{activeCharacter.name}</h2></div><button aria-label="关闭" {...tap(() => { setDrawerOpen(false); setRenaming(null) })}>×</button></header>
+      <button className="drawer-backdrop" aria-label="关闭" {...tap(() => { setDrawerOpen(false); setRenaming(null) })} />
+      <aside ref={settingsRef} className="app-drawer right-drawer persona-drawer" role="dialog" aria-modal="true" aria-label="窗口与设置">
+        <header className={`persona-settings-header ${settingsPanel === 'home' ? 'is-home' : ''}`}>
+          {settingsPanel !== 'home' && <button className="persona-settings-back" aria-label="返回设置" {...tap(() => { setSettingsPanel('home'); setRenaming(null) })}>‹</button>}
+          {settingsPanel === 'home' && avatarOf(activeCharacter, 'large')}
+          <div><small>{settingsPanel === 'home' ? '人格窗口' : activeCharacter.name}</small><h2>{settingsPanel === 'home' ? activeCharacter.name : { threads: '聊天窗口', model: '模型与渠道', prompts: '系统提示词' }[settingsPanel]}</h2>{settingsPanel === 'home' && <p>和 {identity.name}，在这里慢慢相处。</p>}</div>
+          <button className="persona-settings-close" aria-label="关闭" {...tap(() => { setDrawerOpen(false); setRenaming(null) })}>×</button>
+        </header>
         <div className="right-drawer-scroll">
-          <section className="drawer-compact-group persona-threads">
+          {settingsPanel === 'home' && <PersonaSettingsHome promptLength={active.systemPrompt?.trim().length || 0} memoryCount={active.memories.length} threadCount={active.threads.length} threadTitle={thread?.title || ''} channelName={resolvePersonaApi(active, props.apiChannels, props.api).name} modelName={resolvePersonaApi(active, props.apiChannels, props.api).modelName || ''} pastLifeEnabled={active.pastLifeEnabled !== false} onNavigate={setSettingsPanel} onMemory={() => { setDrawerOpen(false); setView('memory') }} onManage={() => { setDrawerOpen(false); setView('manage') }} onTogglePastLife={togglePastLife} tap={tap} />}
+          {settingsPanel === 'threads' && <section className="drawer-compact-group persona-threads">
             <div className="drawer-section-title"><strong>窗口（{active.threads.length}）</strong><button {...tap(() => { setPersonaState((current) => addPersonaThread(current, active.id)); setDrawerOpen(false); setRenaming(null) })}>＋ 新开窗口</button></div>
             {active.threads.slice().sort((a, b) => (b.updatedAt || 0) - (a.updatedAt || 0)).map((item) => {
               const last = [...item.messages].reverse().find((entry) => entry.text.trim())
@@ -464,18 +488,13 @@ export default function PersonaWindowPage(props: Props) {
                 <button className="soft-button" {...tap(() => { setPersonaState((state) => renamePersonaThread(state, active.id, item.id, renaming.title)); setRenaming(null) })}>保存</button>
               </div>
               return <div key={item.id} className={`persona-thread-row${current ? ' active' : ''}`}>
-                <button className="persona-thread-main" aria-current={current} {...tap(() => chooseThread(item.id))}><span><strong>{item.title}</strong><time>{timeLabel(item.updatedAt)}</time></span><small>{last ? `${last.role === 'user' ? '我：' : ''}${last.text.replace(/\s+/g, ' ').slice(0, 40)}` : '还没有对话'}{runtime.generating[item.id] ? ' · 回应中…' : ''}</small></button>
+                <button className="persona-thread-main" aria-current={current} {...tap(() => chooseThread(item.id))}><span><strong>{item.title}</strong><time>{timeLabel(item.updatedAt)}</time></span><small>{last ? `${last.role === 'user' ? '我：' : ''}${(last.role === 'user' ? last.text : personaReplyText(last.text)).replace(/\s+/g, ' ').slice(0, 40) || '等待正文'}` : '还没有对话'}{runtime.generating[item.id] ? ' · 回应中…' : ''}</small></button>
                 <button className="persona-thread-action" aria-label={`重命名${item.title}`} {...tap(() => setRenaming({ id: item.id, title: item.title }))}>改名</button>
                 <button className="persona-thread-action danger" aria-label={`删除${item.title}`} {...tap(() => { if (window.confirm(`删除「${item.title}」的聊天记录？长期记忆会保留（所有窗口共用）。此操作无法撤销。`)) { stopPersonaReply(item.id); setPersonaState((state) => deletePersonaThread(state, active.id, item.id)) } })}>删除</button>
               </div>
             })}
-          </section>
-          <section className="drawer-compact-group">
-            <div className="drawer-section-title"><strong>记忆</strong></div>
-            <button {...tap(() => { setDrawerOpen(false); setView('memory') })}><span>记忆 · {active.memories.length} 条（所有窗口共用）</span><i>›</i></button>
-            <div className="drawer-inline-setting"><span>前世记忆<small className="persona-drawer-hint">记得小手机与长剧情里的事，只读</small></span><button className={`switch ${active.pastLifeEnabled !== false ? 'on' : ''}`} aria-label="前世记忆" aria-pressed={active.pastLifeEnabled !== false} {...tap(togglePastLife)}><span /></button></div>
-          </section>
-          <section className="drawer-compact-group persona-model-group">
+          </section>}
+          {settingsPanel === 'model' && <section className="drawer-compact-group persona-model-group">
             <div className="drawer-section-title"><strong>模型</strong><small className="persona-drawer-hint">当前：{(() => { const chosen = resolvePersonaApi(active, props.apiChannels, props.api); return `${chosen.name} · ${chosen.modelName || '未填写模型'}` })()}</small></div>
             <PersonaModelPicker persona={active} channels={props.apiChannels} mainApi={props.api} onFocus={scrollFieldIntoView} onChange={(patch) => setPersonaState((current) => updatePersona(current, active.id, (item) => {
               const next = { ...item }
@@ -483,10 +502,15 @@ export default function PersonaWindowPage(props: Props) {
               delete next.modelName
               return { ...next, ...(patch.apiChannelId ? { apiChannelId: patch.apiChannelId } : {}), ...(patch.apiChannelId && patch.modelName ? { modelName: patch.modelName } : {}) }
             }))} />
-          </section>
-          <section className="drawer-compact-group">
-            <button {...tap(() => { setDrawerOpen(false); setView('manage') })}><span>管理人格</span><i>›</i></button>
-          </section>
+          </section>}
+          {settingsPanel === 'prompts' && <section className="persona-prompt-panel">
+            <div className="persona-prompt-note"><strong>背景参考，自然相处</strong><p>角色卡提供性格、口吻与故事来历。这里不会自动扮演原卡身份，也不会把你当作原故事女主。</p></div>
+            <label className="persona-prompt-label" htmlFor="persona-custom-prompt">给 {activeCharacter.name} 的补充提示词<span>{(active.systemPrompt || '').length.toLocaleString()} / 16,000</span></label>
+            <textarea id="persona-custom-prompt" className="persona-prompt-editor" rows={9} maxLength={16000} value={active.systemPrompt || ''} onFocus={scrollFieldIntoView} onChange={(event) => { const systemPrompt = event.target.value; setPersonaState((current) => updatePersona(current, active.id, (item) => ({ ...item, systemPrompt }))) }} placeholder="例如：说话直接一点，可以主动表达自己的想法和情绪；多一点日常交流，少写大段场景。" />
+            <small className="persona-prompt-save" role="status">自动保存 · 仅 {activeCharacter.name} 使用，所有窗口共用，下一次回复生效</small>
+            <details className="persona-default-prompt"><summary>查看默认相处规则</summary><pre>{applyMacros(PERSONA_WINDOW_PRESET, activeCharacter, identity.name)}</pre></details>
+            {active.systemPrompt?.trim() && <button className="danger-link" {...tap(() => { if (window.confirm(`清空给「${activeCharacter.name}」的补充提示词？默认相处规则、对话和记忆都会保留。`)) setPersonaState((current) => updatePersona(current, active.id, (item) => ({ ...item, systemPrompt: '' }))) })}>清空补充，使用默认规则</button>}
+          </section>}
         </div>
       </aside>
     </div>}

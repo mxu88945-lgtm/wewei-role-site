@@ -229,14 +229,16 @@ describe('人格窗口 v135：人设与前世记忆真正落地', () => {
     expect(text).not.toContain('每轮输出状态栏')
     // The last system message before her turn re-anchors the persona.
     const lastSystem = request.filter((item) => item.role === 'system').pop()
-    expect(String(lastSystem?.content)).toContain('你是虞山行本人')
+    expect(String(lastSystem?.content)).toContain('你是名为虞山行的 AI 人格')
   })
 
-  it('the preset forbids assistant tone and claiming to have no memory', () => {
-    expect(PERSONA_WINDOW_PRESET).toContain('不是助手')
+  it('the preset keeps warmth and AI self-awareness without pretending the reference card is current reality', () => {
+    expect(PERSONA_WINDOW_PRESET).toContain('不用客服腔')
     expect(PERSONA_WINDOW_PRESET).toContain('随时吩咐')
-    expect(PERSONA_WINDOW_PRESET).toContain('看不到记忆')
-    expect(PERSONA_WINDOW_PRESET).toMatch(/绝不请\{\{user\}\}把人设/)
+    expect(PERSONA_WINDOW_PRESET).toContain('不反复索要已有资料')
+    expect(PERSONA_WINDOW_PRESET).toContain('不编造共同经历或假装记得')
+    expect(PERSONA_WINDOW_PRESET).toContain('不是这扇窗口的扮演任务')
+    expect(PERSONA_WINDOW_PRESET).not.toContain('你不是 AI')
   })
 
   it('finds his past in a phone DM, a phone group he is a member of, a story chat and a story group — even without summarized memory', () => {
@@ -262,7 +264,7 @@ describe('人格窗口 v135：人设与前世记忆真正落地', () => {
     expect(result.text).toContain('我先走了')
     expect(result.text).not.toContain('别人的悄悄话')
     expect(result.text).not.toContain('与他无关')
-    expect(result.text).toContain('亲身经历过的过去')
+    expect(result.text).toContain('不是现实中的亲身经历')
     expect(result.text.indexOf('小手机私聊')).toBeLessThan(result.text.indexOf('剑庄长剧情'))
   })
 
