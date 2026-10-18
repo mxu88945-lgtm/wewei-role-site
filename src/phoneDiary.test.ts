@@ -8,7 +8,16 @@ describe('phone diary and moods', () => {
   it('never exposes a locked diary body to the speaker', () => {
     const note = buildPhoneDiaryNote(state(), addPoints(EMPTY_POINTS, 'qin', 10, 'seed', 1), { id: 'qin', name: '秦放' }, [{ id: 'qin', name: '秦放' }], '惟惟', 2)
     expect(note).toContain('《今天》')
+    expect(note).toContain('小手机新日记推送')
     expect(note).not.toContain('秦放把我笑死了')
+  })
+
+  it('shows a new diary push once, then remembers that this character was notified', () => {
+    const first = applyPhoneDiaryTags(state(), EMPTY_POINTS, 'qin', '看见通知了，但我先不买。', 2)
+    expect(first.state.entries[0].notifiedTo).toEqual(['qin'])
+    const note = buildPhoneDiaryNote(first.state, first.points, { id: 'qin', name: '秦放' }, [], '惟惟', 3)
+    expect(note).not.toContain('小手机新日记推送')
+    expect(note).toContain('你还没解锁的私人日记')
   })
 
   it('charges one character five points and unlocks only for him', () => {
