@@ -51,12 +51,14 @@ export async function prepareChatVideo(file: File, maxFrames = CHAT_VIDEO_MAX_FR
   video.muted = true
   ;(video as HTMLVideoElement & { playsInline?: boolean }).playsInline = true
   video.preload = 'auto'
+  const withTimeout = <T>(promise: Promise<T>, ms: number, message: string): Promise<T> =>
+    Promise.race([promise, new Promise<T>((_, reject) => setTimeout(() => reject(new Error(message)), ms))])
   try {
-    await new Promise<void>((resolve, reject) => {
+    await withTimeout(new Promise<void>((resolve, reject) => {
       video.onloadedmetadata = () => resolve()
       video.onerror = () => reject(new Error(`“${file.name || '视频'}”无法读取，换一个试试。`))
       video.src = url
-    })
+    }), 15000, `“${file.name || '视频'}”加载超时，换一个试试。`)
     const duration = video.duration
     if (!duration || !Number.isFinite(duration)) throw new Error(`“${file.name || '视频'}”时长读不出来。`)
     if (duration > CHAT_VIDEO_MAX_DURATION) throw new Error('视频超过 2 分钟，请截短一点再发。')
@@ -67,13 +69,21 @@ export async function prepareChatVideo(file: File, maxFrames = CHAT_VIDEO_MAX_FR
     const frames: ChatImage[] = []
     for (let i = 0; i < count; i++) {
       const time = Math.min(duration - 0.1, (duration * (i + 0.5)) / count)
-      await new Promise<void>((resolve) => { video.onseeked = () => resolve(); video.currentTime = Math.max(0, time) })
+      try {
+        await withTimeout(new Promise<void>((resolve, reject) => {
+          video.onseeked = () => resolve()
+          video.onerror = () => reject(new Error('seek failed'))
+          video.currentTime = Math.max(0, time)
+        }), 8000, 'seek timeout')
+      } catch {
+        continue // 这一帧抽不到就跳过，不卡死
+      }
       const size = fitImageSize(video.videoWidth, video.videoHeight)
       canvas.width = size.width; canvas.height = size.height
       context.drawImage(video, 0, 0, size.width, size.height)
       frames.push({ id: crypto.randomUUID(), dataUrl: canvas.toDataURL('image/jpeg', CHAT_IMAGE_QUALITY), ...size, fromVideo: true })
     }
-    if (!frames.length) throw new Error(`“${file.name || '视频'}”抽不到画面。`)
+    if (!frames.length) throw new Error(`“${file.name || '视频'}”抽不到画面，换个格式试试。`)
     return frames
   } finally {
     URL.revokeObjectURL(url)
