@@ -134,6 +134,8 @@ export default function PersonaWindowPage(props: Props) {
   const [imageBusy, setImageBusy] = useState(false)
   const [viewerImage, setViewerImage] = useState<ChatImage | null>(null)
   const [menuMessageId, setMenuMessageId] = useState<number | null>(null)
+  const [editingMessageId, setEditingMessageId] = useState<number | null>(null)
+  const [quoteDraft, setQuoteDraft] = useState<{ messageId: number; author: string; text: string } | null>(null)
   const [windowAnchors, setWindowAnchors] = useState<Record<string, number | null>>({})
   const [libraryQuery, setLibraryQuery] = useState('')
   const [pastLifeOpen, setPastLifeOpen] = useState(false)
@@ -323,10 +325,18 @@ export default function PersonaWindowPage(props: Props) {
     setDraft('')
     const images = pendingImages
     setPendingImages([])
+    // 编辑重发：先删掉原消息，避免重复
+    const editingId = editingMessageId
+    setEditingMessageId(null)
+    if (editingId !== null) {
+      setPersonaState((current) => deletePersonaMessage(current, active.id, thread.id, editingId))
+    }
+    const quote = quoteDraft
+    setQuoteDraft(null)
     stickRef.current = true
     setWindowAnchors((current) => ({ ...current, [thread.id]: null }))
     if (isTouchDevice()) textareaRef.current?.blur()
-    void generatePersonaReply(active.id, deps, { text, images, threadId: thread.id })
+    void generatePersonaReply(active.id, deps, { text, images, threadId: thread.id, ...(quote ? { quote } : {}) })
   }
 
   const letThemSpeak = () => {
@@ -368,6 +378,7 @@ export default function PersonaWindowPage(props: Props) {
     if ((draft.trim() || pendingImages.length) && !window.confirm('输入框里已有未发送的内容，要替换成这条消息吗？')) return
     setDraft(message.text)
     setPendingImages(message.images ? [...message.images] : [])
+    setEditingMessageId(message.id)
     setMenuMessageId(null)
     textareaRef.current?.focus({ preventScroll: true })
   }
@@ -558,6 +569,7 @@ export default function PersonaWindowPage(props: Props) {
           <div className="message-line message-line-flat">
             <div className="message-author"><div className="message-avatar">{avatar ? <img src={avatar} alt="" /> : name.slice(-1)}</div><span>{name}</span></div>
             <div className="message-flat-body">
+              {message.quote && <div className="persona-message-quote"><b>{message.quote.author}：</b>{message.quote.text}</div>}
               {message.images?.length ? <div className={`message-images persona-message-images count-${Math.min(message.images.length, 4)}`}>{message.images.map((image) => <button type="button" key={image.id} aria-label="查看图片" {...tap(() => setViewerImage(image))}><img src={image.dataUrl} alt="" width={image.width} height={image.height} loading="lazy" decoding="async" /></button>)}</div> : null}
               {streamingNow && (!message.text || isPendingAssistantText(message.text)) ? <div className="persona-typing">（{activeCharacter.name}正在回应…）</div> : (message.text.trim() ? <MessageContent text={isUser ? message.text : personaReplyText(message.text)} role={message.role} character={activeCharacter} userName={identity.name} layout="flat" streaming={streamingNow} noStatus /> : null)}
             </div>
@@ -566,6 +578,7 @@ export default function PersonaWindowPage(props: Props) {
             <button className="message-action-trigger" aria-label="消息操作" {...tap(() => setMenuMessageId(menuMessageId === message.id ? null : message.id))}>•••</button>
             {menuMessageId === message.id && <span className="persona-message-menu">
               <button {...tap(() => { void navigator.clipboard?.writeText(message.text).catch(() => undefined); setMenuMessageId(null) })}>复制</button>
+              <button {...tap(() => { const author = message.role === 'user' ? (identity.name || '我') : (activeCharacter?.name || ''); setQuoteDraft({ messageId: message.id, author, text: message.text.slice(0, 120) }); setMenuMessageId(null); textareaRef.current?.focus({ preventScroll: true }) })}>引用</button>
               {isUser && <><button disabled={generating || imageBusy} {...tap(() => resend(message))}>重新发送</button><button disabled={imageBusy} {...tap(() => editForResend(message))}>编辑后重发</button></>}
               {!isUser && message.id === lastMessage?.id && <button disabled={generating} {...tap(() => { setMenuMessageId(null); regenerate() })}>重新生成</button>}
               <button className="danger" {...tap(() => { if (window.confirm('删除这条消息？')) setPersonaState((current) => deletePersonaMessage(current, active.id, threadId, message.id)); setMenuMessageId(null) })}>删除</button>
@@ -582,6 +595,8 @@ export default function PersonaWindowPage(props: Props) {
     {activeTasks.length > 0 && !drawerOpen && !sidebarOpen && <PersonaTaskPin tasks={activeTasks} tap={tap} onOpen={() => { setSidebarOpen(false); setSettingsPanel('tasks'); setDrawerOpen(true) }} onDone={(id) => taskAction(id, 'done')} />}
     <div ref={composerRef} className={`composer persona-composer${pendingImages.length || imageBusy ? ' has-images' : ''}`}>
       {(pendingImages.length > 0 || imageBusy) && <div className="composer-images" aria-label="待发送图片">{pendingImages.map((image) => <div key={image.id}><img src={image.dataUrl} alt="" role="button" aria-label="查看大图" onClick={() => setViewerImage(image)} /><button type="button" aria-label="移除图片" onClick={() => setPendingImages((current) => current.filter((item) => item.id !== image.id))}>×</button></div>)}{imageBusy && <span className="composer-images-busy">处理中…</span>}</div>}
+      {quoteDraft && <div className="persona-quote-draft" aria-label="引用回复"><span><b>{quoteDraft.author}：</b>{quoteDraft.text}</span><button type="button" aria-label="取消引用" onClick={() => setQuoteDraft(null)}>×</button></div>}
+      {editingMessageId !== null && <div className="persona-editing-hint" aria-label="正在编辑"><span>正在编辑已发送的消息，发送后替换原文</span><button type="button" aria-label="取消编辑" onClick={() => { setEditingMessageId(null); setDraft(''); setPendingImages([]) }}>×</button></div>}
       <button className="composer-plus" aria-label="添加图片" {...tap(() => imageInputRef.current?.click())}>＋</button>
       <textarea ref={textareaRef} rows={1} value={draft} onChange={(event) => setDraft(event.target.value)} onFocus={() => { setPersonaJump((current) => ({ ...current, visible: false })); if (personaJumpHideTimer.current) window.clearTimeout(personaJumpHideTimer.current) }} placeholder={generating ? '可以先写下一条，停止后再发送' : `对${activeCharacter.name}说……`} />
       <button className={`send-button ${generating ? 'stop' : ''}`} aria-label={generating ? '停止生成' : '发送'} {...tap(send)}>{generating ? '■' : '↑'}</button>

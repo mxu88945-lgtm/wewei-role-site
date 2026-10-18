@@ -42,6 +42,8 @@ export type PersonaMessage = {
   recallSources?: PersonaRecallSource[]
   /** Application completion event used to regenerate this reply without forging a user turn. */
   taskCompletionId?: string
+  /** 引用的消息（人格窗口内引用回复）。 */
+  quote?: { messageId: number; author: string; text: string }
 }
 
 export type PersonaMemoryEntry = {
@@ -127,7 +129,8 @@ function normalizeMessage(value: unknown): PersonaMessage | null {
   if (!Number.isFinite(id) || !role) return null
   const images = Array.isArray(value.images) ? (value.images as ChatImage[]).filter((image) => image && typeof image.dataUrl === 'string') : undefined
   const recallSources = (Array.isArray(value.recallSources) ? value.recallSources : []).filter(isRecord).filter((source) => text(source.threadId) && Number.isSafeInteger(source.messageId) && (source.role === 'user' || source.role === 'assistant')).slice(0, 20).map((source): PersonaRecallSource => ({ threadId: text(source.threadId), messageId: Number(source.messageId), title: text(source.title), role: source.role === 'user' ? 'user' : 'assistant', createdAt: Number(source.createdAt) || 0 }))
-  return { id, role, text: text(value.text), createdAt: Number(value.createdAt) || 0, ...(images?.length ? { images } : {}), ...(value.finishReason !== undefined ? { finishReason: (value.finishReason as string | null) } : {}), ...(recallSources.length ? { recallSources } : {}), ...(role === 'assistant' && text(value.taskCompletionId) ? { taskCompletionId: text(value.taskCompletionId) } : {}) }
+  const quote = isRecord(value.quote) && Number.isFinite(Number(value.quote.messageId)) ? { messageId: Number(value.quote.messageId), author: text(value.quote.author), text: text(value.quote.text) } : undefined
+  return { id, role, text: text(value.text), createdAt: Number(value.createdAt) || 0, ...(images?.length ? { images } : {}), ...(value.finishReason !== undefined ? { finishReason: (value.finishReason as string | null) } : {}), ...(recallSources.length ? { recallSources } : {}), ...(role === 'assistant' && text(value.taskCompletionId) ? { taskCompletionId: text(value.taskCompletionId) } : {}), ...(quote ? { quote } : {}) }
 }
 
 function normalizeMemory(value: unknown): PersonaMemoryEntry | null {

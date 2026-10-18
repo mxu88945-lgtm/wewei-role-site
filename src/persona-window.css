@@ -250,3 +250,10 @@ button.persona-settings-row:active { background: var(--theme-accent-soft); }
 .persona-task-toast strong, .persona-task-toast small { display: block; font-size: 12px; line-height: 1.6; overflow-wrap: anywhere; }
 .persona-task-toast small { max-height: 4.8em; overflow: hidden; }
 .persona-task-toast button { flex-shrink: 0; min-height: 38px; padding: 8px; border: 0; border-radius: 12px; background: #f5eae1; color: inherit; font: inherit; font-size: 12px; }
+.persona-message-quote { margin: 0 0 6px; padding: 6px 10px; border-left: 3px solid rgba(125,104,141,.35); border-radius: 0 10px 10px 0; background: rgba(125,104,141,.07); color: #84738e; font-size: 12px; line-height: 1.5; }
+.persona-message-quote b { color: #6b5a76; }
+.message-row.user .persona-message-quote { margin-left: auto; }
+.persona-quote-draft, .persona-editing-hint { display: flex; align-items: center; gap: 8px; margin: 0 8px 6px; padding: 6px 10px; border-radius: 10px; background: rgba(125,104,141,.08); color: #84738e; font-size: 12px; }
+.persona-quote-draft span, .persona-editing-hint span { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.persona-quote-draft b { color: #6b5a76; }
+.persona-quote-draft button, .persona-editing-hint button { flex: none; width: 22px; height: 22px; border: 0; border-radius: 50%; background: rgba(125,104,141,.15); color: #84738e; font-size: 12px; line-height: 1; }

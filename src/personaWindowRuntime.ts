@@ -3,6 +3,7 @@ import { completeChat } from './chatApi'
 import type { Character } from './characterCard'
 import type { ChatImage } from './chatImages'
 import { imagePromptIndices, userContentWithImages } from './chatImages'
+import { quotePromptPrefix } from './quoteReply'
 import { isApiChannelComplete } from './apiChannels'
 import { activeEntries } from './promptBuilder'
 import { applyMacros } from './regexEngine'
@@ -129,7 +130,10 @@ export function planPersonaRequest(persona: PersonaWindow, history: PersonaMessa
   const imageTurns = imagePromptIndices(recent)
   const messages: ChatApiMessage[] = [
     { role: 'system', content: applyMacros(system, character, deps.user.name) },
-    ...recent.map((item, index): ChatApiMessage => ({ role: item.role, content: item.role === 'user' ? userContentWithImages(item.text, item.images, imageTurns.has(index)) : item.text }))
+    ...recent.map((item, index): ChatApiMessage => {
+      const textWithQuote = item.quote ? `${quotePromptPrefix({ messageId: String(item.quote.messageId), author: item.quote.author, text: item.quote.text })}\n${item.text}` : item.text
+      return { role: item.role, content: item.role === 'user' ? userContentWithImages(textWithQuote, item.images, imageTurns.has(index)) : textWithQuote }
+    })
       .filter((item) => Array.isArray(item.content) || String(item.content).trim()),
   ]
   messages.push({ role: 'system', content: applyMacros(PERSONA_FINAL_GUARD, character, deps.user.name) })
@@ -167,7 +171,7 @@ export function consolidatePersonaMessages(messages: ChatApiMessage[]): ChatApiM
 /** Visible history for a request: no empty placeholders, no failed turns. */
 const requestHistory = (messages: PersonaMessage[]) => messages.filter((item) => item.text.trim() || item.images?.length)
 
-export async function generatePersonaReply(personaId: string, deps: PersonaRuntimeDeps, input: { text?: string; images?: ChatImage[]; regenerate?: boolean; threadId?: string; taskCompletionId?: string } = {}) {
+export async function generatePersonaReply(personaId: string, deps: PersonaRuntimeDeps, input: { text?: string; images?: ChatImage[]; regenerate?: boolean; threadId?: string; taskCompletionId?: string; quote?: { messageId: number; author: string; text: string } } = {}) {
   const persona = findPersona(personaId)
   if (!persona) return
   const thread = activeThread(persona, input.threadId)
@@ -187,7 +191,7 @@ export async function generatePersonaReply(personaId: string, deps: PersonaRunti
   const additions: PersonaMessage[] = []
   const firstId = Math.max(nextPersonaMessageId(base), (thread.messageSequence || 0) + 1)
   if ((input.text || '').trim() || input.images?.length) {
-    additions.push({ id: firstId, role: 'user', text: (input.text || '').trim(), createdAt: now, ...(input.images?.length ? { images: input.images } : {}) })
+    additions.push({ id: firstId, role: 'user', text: (input.text || '').trim(), createdAt: now, ...(input.images?.length ? { images: input.images } : {}), ...(input.quote ? { quote: input.quote } : {}) })
   }
   const withUser = [...base, ...additions]
   const replyId = Math.max(nextPersonaMessageId(withUser), firstId + additions.length)
