@@ -1,6 +1,6 @@
 import { durableSnapshot, replaceDurableSnapshot } from './persistentStore'
 
-export const DURABLE_KEYS = new Set(['weijing.characters', 'weijing.conversations', 'weijing.identities', 'weijing.identity', 'weijing.memoryConfigs', 'weijing.memoryEntries', 'weijing.chatBackground', 'weijing.chatWallpapers', 'weijing.globalMemoryApi', 'weijing.storyProjects', 'weijing.plotTemplates', 'weijing.personaWindows'])
+export const DURABLE_KEYS = new Set(['weijing.characters', 'weijing.conversations', 'weijing.identities', 'weijing.identity', 'weijing.memoryConfigs', 'weijing.memoryEntries', 'weijing.chatBackground', 'weijing.chatWallpapers', 'weijing.globalMemoryApi', 'weijing.storyProjects', 'weijing.plotTemplates', 'weijing.personaWindows', 'weijing.phoneDiary'])
 export type BackupFile = { format: 'weijing-backup'; version: 1; createdAt: string; data: Record<string, string> }
 
 export function collectLocalData(storage: Storage = localStorage) {

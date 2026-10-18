@@ -1,5 +1,7 @@
+import type { ChatImage } from './chatImages'
 import type { PointsState } from './phonePoints'
 import { addPoints, dayKey } from './phonePoints'
+import { durableGet, durableSet } from './persistentStore'
 
 export const PHONE_DIARY_KEY = 'weijing.phoneDiary'
 export const PHONE_DIARY_EVENT = 'weijing-phone-diary'
@@ -9,6 +11,7 @@ export type DiaryEntry = {
   id: string
   title: string
   body: string
+  images?: ChatImage[]
   createdAt: number
   updatedAt: number
   unlockedBy: string[]
@@ -17,16 +20,39 @@ export type DiaryEntry = {
 export type OnlineMood = { characterId: string; text: string; day: string; updatedAt: number }
 export type PhoneDiaryState = { entries: DiaryEntry[]; moods: Record<string, OnlineMood> }
 export const EMPTY_PHONE_DIARY: PhoneDiaryState = { entries: [], moods: {} }
+let diaryCache: PhoneDiaryState = EMPTY_PHONE_DIARY
+
+const normalizeDiary = (stored: Partial<PhoneDiaryState> | null | undefined): PhoneDiaryState => ({
+  entries: Array.isArray(stored?.entries) ? stored.entries : [],
+  moods: stored?.moods && typeof stored.moods === 'object' ? stored.moods : {},
+})
 
 export function readPhoneDiary(): PhoneDiaryState {
   try {
     const stored = JSON.parse(localStorage.getItem(PHONE_DIARY_KEY) || 'null') as Partial<PhoneDiaryState> | null
-    return { entries: Array.isArray(stored?.entries) ? stored.entries : [], moods: stored?.moods && typeof stored.moods === 'object' ? stored.moods : {} }
-  } catch { return EMPTY_PHONE_DIARY }
+    if (stored) diaryCache = normalizeDiary(stored)
+  } catch { /* use the in-memory/durable copy */ }
+  return diaryCache
+}
+
+/** Loads the image-capable IndexedDB copy and migrates the earlier localStorage version once. */
+export async function hydratePhoneDiary() {
+  let legacy: PhoneDiaryState | undefined
+  try {
+    const raw = localStorage.getItem(PHONE_DIARY_KEY)
+    if (raw) legacy = normalizeDiary(JSON.parse(raw) as Partial<PhoneDiaryState>)
+  } catch { /* ignore an unreadable legacy copy */ }
+  const stored = await durableGet<PhoneDiaryState>(PHONE_DIARY_KEY).catch(() => undefined)
+  diaryCache = stored ? normalizeDiary(stored) : legacy || diaryCache
+  if (!stored && legacy) await durableSet(PHONE_DIARY_KEY, diaryCache)
+  if (legacy) { try { localStorage.removeItem(PHONE_DIARY_KEY) } catch { /* durable copy is authoritative */ } }
+  window.dispatchEvent(new Event(PHONE_DIARY_EVENT))
+  return diaryCache
 }
 
 export function writePhoneDiary(state: PhoneDiaryState) {
-  try { localStorage.setItem(PHONE_DIARY_KEY, JSON.stringify({ entries: state.entries.slice(0, 300), moods: state.moods })) } catch { /* keep the current session usable */ }
+  diaryCache = { entries: state.entries.slice(0, 300), moods: state.moods }
+  void durableSet(PHONE_DIARY_KEY, diaryCache)
   window.dispatchEvent(new Event(PHONE_DIARY_EVENT))
 }
 
@@ -56,8 +82,14 @@ export function buildPhoneDiaryNote(state: PhoneDiaryState, points: PointsState,
 ${moods.length ? `今天的在线心情：${moods.join('；')}。` : '今天暂时还没人写在线心情。'}
 ${ownMood ? `你今天的在线心情是「${ownMood.text}」，今天不用重复修改。` : '你今天还没写在线心情。愿意设置时，在本次正常回复最后另起一行写【在线心情：一句自定义心情】，最多 20 字；系统会保存并展示。不要为了设心情硬写。'}
 ${locked.length ? `你还没解锁的私人日记（只能看到标题）：\n${locked.map((entry) => `- ${entry.id}｜《${clip(entry.title, 24)}》`).join('\n')}\n你有 ${points.balances[speaker.id] || 0} 积分。真想看某篇时，在正常回复最后写【解锁日记：日记ID】，每篇会从你个人积分扣 ${DIARY_UNLOCK_COST} 分；积分不足就别装阔。解锁本轮只完成购买，下次说话才会看到正文。` : '目前没有你尚未解锁的日记。'}
-${unlocked.length ? `你已付费解锁、可以知道的日记正文（只属于你的阅读权限）：\n${unlocked.map((entry) => `《${clip(entry.title, 30)}》\n${clip(entry.body, 600)}`).join('\n\n')}` : '你还没有解锁过日记正文。'}
+${unlocked.length ? `你已付费解锁、可以知道的日记正文（只属于你的阅读权限）：\n${unlocked.map((entry) => `《${clip(entry.title, 30)}》${entry.images?.length ? `（配图 ${entry.images.length} 张；最新一篇的图片会作为视觉参考附给你）` : ''}\n${clip(entry.body, 600) || '（无文字）'}`).join('\n\n')}` : '你还没有解锁过日记正文。'}
 日记是${userName}的私人文字。未解锁正文绝不猜测、编造或声称偷看过；也不要把你解锁到的正文原样转发给别人。`
+}
+
+/** Only the newest pictured diary this speaker personally unlocked can be attached to the model. */
+export function unlockedDiaryImageContext(state: PhoneDiaryState, speakerId: string, max = 4) {
+  const entry = state.entries.find((item) => item.unlockedBy.includes(speakerId) && item.images?.length)
+  return entry?.images?.length ? { title: entry.title, images: entry.images.slice(0, max) } : undefined
 }
 
 const MOOD_TAG = /[【[]\s*在线心情\s*[：:]\s*([^】\]]{1,40})[】\]]/g

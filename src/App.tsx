@@ -34,7 +34,7 @@ import PhoneGames, { PhoneGameCard } from './PhoneGames'
 import { buildPhoneGameNote, nextPhoneGame, phoneGameSpeakers, phoneGameText, type GamePlayer, type PhoneGameKind, type PhoneGameRound, type TruthMode } from './phoneGames'
 import { collageAvatar, phoneAvatarSignature, squareAvatarFromFile } from './groupAvatar'
 import { PHONE_POINTS_EVENT, addPoints, applyMessagePoints, buildPointsNote, readPoints, todayTopPoints, writePoints } from './phonePoints'
-import { PHONE_DIARY_EVENT, applyPhoneDiaryTags, buildPhoneDiaryNote, currentMood, readPhoneDiary, writePhoneDiary } from './phoneDiary'
+import { PHONE_DIARY_EVENT, applyPhoneDiaryTags, buildPhoneDiaryNote, currentMood, hydratePhoneDiary, readPhoneDiary, unlockedDiaryImageContext, writePhoneDiary } from './phoneDiary'
 import { FORUM_UPDATED_EVENT, dueRunAt, forumAutoTick, forumWelcomeThread, isQuietHour, momentsAutoTick, pickAutoGroup, readPhoneAuto, writePhoneAuto } from './phoneAuto'
 import type { Moment } from './moments'
 import { MOMENTS_UPDATED_EVENT, USER_AUTHOR, communityMemberIds, excerptFromMessage } from './moments'
@@ -45,7 +45,7 @@ import { NOTICE_DURATIONS, lurkFallback, activeNotice, noticeRemaining, buildNot
 import { assignChatGroup, chatGroupNames, groupConversations, setChatGroupMembers } from './chatGroups'
 import { assignLibraryGroup, setLibraryGroupMembers, effectiveLibraryRole, groupLibraryCharacters, LIBRARY_ROLE_LABELS, libraryGroupNames } from './characterLibraryGroups'
 import { activeCharacterMemory, characterMemoryEntryFromConversation, characterMemoryExtractionPrompt, characterMemorySummaryProtocol, parseCharacterMemoryCandidates, splitCharacterMemorySummary } from './characterMemory'
-import { ChatApiError, completeChat, fetchApiModels, testApiConnection, type ApiConfig, type ApiModel } from './chatApi'
+import { ChatApiError, completeChat, fetchApiModels, testApiConnection, type ApiConfig, type ApiModel, type ChatApiContentPart } from './chatApi'
 import { buildChatPrompt } from './promptBuilder'
 import { CHAT_IMAGE_LIMIT, CHAT_VIDEO_MAX_FRAMES, prepareChatImage, prepareChatVideo, type ChatImage } from './chatImages'
 import { captureTemporaryPlot, consumeTemporaryPlot, withAssistantRetryInstruction, withFinalTemporaryPlotInstruction } from './temporaryPlot'
@@ -118,6 +118,7 @@ type MemoryEntryMap = Record<string, MemoryEntry[]>
 type UserIdentity = { id: string; name: string; description: string; avatar?: string }
 type ChatThemeMode = 'mist' | 'pearl' | 'sage' | 'pudding' | 'strawberry' | 'blueberry'
 type ChatThemePreset = { id: string; name: string; mode: ChatThemeMode; baseColor: string; textColor: string; narrationColor: string; quoteColor: string; frost: number; custom?: boolean }
+const DIARY_IMAGE_CONTEXT_MARKER = '【已解锁日记配图｜视觉参考】'
 
 const demoCharacter: Character = {
   id: 'huo-jin', name: '霍烬', tagline: '沉稳克制的守护者',
@@ -468,6 +469,7 @@ function App() {
     window.addEventListener(PHONE_DIARY_EVENT, syncDiary)
     return () => { window.removeEventListener(PHONE_POINTS_EVENT, bump); window.removeEventListener(PHONE_DIARY_EVENT, syncDiary) }
   }, [])
+  useEffect(() => { void hydratePhoneDiary() }, [])
   const [phoneGamesId, setPhoneGamesId] = useState<string | null>(null)
   const phoneGameSending = useRef(false)
   const [redPacketSheetOpen, setRedPacketSheetOpen] = useState(false)
@@ -2568,12 +2570,20 @@ function App() {
     const storedRelationshipStage: RelationshipStage | 0 = capturedCharacter.name === '顾霆深' && !isPhone
       ? Math.max(conversation.relationshipStages?.[capturedCharacter.id] || 0, highestRelationshipStage(nextMessages, capturedCharacter.id) || 0) as RelationshipStage
       : 0
+    const diaryImages = isPhone ? unlockedDiaryImageContext(readPhoneDiary(), speaker.id) : undefined
     if (!isPhone && !isDirector) {
       // 长剧情里的他私底下知道小手机上的戏外日常，但戏里不提。
       const backstage = buildBackstageNote(conversations, speaker.id, speaker.name, identity.name, (id) => characters.find((item) => item.id === id)?.name || '角色', conversation.backstageGroupIds)
       if (backstage) promptMessages.push({ role: 'system', content: backstage })
     }
     if (storedRelationshipStage) promptMessages.push({ role: 'system', content: relationshipStageLockInstruction(storedRelationshipStage) })
+    if (diaryImages) promptMessages.push({
+      role: 'user',
+      content: [
+        { type: 'text', text: `${DIARY_IMAGE_CONTEXT_MARKER}\n这是你已经付费解锁的《${diaryImages.title}》里的配图，不是${identity.name}本轮刚发来的新消息。你可以理解画面并自然记住，但不要声称未解锁的人也看过。` },
+        ...diaryImages.images.map((image): ChatApiContentPart => ({ type: 'image_url', image_url: { url: image.dataUrl, detail: 'low' } })),
+      ],
+    })
     if (isPhone) {
       promptMessages.push({ role: 'system', content: phoneFinalGuard(speaker.name, identity.name) })
       if (!conversation.phone?.dm && conversation.phone?.game) promptMessages.push({ role: 'system', content: buildPhoneGameNote(conversation.phone.game, speaker.id, identity.name) })
@@ -2608,7 +2618,7 @@ function App() {
       capturedTemporaryPlot?.mode,
       isDirector,
     )
-    return { promptMessages, promptStats, capturedCharacter, capturedMemoryConfig, capturedMemories, isGroup, isDirector, statusTag, requiresCharacterStatus, groupNames, storedRelationshipStage, capturedTemporaryPlot }
+    return { promptMessages, promptStats, capturedCharacter, capturedMemoryConfig, capturedMemories, isGroup, isDirector, statusTag, requiresCharacterStatus, groupNames, storedRelationshipStage, capturedTemporaryPlot, diaryPixelsAttached: Boolean(diaryImages) }
   }
 
   const previewFor = (conversation: Conversation, nextMessages: Message[], speaker: Character, requestOptions: AssistantRequestOptions = {}): RequestPreview => {
@@ -2799,7 +2809,22 @@ function App() {
       const finitePlot = Boolean(capturedTemporaryPlot && capturedTemporaryPlot.mode !== 'persistent')
       if (finitePlot) showPhase('幕后安排 1/3 · 正在写第一稿')
       else if (conversation.phone) showPhase('正在等待模型回复…')
-      let completion = await runCompletion()
+      let completion: Awaited<ReturnType<typeof completeChat>>
+      try {
+        completion = await runCompletion()
+      } catch (cause) {
+        if (!prepared.diaryPixelsAttached || controller.signal.aborted) throw cause
+        // Some text-only channels reject image_url parts. Retry once with the
+        // unlocked diary's text/count still present, without breaking phone chat.
+        output = ''
+        stagedVisibleOutput = ''
+        promptMessages = promptMessages.map((message) => {
+          if (!Array.isArray(message.content)) return message
+          const first = message.content[0]
+          return first?.type === 'text' && first.text.startsWith(DIARY_IMAGE_CONTEXT_MARKER) ? { ...message, content: first.text } : message
+        })
+        completion = await runCompletion()
+      }
       cancelQueuedStreamRender()
       if (!output.trim()) throw new Error('模型没有返回内容')
       let cleanOutput = sanitizeAssistantOutput(output, { director: isDirector })

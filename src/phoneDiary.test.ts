@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import { EMPTY_POINTS, addPoints } from './phonePoints'
-import { applyPhoneDiaryTags, buildPhoneDiaryNote, currentMood, parseDailyMoods, setOnlineMood, type PhoneDiaryState } from './phoneDiary'
+import { applyPhoneDiaryTags, buildPhoneDiaryNote, currentMood, parseDailyMoods, setOnlineMood, unlockedDiaryImageContext, type PhoneDiaryState } from './phoneDiary'
 
 const state = (): PhoneDiaryState => ({ entries: [{ id: 'd1', title: '今天', body: '秦放把我笑死了。', createdAt: 1, updatedAt: 1, unlockedBy: [] }], moods: {} })
 
@@ -28,5 +28,14 @@ describe('phone diary and moods', () => {
 
   it('parses generated daily moods', () => {
     expect(parseDailyMoods('```json\n{"moods":[{"id":"qin","text":"😏 围观"}]}\n```')).toEqual([{ id: 'qin', text: '😏 围观' }])
+  })
+
+  it('only exposes uploaded pixels after this character unlocked the diary', () => {
+    const pictured = state()
+    pictured.entries[0].images = [{ id: 'p', dataUrl: 'data:image/jpeg;base64,AA', width: 10, height: 10 }]
+    expect(unlockedDiaryImageContext(pictured, 'qin')).toBeUndefined()
+    pictured.entries[0].unlockedBy = ['qin']
+    expect(unlockedDiaryImageContext(pictured, 'qin')?.images[0].id).toBe('p')
+    expect(unlockedDiaryImageContext(pictured, 'xia')).toBeUndefined()
   })
 })

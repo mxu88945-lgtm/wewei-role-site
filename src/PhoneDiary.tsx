@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react'
 import type { Character } from './characterCard'
 import type { Conversation } from './conversationLifecycle'
 import { completeChat, type ApiConfig } from './chatApi'
+import { prepareChatImage, type ChatImage } from './chatImages'
 import { characterBrief } from './moments'
 import { PHONE_POINTS_EVENT, readPoints, type PointsState } from './phonePoints'
 import {
@@ -10,6 +11,7 @@ import {
 } from './phoneDiary'
 
 const uid = () => `diary-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 7)}`
+const DIARY_IMAGE_LIMIT = 9
 const when = (at: number) => new Date(at).toLocaleString([], { month: 'numeric', day: 'numeric', hour: '2-digit', minute: '2-digit' })
 
 export default function PhoneDiary({ members, conversations, userName, api }: { members: Character[]; conversations: Conversation[]; userName: string; api: ApiConfig }) {
@@ -18,6 +20,9 @@ export default function PhoneDiary({ members, conversations, userName, api }: { 
   const [compose, setCompose] = useState(false)
   const [title, setTitle] = useState('')
   const [body, setBody] = useState('')
+  const [images, setImages] = useState<ChatImage[]>([])
+  const [viewer, setViewer] = useState('')
+  const [imageBusy, setImageBusy] = useState(false)
   const [editingId, setEditingId] = useState('')
   const [busy, setBusy] = useState('')
   const [error, setError] = useState('')
@@ -31,19 +36,30 @@ export default function PhoneDiary({ members, conversations, userName, api }: { 
   }, [])
 
   const saveState = (next: PhoneDiaryState) => { setState(next); writePhoneDiary(next) }
-  const resetCompose = () => { setCompose(false); setEditingId(''); setTitle(''); setBody('') }
+  const resetCompose = () => { setCompose(false); setEditingId(''); setTitle(''); setBody(''); setImages([]) }
+  const addImages = async (files: FileList | null) => {
+    const picked = Array.from(files || []).slice(0, Math.max(0, DIARY_IMAGE_LIMIT - images.length))
+    if (!picked.length) { if (files?.length) setError(`每篇日记最多 ${DIARY_IMAGE_LIMIT} 张图`); return }
+    setImageBusy(true)
+    setError('')
+    try {
+      const prepared = await Promise.all(picked.map((file) => prepareChatImage(file)))
+      setImages((current) => [...current, ...prepared].slice(0, DIARY_IMAGE_LIMIT))
+    } catch (cause) { setError(cause instanceof Error ? cause.message : '图片读取失败') }
+    finally { setImageBusy(false) }
+  }
   const saveEntry = () => {
     const cleanBody = body.trim()
-    if (!cleanBody) return
+    if (!cleanBody && !images.length) return
     const now = Date.now()
     const cleanTitle = title.trim() || new Date(now).toLocaleDateString([], { month: 'long', day: 'numeric' })
     const entries = editingId
-      ? state.entries.map((entry) => entry.id === editingId ? { ...entry, title: cleanTitle.slice(0, 50), body: cleanBody, updatedAt: now } : entry)
-      : [{ id: uid(), title: cleanTitle.slice(0, 50), body: cleanBody, createdAt: now, updatedAt: now, unlockedBy: [] }, ...state.entries]
+      ? state.entries.map((entry) => entry.id === editingId ? { ...entry, title: cleanTitle.slice(0, 50), body: cleanBody, images, updatedAt: now } : entry)
+      : [{ id: uid(), title: cleanTitle.slice(0, 50), body: cleanBody, images, createdAt: now, updatedAt: now, unlockedBy: [] }, ...state.entries]
     saveState({ ...state, entries })
     resetCompose()
   }
-  const editEntry = (entry: DiaryEntry) => { setEditingId(entry.id); setTitle(entry.title); setBody(entry.body); setCompose(true) }
+  const editEntry = (entry: DiaryEntry) => { setEditingId(entry.id); setTitle(entry.title); setBody(entry.body); setImages(entry.images || []); setCompose(true) }
 
   const generateMoods = async () => {
     if (!members.length || busy) return
@@ -73,6 +89,7 @@ export default function PhoneDiary({ members, conversations, userName, api }: { 
   }
 
   return <div className="phone-diary">
+    {viewer && <button className="forum-viewer" aria-label="关闭大图" onClick={() => setViewer('')}><img src={viewer} alt="" /></button>}
     <section className="phone-mood-wall">
       <header><div><strong>今日在线心情</strong><small>他们聊天时也会自己改，每天自动过期</small></div><button type="button" disabled={Boolean(busy)} onClick={() => void generateMoods()}>{busy ? '正在写…' : '让大家写'}</button></header>
       {error && <div className="moments-error" role="alert">{error}<button aria-label="关闭" onClick={() => setError('')}>×</button></div>}
@@ -86,12 +103,18 @@ export default function PhoneDiary({ members, conversations, userName, api }: { 
     {compose && <section className="moment-compose phone-diary-compose">
       <input value={title} maxLength={50} onChange={(event) => setTitle(event.target.value)} placeholder="日记标题（可不写）" />
       <textarea value={body} onChange={(event) => setBody(event.target.value)} rows={6} placeholder="写给自己看的……" />
-      <div className="moment-compose-actions"><button type="button" onClick={resetCompose}>取消</button><button type="button" className="primary" disabled={!body.trim()} onClick={saveEntry}>{editingId ? '保存修改' : '锁进日记'}</button></div>
+      <div className="forum-image-picks">
+        {images.map((image) => <span key={image.id} className="forum-image-pick"><img src={image.dataUrl} alt="" /><button type="button" aria-label="移除图片" onClick={() => setImages((current) => current.filter((item) => item.id !== image.id))}>×</button></span>)}
+        {images.length < DIARY_IMAGE_LIMIT && <label className="forum-image-add" aria-label="添加日记图片">📷<input type="file" accept="image/*" multiple onChange={(event) => { void addImages(event.target.files); event.target.value = '' }} /></label>}
+        {imageBusy && <small className="phone-diary-image-busy">图片处理中…</small>}
+      </div>
+      <div className="moment-compose-actions"><button type="button" onClick={resetCompose}>取消</button><button type="button" className="primary" disabled={imageBusy || (!body.trim() && !images.length)} onClick={saveEntry}>{editingId ? '保存修改' : '锁进日记'}</button></div>
     </section>}
     {!state.entries.length && <div className="privacy-note">还没有日记。你写下正文后，他们只能看见标题；谁真想偷看，谁自己掏 5 积分。</div>}
     {state.entries.map((entry) => <article key={entry.id} className="phone-diary-entry">
       <header><div><strong>{entry.title}</strong><small>{when(entry.updatedAt)}{entry.updatedAt !== entry.createdAt ? ' · 已修改' : ''}</small></div><button type="button" onClick={() => editEntry(entry)}>编辑</button><button type="button" className="danger" onClick={() => { if (window.confirm(`删除《${entry.title}》？`)) saveState({ ...state, entries: state.entries.filter((item) => item.id !== entry.id) }) }}>删除</button></header>
-      <p>{entry.body}</p>
+      {entry.body && <p>{entry.body}</p>}
+      {entry.images?.length ? <div className={`forum-images count-${Math.min(entry.images.length, 3)}`}>{entry.images.map((image) => <button key={image.id} type="button" aria-label="查看日记大图" onClick={() => setViewer(image.dataUrl)}><img src={image.dataUrl} alt="" loading="lazy" /></button>)}</div> : null}
       <footer>{entry.unlockedBy.length ? <>已解锁：{entry.unlockedBy.map((id) => members.find((member) => member.id === id)?.name || '已离开的角色').join('、')}</> : '🔒 暂时没人舍得花积分'}</footer>
     </article>)}
   </div>
