@@ -34,7 +34,7 @@ import PhoneGames, { PhoneGameCard } from './PhoneGames'
 import { buildPhoneGameNote, nextPhoneGame, phoneGameSpeakers, phoneGameText, type GamePlayer, type PhoneGameKind, type PhoneGameRound, type TruthMode } from './phoneGames'
 import { collageAvatar, phoneAvatarSignature, squareAvatarFromFile } from './groupAvatar'
 import { PHONE_POINTS_EVENT, addPoints, applyMessagePoints, buildPointsNote, readPoints, todayTopPoints, writePoints } from './phonePoints'
-import { PHONE_DIARY_EVENT, applyPhoneDiaryTags, buildPhoneDiaryNote, currentMood, hydratePhoneDiary, readPhoneDiary, unlockedDiaryImageContext, writePhoneDiary } from './phoneDiary'
+import { PHONE_DIARY_EVENT, applyPhoneDiaryTags, buildPhoneDiaryNote, currentMood, hydratePhoneDiary, readPhoneDiary, unlockedDiaryImageContext, writePhoneDiary, type DiaryEntry } from './phoneDiary'
 import { FORUM_UPDATED_EVENT, dueRunAt, forumAutoTick, forumWelcomeThread, isQuietHour, momentsAutoTick, pickAutoGroup, readPhoneAuto, writePhoneAuto } from './phoneAuto'
 import type { Moment } from './moments'
 import { MOMENTS_UPDATED_EVENT, USER_AUTHOR, communityMemberIds, excerptFromMessage } from './moments'
@@ -470,6 +470,19 @@ function App() {
     return () => { window.removeEventListener(PHONE_POINTS_EVENT, bump); window.removeEventListener(PHONE_DIARY_EVENT, syncDiary) }
   }, [])
   useEffect(() => { void hydratePhoneDiary() }, [])
+  const announceDiary = (entry: DiaryEntry) => {
+    const now = Date.now()
+    setConversations((current) => current.map((item) => {
+      if (!item.phone || item.phone.dm) return item
+      const notice: Message = {
+        id: Math.max(nextMessageId(item.messages), now),
+        role: 'assistant',
+        text: `📖 ${globalIdentity.name}更新了私人日记《${entry.title}》 · 花 5 积分可解锁`,
+        phoneNotice: true,
+      }
+      return { ...item, messages: [...item.messages, notice], updatedAt: now }
+    }))
+  }
   const [phoneGamesId, setPhoneGamesId] = useState<string | null>(null)
   const phoneGameSending = useRef(false)
   const [redPacketSheetOpen, setRedPacketSheetOpen] = useState(false)
@@ -4137,7 +4150,7 @@ function App() {
       {!phoneDraft && <PhoneAutoSettingsCard status={phoneAutoStatus} />}
       {!phoneDraft && <PhonePointsCard members={[...new Set(conversations.filter((item) => item.phone && !item.phone.dm).flatMap((item) => item.participantIds || []))].map((id) => characters.find((item) => item.id === id)).filter((item): item is Character => Boolean(item))} />}
       {!phoneDraft && <div className="phone-tabs" role="tablist"><button role="tab" aria-selected={phoneTab === 'groups'} className={phoneTab === 'groups' ? 'active' : ''} onClick={() => setPhoneTab('groups')}>群聊{phoneUnread.groups > 0 && <b className="phone-unread inline">{unreadLabel(phoneUnread.groups)}</b>}</button><button role="tab" aria-selected={phoneTab === 'dms'} className={phoneTab === 'dms' ? 'active' : ''} onClick={() => setPhoneTab('dms')}>私聊{phoneUnread.dms > 0 && <b className="phone-unread inline">{unreadLabel(phoneUnread.dms)}</b>}</button><button role="tab" aria-selected={phoneTab === 'moments'} className={phoneTab === 'moments' ? 'active' : ''} onClick={() => setPhoneTab('moments')}>论坛</button><button role="tab" aria-selected={phoneTab === 'friends'} className={phoneTab === 'friends' ? 'active' : ''} onClick={() => setPhoneTab('friends')}>朋友圈</button><button role="tab" aria-selected={phoneTab === 'diary'} className={phoneTab === 'diary' ? 'active' : ''} onClick={() => setPhoneTab('diary')}>日记</button><button role="tab" aria-selected={phoneTab === 'shop'} className={phoneTab === 'shop' ? 'active' : ''} onClick={() => setPhoneTab('shop')}>商店</button></div>}
-      {!phoneDraft && phoneTab === 'diary' && <PhoneDiary userName={globalIdentity.name} api={api} conversations={conversations} members={[...new Set(conversations.filter((item) => item.phone && !item.phone.dm).flatMap((item) => item.participantIds || []))].map((id) => characters.find((item) => item.id === id)).filter((item): item is Character => Boolean(item))} />}
+      {!phoneDraft && phoneTab === 'diary' && <PhoneDiary userName={globalIdentity.name} api={api} conversations={conversations} onPublished={announceDiary} members={[...new Set(conversations.filter((item) => item.phone && !item.phone.dm).flatMap((item) => item.participantIds || []))].map((id) => characters.find((item) => item.id === id)).filter((item): item is Character => Boolean(item))} />}
       {!phoneDraft && phoneTab === 'shop' && <PhoneShop userName={globalIdentity.name} onGranted={(order) => setCharacters((current) => current.map((item) => item.id === order.buyerId ? addWishPoolLine(item, grantedWishLine(order, globalIdentity.name), globalIdentity.name) : item))} members={[...new Set(conversations.filter((item) => item.phone && !item.phone.dm).flatMap((item) => item.participantIds || []))].map((id) => characters.find((item) => item.id === id)).filter((item): item is Character => Boolean(item))} />}
       {!phoneDraft && phoneTab === 'moments' && <Forum characters={characters} conversations={conversations} userName={globalIdentity.name} userAvatar={globalIdentity.avatar} api={api} seed={momentSeed} onSeedUsed={clearMomentSeed} onSaveToMemory={saveMomentToMemory} onThreadsChange={handleForumChange} onShare={shareForumToChat} />}
       {!phoneDraft && phoneTab === 'friends' && <Moments characters={characters} conversations={conversations} userName={globalIdentity.name} userAvatar={globalIdentity.avatar} api={api} seed={null} onSeedUsed={() => undefined} onSaveToMemory={saveMomentToMemory} />}
