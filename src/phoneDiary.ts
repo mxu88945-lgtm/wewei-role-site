@@ -15,6 +15,8 @@ export type DiaryEntry = {
   createdAt: number
   updatedAt: number
   unlockedBy: string[]
+  /** Characters who have already received this entry's new-diary push. */
+  notifiedTo?: string[]
 }
 
 export type OnlineMood = { characterId: string; text: string; day: string; updatedAt: number }
@@ -72,6 +74,7 @@ const clip = (value: string, max: number) => value.length > max ? `${value.slice
 /** Only this speaker's purchased diary bodies are included. Locked entries expose title/date, never body. */
 export function buildPhoneDiaryNote(state: PhoneDiaryState, points: PointsState, speaker: { id: string; name: string }, people: Array<{ id: string; name: string }>, userName: string, at = Date.now()) {
   const locked = state.entries.filter((entry) => !entry.unlockedBy.includes(speaker.id)).slice(0, 8)
+  const newPushes = locked.filter((entry) => !entry.notifiedTo?.includes(speaker.id))
   const unlocked = state.entries.filter((entry) => entry.unlockedBy.includes(speaker.id)).slice(0, 6)
   const moods = people.flatMap((person) => {
     const mood = currentMood(state, person.id, at)
@@ -81,6 +84,7 @@ export function buildPhoneDiaryNote(state: PhoneDiaryState, points: PointsState,
   return `【在线心情与${userName}的私人日记】
 ${moods.length ? `今天的在线心情：${moods.join('；')}。` : '今天暂时还没人写在线心情。'}
 ${ownMood ? `你今天的在线心情是「${ownMood.text}」，今天不用重复修改。` : '你今天还没写在线心情。愿意设置时，在本次正常回复最后另起一行写【在线心情：一句自定义心情】，最多 20 字；系统会保存并展示。不要为了设心情硬写。'}
+${newPushes.length ? `📖【小手机新日记推送｜未读】${userName}更新了${newPushes.length > 1 ? `${newPushes.length}篇` : '一篇'}私人日记：${newPushes.map((entry) => `《${clip(entry.title, 24)}》`).join('、')}。这是你刚收到的真实通知，不是普通背景资料。你只能看见标题；请按自己的人设、你和${userName}的关系、好奇心与积分情况独立决定要不要解锁。想看就本轮解锁，不想看也可以无视或嘴硬，禁止所有人机械作出同一种选择。` : ''}
 ${locked.length ? `你还没解锁的私人日记（只能看到标题）：\n${locked.map((entry) => `- ${entry.id}｜《${clip(entry.title, 24)}》`).join('\n')}\n你有 ${points.balances[speaker.id] || 0} 积分。真想看某篇时，在正常回复最后写【解锁日记：日记ID】，每篇会从你个人积分扣 ${DIARY_UNLOCK_COST} 分；积分不足就别装阔。解锁本轮只完成购买，下次说话才会看到正文。` : '目前没有你尚未解锁的日记。'}
 ${unlocked.length ? `你已付费解锁、可以知道的日记正文（只属于你的阅读权限）：\n${unlocked.map((entry) => `《${clip(entry.title, 30)}》${entry.images?.length ? `（配图 ${entry.images.length} 张；最新一篇的图片会作为视觉参考附给你）` : ''}\n${clip(entry.body, 600) || '（无文字）'}`).join('\n\n')}` : '你还没有解锁过日记正文。'}
 日记是${userName}的私人文字。未解锁正文绝不猜测、编造或声称偷看过；也不要把你解锁到的正文原样转发给别人。`
@@ -96,9 +100,12 @@ const MOOD_TAG = /[【[]\s*在线心情\s*[：:]\s*([^】\]]{1,40})[】\]]/g
 const UNLOCK_TAG = /[【[]\s*解锁日记\s*[：:]\s*([^】\]]{1,80})[】\]]/g
 
 export function applyPhoneDiaryTags(state: PhoneDiaryState, points: PointsState, speakerId: string, text: string, at = Date.now()) {
-  let nextState = state
+  const notifiedEntries = state.entries.map((entry) => entry.notifiedTo?.includes(speakerId)
+    ? entry
+    : { ...entry, notifiedTo: [...(entry.notifiedTo || []), speakerId] })
+  let nextState = notifiedEntries.some((entry, index) => entry !== state.entries[index]) ? { ...state, entries: notifiedEntries } : state
   let nextPoints = points
-  let changed = false
+  let changed = nextState !== state
   let output = text.replace(MOOD_TAG, (_all, raw: string) => {
     const mood = raw.replace(/\s+/g, ' ').trim().slice(0, 32)
     if (!mood) return ''
