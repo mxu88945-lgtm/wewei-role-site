@@ -181,8 +181,8 @@ button.persona-settings-row:active { background: var(--theme-accent-soft); }
 .persona-history-footer { flex: 0 0 auto; display: grid; padding: 8px 16px max(16px, env(safe-area-inset-bottom)); border-top: 1px solid rgba(125,104,141,.12); }
 .persona-history-footer button { min-height: 44px; display: flex; align-items: center; justify-content: space-between; padding: 10px 8px; border: 0; color: #84738e; background: transparent; text-align: left; font: inherit; font-size: 12px; }
 .persona-history-actions { display: flex; justify-content: center; gap: 18px; padding: 10px 0 6px; }
-.persona-history-footer .persona-circle-btn { width: 54px; height: 54px; min-height: 54px; padding: 0; border-radius: 50%; border: 1px solid rgba(125,104,141,.16); background: var(--theme-accent-soft); color: var(--theme-accent-text); display: inline-flex; align-items: center; justify-content: center; text-align: center; }
-.persona-history-footer .persona-circle-btn svg { width: 24px; height: 24px; flex: none; }
+.persona-history-footer .persona-circle-btn { width: 44px; height: 44px; min-height: 44px; padding: 0; border-radius: 50%; border: 1px solid rgba(125,104,141,.16); background: var(--theme-accent-soft); color: var(--theme-accent-text); display: inline-flex; align-items: center; justify-content: center; text-align: center; }
+.persona-history-footer .persona-circle-btn svg { width: 20px; height: 20px; flex: none; }
 .persona-history-footer .persona-circle-btn:active { transform: scale(.94); }
 .persona-history-sidebar button:focus-visible { outline: 2px solid var(--theme-accent); outline-offset: -2px; }
 
