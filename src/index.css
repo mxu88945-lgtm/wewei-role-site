@@ -641,8 +641,9 @@ button { cursor: pointer; }
 .phone-chat .message-row .message-bubble { padding: 9px 13px; border-radius: 16px; }
 
 /* 戏外动态 */
-.phone-tabs { display: grid; grid-auto-flow: column; grid-auto-columns: 1fr; gap: 4px; padding: 4px; border-radius: 16px; background: #efedf0; }
-.phone-tabs button { min-height: 38px; border: 0; border-radius: 12px; font-weight: 700; color: #8f8894; background: transparent; }
+.phone-tabs { display: grid; grid-auto-flow: column; grid-auto-columns: minmax(60px, 1fr); gap: 4px; padding: 4px; border-radius: 16px; overflow-x: auto; scrollbar-width: none; background: #efedf0; }
+.phone-tabs::-webkit-scrollbar { display: none; }
+.phone-tabs button { min-height: 38px; border: 0; border-radius: 12px; font-weight: 700; color: #8f8894; background: transparent; white-space: nowrap; }
 .phone-tabs button.active { color: #3b3440; background: #fff; box-shadow: 0 2px 8px rgba(60,40,70,.08); }
 .moments { display: grid; gap: 12px; }
 .moments-busy { padding: 10px 14px; border-radius: 14px; font-size: 13px; color: var(--theme-accent); background: var(--theme-accent-soft); }
@@ -687,6 +688,33 @@ button { cursor: pointer; }
 .moment-comment-input input { min-width: 0; border: 1px solid rgba(71,55,80,.12); border-radius: 12px; padding: 9px 11px; font-size: 16px; background: #fff; }
 .moment-comment-input button { border: 0; border-radius: 12px; padding: 0 12px; font-weight: 700; color: #fff; background: var(--theme-accent); }
 .moment-comment-input button:last-child { color: #7d7583; background: #efedf0; }
+
+/* 小手机 · 私人日记与在线心情 */
+.phone-diary { display: grid; gap: 12px; }
+.phone-mood-wall, .phone-diary-entry { padding: 14px; border-radius: 20px; background: #fff; box-shadow: 0 4px 18px rgba(60,40,70,.06); }
+.phone-mood-wall { display: grid; gap: 12px; background: linear-gradient(145deg, #fff, #f7f1fa); }
+.phone-mood-wall > header, .phone-diary-head, .phone-diary-entry > header { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
+.phone-mood-wall header div, .phone-diary-head div, .phone-diary-entry header div { min-width: 0; }
+.phone-mood-wall header strong, .phone-diary-head strong, .phone-diary-entry header strong { display: block; color: #3b3440; }
+.phone-mood-wall header small, .phone-diary-head small, .phone-diary-entry header small { display: block; margin-top: 2px; color: #9d97a1; font-size: 11px; }
+.phone-mood-wall header button, .phone-diary-head > button, .phone-diary-entry header button { flex: none; min-height: 34px; padding: 0 11px; border: 0; border-radius: 11px; color: var(--theme-accent); font-weight: 700; background: var(--theme-accent-soft); }
+.phone-mood-wall header button:disabled { opacity: .55; }
+.phone-mood-list { display: grid; gap: 7px; }
+.phone-mood-list > div { display: grid; grid-template-columns: 38px minmax(0,1fr) auto; align-items: center; gap: 10px; padding: 8px; border-radius: 14px; background: rgba(255,255,255,.72); }
+.phone-mood-list img, .phone-mood-list i { width: 38px; height: 38px; border-radius: 12px; object-fit: cover; display: grid; place-items: center; background: var(--theme-accent); color: #fff; font-style: normal; font-weight: 800; }
+.phone-mood-list span { min-width: 0; }
+.phone-mood-list b, .phone-mood-list small { display: block; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.phone-mood-list b { font-size: 14px; color: #3b3440; }
+.phone-mood-list small { margin-top: 2px; color: #7d7583; font-size: 12px; }
+.phone-mood-list em { color: var(--theme-accent); font-size: 11px; font-style: normal; font-weight: 800; }
+.phone-diary-head { padding: 4px 2px; }
+.phone-diary-compose input { width: 100%; min-height: 42px; padding: 0 11px; border: 1px solid rgba(71,55,80,.1); border-radius: 12px; background: #f6f5f7; color: #37313a; font: inherit; }
+.phone-diary-entry { display: grid; gap: 10px; }
+.phone-diary-entry header { justify-content: flex-start; }
+.phone-diary-entry header div { margin-right: auto; }
+.phone-diary-entry header button.danger { color: #c0475f; background: #fdeff2; }
+.phone-diary-entry p { margin: 0; max-height: 220px; overflow-y: auto; color: #3b3440; font-size: 14px; line-height: 1.7; white-space: pre-wrap; }
+.phone-diary-entry footer { padding-top: 8px; border-top: 1px solid rgba(71,55,80,.07); color: #8f8894; font-size: 11px; }
 .composer.has-modes { grid-template-areas: "modes modes modes" "plus input send"; }
 .composer.has-modes.has-images { grid-template-areas: "modes modes modes" "thumbs thumbs thumbs" "plus input send"; }
 .phone-mode-bar { grid-area: modes; display: flex; align-items: center; gap: 4px; min-width: 0; padding: 0 2px 2px; }
@@ -796,7 +824,8 @@ button { cursor: pointer; }
 .forum-viewer { position: fixed; inset: 0; z-index: 400; display: grid; place-items: center; padding: 0; border: 0; background: rgba(12,8,16,.92); }
 .forum-viewer img { max-width: 100%; max-height: 100%; object-fit: contain; }
 .phone-dm-row { grid-template-columns: 44px 1fr; column-gap: 12px; row-gap: 2px; align-items: center; }
-.phone-dm-row img, .phone-dm-row i { grid-row: span 2; width: 44px; height: 44px; border-radius: 50%; object-fit: cover; display: grid; place-items: center; font-style: normal; font-weight: 800; color: #fff; background: var(--theme-accent); }
+.phone-dm-row img, .phone-dm-row i { grid-row: span 3; width: 44px; height: 44px; border-radius: 50%; object-fit: cover; display: grid; place-items: center; font-style: normal; font-weight: 800; color: #fff; background: var(--theme-accent); }
+.phone-dm-row small { color: var(--theme-accent); font-size: 11px; font-weight: 700; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .phone-points { display: grid; gap: 6px; }
 .phone-points-row { display: grid; gap: 6px; }
 .phone-points-name { display: grid; grid-template-columns: 24px 1fr auto; align-items: center; gap: 8px; min-height: 40px; padding: 0 12px; border: 0; border-radius: 12px; background: #f6f5f7; color: #3b3440; font-size: 15px; font-weight: 700; text-align: left; }
