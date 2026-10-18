@@ -14,7 +14,7 @@ const uid = () => `diary-${Date.now().toString(36)}-${Math.random().toString(36)
 const DIARY_IMAGE_LIMIT = 9
 const when = (at: number) => new Date(at).toLocaleString([], { month: 'numeric', day: 'numeric', hour: '2-digit', minute: '2-digit' })
 
-export default function PhoneDiary({ members, conversations, userName, api }: { members: Character[]; conversations: Conversation[]; userName: string; api: ApiConfig }) {
+export default function PhoneDiary({ members, conversations, userName, api, onPublished }: { members: Character[]; conversations: Conversation[]; userName: string; api: ApiConfig; onPublished?: (entry: DiaryEntry) => void }) {
   const [state, setState] = useState<PhoneDiaryState>(readPhoneDiary)
   const [points, setPoints] = useState<PointsState>(readPoints)
   const [compose, setCompose] = useState(false)
@@ -53,10 +53,12 @@ export default function PhoneDiary({ members, conversations, userName, api }: { 
     if (!cleanBody && !images.length) return
     const now = Date.now()
     const cleanTitle = title.trim() || new Date(now).toLocaleDateString([], { month: 'long', day: 'numeric' })
+    const newEntry: DiaryEntry | undefined = editingId ? undefined : { id: uid(), title: cleanTitle.slice(0, 50), body: cleanBody, images, createdAt: now, updatedAt: now, unlockedBy: [], notifiedTo: [] }
     const entries = editingId
       ? state.entries.map((entry) => entry.id === editingId ? { ...entry, title: cleanTitle.slice(0, 50), body: cleanBody, images, updatedAt: now } : entry)
-      : [{ id: uid(), title: cleanTitle.slice(0, 50), body: cleanBody, images, createdAt: now, updatedAt: now, unlockedBy: [] }, ...state.entries]
+      : [newEntry!, ...state.entries]
     saveState({ ...state, entries })
+    if (newEntry) onPublished?.(newEntry)
     resetCompose()
   }
   const editEntry = (entry: DiaryEntry) => { setEditingId(entry.id); setTitle(entry.title); setBody(entry.body); setImages(entry.images || []); setCompose(true) }
