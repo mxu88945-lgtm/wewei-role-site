@@ -1,4 +1,6 @@
 import type { Character } from './characterCard'
+import type { ChatApiContentPart } from './chatApi'
+import type { ChatImage } from './chatImages'
 import type { Conversation } from './conversationLifecycle'
 
 /** 戏外社区·动态（朋友圈）。独立结构化保存，只按需把当前帖子相关的少量内容送进模型。 */
@@ -16,6 +18,8 @@ export type Moment = {
   id: string
   authorId: string
   text: string
+  /** 用户真正上传的图片；角色自动生成的配图仍使用 image 文字描述。 */
+  images?: ChatImage[]
   image?: string
   createdAt: number
   visibility: MomentVisibility
@@ -87,11 +91,17 @@ export function buildPostPrompt(input: { author: Character; brief: string; userN
 export function buildCommentPrompt(input: { moment: Moment; nameOf: (id: string) => string; briefs: string[]; candidateNames: string[]; mentionedNames: string[]; userName: string; recent: string[]; trigger: string }) {
   const { moment, nameOf } = input
   const source = moment.sourceExcerpt ? `\n这条动态关联原剧情片段（只有原剧情里的人清楚来龙去脉）：${clip(moment.sourceExcerpt, 400)}` : ''
-  return [
+  const pictures = moment.images?.length ? `\n（配了 ${moment.images.length} 张真实图片，图片附在后面，可以针对画面内容评论）` : moment.image ? `\n（配图：${clip(moment.image, 100)}）` : ''
+  const messages: Array<{ role: 'system' | 'user'; content: string | ChatApiContentPart[] }> = [
     { role: 'system' as const, content: `${COMMUNITY_RULES(input.userName)}\n\n能看到这条动态的角色：\n${input.briefs.join('\n')}${input.recent.length ? `\n\n最近其他动态：\n${input.recent.join('\n')}` : ''}` },
-    { role: 'user' as const, content: `动态｜${nameOf(moment.authorId)}：${moment.text}${source}\n\n已有评论：\n${threadText(moment, nameOf) || '（还没有）'}\n\n${input.trigger}\n可以发言的角色只有：${input.candidateNames.join('、')}。${input.mentionedNames.length ? `被 @ 的 ${input.mentionedNames.join('、')} 必须回复。` : ''}不要替${input.userName}发言。
+    { role: 'user' as const, content: `动态｜${nameOf(moment.authorId)}：${moment.text || '（只发了图片）'}${pictures}${source}\n\n已有评论：\n${threadText(moment, nameOf) || '（还没有）'}\n\n${input.trigger}\n可以发言的角色只有：${input.candidateNames.join('、')}。${input.mentionedNames.length ? `被 @ 的 ${input.mentionedNames.join('、')} 必须回复。` : ''}不要替${input.userName}发言。
 只输出 JSON：{"likes":["点赞的角色名"],"comments":[{"author":"角色名","reply_to":"被回复的人名或空字符串","text":"评论"}]}。评论按时间顺序，允许角色之间互相回复、连环接梗；每条不超过 40 字。` },
   ]
+  if (moment.images?.length) {
+    const last = messages[1]
+    last.content = [{ type: 'text', text: last.content as string }, ...moment.images.slice(0, 4).map((image): ChatApiContentPart => ({ type: 'image_url', image_url: { url: image.dataUrl, detail: 'low' } }))]
+  }
+  return messages
 }
 
 export type ParsedReaction = { likes: string[]; comments: Array<{ author: string; replyTo: string; text: string }> }

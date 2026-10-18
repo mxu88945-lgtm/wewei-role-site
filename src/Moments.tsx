@@ -2,7 +2,8 @@ import type React from 'react'
 import { useEffect, useMemo, useRef, useState } from 'react'
 import type { Character } from './characterCard'
 import type { Conversation } from './conversationLifecycle'
-import { completeChat, type ApiConfig } from './chatApi'
+import { completeChat, type ApiConfig, type ChatApiMessage } from './chatApi'
+import { prepareChatImage, type ChatImage } from './chatImages'
 import { durableGet, durableSet } from './persistentStore'
 import {
   MOMENTS_UPDATED_EVENT, USER_AUTHOR, buildCommentPrompt, buildPostPrompt, characterBrief, communityMemberIds, findMentionIds, momentAudienceIds,
@@ -24,6 +25,7 @@ type Props = {
 
 const STORE_KEY = 'weijing.moments'
 const MAX_MOMENTS = 300
+const MOMENT_IMAGE_LIMIT = 9
 const uid = () => `${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 8)}`
 
 const revealOnFocus = (event: React.FocusEvent<HTMLElement>) => {
@@ -48,12 +50,14 @@ export function Moments({ characters, conversations, userName, userAvatar, api, 
   const [composeOpen, setComposeOpen] = useState(false)
   const [composeAuthor, setComposeAuthor] = useState(USER_AUTHOR)
   const [composeText, setComposeText] = useState('')
+  const [composeImages, setComposeImages] = useState<ChatImage[]>([])
   const [composeSource, setComposeSource] = useState<{ conversationId: string; excerpt: string } | null>(null)
   const [visibility, setVisibility] = useState<MomentVisibility>({ kind: 'all' })
   const [menuId, setMenuId] = useState('')
   const [commentTarget, setCommentTarget] = useState<{ momentId: string; replyTo?: string } | null>(null)
   const [commentText, setCommentText] = useState('')
   const [sourceOpenId, setSourceOpenId] = useState('')
+  const [viewer, setViewer] = useState('')
   const momentsRef = useRef(moments)
   momentsRef.current = moments
 
@@ -92,7 +96,22 @@ export function Moments({ characters, conversations, userName, userAvatar, api, 
 
   const update = (id: string, change: (moment: Moment) => Moment) => setMoments((current) => current.map((item) => item.id === id ? change(item) : item))
 
-  const callModel = async (messages: ReturnType<typeof buildPostPrompt>, maxTokens: number) => {
+  const addImages = async (files: FileList | null) => {
+    const picked = Array.from(files || []).slice(0, Math.max(0, MOMENT_IMAGE_LIMIT - composeImages.length))
+    if (!picked.length) { if (files?.length) setError(`最多 ${MOMENT_IMAGE_LIMIT} 张图`); return }
+    setBusy('正在处理图片…')
+    setError('')
+    try {
+      const images = await Promise.all(picked.map((file) => prepareChatImage(file)))
+      setComposeImages((current) => [...current, ...images].slice(0, MOMENT_IMAGE_LIMIT))
+    } catch (cause) {
+      setError(cause instanceof Error ? cause.message : '图片读取失败')
+    } finally {
+      setBusy('')
+    }
+  }
+
+  const callModel = async (messages: ChatApiMessage[], maxTokens: number) => {
     let output = ''
     await completeChat({ api, messages, temperature: .95, topP: .95, maxTokens, streaming: false, signal: new AbortController().signal, onDelta: (delta) => { output += delta } })
     return output
@@ -106,13 +125,20 @@ export function Moments({ characters, conversations, userName, userAvatar, api, 
     setBusy('大家正在刷动态…')
     setError('')
     try {
-      const raw = await callModel(buildCommentPrompt({
+      const promptInput = {
         moment, nameOf, userName, trigger,
         briefs: audience.map((character) => characterBrief(character, conversations)),
         candidateNames: audience.map((character) => character.name),
         mentionedNames: mentioned.map(nameOf),
         recent: sorted.filter((item) => item.id !== momentId).slice(0, 4).map((item) => momentLine(item, nameOf)),
-      }), 1600)
+      }
+      let raw: string
+      try {
+        raw = await callModel(buildCommentPrompt(promptInput), 1600)
+      } catch (cause) {
+        if (!moment.images?.length) throw cause
+        raw = await callModel(buildCommentPrompt({ ...promptInput, moment: { ...moment, images: undefined } }), 1600)
+      }
       const parsed = parseReaction(raw)
       const byName = (name: string) => name === userName ? USER_AUTHOR : audience.find((character) => character.name === name)?.id
       const now = Date.now()
@@ -150,13 +176,14 @@ export function Moments({ characters, conversations, userName, userAvatar, api, 
       }
       setBusy('')
     }
-    if (!text) return
-    const moment: Moment = { id: uid(), authorId: composeAuthor, text, image, createdAt: Date.now(), visibility, likes: [], comments: [], ...(composeSource ? { sourceConversationId: composeSource.conversationId, sourceExcerpt: composeSource.excerpt } : {}) }
+    if (!text && !composeImages.length) return
+    const images = composeImages
+    const moment: Moment = { id: uid(), authorId: composeAuthor, text, ...(images.length ? { images } : { image }), createdAt: Date.now(), visibility, likes: [], comments: [], ...(composeSource ? { sourceConversationId: composeSource.conversationId, sourceExcerpt: composeSource.excerpt } : {}) }
     setMoments((current) => [moment, ...current])
     momentsRef.current = [moment, ...momentsRef.current]
-    setComposeOpen(false); setComposeText(''); setComposeSource(null); setComposeAuthor(USER_AUTHOR)
+    setComposeOpen(false); setComposeText(''); setComposeImages([]); setComposeSource(null); setComposeAuthor(USER_AUTHOR)
     const people = members.map((item) => ({ id: item.id, name: item.name }))
-    await react(moment.id, '这条动态刚发出来，能看到的角色自然地来点赞、评论、互相接话（不是每个人都必须说话）。', findMentionIds(text, people))
+    await react(moment.id, `这条动态刚发出来${images.length ? `，配了 ${images.length} 张图` : ''}，能看到的角色自然地来点赞、评论、互相接话（不是每个人都必须说话）。`, findMentionIds(text, people))
   }
 
   const sendComment = async () => {
@@ -175,7 +202,7 @@ export function Moments({ characters, conversations, userName, userAvatar, api, 
       ? [moment.visibility.groupId]
       : phoneGroups.filter((group) => moment.authorId === USER_AUTHOR || group.participantIds?.includes(moment.authorId)).map((group) => group.id)
     const thread = threadText(moment, nameOf, 12)
-    onSaveToMemory(groupIds, `动态｜${nameOf(moment.authorId)}`, `${nameOf(moment.authorId)}发了动态：“${moment.text}”${thread ? `\n评论区：\n${thread}` : ''}`)
+    onSaveToMemory(groupIds, `动态｜${nameOf(moment.authorId)}`, `${nameOf(moment.authorId)}发了动态：“${moment.text || '（无文字）'}”${moment.images?.length ? `（配图 ${moment.images.length} 张）` : ''}${thread ? `\n评论区：\n${thread}` : ''}`)
     update(moment.id, (item) => ({ ...item, savedToMemory: true }))
     setMenuId('')
   }
@@ -187,6 +214,7 @@ export function Moments({ characters, conversations, userName, userAvatar, api, 
   if (!members.length) return <div className="privacy-note">先建一个小手机群，群里的角色就会住进社区，可以发动态、评论、互相举报。</div>
 
   return <div className="moments">
+    {viewer && <button className="forum-viewer" aria-label="关闭大图" onClick={() => setViewer('')}><img src={viewer} alt="" /></button>}
     <div className="moments-toolbar">
       <button className="library-sheet-save" disabled={Boolean(busy)} onClick={() => setComposeOpen(true)}>＋ 发动态</button>
     </div>
@@ -195,6 +223,10 @@ export function Moments({ characters, conversations, userName, userAvatar, api, 
     {composeOpen && <article className="moment-compose">
       <label>谁来发<select value={composeAuthor} onChange={(event) => setComposeAuthor(event.target.value)}><option value={USER_AUTHOR}>{userName}（我）</option>{members.map((item) => <option key={item.id} value={item.id}>{item.name}</option>)}</select></label>
       <textarea onFocus={revealOnFocus} value={composeText} onChange={(event) => setComposeText(event.target.value)} rows={3} placeholder={composeAuthor === USER_AUTHOR ? '这一刻的想法……可以 @角色' : '留空就让 TA 自己写一条'} />
+      <div className="forum-image-picks">
+        {composeImages.map((image) => <span key={image.id} className="forum-image-pick"><img src={image.dataUrl} alt="" /><button aria-label="移除图片" onClick={() => setComposeImages((current) => current.filter((item) => item.id !== image.id))}>×</button></span>)}
+        {composeImages.length < MOMENT_IMAGE_LIMIT && <label className="forum-image-add" aria-label="添加图片">📷<input type="file" accept="image/*" multiple onChange={(event) => { void addImages(event.target.files); event.target.value = '' }} /></label>}
+      </div>
       {composeSource && <div className="moment-source-chip">关联原剧情：{composeSource.excerpt.slice(0, 40)}…<button onClick={() => setComposeSource(null)}>×</button></div>}
       <label>谁可以看<select value={visibility.kind === 'group' ? `group:${visibility.groupId}` : visibility.kind === 'members' ? 'members' : 'all'} onChange={(event) => {
         const value = event.target.value
@@ -204,7 +236,7 @@ export function Moments({ characters, conversations, userName, userAvatar, api, 
         const picked = visibility.memberIds.includes(item.id)
         return <button key={item.id} className={picked ? 'picked' : ''} onClick={() => setVisibility({ kind: 'members', memberIds: picked ? visibility.memberIds.filter((id) => id !== item.id) : [...visibility.memberIds, item.id] })}>{item.name}</button>
       })}</div>}
-      <div className="moment-compose-actions"><button onClick={() => { setComposeOpen(false); setComposeSource(null) }}>取消</button><button className="primary" disabled={Boolean(busy) || (composeAuthor === USER_AUTHOR && !composeText.trim()) || (visibility.kind === 'members' && !visibility.memberIds.length)} onClick={() => void publish()}>{composeAuthor !== USER_AUTHOR && !composeText.trim() ? '让 TA 写一条' : '发表'}</button></div>
+      <div className="moment-compose-actions"><button onClick={() => { setComposeOpen(false); setComposeSource(null); setComposeImages([]) }}>取消</button><button className="primary" disabled={Boolean(busy) || (composeAuthor === USER_AUTHOR && !composeText.trim() && !composeImages.length) || (visibility.kind === 'members' && !visibility.memberIds.length)} onClick={() => void publish()}>{composeAuthor !== USER_AUTHOR && !composeText.trim() ? '让 TA 写一条' : '发表'}</button></div>
     </article>}
     {!sorted.length && <div className="privacy-note">社区还很安静。发第一条，或者让某个角色先发。</div>}
     {sorted.map((moment) => {
@@ -219,7 +251,7 @@ export function Moments({ characters, conversations, userName, userAvatar, api, 
           <button className="danger" onClick={() => { if (window.confirm('删除这条动态和全部评论？')) { setMoments((current) => current.filter((item) => item.id !== moment.id)); setMenuId('') } }}>删除</button>
         </div>}
         <p className="moment-text">{moment.text}</p>
-        {moment.image && <div className="moment-image">📷 {moment.image}</div>}
+        {moment.images?.length ? <div className={`forum-images count-${Math.min(moment.images.length, 3)}`}>{moment.images.map((image) => <button key={image.id} aria-label="查看大图" onClick={() => setViewer(image.dataUrl)}><img src={image.dataUrl} alt="" loading="lazy" /></button>)}</div> : moment.image && <div className="moment-image">📷 {moment.image}</div>}
         {moment.sourceExcerpt && <button className="moment-source" onClick={() => setSourceOpenId(sourceOpenId === moment.id ? '' : moment.id)}>出处：{conversations.find((item) => item.id === moment.sourceConversationId)?.title || '原剧情'} {sourceOpenId === moment.id ? '收起' : '查看'}</button>}
         {sourceOpenId === moment.id && <blockquote className="moment-source-text">{moment.sourceExcerpt}</blockquote>}
         <div className="moment-actions"><button className={moment.likes.includes(USER_AUTHOR) ? 'liked' : ''} onClick={() => toggleLike(moment)}>♡ {moment.likes.length || ''}</button>{!moment.commentsClosed && <button onClick={() => setCommentTarget({ momentId: moment.id })}>评论</button>}</div>

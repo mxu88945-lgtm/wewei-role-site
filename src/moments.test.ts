@@ -39,6 +39,14 @@ describe('moments', () => {
     expect(text).toContain('沈衍：在加班')
   })
 
+  it('tells reactions about real uploaded pictures', () => {
+    const prompt = buildCommentPrompt({ moment: moment({ text: '', images: [{ id: 'p', dataUrl: 'data:image/jpeg;base64,AA', width: 10, height: 10 }] }), nameOf: () => '惟惟', briefs: ['【傅承砚】…'], candidateNames: ['傅承砚'], mentionedNames: [], userName: '惟惟', recent: [], trigger: '刚发出来' })
+    const content = prompt[1].content
+    expect(Array.isArray(content)).toBe(true)
+    expect(content[0]).toMatchObject({ type: 'text', text: expect.stringContaining('配了 1 张真实图片') })
+    expect(content[1]).toMatchObject({ type: 'image_url', image_url: { url: 'data:image/jpeg;base64,AA' } })
+  })
+
   it('splits a described photo and finds @ mentions', () => {
     expect(splitPostImage('今晚天气不错。\n[图片] 星空')).toEqual({ text: '今晚天气不错。', image: '星空' })
     expect(findMentionIds('@谢聿衡 你出来', [{ id: 'xie', name: '谢聿衡' }, { id: 'fu', name: '傅承砚' }])).toEqual(['xie'])
