@@ -3,6 +3,7 @@ import type { Conversation } from './conversationLifecycle'
 
 /** 戏外社区·动态（朋友圈）。独立结构化保存，只按需把当前帖子相关的少量内容送进模型。 */
 export const USER_AUTHOR = 'user'
+export const MOMENTS_UPDATED_EVENT = 'weijing-moments-updated'
 
 export type MomentVisibility =
   | { kind: 'all' }

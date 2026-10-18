@@ -1,7 +1,10 @@
 import type { Character } from './characterCard'
 import type { Conversation } from './conversationLifecycle'
 import { completeChat, type ApiConfig, type ChatApiMessage } from './chatApi'
-import { characterBrief, communityMemberIds } from './moments'
+import {
+  buildCommentPrompt, buildPostPrompt, characterBrief, communityMemberIds, momentAudienceIds, momentLine,
+  parseReaction, sortMoments, splitPostImage, type Moment, type MomentComment,
+} from './moments'
 import {
   FORUM_RULES, FORUM_USER, buildFloorsPrompt, buildThreadPrompt, floorNumber, forumThreadLine, parseFloors, parseThreadDraft, pickForumReaders, sortThreads,
   type ForumFloor, type ForumThread,
@@ -10,8 +13,8 @@ import {
 /** 小手机“自动活跃”：App 开着时按点触发，重新打开时补一次错过的。没有服务器，关掉 App 时不会跑。 */
 export const PHONE_AUTO_KEY = 'weijing.phoneAuto'
 export const PHONE_AUTO_INTERVALS = [30, 60, 120, 240, 480] as const
-export type PhoneAutoSettings = { enabled: boolean; intervalMinutes: number; forum: boolean; groups: boolean; lastRun: number; quietNight: boolean; /** 23 点到 1 点之间，偶尔有人私聊一句“睡了吗”。不受“开启”影响。 */ lateNight?: boolean; /** 白天 9—23 点偶尔有人主动私聊，一天最多 3 次。不受“开启”影响。 */ dayDm?: boolean }
-export const DEFAULT_PHONE_AUTO: PhoneAutoSettings = { enabled: false, intervalMinutes: 120, forum: true, groups: true, lastRun: 0, quietNight: true, lateNight: true }
+export type PhoneAutoSettings = { enabled: boolean; intervalMinutes: number; forum: boolean; moments: boolean; groups: boolean; lastRun: number; quietNight: boolean; /** 23 点到 1 点之间，偶尔有人私聊一句“睡了吗”。不受“开启”影响。 */ lateNight?: boolean; /** 白天 9—23 点偶尔有人主动私聊，一天最多 3 次。不受“开启”影响。 */ dayDm?: boolean }
+export const DEFAULT_PHONE_AUTO: PhoneAutoSettings = { enabled: false, intervalMinutes: 120, forum: true, moments: true, groups: true, lastRun: 0, quietNight: true, lateNight: true }
 export const PHONE_AUTO_EVENT = 'weijing-phone-auto-settings'
 export const FORUM_UPDATED_EVENT = 'weijing-forum-updated'
 
@@ -25,7 +28,7 @@ export function writePhoneAuto(value: PhoneAutoSettings) {
 
 /** 是否该跑一次；返回这次代表的时间点（错过多次只补最近一次）。 */
 export function dueRunAt(settings: PhoneAutoSettings, now: number) {
-  if (!settings.enabled || (!settings.forum && !settings.groups)) return null
+  if (!settings.enabled || (!settings.forum && !settings.moments && !settings.groups)) return null
   const interval = Math.max(15, settings.intervalMinutes) * 60000
   if (!settings.lastRun) return now
   if (now - settings.lastRun < interval) return null
@@ -81,6 +84,51 @@ export async function forumAutoTick(input: { threads: ForumThread[]; characters:
   const likes = parsed.likes.map(byName).filter((id): id is string => Boolean(id))
   const id = target.id
   return threads.map((item) => item.id === id ? { ...item, likes: [...new Set([...item.likes, ...likes])], floors: [...item.floors, ...floors], updatedAt: floors.length ? floors[floors.length - 1].createdAt : item.updatedAt } : item)
+}
+
+/** 朋友圈自动一轮：随机角色发一条，能看见的人自然点赞、评论、互相接话。 */
+export async function momentsAutoTick(input: { moments: Moment[]; characters: Character[]; conversations: Conversation[]; api: ApiConfig; userName: string; at: number; random?: () => number }): Promise<Moment[]> {
+  const random = input.random || Math.random
+  const memberIds = communityMemberIds(input.conversations)
+  const members = memberIds.map((id) => input.characters.find((item) => item.id === id)).filter(Boolean) as Character[]
+  if (!members.length) return input.moments
+  const nameOf = (id: string) => id === 'user' ? input.userName : input.characters.find((item) => item.id === id)?.name || '已离开的角色'
+  const recentMoments = sortMoments(input.moments).slice(0, 6)
+  const author = members[Math.floor(random() * members.length)]
+  const raw = await callModel(input.api, buildPostPrompt({
+    author,
+    brief: characterBrief(author, input.conversations),
+    userName: input.userName,
+    summaries: input.moments.filter((item) => item.savedToMemory).slice(-5).map((item) => momentLine(item, nameOf)),
+    recent: recentMoments.map((item) => momentLine(item, nameOf)),
+  }), 400)
+  const draft = splitPostImage(raw)
+  if (!draft.text) throw new Error('模型没写出朋友圈正文')
+  const moment: Moment = { id: uid(), authorId: author.id, text: draft.text, image: draft.image, createdAt: input.at, visibility: { kind: 'all' }, likes: [], comments: [] }
+  const audienceIds = momentAudienceIds(moment, input.conversations).filter((id) => id !== author.id)
+  const shuffled = [...audienceIds].sort(() => random() - .5).slice(0, 6)
+  const readers = shuffled.map((id) => input.characters.find((item) => item.id === id)).filter(Boolean) as Character[]
+  if (!readers.length) return [moment, ...input.moments]
+  const reactionRaw = await callModel(input.api, buildCommentPrompt({
+    moment,
+    nameOf,
+    userName: input.userName,
+    trigger: '这条朋友圈刚发出来，能看到的人自然地点赞、评论、互相接话；不相关的人可以不说话。',
+    briefs: readers.map((character) => characterBrief(character, input.conversations)),
+    candidateNames: readers.map((character) => character.name),
+    mentionedNames: [],
+    recent: recentMoments.slice(0, 4).map((item) => momentLine(item, nameOf)),
+  }), 1400)
+  const parsed = parseReaction(reactionRaw)
+  const byName = (name: string) => readers.find((character) => character.name === name)?.id
+  const comments: MomentComment[] = parsed.comments.flatMap((comment, index) => {
+    const authorId = byName(comment.author)
+    if (!authorId) return []
+    const replyToAuthorId = comment.replyTo ? byName(comment.replyTo) : undefined
+    return [{ id: uid(), authorId, replyToAuthorId: replyToAuthorId && replyToAuthorId !== authorId ? replyToAuthorId : undefined, text: comment.text, createdAt: input.at + (index + 1) * 30000 }]
+  })
+  const likes = parsed.likes.map(byName).filter((id): id is string => Boolean(id))
+  return [{ ...moment, likes: [...new Set(likes)], comments }, ...input.moments]
 }
 
 /** 群聊自动冒泡挑一个群：最近有人说过话的群优先。 */

@@ -5,10 +5,10 @@ import type { Conversation } from './conversationLifecycle'
 import { completeChat, type ApiConfig, type ChatApiMessage } from './chatApi'
 import { prepareChatImage, type ChatImage } from './chatImages'
 import { durableGet, durableSet } from './persistentStore'
-import { characterBrief, communityMemberIds, findMentionIds, type Moment } from './moments'
+import { characterBrief, communityMemberIds, findMentionIds } from './moments'
 import {
   FORUM_BOARDS, FORUM_FLOOR_IMAGE_LIMIT, FORUM_REPORT_REASONS, FORUM_SYSTEM, FORUM_THREAD_IMAGE_LIMIT, FORUM_USER, forumPromptPixels, buildFloorsPrompt, buildThreadPrompt, floorNumber, floorsText, forumThreadLine, parseFloors, parseThreadDraft,
-  pickForumReaders, sortThreads, threadsFromMoments, type ForumBoard, type ForumFloor, type ForumThread,
+  pickForumReaders, sortThreads, type ForumBoard, type ForumFloor, type ForumThread,
   matchForumAuthor, forumShareText,
 } from './forum'
 import type { MomentSeed } from './Moments'
@@ -28,7 +28,6 @@ type Props = {
 }
 
 const STORE_KEY = 'weijing.forum'
-const MOMENTS_KEY = 'weijing.moments'
 const MAX_THREADS = 300
 const uid = () => `${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 8)}`
 
@@ -87,11 +86,10 @@ export function Forum({ characters, conversations, userName, userAvatar, api, se
 
   useEffect(() => {
     let cancelled = false
-    Promise.all([durableGet<ForumThread[]>(STORE_KEY), durableGet<Moment[]>(MOMENTS_KEY)])
-      .then(([stored, moments]) => {
+    durableGet<ForumThread[]>(STORE_KEY)
+      .then((stored) => {
         if (cancelled) return
-        // 第一次打开论坛：把旧动态搬进来，原数据不删。
-        setThreads(stored ? stored : moments?.length ? threadsFromMoments(moments) : [])
+        setThreads(stored || [])
         setReady(true)
       })
       .catch(() => setReady(true))

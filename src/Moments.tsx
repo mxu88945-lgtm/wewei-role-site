@@ -5,7 +5,7 @@ import type { Conversation } from './conversationLifecycle'
 import { completeChat, type ApiConfig } from './chatApi'
 import { durableGet, durableSet } from './persistentStore'
 import {
-  USER_AUTHOR, buildCommentPrompt, buildPostPrompt, characterBrief, communityMemberIds, findMentionIds, momentAudienceIds,
+  MOMENTS_UPDATED_EVENT, USER_AUTHOR, buildCommentPrompt, buildPostPrompt, characterBrief, communityMemberIds, findMentionIds, momentAudienceIds,
   momentLine, parseReaction, sortMoments, splitPostImage, threadText, type Moment, type MomentComment, type MomentVisibility,
 } from './moments'
 
@@ -61,6 +61,15 @@ export function Moments({ characters, conversations, userName, userAvatar, api, 
     let cancelled = false
     durableGet<Moment[]>(STORE_KEY).then((stored) => { if (!cancelled) { setMoments(stored || []); setReady(true) } }).catch(() => setReady(true))
     return () => { cancelled = true }
+  }, [])
+  useEffect(() => {
+    const sync = (event: Event) => {
+      const detail = (event as CustomEvent<Moment[]>).detail
+      if (Array.isArray(detail)) setMoments(detail)
+      else void durableGet<Moment[]>(STORE_KEY).then((stored) => setMoments(stored || []))
+    }
+    window.addEventListener(MOMENTS_UPDATED_EVENT, sync)
+    return () => window.removeEventListener(MOMENTS_UPDATED_EVENT, sync)
   }, [])
   useEffect(() => { if (ready) void durableSet(STORE_KEY, moments.slice(0, MAX_MOMENTS)) }, [moments, ready])
 

@@ -16,13 +16,13 @@ import PhoneLockScreen from './PhoneLockScreen'
 import PhoneWebSettings from './PhoneWebSettings'
 import { TAVILY_KEY_STORAGE, buildSearchQuery, needsWebSearch, tavilySearch } from './phoneWeb'
 import { createBlankCharacter, importCharacterCard, normalizeStoredCharacter, LIBRARY_ROLES, type Character, type LibraryRole } from './characterCard'
-import { type MomentSeed } from './Moments'
+import { Moments, type MomentSeed } from './Moments'
 import { Forum } from './Forum'
 import { DAY_DM_KEY, LATE_NIGHT_KEY, PAT_LINE, canDayDm, dayDmReason, nextDayDmState, type DayDmState, applyPatTags, applyRedPacketTags, buildRedPacketNote, createRedPacket, findRedPacket, lateNightKey, parseRedPacketLine, parseTransferLine, transferText, TRANSFER_NOTE, readRedPackets, redPacketOrdinal, redPacketText, userPatText, writeRedPackets, type RedPacketLineInfo } from './phoneFun'
 import { RedPacketCard, RedPacketDetail, RedPacketSendSheet, TransferCard, TransferSheet } from './RedPacket'
 import { messageTime, phoneTimeLabel, showPhoneTimeDivider } from './phoneTime'
 import { latestMessageId, phoneUnreadCount, unreadLabel } from './phoneUnread'
-import { FORUM_USER, buildForumRecapNote, findForumThread, forumShareText, threadsFromMoments, type ForumThread } from './forum'
+import { FORUM_USER, buildForumRecapNote, findForumThread, forumShareText, type ForumThread } from './forum'
 import PhoneAutoSettingsCard from './PhoneAutoSettings'
 import PhonePointsCard from './PhonePointsCard'
 import { fixStageMentions, phoneStageNameNote } from './phoneStageName'
@@ -33,9 +33,9 @@ import PhoneGames, { PhoneGameCard } from './PhoneGames'
 import { buildPhoneGameNote, nextPhoneGame, phoneGameSpeakers, phoneGameText, type GamePlayer, type PhoneGameKind, type PhoneGameRound, type TruthMode } from './phoneGames'
 import { collageAvatar, phoneAvatarSignature, squareAvatarFromFile } from './groupAvatar'
 import { PHONE_POINTS_EVENT, addPoints, applyMessagePoints, buildPointsNote, readPoints, todayTopPoints, writePoints } from './phonePoints'
-import { FORUM_UPDATED_EVENT, dueRunAt, forumAutoTick, forumWelcomeThread, isQuietHour, pickAutoGroup, readPhoneAuto, writePhoneAuto } from './phoneAuto'
+import { FORUM_UPDATED_EVENT, dueRunAt, forumAutoTick, forumWelcomeThread, isQuietHour, momentsAutoTick, pickAutoGroup, readPhoneAuto, writePhoneAuto } from './phoneAuto'
 import type { Moment } from './moments'
-import { USER_AUTHOR, communityMemberIds, excerptFromMessage } from './moments'
+import { MOMENTS_UPDATED_EVENT, USER_AUTHOR, communityMemberIds, excerptFromMessage } from './moments'
 import { buildBackstageNote, buildDmGroupPeek, buildGroupDmPeek, parsePhoneForumShare, stripPhoneForumShareTag, phoneDeliveryInstruction, phoneDmRules, phonePromptHistory, PHONE_COMPLETION_TIMEOUT_MS } from './phoneGroup'
 import { splitPhoneBubbles } from './phoneBubbles'
 import { PhoneChatInfo } from './PhoneChatInfo'
@@ -485,7 +485,7 @@ function App() {
   const [characterSelectionMode, setCharacterSelectionMode] = useState(false)
   const [selectedCharacterIds, setSelectedCharacterIds] = useState<string[]>([])
   const [collapsedLibraryGroups, setCollapsedLibraryGroups] = useState<string[]>(() => read<string[]>('weijing.libraryCollapsed', []))
-  const [phoneTab, setPhoneTab] = useState<'groups' | 'dms' | 'moments' | 'shop'>('groups')
+  const [phoneTab, setPhoneTab] = useState<'groups' | 'dms' | 'moments' | 'friends' | 'shop'>('groups')
   const [momentSeed, setMomentSeed] = useState<MomentSeed | null>(null)
   const clearMomentSeed = useCallback(() => setMomentSeed(null), [])
   const [phoneDraft, setPhoneDraft] = useState<{ editingId?: string; title: string; memberIds: string[]; bindings: Record<string, string>; avatar?: string; avatarCollage?: boolean; noticeText?: string; noticeHours?: number; allowQuit?: boolean; allowKick?: boolean; allowForumShare?: boolean } | null>(null)
@@ -3173,8 +3173,7 @@ function App() {
         try {
           let current = forumThreadsRef.current
           if (!current.length) {
-            const [stored, moments] = await Promise.all([durableGet<ForumThread[]>('weijing.forum'), durableGet<Moment[]>('weijing.moments')])
-            current = stored || (moments?.length ? threadsFromMoments(moments) : [])
+            current = await durableGet<ForumThread[]>('weijing.forum') || []
           }
           const threads = await forumAutoTick({ threads: current, characters, conversations, api, userName: globalIdentity.name, at })
           forumThreadsRef.current = threads
@@ -3182,6 +3181,16 @@ function App() {
           window.dispatchEvent(new CustomEvent(FORUM_UPDATED_EVENT, { detail: threads }))
         } catch (cause) {
           problems.push(`论坛：${cause instanceof Error ? cause.message : '失败'}`)
+        }
+      }
+      if (settings.moments && isApiChannelComplete(api)) {
+        try {
+          const current = await durableGet<Moment[]>('weijing.moments') || []
+          const moments = await momentsAutoTick({ moments: current, characters, conversations, api, userName: globalIdentity.name, at })
+          await durableSet('weijing.moments', moments.slice(0, 300))
+          window.dispatchEvent(new CustomEvent(MOMENTS_UPDATED_EVENT, { detail: moments }))
+        } catch (cause) {
+          problems.push(`朋友圈：${cause instanceof Error ? cause.message : '失败'}`)
         }
       }
       if (settings.groups && !phoneLock) {
@@ -4089,9 +4098,10 @@ function App() {
       {!phoneDraft && <PhoneWebSettings />}
       {!phoneDraft && <PhoneAutoSettingsCard status={phoneAutoStatus} />}
       {!phoneDraft && <PhonePointsCard members={[...new Set(conversations.filter((item) => item.phone && !item.phone.dm).flatMap((item) => item.participantIds || []))].map((id) => characters.find((item) => item.id === id)).filter((item): item is Character => Boolean(item))} />}
-      {!phoneDraft && <div className="phone-tabs" role="tablist"><button role="tab" aria-selected={phoneTab === 'groups'} className={phoneTab === 'groups' ? 'active' : ''} onClick={() => setPhoneTab('groups')}>群聊{phoneUnread.groups > 0 && <b className="phone-unread inline">{unreadLabel(phoneUnread.groups)}</b>}</button><button role="tab" aria-selected={phoneTab === 'dms'} className={phoneTab === 'dms' ? 'active' : ''} onClick={() => setPhoneTab('dms')}>私聊{phoneUnread.dms > 0 && <b className="phone-unread inline">{unreadLabel(phoneUnread.dms)}</b>}</button><button role="tab" aria-selected={phoneTab === 'moments'} className={phoneTab === 'moments' ? 'active' : ''} onClick={() => setPhoneTab('moments')}>论坛</button><button role="tab" aria-selected={phoneTab === 'shop'} className={phoneTab === 'shop' ? 'active' : ''} onClick={() => setPhoneTab('shop')}>🏪 商店</button></div>}
+      {!phoneDraft && <div className="phone-tabs" role="tablist"><button role="tab" aria-selected={phoneTab === 'groups'} className={phoneTab === 'groups' ? 'active' : ''} onClick={() => setPhoneTab('groups')}>群聊{phoneUnread.groups > 0 && <b className="phone-unread inline">{unreadLabel(phoneUnread.groups)}</b>}</button><button role="tab" aria-selected={phoneTab === 'dms'} className={phoneTab === 'dms' ? 'active' : ''} onClick={() => setPhoneTab('dms')}>私聊{phoneUnread.dms > 0 && <b className="phone-unread inline">{unreadLabel(phoneUnread.dms)}</b>}</button><button role="tab" aria-selected={phoneTab === 'moments'} className={phoneTab === 'moments' ? 'active' : ''} onClick={() => setPhoneTab('moments')}>论坛</button><button role="tab" aria-selected={phoneTab === 'friends'} className={phoneTab === 'friends' ? 'active' : ''} onClick={() => setPhoneTab('friends')}>朋友圈</button><button role="tab" aria-selected={phoneTab === 'shop'} className={phoneTab === 'shop' ? 'active' : ''} onClick={() => setPhoneTab('shop')}>商店</button></div>}
       {!phoneDraft && phoneTab === 'shop' && <PhoneShop userName={globalIdentity.name} onGranted={(order) => setCharacters((current) => current.map((item) => item.id === order.buyerId ? addWishPoolLine(item, grantedWishLine(order, globalIdentity.name), globalIdentity.name) : item))} members={[...new Set(conversations.filter((item) => item.phone && !item.phone.dm).flatMap((item) => item.participantIds || []))].map((id) => characters.find((item) => item.id === id)).filter((item): item is Character => Boolean(item))} />}
       {!phoneDraft && phoneTab === 'moments' && <Forum characters={characters} conversations={conversations} userName={globalIdentity.name} userAvatar={globalIdentity.avatar} api={api} seed={momentSeed} onSeedUsed={clearMomentSeed} onSaveToMemory={saveMomentToMemory} onThreadsChange={handleForumChange} onShare={shareForumToChat} />}
+      {!phoneDraft && phoneTab === 'friends' && <Moments characters={characters} conversations={conversations} userName={globalIdentity.name} userAvatar={globalIdentity.avatar} api={api} seed={null} onSeedUsed={() => undefined} onSaveToMemory={saveMomentToMemory} />}
       {!phoneDraft && phoneTab === 'dms' && <>
         <div className="privacy-note">一对一私聊：TA 看得到自己所在群最近的聊天和论坛，可以私下跟你吐槽；群里的人看不到私聊。</div>
         {(() => {

@@ -8,7 +8,7 @@ describe('phone auto', () => {
     expect(dueRunAt({ ...on, lastRun: 0 }, 5000)).toBe(5000)
     expect(dueRunAt({ ...on, lastRun: 1000 }, 1000 + 30 * 60000)).toBeNull()
     expect(dueRunAt({ ...on, enabled: false }, 5000)).toBeNull()
-    expect(dueRunAt({ ...on, forum: false, groups: false }, 5000)).toBeNull()
+    expect(dueRunAt({ ...on, forum: false, moments: false, groups: false }, 5000)).toBeNull()
   })
   it('catches up once, dated to the latest missed slot', () => {
     expect(dueRunAt({ ...on, lastRun: 0 + 1 }, 1 + 3.5 * 3600000)).toBe(1 + 3 * 3600000)
