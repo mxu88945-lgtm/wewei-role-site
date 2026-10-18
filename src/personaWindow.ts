@@ -646,7 +646,7 @@ ${blocks.join('\n\n')}`
 }
 
 /** 小手机 ← 人格窗口: what one character remembers from his own window. Only ever for that character. */
-export function buildPersonaWindowNoteForPhone(state: PersonaWindowState, characterId: string, names: { char: string; user: string }, maxChars = 2400) {
+export function buildPersonaWindowNoteForPhone(state: PersonaWindowState, characterId: string, names: { char: string; user: string }, maxChars = 2400, isDm = false) {
   const persona = state.personas.find((item) => item.characterId === characterId)
   if (!persona) return ''
   const available = persona.memories.filter((item) => personaMemoryEntryAvailable(persona, item))
@@ -659,8 +659,11 @@ export function buildPersonaWindowNoteForPhone(state: PersonaWindowState, charac
     memories.length ? `记得的事：\n${memories.join('\n')}` : '',
     recent.length ? `最近在窗口里聊到：\n${recent.join('\n')}` : '',
   ].filter(Boolean).join('\n'), maxChars)
+  const guidance = isDm
+    ? `现在是${names.char}和${names.user}的一对一私聊，可以大大方方地用这些记忆，自然地带出熟悉感和默契；${names.user}问起窗口里的事，直接承认记得，不用藏。`
+    : `可以自然地带出熟悉感和默契；不要在群里大段复述，不要替别人知道这些，群里其他人不知道窗口里的事。`
   return `【${names.char}的人格窗口记忆｜只属于${names.char}本人，只读】
-${names.char}和${names.user}有一扇只属于两人的独立窗口（一对一私下相处）。下面是${names.char}自己在那里记得的事。可以自然地带出熟悉感和默契；不要在群里大段复述，不要替别人知道这些，群里其他人不知道窗口里的事。
+${names.char}和${names.user}有一扇只属于两人的独立窗口（一对一私下相处）。下面是${names.char}自己在那里记得的事。${guidance}
 ${body}`
 }
 
