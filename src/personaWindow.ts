@@ -596,7 +596,8 @@ export function collectPastLifeMemory({ character, conversations, memoryEntries,
     ].filter(Boolean)
     if (!parts.length) continue
     const kind = conversationKind(conversation)
-    const block = clip(`〔${kind}｜${conversation.title || '未命名'}〕\n${parts.join('\n')}`, PAST_LIFE_PER_CONVERSATION)
+    const isBound = boundSet.has(conversation.id)
+    const block = clip(`〔${isBound ? '绑定的群｜' : ''}${kind}｜${conversation.title || '未命名'}〕\n${parts.join('\n')}`, PAST_LIFE_PER_CONVERSATION)
     push(block, { conversationId: conversation.id, title: conversation.title || '未命名', kind, source: remembered ? 'memory' : summary ? 'summary' : 'excerpt' })
   }
   if (!blocks.length) return { text: '', sources, characterIds: ids, relatedConversationCount: related.length }
@@ -605,6 +606,7 @@ export function collectPastLifeMemory({ character, conversations, memoryEntries,
 - 可以自然记得有记录的称呼、偏好与交流；谈起长剧情时理解为共同故事。旧卡里的职业、婚姻和人物关系不自动成为当前关系。
 - 那些故事里的地点、身份和未完的事件属于过去的篇章，不要当成此刻正在发生；不要逐条复述。
 - 与这扇窗口自己的记忆或最新对话冲突时，以这扇窗口为准。
+- ${boundGroupIds.length ? '上面标有〔绑定的群〕的小手机群聊，其"最后聊到的"是最新的实时消息，你确实知道群里刚才发生了什么。' + '{{user}}问起时可以直接说记得、自然接话，不用装作不知道，也不用说什么"后台没有同步"。' : ''}
 
 ${blocks.join('\n\n')}`
   return { text, sources, characterIds: ids, relatedConversationCount: related.length }
