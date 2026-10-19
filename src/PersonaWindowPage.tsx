@@ -205,7 +205,7 @@ export default function PersonaWindowPage(props: Props) {
       streaming: props.streaming,
       memoryLength: props.memoryLength,
       // Read-only snapshot of this character's phone/story life, built per request.
-      pastLife: () => collectPastLifeMemory({ character, characters, conversations, memoryEntries, userName: identity.name }).text,
+      pastLife: () => collectPastLifeMemory({ character, characters, conversations, memoryEntries, userName: identity.name, boundGroupIds: persona?.boundGroupIds }).text,
       globalWorldbook: props.globalWorldbook || '',
       setting: () => buildPersonaSetting({ character, characters, conversations, storyProjects: props.storyProjects || [] }),
     }
@@ -513,8 +513,21 @@ export default function PersonaWindowPage(props: Props) {
       <label className="persona-memory-field"><strong>关键词与别名</strong><textarea rows={2} maxLength={4000} value={active.memoryAliases || ''} onFocus={scrollFieldIntoView} placeholder="每行一组，例如：小米|米米|小鹦鹉" onChange={(event) => { const memoryAliases = event.target.value; setPersonaState((current) => updatePersona(current, active.id, (item) => ({ ...item, memoryAliases }))) }} /><small>用 | 分隔同一事物的不同叫法，自动保存。</small></label>
       <PersonaMemoryInspection audit={runtime.memoryAudits[threadId]} />
       <div className="persona-toggle-row"><div><strong>前世记忆</strong><small>只读参考小手机交流与长剧情故事，不自动续演原卡剧情。</small></div><button className={`switch ${active.pastLifeEnabled !== false ? 'on' : ''}`} aria-label="前世记忆" {...tap(() => setPersonaState((current) => updatePersona(current, active.id, (item) => ({ ...item, pastLifeEnabled: item.pastLifeEnabled === false }))))}><span /></button></div>
+      {active.pastLifeEnabled !== false && (() => {
+        const groups = conversations.filter((c) => c.phone && !c.phone.dm)
+        if (!groups.length) return null
+        const bound = active.boundGroupIds || []
+        const toggle = (id: string) => {
+          setPersonaState((current) => updatePersona(current, active.id, (item) => {
+            const current = item.boundGroupIds || []
+            const next = current.includes(id) ? current.filter((x) => x !== id) : [...current, id]
+            return { ...item, boundGroupIds: next.length ? next : undefined }
+          }))
+        }
+        return <div className="persona-bound-groups"><div><strong>绑定小手机群聊</strong><small>{bound.length ? `已绑定 ${bound.length} 个群，优先抓这些群的最新消息。` : '点选要绑定的群，优先抓这些群的最新消息。不选则自动按相关度抓。'}</small></div><div className="persona-bound-group-list">{groups.map((group) => <button key={group.id} aria-pressed={bound.includes(group.id)} className={bound.includes(group.id) ? 'on' : ''} {...tap(() => toggle(group.id))}><span>{group.title || '未命名群'}</span><i>{bound.includes(group.id) ? '✓' : '＋'}</i></button>)}</div></div>
+      })()}
       {(() => {
-        const past = collectPastLifeMemory({ character: activeCharacter, characters, conversations, memoryEntries, userName: identity.name })
+        const past = collectPastLifeMemory({ character: activeCharacter, characters, conversations, memoryEntries, userName: identity.name, boundGroupIds: active.boundGroupIds })
         const pastText = applyMacros(past.text, activeCharacter, identity.name)
         const deps = requestOpen ? depsFor(active.characterId) : null
         const request: ChatApiMessage[] = deps && thread ? buildPersonaRequest(active, thread.messages.filter((item) => item.text.trim() || item.images?.length), deps, thread) : []

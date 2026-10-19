@@ -97,6 +97,8 @@ export type PersonaWindow = {
   autoMemory?: boolean
   /** 前世记忆（小手机 + 长剧情）只读注入，默认开。 */
   pastLifeEnabled?: boolean
+  /** 手动绑定的小手机群聊 id（前世记忆优先抓这些群的最新消息）。 */
+  boundGroupIds?: string[]
   /** 这个人格用的 API 渠道；不填 = 跟随主聊天。 */
   apiChannelId?: string
   /** 渠道里的模型；不填 = 用渠道自己的模型。 */
@@ -208,6 +210,7 @@ export function normalizePersonaState(value: unknown): PersonaWindowState {
       memories: (Array.isArray(raw.memories) ? raw.memories : []).map(normalizeMemory).filter((item): item is PersonaMemoryEntry => Boolean(item)),
       autoMemory: raw.autoMemory !== false,
       pastLifeEnabled: raw.pastLifeEnabled !== false,
+      ...(Array.isArray(raw.boundGroupIds) && raw.boundGroupIds.length ? { boundGroupIds: raw.boundGroupIds.filter((id: unknown) => typeof id === 'string') } : {}),
       ...(text(raw.apiChannelId) ? { apiChannelId: text(raw.apiChannelId) } : {}),
       ...(text(raw.modelName).trim() ? { modelName: text(raw.modelName).trim() } : {}),
       ...(text(raw.systemPrompt).trim() ? { systemPrompt: text(raw.systemPrompt) } : {}),
@@ -470,6 +473,8 @@ type PastLifeInput = {
   characters?: readonly Pick<Character, 'id' | 'name'>[]
   userName?: string
   maxChars?: number
+  /** 手动绑定的群聊 id，前世记忆优先抓这些。 */
+  boundGroupIds?: readonly string[]
 }
 
 export type PastLifeSource = { conversationId: string; title: string; kind: string; chars: number; source: 'memory' | 'summary' | 'excerpt' | 'card' }
@@ -532,12 +537,19 @@ function conversationExcerpt(conversation: Conversation, ids: readonly string[],
  * Newest conversations first, capped. Pure and read-only: never mutates its inputs and only
  * reads conversations this character is in, and inside a shared group only his own memories.
  */
-export function collectPastLifeMemory({ character, conversations, memoryEntries, characters = [], userName = '她', maxChars = PAST_LIFE_MAX_CHARS }: PastLifeInput): PastLifeResult {
+export function collectPastLifeMemory({ character, conversations, memoryEntries, characters = [], userName = '她', maxChars = PAST_LIFE_MAX_CHARS, boundGroupIds = [] }: PastLifeInput): PastLifeResult {
   const ids = characterAliasIds(character, characters)
+  const boundSet = new Set(boundGroupIds)
   const related = conversations
-    .filter((conversation) => conversationInvolvesCharacter(conversation, ids))
+    .filter((conversation) => conversationInvolvesCharacter(conversation, ids) || boundSet.has(conversation.id))
     .slice()
-    .sort((left, right) => (right.updatedAt || 0) - (left.updatedAt || 0))
+    .sort((left, right) => {
+      // 手动绑定的群优先
+      const lb = boundSet.has(left.id) ? 1 : 0
+      const rb = boundSet.has(right.id) ? 1 : 0
+      if (lb !== rb) return rb - lb
+      return (right.updatedAt || 0) - (left.updatedAt || 0)
+    })
   const relatedIds = new Set(related.map((conversation) => conversation.id))
   const blocks: string[] = []
   const sources: PastLifeSource[] = []

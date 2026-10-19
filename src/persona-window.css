@@ -257,3 +257,11 @@ button.persona-settings-row:active { background: var(--theme-accent-soft); }
 .persona-quote-draft span, .persona-editing-hint span { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .persona-quote-draft b { color: #6b5a76; }
 .persona-quote-draft button, .persona-editing-hint button { flex: none; width: 22px; height: 22px; border: 0; border-radius: 50%; background: rgba(125,104,141,.15); color: #84738e; font-size: 12px; line-height: 1; }
+.persona-bound-groups { margin: 8px 0; padding: 10px 12px; border-radius: 12px; background: rgba(125,104,141,.06); }
+.persona-bound-groups > div:first-child { margin-bottom: 8px; }
+.persona-bound-groups strong { display: block; font-size: 13px; color: #5a4a66; }
+.persona-bound-groups small { display: block; margin-top: 2px; font-size: 11px; color: #97879f; line-height: 1.5; }
+.persona-bound-group-list { display: flex; flex-wrap: wrap; gap: 6px; }
+.persona-bound-group-list button { display: inline-flex; align-items: center; gap: 6px; padding: 6px 10px; border: 1px solid rgba(125,104,141,.2); border-radius: 999px; background: #fff; color: #6b5a76; font-size: 12px; }
+.persona-bound-group-list button.on { border-color: var(--theme-accent-text); background: var(--theme-accent-soft); color: var(--theme-accent-text); }
+.persona-bound-group-list button i { font-style: normal; font-weight: 700; }
