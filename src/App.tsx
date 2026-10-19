@@ -16,16 +16,15 @@ import PhoneLockScreen from './PhoneLockScreen'
 import PhoneWebSettings from './PhoneWebSettings'
 import { TAVILY_KEY_STORAGE, buildSearchQuery, needsWebSearch, tavilySearch } from './phoneWeb'
 import { createBlankCharacter, importCharacterCard, normalizeStoredCharacter, LIBRARY_ROLES, type Character, type LibraryRole } from './characterCard'
-import { Moments, type MomentSeed } from './Moments'
+import { type MomentSeed } from './Moments'
 import { Forum } from './Forum'
 import { DAY_DM_KEY, LATE_NIGHT_KEY, PAT_LINE, canDayDm, dayDmReason, nextDayDmState, type DayDmState, applyPatTags, applyRedPacketTags, buildRedPacketNote, createRedPacket, findRedPacket, lateNightKey, parseRedPacketLine, parseTransferLine, transferText, TRANSFER_NOTE, readRedPackets, redPacketOrdinal, redPacketText, userPatText, writeRedPackets, type RedPacketLineInfo } from './phoneFun'
 import { RedPacketCard, RedPacketDetail, RedPacketSendSheet, TransferCard, TransferSheet } from './RedPacket'
 import { messageTime, phoneTimeLabel, showPhoneTimeDivider } from './phoneTime'
 import { latestMessageId, phoneUnreadCount, unreadLabel } from './phoneUnread'
-import { FORUM_USER, buildForumRecapNote, findForumThread, forumShareText, type ForumThread } from './forum'
+import { FORUM_USER, buildForumRecapNote, findForumThread, forumShareText, threadsFromMoments, type ForumThread } from './forum'
 import PhoneAutoSettingsCard from './PhoneAutoSettings'
 import PhonePointsCard from './PhonePointsCard'
-import PhoneDiary from './PhoneDiary'
 import { fixStageMentions, phoneStageNameNote } from './phoneStageName'
 import { addWishPoolLine, grantedWishLine, takeWishPoolTags, wishPoolNote } from './wishPool'
 import { applyPardons, applyShopTags, buildShopNote, readShop, spendLockTicket, takePriority, writeShop } from './phoneShop'
@@ -34,10 +33,9 @@ import PhoneGames, { PhoneGameCard } from './PhoneGames'
 import { buildPhoneGameNote, nextPhoneGame, phoneGameSpeakers, phoneGameText, type GamePlayer, type PhoneGameKind, type PhoneGameRound, type TruthMode } from './phoneGames'
 import { collageAvatar, phoneAvatarSignature, squareAvatarFromFile } from './groupAvatar'
 import { PHONE_POINTS_EVENT, addPoints, applyMessagePoints, buildPointsNote, readPoints, todayTopPoints, writePoints } from './phonePoints'
-import { PHONE_DIARY_EVENT, applyPhoneDiaryTags, buildPhoneDiaryNote, currentMood, hydratePhoneDiary, readPhoneDiary, unlockedDiaryImageContext, writePhoneDiary, type DiaryEntry } from './phoneDiary'
-import { FORUM_UPDATED_EVENT, dueRunAt, forumAutoTick, forumWelcomeThread, isQuietHour, momentsAutoTick, pickAutoGroup, readPhoneAuto, writePhoneAuto } from './phoneAuto'
+import { FORUM_UPDATED_EVENT, dueRunAt, forumAutoTick, forumWelcomeThread, isQuietHour, pickAutoGroup, readPhoneAuto, writePhoneAuto } from './phoneAuto'
 import type { Moment } from './moments'
-import { MOMENTS_UPDATED_EVENT, USER_AUTHOR, communityMemberIds, excerptFromMessage } from './moments'
+import { USER_AUTHOR, communityMemberIds, excerptFromMessage } from './moments'
 import { buildBackstageNote, buildDmGroupPeek, buildGroupDmPeek, parsePhoneForumShare, stripPhoneForumShareTag, phoneDeliveryInstruction, phoneDmRules, phonePromptHistory, PHONE_COMPLETION_TIMEOUT_MS } from './phoneGroup'
 import { splitPhoneBubbles } from './phoneBubbles'
 import { PhoneChatInfo } from './PhoneChatInfo'
@@ -45,7 +43,7 @@ import { NOTICE_DURATIONS, lurkFallback, activeNotice, noticeRemaining, buildNot
 import { assignChatGroup, chatGroupNames, groupConversations, setChatGroupMembers } from './chatGroups'
 import { assignLibraryGroup, setLibraryGroupMembers, effectiveLibraryRole, groupLibraryCharacters, LIBRARY_ROLE_LABELS, libraryGroupNames } from './characterLibraryGroups'
 import { activeCharacterMemory, characterMemoryEntryFromConversation, characterMemoryExtractionPrompt, characterMemorySummaryProtocol, parseCharacterMemoryCandidates, splitCharacterMemorySummary } from './characterMemory'
-import { ChatApiError, completeChat, fetchApiModels, testApiConnection, type ApiConfig, type ApiModel, type ChatApiContentPart } from './chatApi'
+import { ChatApiError, completeChat, fetchApiModels, testApiConnection, type ApiConfig, type ApiModel } from './chatApi'
 import { buildChatPrompt } from './promptBuilder'
 import { CHAT_IMAGE_LIMIT, CHAT_VIDEO_MAX_FRAMES, prepareChatImage, prepareChatVideo, type ChatImage } from './chatImages'
 import { captureTemporaryPlot, consumeTemporaryPlot, withAssistantRetryInstruction, withFinalTemporaryPlotInstruction } from './temporaryPlot'
@@ -118,7 +116,6 @@ type MemoryEntryMap = Record<string, MemoryEntry[]>
 type UserIdentity = { id: string; name: string; description: string; avatar?: string }
 type ChatThemeMode = 'mist' | 'pearl' | 'sage' | 'pudding' | 'strawberry' | 'blueberry'
 type ChatThemePreset = { id: string; name: string; mode: ChatThemeMode; baseColor: string; textColor: string; narrationColor: string; quoteColor: string; frost: number; custom?: boolean }
-const DIARY_IMAGE_CONTEXT_MARKER = '【已解锁日记配图｜视觉参考】'
 
 const demoCharacter: Character = {
   id: 'huo-jin', name: '霍烬', tagline: '沉稳克制的守护者',
@@ -461,28 +458,7 @@ function App() {
   const phoneAutoRunning = useRef(false)
   const patTapRef = useRef<{ id: string; at: number } | null>(null)
   const [pointsTick, setPointsTick] = useState(0)
-  const [phoneDiaryState, setPhoneDiaryState] = useState(readPhoneDiary)
-  useEffect(() => {
-    const bump = () => setPointsTick((value) => value + 1)
-    const syncDiary = () => setPhoneDiaryState(readPhoneDiary())
-    window.addEventListener(PHONE_POINTS_EVENT, bump)
-    window.addEventListener(PHONE_DIARY_EVENT, syncDiary)
-    return () => { window.removeEventListener(PHONE_POINTS_EVENT, bump); window.removeEventListener(PHONE_DIARY_EVENT, syncDiary) }
-  }, [])
-  useEffect(() => { void hydratePhoneDiary() }, [])
-  const announceDiary = (entry: DiaryEntry) => {
-    const now = Date.now()
-    setConversations((current) => current.map((item) => {
-      if (!item.phone || item.phone.dm) return item
-      const notice: Message = {
-        id: Math.max(nextMessageId(item.messages), now),
-        role: 'assistant',
-        text: `📖 ${globalIdentity.name}更新了私人日记《${entry.title}》 · 花 5 积分可解锁`,
-        phoneNotice: true,
-      }
-      return { ...item, messages: [...item.messages, notice], updatedAt: now }
-    }))
-  }
+  useEffect(() => { const bump = () => setPointsTick((value) => value + 1); window.addEventListener(PHONE_POINTS_EVENT, bump); return () => window.removeEventListener(PHONE_POINTS_EVENT, bump) }, [])
   const [phoneGamesId, setPhoneGamesId] = useState<string | null>(null)
   const phoneGameSending = useRef(false)
   const [redPacketSheetOpen, setRedPacketSheetOpen] = useState(false)
@@ -509,7 +485,7 @@ function App() {
   const [characterSelectionMode, setCharacterSelectionMode] = useState(false)
   const [selectedCharacterIds, setSelectedCharacterIds] = useState<string[]>([])
   const [collapsedLibraryGroups, setCollapsedLibraryGroups] = useState<string[]>(() => read<string[]>('weijing.libraryCollapsed', []))
-  const [phoneTab, setPhoneTab] = useState<'groups' | 'dms' | 'moments' | 'friends' | 'diary' | 'shop'>('groups')
+  const [phoneTab, setPhoneTab] = useState<'groups' | 'dms' | 'moments' | 'shop'>('groups')
   const [momentSeed, setMomentSeed] = useState<MomentSeed | null>(null)
   const clearMomentSeed = useCallback(() => setMomentSeed(null), [])
   const [phoneDraft, setPhoneDraft] = useState<{ editingId?: string; title: string; memberIds: string[]; bindings: Record<string, string>; avatar?: string; avatarCollage?: boolean; noticeText?: string; noticeHours?: number; allowQuit?: boolean; allowKick?: boolean; allowForumShare?: boolean } | null>(null)
@@ -2537,9 +2513,8 @@ function App() {
       const funNote = conversation.phone?.dm ? `【拍一拍】看到「👋 ${identity.name} 拍了拍 …」就是她拍了你一下，接住它；你也可以单独一行写【拍一拍：${identity.name}】拍她。偶尔用。\n${buildRedPacketNote(readRedPackets(), conversation.id, speaker.id, Date.now(), true)}`.trim() : `【拍一拍】看到「👋 某人 拍了拍 @你」就是有人拍了你，要接话；你也可以在消息最后单独一行写【拍一拍：名字】拍一个群友（他会马上出来回你）或拍${identity.name}。偶尔用，别每条都拍。\n${(() => { const top = todayTopPoints(readPoints(), (conversation.participantIds || []).map((id) => ({ id, name: characters.find((item) => item.id === id)?.name || '' })), Date.now()); return top.length ? `【今日积分榜·群顶上挂着】${top.map((item, index) => `${['第一', '第二', '第三'][index]} ${item.name} +${item.points}`).join('，')}。上榜的可以得意，没上榜的可以酸。\n` : '' })()}${buildRedPacketNote(readRedPackets(), conversation.id, speaker.id, Date.now())}`
       const noticeNote = conversation.phone?.dm ? funNote : [funNote, buildNoticeNote(activeNotice(conversation.phone?.notice), identity.name), (() => { const story = phoneStoryNoteRef.current; return story && story.conversationId === conversation.id ? story.note : '' })()].filter(Boolean).join('\n\n')
       const pointsNote = buildPointsNote(readPoints(), [...members, ...dmMates].map((member) => ({ id: member.id, name: member.name })), identity.name)
-      const diaryNote = buildPhoneDiaryNote(readPhoneDiary(), readPoints(), { id: speaker.id, name: speaker.name }, [...members, ...dmMates].map((member) => ({ id: member.id, name: member.name })), identity.name, Date.now())
       const shopNote = buildShopNote(readShop(), readPoints(), { id: speaker.id, name: speaker.name }, [...members, ...dmMates].map((member) => ({ id: member.id, name: member.name })), identity.name, Date.now()) + '\n' + wishPoolNote(speaker, identity.name) + '\n' + TRANSFER_NOTE(identity.name) + phoneStageNameNote(identities.map((item) => item.name), identity.name)
-      return [conversation.phone?.dm ? phoneDmRules(speaker.name, identity.name) : phoneModeRules(speaker.name, members.map((member) => member.name), identity.name, { allowQuit: conversation.phone?.allowQuit, allowKick: conversation.phone?.allowKick, allowForumShare: conversation.phone?.allowForumShare }), realWorld, noticeNote, pointsNote, diaryNote, shopNote, mateBackground, dmBackground, dmPeek, privateDmMemory, buildPhoneArchive(sources, speaker.id, identity.name, (message) => message.characterId ? nameOf(message) : sources.find((source) => source.conversation?.messages.includes(message))?.character.name || '角色'),
+      return [conversation.phone?.dm ? phoneDmRules(speaker.name, identity.name) : phoneModeRules(speaker.name, members.map((member) => member.name), identity.name, { allowQuit: conversation.phone?.allowQuit, allowKick: conversation.phone?.allowKick, allowForumShare: conversation.phone?.allowForumShare }), realWorld, noticeNote, pointsNote, shopNote, mateBackground, dmBackground, dmPeek, privateDmMemory, buildPhoneArchive(sources, speaker.id, identity.name, (message) => message.characterId ? nameOf(message) : sources.find((source) => source.conversation?.messages.includes(message))?.character.name || '角色'),
         // 人格窗口 → 小手机：只给正在说话的这个角色，群里其他人看不到。
         isPersonaStoreHydrated() ? buildPersonaWindowNoteForPhone(getPersonaState(), speaker.id, { char: speaker.name, user: identity.name }, 2400, Boolean(conversation.phone?.dm)) : ''].filter(Boolean).join('\n\n')
     })() : ''
@@ -2583,20 +2558,12 @@ function App() {
     const storedRelationshipStage: RelationshipStage | 0 = capturedCharacter.name === '顾霆深' && !isPhone
       ? Math.max(conversation.relationshipStages?.[capturedCharacter.id] || 0, highestRelationshipStage(nextMessages, capturedCharacter.id) || 0) as RelationshipStage
       : 0
-    const diaryImages = isPhone ? unlockedDiaryImageContext(readPhoneDiary(), speaker.id) : undefined
     if (!isPhone && !isDirector) {
       // 长剧情里的他私底下知道小手机上的戏外日常，但戏里不提。
       const backstage = buildBackstageNote(conversations, speaker.id, speaker.name, identity.name, (id) => characters.find((item) => item.id === id)?.name || '角色', conversation.backstageGroupIds)
       if (backstage) promptMessages.push({ role: 'system', content: backstage })
     }
     if (storedRelationshipStage) promptMessages.push({ role: 'system', content: relationshipStageLockInstruction(storedRelationshipStage) })
-    if (diaryImages) promptMessages.push({
-      role: 'user',
-      content: [
-        { type: 'text', text: `${DIARY_IMAGE_CONTEXT_MARKER}\n这是你已经付费解锁的《${diaryImages.title}》里的配图，不是${identity.name}本轮刚发来的新消息。你可以理解画面并自然记住，但不要声称未解锁的人也看过。` },
-        ...diaryImages.images.map((image): ChatApiContentPart => ({ type: 'image_url', image_url: { url: image.dataUrl, detail: 'low' } })),
-      ],
-    })
     if (isPhone) {
       promptMessages.push({ role: 'system', content: phoneFinalGuard(speaker.name, identity.name) })
       if (!conversation.phone?.dm && conversation.phone?.game) promptMessages.push({ role: 'system', content: buildPhoneGameNote(conversation.phone.game, speaker.id, identity.name) })
@@ -2631,7 +2598,7 @@ function App() {
       capturedTemporaryPlot?.mode,
       isDirector,
     )
-    return { promptMessages, promptStats, capturedCharacter, capturedMemoryConfig, capturedMemories, isGroup, isDirector, statusTag, requiresCharacterStatus, groupNames, storedRelationshipStage, capturedTemporaryPlot, diaryPixelsAttached: Boolean(diaryImages) }
+    return { promptMessages, promptStats, capturedCharacter, capturedMemoryConfig, capturedMemories, isGroup, isDirector, statusTag, requiresCharacterStatus, groupNames, storedRelationshipStage, capturedTemporaryPlot }
   }
 
   const previewFor = (conversation: Conversation, nextMessages: Message[], speaker: Character, requestOptions: AssistantRequestOptions = {}): RequestPreview => {
@@ -2822,22 +2789,7 @@ function App() {
       const finitePlot = Boolean(capturedTemporaryPlot && capturedTemporaryPlot.mode !== 'persistent')
       if (finitePlot) showPhase('幕后安排 1/3 · 正在写第一稿')
       else if (conversation.phone) showPhase('正在等待模型回复…')
-      let completion: Awaited<ReturnType<typeof completeChat>>
-      try {
-        completion = await runCompletion()
-      } catch (cause) {
-        if (!prepared.diaryPixelsAttached || controller.signal.aborted) throw cause
-        // Some text-only channels reject image_url parts. Retry once with the
-        // unlocked diary's text/count still present, without breaking phone chat.
-        output = ''
-        stagedVisibleOutput = ''
-        promptMessages = promptMessages.map((message) => {
-          if (!Array.isArray(message.content)) return message
-          const first = message.content[0]
-          return first?.type === 'text' && first.text.startsWith(DIARY_IMAGE_CONTEXT_MARKER) ? { ...message, content: first.text } : message
-        })
-        completion = await runCompletion()
-      }
+      let completion = await runCompletion()
       cancelQueuedStreamRender()
       if (!output.trim()) throw new Error('模型没有返回内容')
       let cleanOutput = sanitizeAssistantOutput(output, { director: isDirector })
@@ -2971,9 +2923,7 @@ function App() {
         const pointsBefore = readPoints()
         const points = applyMessagePoints(pointsBefore, speaker.id, visibleOutput, Date.now())
         const shopMates = [...new Set([...(conversation.participantIds || []), ...conversations.filter((item) => item.phone && !item.phone.dm).flatMap((item) => item.participantIds || [])])].map((id) => ({ id, name: characters.find((item) => item.id === id)?.name || '' })).filter((item) => item.name)
-        const diary = applyPhoneDiaryTags(readPhoneDiary(), points.state, speaker.id, points.text, Date.now())
-        if (diary.changed) writePhoneDiary(diary.state)
-        const shop = applyShopTags({ points: diary.points, shop: readShop(), buyerId: speaker.id, buyerName: speaker.name, mates: shopMates, text: diary.text, at: Date.now() })
+        const shop = applyShopTags({ points: points.state, shop: readShop(), buyerId: speaker.id, buyerName: speaker.name, mates: shopMates, text: points.text, at: Date.now() })
         const pardon = applyPardons(pointsBefore, shop.points, shop.shop, speaker.id, shop.text, Date.now())
         let shopState = pardon.shop
         let shopText = pardon.text
@@ -3223,7 +3173,8 @@ function App() {
         try {
           let current = forumThreadsRef.current
           if (!current.length) {
-            current = await durableGet<ForumThread[]>('weijing.forum') || []
+            const [stored, moments] = await Promise.all([durableGet<ForumThread[]>('weijing.forum'), durableGet<Moment[]>('weijing.moments')])
+            current = stored || (moments?.length ? threadsFromMoments(moments) : [])
           }
           const threads = await forumAutoTick({ threads: current, characters, conversations, api, userName: globalIdentity.name, at })
           forumThreadsRef.current = threads
@@ -3231,16 +3182,6 @@ function App() {
           window.dispatchEvent(new CustomEvent(FORUM_UPDATED_EVENT, { detail: threads }))
         } catch (cause) {
           problems.push(`论坛：${cause instanceof Error ? cause.message : '失败'}`)
-        }
-      }
-      if (settings.moments && isApiChannelComplete(api)) {
-        try {
-          const current = await durableGet<Moment[]>('weijing.moments') || []
-          const moments = await momentsAutoTick({ moments: current, characters, conversations, api, userName: globalIdentity.name, at })
-          await durableSet('weijing.moments', moments.slice(0, 300))
-          window.dispatchEvent(new CustomEvent(MOMENTS_UPDATED_EVENT, { detail: moments }))
-        } catch (cause) {
-          problems.push(`朋友圈：${cause instanceof Error ? cause.message : '失败'}`)
         }
       }
       if (settings.groups && !phoneLock) {
@@ -3914,7 +3855,6 @@ function App() {
   const menuConversation = conversations.find((item) => item.id === conversationMenuId)
   const menuMessage = messages.find((item) => item.id === messageMenuId)
   const menuCharacter = characters.find((item) => item.id === characterMenuId)
-  const activePhoneMood = activeConversation?.phone?.dm ? currentMood(phoneDiaryState, activeConversation.participantIds?.[0] || '')?.text : ''
   const groupParticipantIdsKey = activeConversation?.kind === 'group' ? (activeConversation.participantIds || []).join('|') : ''
   const groupParticipants = useMemo(() => groupParticipantIdsKey ? groupParticipantIdsKey.split('|').map((id) => characters.find((item) => item.id === id)).filter(Boolean) as Character[] : [], [groupParticipantIdsKey, characters])
   const groupAvatarsKey = groupParticipants.map((member) => `${member.id}:${member.avatar?.length || 0}`).join('|')
@@ -4149,11 +4089,9 @@ function App() {
       {!phoneDraft && <PhoneWebSettings />}
       {!phoneDraft && <PhoneAutoSettingsCard status={phoneAutoStatus} />}
       {!phoneDraft && <PhonePointsCard members={[...new Set(conversations.filter((item) => item.phone && !item.phone.dm).flatMap((item) => item.participantIds || []))].map((id) => characters.find((item) => item.id === id)).filter((item): item is Character => Boolean(item))} />}
-      {!phoneDraft && <div className="phone-tabs" role="tablist"><button role="tab" aria-selected={phoneTab === 'groups'} className={phoneTab === 'groups' ? 'active' : ''} onClick={() => setPhoneTab('groups')}>群聊{phoneUnread.groups > 0 && <b className="phone-unread inline">{unreadLabel(phoneUnread.groups)}</b>}</button><button role="tab" aria-selected={phoneTab === 'dms'} className={phoneTab === 'dms' ? 'active' : ''} onClick={() => setPhoneTab('dms')}>私聊{phoneUnread.dms > 0 && <b className="phone-unread inline">{unreadLabel(phoneUnread.dms)}</b>}</button><button role="tab" aria-selected={phoneTab === 'moments'} className={phoneTab === 'moments' ? 'active' : ''} onClick={() => setPhoneTab('moments')}>论坛</button><button role="tab" aria-selected={phoneTab === 'friends'} className={phoneTab === 'friends' ? 'active' : ''} onClick={() => setPhoneTab('friends')}>朋友圈</button><button role="tab" aria-selected={phoneTab === 'diary'} className={phoneTab === 'diary' ? 'active' : ''} onClick={() => setPhoneTab('diary')}>日记</button><button role="tab" aria-selected={phoneTab === 'shop'} className={phoneTab === 'shop' ? 'active' : ''} onClick={() => setPhoneTab('shop')}>商店</button></div>}
-      {!phoneDraft && phoneTab === 'diary' && <PhoneDiary userName={globalIdentity.name} api={api} conversations={conversations} onPublished={announceDiary} members={[...new Set(conversations.filter((item) => item.phone && !item.phone.dm).flatMap((item) => item.participantIds || []))].map((id) => characters.find((item) => item.id === id)).filter((item): item is Character => Boolean(item))} />}
+      {!phoneDraft && <div className="phone-tabs" role="tablist"><button role="tab" aria-selected={phoneTab === 'groups'} className={phoneTab === 'groups' ? 'active' : ''} onClick={() => setPhoneTab('groups')}>群聊{phoneUnread.groups > 0 && <b className="phone-unread inline">{unreadLabel(phoneUnread.groups)}</b>}</button><button role="tab" aria-selected={phoneTab === 'dms'} className={phoneTab === 'dms' ? 'active' : ''} onClick={() => setPhoneTab('dms')}>私聊{phoneUnread.dms > 0 && <b className="phone-unread inline">{unreadLabel(phoneUnread.dms)}</b>}</button><button role="tab" aria-selected={phoneTab === 'moments'} className={phoneTab === 'moments' ? 'active' : ''} onClick={() => setPhoneTab('moments')}>论坛</button><button role="tab" aria-selected={phoneTab === 'shop'} className={phoneTab === 'shop' ? 'active' : ''} onClick={() => setPhoneTab('shop')}>🏪 商店</button></div>}
       {!phoneDraft && phoneTab === 'shop' && <PhoneShop userName={globalIdentity.name} onGranted={(order) => setCharacters((current) => current.map((item) => item.id === order.buyerId ? addWishPoolLine(item, grantedWishLine(order, globalIdentity.name), globalIdentity.name) : item))} members={[...new Set(conversations.filter((item) => item.phone && !item.phone.dm).flatMap((item) => item.participantIds || []))].map((id) => characters.find((item) => item.id === id)).filter((item): item is Character => Boolean(item))} />}
       {!phoneDraft && phoneTab === 'moments' && <Forum characters={characters} conversations={conversations} userName={globalIdentity.name} userAvatar={globalIdentity.avatar} api={api} seed={momentSeed} onSeedUsed={clearMomentSeed} onSaveToMemory={saveMomentToMemory} onThreadsChange={handleForumChange} onShare={shareForumToChat} />}
-      {!phoneDraft && phoneTab === 'friends' && <Moments characters={characters} conversations={conversations} userName={globalIdentity.name} userAvatar={globalIdentity.avatar} api={api} seed={null} onSeedUsed={() => undefined} onSaveToMemory={saveMomentToMemory} />}
       {!phoneDraft && phoneTab === 'dms' && <>
         <div className="privacy-note">一对一私聊：TA 看得到自己所在群最近的聊天和论坛，可以私下跟你吐槽；群里的人看不到私聊。</div>
         {(() => {
@@ -4167,7 +4105,7 @@ function App() {
               const last = dm?.messages[dm.messages.length - 1]?.text
               return <button key={character.id} className="phone-group-row phone-dm-row" onClick={() => openPhoneDm(character.id)}>
                 {character.avatar ? <img src={character.avatar} alt="" /> : <i>{character.name.slice(-1)}</i>}
-                <strong>{character.name}</strong><small>{currentMood(phoneDiaryState, character.id)?.text || '今天还没写在线心情'}</small><span>{last ? last.replace(/<[^>]+>/g, ' ').slice(0, 36) : '还没私聊过，点开说第一句'}</span>
+                <strong>{character.name}</strong><span>{last ? last.replace(/<[^>]+>/g, ' ').slice(0, 36) : '还没私聊过，点开说第一句'}</span>
                 {dm && phoneUnreadCount(dm) > 0 && <b className="phone-unread">{unreadLabel(phoneUnreadCount(dm))}</b>}
               </button>
             })
@@ -4239,7 +4177,7 @@ function App() {
 
     {page === 'group-greeting-picker' && <GroupGreetingPicker characters={groupGreetingCharacters} userName={groupGreetingUserName} onCancel={() => { const creatingFromConversation = Boolean(newConversationSourceId); setNewConversationSourceId(null); if (creatingFromConversation) replacePage('chat'); else goBack() }} onConfirm={beginGroupWithGreeting} />}
 
-    {page === 'chat' && <section className={`chat-page${activeConversation?.phone ? ' phone-chat' : ''}`}><header className="chat-header"><button className="icon-button drawer-trigger" aria-label="打开对话列表" onClick={() => setDrawer('left')}>☰</button><button className="chat-identity" onClick={() => navigate('character-detail')}>{activeConversation?.phone?.avatar ? <img src={activeConversation.phone.avatar} alt="" /> : activeCharacter.avatar ? <img src={activeCharacter.avatar} alt="" /> : <span>{activeCharacter.name.slice(-1)}</span>}<div><strong>{activeConversation?.kind === 'group' ? shownTitle(activeConversation) : activeCharacter.name}</strong><small>{isGenerating ? '正在回应…' : activePhoneMood || (activeConversation ? shownTitle(activeConversation) : '') || `${identity.name} · 沉浸共演中`}</small></div></button>{activeConversation?.phone ? <button className="more-button" aria-label="聊天信息" onClick={() => setPhoneModesOpen(true)}>•••</button> : <button className="more-button" aria-label="打开聊天设置" onClick={() => setDrawer('right')}>•••</button>}</header>{activeConversation?.phone && phoneModesOpen && <PhoneChatInfo key={activeConversation.id} title={shownTitle(activeConversation)} dm={Boolean(activeConversation.phone.dm)} members={(activeConversation.participantIds?.length ? activeConversation.participantIds : [activeConversation.characterId]).map((id) => characters.find((item) => item.id === id)).filter((item): item is Character => Boolean(item)).map((item) => ({ id: item.id, name: item.name, avatar: item.avatar }))} notice={activeNotice(activeConversation.phone.notice)} mode={activeConversation.phone.mode === 'named' ? 'free' : activeConversation.phone.mode || 'free'} onMode={(mode) => { const id = activeConversation.id; setConversations((list) => list.map((item) => item.id === id && item.phone ? { ...item, phone: { ...item.phone, mode } } : item)) }} onSaveNotice={(text, hours) => { const id = activeConversation.id; const now = Date.now(); setConversations((list) => list.map((item) => item.id === id && item.phone ? { ...item, phone: { ...item.phone, notice: text ? { text, at: now, until: hours > 0 ? now + hours * 3600000 : null } : undefined } } : item)) }} onClose={() => setPhoneModesOpen(false)} onSearch={() => { setPhoneModesOpen(false); navigate('chat-search') }} onGroupSettings={activeConversation.phone.dm ? undefined : () => { setPhoneModesOpen(false); openPhonePage(activeConversation) }} onChatSettings={() => { setPhoneModesOpen(false); setDrawer('right') }} />}{chatError && <div className="chat-error" role="alert"><button className="chat-error-action" onClick={() => navigate(chatErrorIsPlot ? 'temporary-plot' : 'api')}><span>{chatErrorIsPlot ? '剧情安排提示' : '连接提示'}</span>{chatError}<i>{chatErrorIsPlot ? '查看幕后安排 ›' : '前往 API 设置 ›'}</i></button>{chatErrorIsPlot && activeConversation?.temporaryPlot && <button className="chat-error-end-plot" onClick={() => { const id = activeConversation.id; setConversations((current) => current.map((item) => item.id === id ? { ...item, temporaryPlot: undefined, updatedAt: Date.now() } : item)); setChatError('') }}>已落实，结束安排</button>}<button className="chat-error-close" aria-label="关闭提示" title="关闭提示" onClick={() => setChatError('')}>×</button></div>}<div ref={messageListRef} className="message-list" onScroll={updateChatJump}>{earlierChatCount > 0 && <button type="button" className="chat-load-earlier" onClick={loadEarlierChatMessages}>加载更早 {earlierChatCount} 条</button>}{renderedChatMessages.map((message, offset) => { const row = contextSummaryBoundary > 0 && chatWindowStart + offset === contextSummaryBoundary && contextSummaryBoundary < messages.length ? [<div key="context-summary-divider" className="context-summary-divider" role="note">以上 {contextSummaryBoundary} 条已在后台整理进上下文摘要</div>, renderChatMessage(message)] : renderChatMessage(message); const at = activeConversation?.phone && showPhoneTimeDivider(messages[chatWindowStart + offset - 1], message) ? messageTime(message) : undefined; return at === undefined ? row : [<div key={`time-${message.id}`} className="phone-time-divider" role="note">{phoneTimeLabel(at)}</div>, row] })}<div ref={messageListLayoutMarkerRef} className="message-list-layout-marker" aria-hidden="true" /></div>{(chatJump.up || chatJump.down) && <nav className={`chat-jump-controls ${chatJump.visible ? 'visible' : ''}`} aria-label="快速浏览对话" aria-hidden={!chatJump.visible}>{chatJump.up && <button tabIndex={chatJump.visible ? 0 : -1} onClick={() => jumpChat('top')} aria-label="回到对话顶部">↑</button>}{chatJump.down && <button tabIndex={chatJump.visible ? 0 : -1} onClick={() => jumpChat('bottom')} aria-label="跳到最新消息">↓</button>}</nav>}<div ref={composerDockRef} className={`${composerExpanded ? 'composer has-expanded' : 'composer'}${composerCanExpand ? ' can-expand' : ''}${pendingImages.length || imageBusy ? ' has-images' : ''}${activeConversation?.phone && quoteDraft?.conversationId === activeConversation.id ? ' has-quote' : ''}`}>{(pendingImages.length > 0 || imageBusy) && <div className="composer-images" aria-label="待发送图片">{pendingImages.map((image) => <div key={image.id}><img src={image.dataUrl} alt="" role="button" aria-label="查看大图" onClick={(event) => { event.stopPropagation(); setViewerImage(image) }} /><button type="button" aria-label="移除图片" onClick={() => setPendingImages((current) => current.filter((item) => item.id !== image.id))}>×</button></div>)}{imageBusy && <span className="composer-images-busy">处理中…</span>}</div>}{activeConversation?.phone && quoteDraft?.conversationId === activeConversation.id && <div className="composer-quote" aria-label="引用回复"><span><b>{quoteDraft.author}：</b>{quoteDraft.text}</span><button type="button" aria-label="取消引用" onClick={() => setQuoteDraft(null)}>×</button></div>}<button className="composer-plus" aria-label="打开输入工具" onClick={() => setComposerToolsOpen(true)}>{replyHelperState === 'generating' ? '…' : '＋'}</button><textarea ref={composerRef} rows={1} value={draft} onChange={(event) => { const value = event.target.value; setDraft(value); if (activeConversation?.kind === 'group' && /[@＠]$/.test(value) && value.length > draft.length) { event.currentTarget.blur(); setMentionPickerOpen(true) } }} placeholder={replyHelperState === 'generating' ? 'AI 帮答正在起草…' : isGenerating ? '可以先写下一条，停止后再发送' : activeConversation?.phone ? '说点什么……' : groupReplyMode === 'specified' && activeConversation?.kind === 'group' ? '输入 @ 选择回答的角色……' : '写下你的回应……'} />{composerCanExpand && <button className="composer-expand" aria-label="展开长消息编辑器" title="展开编辑" onClick={() => setComposerExpanded(true)}>⛶</button>}<button className={`send-button ${isGenerating ? 'stop' : ''}`} aria-label={isGenerating ? '停止生成' : '发送'} onClick={() => isGenerating && activeConversation ? abortConversation(activeConversation.id) : sendMessage()}>{isGenerating ? '■' : '↑'}</button></div>{composerExpanded && <div className="composer-expanded-layer" role="dialog" aria-modal="true" aria-label="长消息编辑器"><header><button className="expanded-collapse" aria-label="收起编辑器" onClick={() => { setComposerExpanded(false); window.requestAnimationFrame(() => composerRef.current?.focus()) }}>‹</button><div><strong>长消息编辑</strong><small>{draft.length} 字 · 草稿实时保留</small></div><button className="expanded-tools" aria-label="打开输入工具" onClick={() => setComposerToolsOpen(true)}>＋</button></header><textarea ref={expandedComposerRef} value={draft} onChange={(event) => { const value = event.target.value; setDraft(value); if (activeConversation?.kind === 'group' && /[@＠]$/.test(value) && value.length > draft.length) { event.currentTarget.blur(); setMentionPickerOpen(true) } }} placeholder={replyHelperState === 'generating' ? 'AI 帮答正在起草…' : '在这里慢慢写完整段落……'} /><footer><button className="expanded-done" onClick={() => { setComposerExpanded(false); window.requestAnimationFrame(() => composerRef.current?.focus()) }}>收起</button><button className={isGenerating ? 'expanded-send stop' : 'expanded-send'} disabled={!draft.trim() && !pendingImages.length && !isGenerating} onClick={() => { if (isGenerating && activeConversation) { abortConversation(activeConversation.id); return } setComposerExpanded(false); void sendMessage() }}>{isGenerating ? '停止生成' : '发送'}</button></footer></div>}</section>}
+    {page === 'chat' && <section className={`chat-page${activeConversation?.phone ? ' phone-chat' : ''}`}><header className="chat-header"><button className="icon-button drawer-trigger" aria-label="打开对话列表" onClick={() => setDrawer('left')}>☰</button><button className="chat-identity" onClick={() => navigate('character-detail')}>{activeConversation?.phone?.avatar ? <img src={activeConversation.phone.avatar} alt="" /> : activeCharacter.avatar ? <img src={activeCharacter.avatar} alt="" /> : <span>{activeCharacter.name.slice(-1)}</span>}<div><strong>{activeConversation?.kind === 'group' ? shownTitle(activeConversation) : activeCharacter.name}</strong><small>{isGenerating ? '正在回应…' : (activeConversation ? shownTitle(activeConversation) : '') || `${identity.name} · 沉浸共演中`}</small></div></button>{activeConversation?.phone ? <button className="more-button" aria-label="聊天信息" onClick={() => setPhoneModesOpen(true)}>•••</button> : <button className="more-button" aria-label="打开聊天设置" onClick={() => setDrawer('right')}>•••</button>}</header>{activeConversation?.phone && phoneModesOpen && <PhoneChatInfo key={activeConversation.id} title={shownTitle(activeConversation)} dm={Boolean(activeConversation.phone.dm)} members={(activeConversation.participantIds?.length ? activeConversation.participantIds : [activeConversation.characterId]).map((id) => characters.find((item) => item.id === id)).filter((item): item is Character => Boolean(item)).map((item) => ({ id: item.id, name: item.name, avatar: item.avatar }))} notice={activeNotice(activeConversation.phone.notice)} mode={activeConversation.phone.mode === 'named' ? 'free' : activeConversation.phone.mode || 'free'} onMode={(mode) => { const id = activeConversation.id; setConversations((list) => list.map((item) => item.id === id && item.phone ? { ...item, phone: { ...item.phone, mode } } : item)) }} onSaveNotice={(text, hours) => { const id = activeConversation.id; const now = Date.now(); setConversations((list) => list.map((item) => item.id === id && item.phone ? { ...item, phone: { ...item.phone, notice: text ? { text, at: now, until: hours > 0 ? now + hours * 3600000 : null } : undefined } } : item)) }} onClose={() => setPhoneModesOpen(false)} onSearch={() => { setPhoneModesOpen(false); navigate('chat-search') }} onGroupSettings={activeConversation.phone.dm ? undefined : () => { setPhoneModesOpen(false); openPhonePage(activeConversation) }} onChatSettings={() => { setPhoneModesOpen(false); setDrawer('right') }} />}{chatError && <div className="chat-error" role="alert"><button className="chat-error-action" onClick={() => navigate(chatErrorIsPlot ? 'temporary-plot' : 'api')}><span>{chatErrorIsPlot ? '剧情安排提示' : '连接提示'}</span>{chatError}<i>{chatErrorIsPlot ? '查看幕后安排 ›' : '前往 API 设置 ›'}</i></button>{chatErrorIsPlot && activeConversation?.temporaryPlot && <button className="chat-error-end-plot" onClick={() => { const id = activeConversation.id; setConversations((current) => current.map((item) => item.id === id ? { ...item, temporaryPlot: undefined, updatedAt: Date.now() } : item)); setChatError('') }}>已落实，结束安排</button>}<button className="chat-error-close" aria-label="关闭提示" title="关闭提示" onClick={() => setChatError('')}>×</button></div>}<div ref={messageListRef} className="message-list" onScroll={updateChatJump}>{earlierChatCount > 0 && <button type="button" className="chat-load-earlier" onClick={loadEarlierChatMessages}>加载更早 {earlierChatCount} 条</button>}{renderedChatMessages.map((message, offset) => { const row = contextSummaryBoundary > 0 && chatWindowStart + offset === contextSummaryBoundary && contextSummaryBoundary < messages.length ? [<div key="context-summary-divider" className="context-summary-divider" role="note">以上 {contextSummaryBoundary} 条已在后台整理进上下文摘要</div>, renderChatMessage(message)] : renderChatMessage(message); const at = activeConversation?.phone && showPhoneTimeDivider(messages[chatWindowStart + offset - 1], message) ? messageTime(message) : undefined; return at === undefined ? row : [<div key={`time-${message.id}`} className="phone-time-divider" role="note">{phoneTimeLabel(at)}</div>, row] })}<div ref={messageListLayoutMarkerRef} className="message-list-layout-marker" aria-hidden="true" /></div>{(chatJump.up || chatJump.down) && <nav className={`chat-jump-controls ${chatJump.visible ? 'visible' : ''}`} aria-label="快速浏览对话" aria-hidden={!chatJump.visible}>{chatJump.up && <button tabIndex={chatJump.visible ? 0 : -1} onClick={() => jumpChat('top')} aria-label="回到对话顶部">↑</button>}{chatJump.down && <button tabIndex={chatJump.visible ? 0 : -1} onClick={() => jumpChat('bottom')} aria-label="跳到最新消息">↓</button>}</nav>}<div ref={composerDockRef} className={`${composerExpanded ? 'composer has-expanded' : 'composer'}${composerCanExpand ? ' can-expand' : ''}${pendingImages.length || imageBusy ? ' has-images' : ''}${activeConversation?.phone && quoteDraft?.conversationId === activeConversation.id ? ' has-quote' : ''}`}>{(pendingImages.length > 0 || imageBusy) && <div className="composer-images" aria-label="待发送图片">{pendingImages.map((image) => <div key={image.id}><img src={image.dataUrl} alt="" role="button" aria-label="查看大图" onClick={(event) => { event.stopPropagation(); setViewerImage(image) }} /><button type="button" aria-label="移除图片" onClick={() => setPendingImages((current) => current.filter((item) => item.id !== image.id))}>×</button></div>)}{imageBusy && <span className="composer-images-busy">处理中…</span>}</div>}{activeConversation?.phone && quoteDraft?.conversationId === activeConversation.id && <div className="composer-quote" aria-label="引用回复"><span><b>{quoteDraft.author}：</b>{quoteDraft.text}</span><button type="button" aria-label="取消引用" onClick={() => setQuoteDraft(null)}>×</button></div>}<button className="composer-plus" aria-label="打开输入工具" onClick={() => setComposerToolsOpen(true)}>{replyHelperState === 'generating' ? '…' : '＋'}</button><textarea ref={composerRef} rows={1} value={draft} onChange={(event) => { const value = event.target.value; setDraft(value); if (activeConversation?.kind === 'group' && /[@＠]$/.test(value) && value.length > draft.length) { event.currentTarget.blur(); setMentionPickerOpen(true) } }} placeholder={replyHelperState === 'generating' ? 'AI 帮答正在起草…' : isGenerating ? '可以先写下一条，停止后再发送' : activeConversation?.phone ? '说点什么……' : groupReplyMode === 'specified' && activeConversation?.kind === 'group' ? '输入 @ 选择回答的角色……' : '写下你的回应……'} />{composerCanExpand && <button className="composer-expand" aria-label="展开长消息编辑器" title="展开编辑" onClick={() => setComposerExpanded(true)}>⛶</button>}<button className={`send-button ${isGenerating ? 'stop' : ''}`} aria-label={isGenerating ? '停止生成' : '发送'} onClick={() => isGenerating && activeConversation ? abortConversation(activeConversation.id) : sendMessage()}>{isGenerating ? '■' : '↑'}</button></div>{composerExpanded && <div className="composer-expanded-layer" role="dialog" aria-modal="true" aria-label="长消息编辑器"><header><button className="expanded-collapse" aria-label="收起编辑器" onClick={() => { setComposerExpanded(false); window.requestAnimationFrame(() => composerRef.current?.focus()) }}>‹</button><div><strong>长消息编辑</strong><small>{draft.length} 字 · 草稿实时保留</small></div><button className="expanded-tools" aria-label="打开输入工具" onClick={() => setComposerToolsOpen(true)}>＋</button></header><textarea ref={expandedComposerRef} value={draft} onChange={(event) => { const value = event.target.value; setDraft(value); if (activeConversation?.kind === 'group' && /[@＠]$/.test(value) && value.length > draft.length) { event.currentTarget.blur(); setMentionPickerOpen(true) } }} placeholder={replyHelperState === 'generating' ? 'AI 帮答正在起草…' : '在这里慢慢写完整段落……'} /><footer><button className="expanded-done" onClick={() => { setComposerExpanded(false); window.requestAnimationFrame(() => composerRef.current?.focus()) }}>收起</button><button className={isGenerating ? 'expanded-send stop' : 'expanded-send'} disabled={!draft.trim() && !pendingImages.length && !isGenerating} onClick={() => { if (isGenerating && activeConversation) { abortConversation(activeConversation.id); return } setComposerExpanded(false); void sendMessage() }}>{isGenerating ? '停止生成' : '发送'}</button></footer></div>}</section>}
 
     {page === 'more' && <><BackHeader title="设置" onBack={goBack} /><section className="settings-stack compact-settings">{[[['API 连接', 'api'], ['用户身份', 'identity']], [['模型设置', 'model'], ['模型预设', 'preset'], ['全局世界书', 'worldbook'], ['长记忆', 'memory']], [['应用设置', 'settings']]].map((group, index) => <div className="settings-group" key={index}>{group.map(([label, target]) => <button key={label} onClick={() => navigate(target as Page)}><span>{label}</span><span>›</span></button>)}</div>)}</section></>}
 
@@ -4514,7 +4452,7 @@ function UpdateCard() {
     }
   }
 
-  return <section className="update-card"><strong>应用更新</strong><p>主动检查并拉取最新网页版本，不会删除角色、聊天记录或本地设置。</p><small>当前版本：v142 · 2026.10.17 记忆滚动框与人格任务卡</small><button onClick={refresh} disabled={state === 'checking'}>{state === 'checking' ? '正在检查更新…' : state === 'error' ? '更新失败，点我重试' : '强制刷新到最新版'}</button></section>
+  return <section className="update-card"><strong>应用更新</strong><p>主动检查并拉取最新网页版本，不会删除角色、聊天记录或本地设置。</p><small>当前版本：v143 · 2026.10.19 人格窗口记忆打通群聊</small><button onClick={refresh} disabled={state === 'checking'}>{state === 'checking' ? '正在检查更新…' : state === 'error' ? '更新失败，点我重试' : '强制刷新到最新版'}</button></section>
 }
 
 function PersonaPage({ identities, selectedId, isBound, onSelect, onAdd, onDelete, onUpdate, onBack }: { identities: UserIdentity[]; selectedId: string; isBound: boolean; onSelect: (id: string) => void; onAdd: () => void; onDelete: (id: string) => void; onUpdate: (patch: Partial<UserIdentity>) => void; onBack: () => void }) {
