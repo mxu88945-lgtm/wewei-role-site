@@ -506,13 +506,23 @@ function messageText(text: string) {
 }
 
 /** His own lines and hers, newest last — for conversations that have no memory or summary yet. */
-function conversationExcerpt(conversation: Conversation, ids: readonly string[], name: string, userName: string) {
+function conversationExcerpt(conversation: Conversation, ids: readonly string[], name: string, userName: string, characters: readonly { id: string; name: string }[] = []) {
   const single = conversation.kind !== 'group'
+  const nameOf = (message: { characterId?: string }): string => {
+    if (!message.characterId) return name
+    if (ids.includes(message.characterId)) return name
+    return characters.find((c) => c.id === message.characterId)?.name || '群友'
+  }
   const lines = conversation.messages
     .filter((message) => !message.phoneNotice && message.text?.trim())
-    .filter((message) => message.role === 'user' || (message.characterId ? ids.includes(message.characterId) : single || conversation.phone?.dm))
+    .filter((message) => {
+      if (message.role === 'user') return true
+      if (!message.characterId) return single || conversation.phone?.dm
+      // 群聊里：自己的话、群友的话都带上，标出发言人
+      return single || conversation.phone?.dm || ids.includes(message.characterId) || conversation.kind === 'group'
+    })
     .slice(-PAST_LIFE_EXCERPT_LINES)
-    .map((message) => `${message.role === 'user' ? userName : name}：${clip(messageText(message.text), 220)}`)
+    .map((message) => `${message.role === 'user' ? userName : nameOf(message)}：${clip(messageText(message.text), 220)}`)
     .filter((line) => !/：$/.test(line))
   return lines.join('\n')
 }
@@ -565,12 +575,12 @@ export function collectPastLifeMemory({ character, conversations, memoryEntries,
       .map((entry) => `· ${stripUiOnlyStatusBlocks(entry.content).trim()}`)
     const summary = conversation.contextSummary && (conversation.contextSummaryRevision || 0) === revision ? stripUiOnlyStatusBlocks(conversation.contextSummary).trim() : ''
     const remembered = core.length + long.length
-    const excerpt = remembered ? '' : conversationExcerpt(conversation, ids, character.name, userName)
+    const excerpt = conversationExcerpt(conversation, ids, character.name, userName, characters)
     const parts = [
       core.length ? `他记得的事：\n${core.join('\n')}` : '',
       long.length ? `那段日子：\n${long.join('\n')}` : '',
       summary && remembered < 4 ? `经过：\n${clip(summary, 1200)}` : '',
-      excerpt && !summary ? `最后聊到的：\n${excerpt}` : excerpt ? `最后聊到的：\n${excerpt.split('\n').slice(-6).join('\n')}` : '',
+      excerpt ? `最后聊到的：\n${remembered ? excerpt.split('\n').slice(-4).join('\n') : (!summary ? excerpt : excerpt.split('\n').slice(-6).join('\n'))}` : '',
     ].filter(Boolean)
     if (!parts.length) continue
     const kind = conversationKind(conversation)

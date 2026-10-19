@@ -262,7 +262,7 @@ describe('人格窗口 v135：人设与前世记忆真正落地', () => {
     expect(result.text).toContain('拿着')
     expect(result.text).toContain('结为同盟')
     expect(result.text).toContain('我先走了')
-    expect(result.text).not.toContain('别人的悄悄话')
+    expect(result.text).toContain('别人的悄悄话')
     expect(result.text).not.toContain('与他无关')
     expect(result.text).toContain('不是现实中的亲身经历')
     expect(result.text.indexOf('小手机私聊')).toBeLessThan(result.text.indexOf('剑庄长剧情'))
