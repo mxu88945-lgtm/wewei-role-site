@@ -2515,8 +2515,28 @@ function App() {
       const pointsNote = buildPointsNote(readPoints(), [...members, ...dmMates].map((member) => ({ id: member.id, name: member.name })), identity.name)
       const shopNote = buildShopNote(readShop(), readPoints(), { id: speaker.id, name: speaker.name }, [...members, ...dmMates].map((member) => ({ id: member.id, name: member.name })), identity.name, Date.now()) + '\n' + wishPoolNote(speaker, identity.name) + '\n' + TRANSFER_NOTE(identity.name) + phoneStageNameNote(identities.map((item) => item.name), identity.name)
       return [conversation.phone?.dm ? phoneDmRules(speaker.name, identity.name) : phoneModeRules(speaker.name, members.map((member) => member.name), identity.name, { allowQuit: conversation.phone?.allowQuit, allowKick: conversation.phone?.allowKick, allowForumShare: conversation.phone?.allowForumShare }), realWorld, noticeNote, pointsNote, shopNote, mateBackground, dmBackground, dmPeek, privateDmMemory, buildPhoneArchive(sources, speaker.id, identity.name, (message) => message.characterId ? nameOf(message) : sources.find((source) => source.conversation?.messages.includes(message))?.character.name || '角色'),
-        // 人格窗口 → 小手机：只给正在说话的这个角色，群里其他人看不到。
-        isPersonaStoreHydrated() ? buildPersonaWindowNoteForPhone(getPersonaState(), speaker.id, { char: speaker.name, user: identity.name }, 2400, Boolean(conversation.phone?.dm)) : ''].filter(Boolean).join('\n\n')
+        // 人格窗口 → 小手机：只给正在说话的这个角色，群里其他人看不到。自动按角色 id 匹配，外加手动绑定的（只取跟说话人对应的）。
+        (() => {
+          if (!isPersonaStoreHydrated()) return ''
+          const state = getPersonaState()
+          const isDm = Boolean(conversation.phone?.dm)
+          const notes: string[] = []
+          const seen = new Set<string>()
+          const pushNote = (characterId: string) => {
+            if (seen.has(characterId)) return
+            seen.add(characterId)
+            const note = buildPersonaWindowNoteForPhone(state, characterId, { char: speaker.name, user: identity.name }, 2400, isDm)
+            if (note) notes.push(note)
+          }
+          // 手动绑定的优先（只取跟当前说话人对应的那个人格）
+          for (const pid of conversation.boundPersonaIds || []) {
+            const persona = state.personas.find((p) => p.id === pid)
+            if (persona?.characterId && persona.characterId === speaker.id) pushNote(persona.characterId)
+          }
+          // 自动匹配说话的角色
+          pushNote(speaker.id)
+          return notes.join('\n\n')
+        })()].filter(Boolean).join('\n\n')
     })() : ''
     const sanitizedHistory = (isPhone ? phonePromptHistory(nextMessages, memoryLength).filter((message) => !conversation.phone?.dm || message.role === 'user' || !message.characterId || message.characterId === speaker.id) : nextMessages).flatMap((message) => {
       const fromDirector = message.role === 'assistant' && message.characterId === conversation.directorCharacterId
@@ -4325,6 +4345,17 @@ function App() {
           {activeConversation?.fork && <section className="drawer-compact-group"><div className="drawer-section-title"><strong>独立剧情分线</strong></div><p className="branch-context-note">只沿这条分线的正文与记忆继续，不同步原线后来的事实。项目场记沿用分叉时快照；另行绑定剧本项目后使用新项目。</p><button disabled={isGenerating || !conversations.some((item) => item.id === activeConversation.fork?.parentId)} onClick={returnToParentConversation}><span>{conversations.some((item) => item.id === activeConversation.fork?.parentId) ? '返回原剧情（原线已保留）' : '原剧情已删除，分线仍独立保留'}</span><i>↩</i></button></section>}
           <section className="conversation-stats-card" aria-label="本次共演统计"><div className="conversation-stats-heading"><strong>本次共演</strong><small>你每发送一次计一轮</small></div><div className="conversation-stats-grid"><div><strong>{conversationStats.rounds}</strong><span>对话轮数</span></div><div><strong>{conversationStats.replies}</strong><span>角色回复</span></div><div><strong>{conversationStats.total}</strong><span>消息总数</span></div></div></section>
           <section className="drawer-members-section"><div className="drawer-section-title"><strong>成员（{conversationMemberIds().length}）</strong><button onClick={() => { setDrawer(null); setMemberPickerOpen(true) }}>＋ 添加 / 配置 API</button></div><div className="drawer-member-row">{conversationMemberIds().map((id) => { const member = characters.find((item) => item.id === id); if (!member) return null; return <div className="drawer-member-chip" key={id}>{member.avatar ? <img src={member.avatar} alt="" /> : <span>{member.name.slice(-1)}</span>}<small>{member.name}</small>{conversationMemberIds().length > 1 && <button aria-label={`移除${member.name}`} onClick={() => removeConversationMember(id)}>×</button>}</div> })}</div></section>
+          {activeConversation?.phone && isPersonaStoreHydrated() && (() => {
+            const personas = getPersonaState().personas.filter((p) => p.enabled)
+            if (!personas.length) return null
+            const bound = activeConversation.boundPersonaIds || []
+            const toggle = (pid: string) => {
+              const next = bound.includes(pid) ? bound.filter((x) => x !== pid) : [...bound, pid]
+              const id = activeConversation.id
+              setConversations((current) => current.map((item) => item.id === id ? { ...item, boundPersonaIds: next.length ? next : undefined } : item))
+            }
+            return <section className="drawer-compact-group backstage-groups"><div className="drawer-section-title"><strong>绑定人格窗口</strong></div><p className="branch-context-note">{bound.length ? `已绑定 ${bound.length} 个人格，说话时自动带入其窗口记忆。` : '点选要绑定的人格窗口，说话时自动带入其窗口记忆。不选则按角色自动匹配。'}</p>{personas.map((persona) => { const char = characters.find((c) => c.id === persona.characterId); return <button key={persona.id} aria-pressed={bound.includes(persona.id)} onClick={() => toggle(persona.id)}><span>{char?.name || '未知人格'}</span><i>{bound.includes(persona.id) ? '✓' : '＋'}</i></button> })}</section>
+          })()}
           {activeConversation && !activeConversation.phone && (() => {
             const memberIds = conversationMemberIds()
             const groups = conversations.filter((item) => item.phone && !item.phone.dm && item.participantIds?.some((id) => memberIds.includes(id)))
@@ -4452,7 +4483,7 @@ function UpdateCard() {
     }
   }
 
-  return <section className="update-card"><strong>应用更新</strong><p>主动检查并拉取最新网页版本，不会删除角色、聊天记录或本地设置。</p><small>当前版本：v143 · 2026.10.19 人格窗口记忆打通群聊</small><button onClick={refresh} disabled={state === 'checking'}>{state === 'checking' ? '正在检查更新…' : state === 'error' ? '更新失败，点我重试' : '强制刷新到最新版'}</button></section>
+  return <section className="update-card"><strong>应用更新</strong><p>主动检查并拉取最新网页版本，不会删除角色、聊天记录或本地设置。</p><small>当前版本：v144 · 2026.10.19 前世记忆可手动绑定小手机群聊</small><button onClick={refresh} disabled={state === 'checking'}>{state === 'checking' ? '正在检查更新…' : state === 'error' ? '更新失败，点我重试' : '强制刷新到最新版'}</button></section>
 }
 
 function PersonaPage({ identities, selectedId, isBound, onSelect, onAdd, onDelete, onUpdate, onBack }: { identities: UserIdentity[]; selectedId: string; isBound: boolean; onSelect: (id: string) => void; onAdd: () => void; onDelete: (id: string) => void; onUpdate: (patch: Partial<UserIdentity>) => void; onBack: () => void }) {

@@ -1,13 +1,12 @@
 import type { PhoneGameRound } from './phoneGames'
 import type { ChatImage } from './chatImages'
-import type { ChatAttachment } from './chatAttachments'
 import type { DirectorTemplateConfig } from './directorTemplate'
 import type { Character, CharacterMemoryEntry } from './characterCard'
 import type { LongMemoryEntry } from './memoryEngine'
 import type { StoryScript, StoryVariable } from './storyScripts'
 
 export type ReplyAlternative = { text: string; finishReason?: string | null; contextSnapshotId?: string }
-export type Message = { id: number; role: 'user' | 'assistant'; text: string; images?: ChatImage[]; /** 小手机发送并已提取正文的文字附件。 */ attachments?: ChatAttachment[]; characterId?: string; finishReason?: string | null; alternatives?: ReplyAlternative[]; selectedAlternative?: number; contextSnapshotId?: string; /** 小手机群里的系统小字（例如剧情更新提醒），不发给模型、不算发言。 */ phoneNotice?: boolean; /** 本条游戏的固定抽签结果。 */ phoneGame?: PhoneGameRound; /** 小手机「引用回复」：被引用那句的快照（约 80 字）。 */ quote?: { messageId: string; author: string; text: string } }
+export type Message = { id: number; role: 'user' | 'assistant'; text: string; images?: ChatImage[]; characterId?: string; finishReason?: string | null; alternatives?: ReplyAlternative[]; selectedAlternative?: number; contextSnapshotId?: string; /** 小手机群里的系统小字（例如剧情更新提醒），不发给模型、不算发言。 */ phoneNotice?: boolean; /** 本条游戏的固定抽签结果。 */ phoneGame?: PhoneGameRound; /** 小手机「引用回复」：被引用那句的快照（约 80 字）。 */ quote?: { messageId: string; author: string; text: string } }
 
 export type ConversationContextSnapshot = {
   memories: LongMemoryEntry[]
@@ -55,6 +54,8 @@ export type Conversation = {
   theaterWorldBackground?: string
   /** 长剧情：指定带入哪几个小手机群的戏外近况（最多 2 个）；空 = 自动取最近活跃的两个。 */
   backstageGroupIds?: string[]
+  /** 小手机（群聊/私聊）：手动绑定的人格窗口 id，绑了之后这些人格的窗口记忆会注入给说话的角色。 */
+  boundPersonaIds?: string[]
   directorCharacterId?: string
   directorConfig?: DirectorTemplateConfig
   relationshipStages?: Record<string, number>
@@ -164,6 +165,7 @@ export function createFreshConversationFrom(source: Conversation, greeting: stri
     themeFrost: source.themeFrost,
     theaterWorldBackground: source.theaterWorldBackground,
     backstageGroupIds: source.backstageGroupIds,
+    boundPersonaIds: source.boundPersonaIds ? [...source.boundPersonaIds] : undefined,
     directorCharacterId: source.directorCharacterId,
     directorConfig: source.directorConfig ? { ...source.directorConfig } : undefined,
   }
