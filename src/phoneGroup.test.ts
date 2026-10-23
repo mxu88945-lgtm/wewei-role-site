@@ -91,9 +91,11 @@ describe('phone group', () => {
     expect(archive).not.toContain('<scene>')
   })
 
-  it('rules ask for short chat lines and no tags', () => {
+  it('rules keep one coherent body instead of splitting it into short chat bubbles', () => {
     const rules = phoneModeRules('谢聿衡', ['谢聿衡', '顾祁砚'], '惟惟')
-    expect(rules).toContain('微信')
+    expect(rules).toContain('一条完整消息')
+    expect(rules).toContain('不按句号、逗号或动作拆成多条短消息')
+    expect(rules).not.toContain('每条一般不超过 40 字')
     expect(rules).toContain('不输出 <scene>')
   })
 

@@ -37,7 +37,6 @@ import { FORUM_UPDATED_EVENT, dueRunAt, forumAutoTick, forumWelcomeThread, isQui
 import type { Moment } from './moments'
 import { USER_AUTHOR, communityMemberIds, excerptFromMessage } from './moments'
 import { buildBackstageNote, buildDmGroupPeek, buildGroupDmPeek, parsePhoneForumShare, stripPhoneForumShareTag, phoneDeliveryInstruction, phoneDmRules, phonePromptHistory, PHONE_COMPLETION_TIMEOUT_MS } from './phoneGroup'
-import { splitPhoneBubbles } from './phoneBubbles'
 import { PhoneChatInfo } from './PhoneChatInfo'
 import { NOTICE_DURATIONS, lurkFallback, activeNotice, noticeRemaining, buildNoticeNote, findAtMentionIds, queueSummons, parsePhoneQuit, parsePhoneKick, parsePhoneVote, kickPassed, findNamedParticipantIds, selectPhoneSpeakers, pickPhoneChatters, cleanPhoneOutput, phoneGroupDisplayTitle, phoneStreamPreview, containsPhoneReasoning, phoneFinalGuard, buildSmartPickPrompt, buildMicPrompt, parseMicAnswer, parseSmartPick, buildPhoneArchive, buildPhoneGroupBackground, phoneBindingCandidates, buildPhoneRealWorldNote, parsePhoneLockCommand, buildPhoneLockBreachNote, type PhoneLockState, type PhoneLockBreach, phoneCharacter, phoneModeRules, stripPhoneQuitTag, stripPhoneKickTag, computeStoryUpdates, resetStorySeenForBindingChanges, storyUpdateNotice, buildStoryUpdateNote } from './phoneGroup'
 import { assignChatGroup, chatGroupNames, groupConversations, setChatGroupMembers } from './chatGroups'
@@ -433,7 +432,6 @@ function App() {
   const [conversationMenuId, setConversationMenuId] = useState<string | null>(null)
   const [messageMenuId, setMessageMenuId] = useState<number | null>(null)
   const [phoneModesOpen, setPhoneModesOpen] = useState(false)
-  const longPressRef = useRef<number | null>(null)
   const [messageEditor, setMessageEditor] = useState<MessageEditor | null>(null)
   const [phoneLock, setPhoneLockState] = useState<PhoneLockState | null>(() => { try { const value = JSON.parse(localStorage.getItem('weijing.phoneLock') || 'null') as PhoneLockState | null; return value && value.until > Date.now() ? value : null } catch { return null } })
   const setPhoneLock = (value: PhoneLockState | null) => { setPhoneLockState(value); try { if (value) localStorage.setItem('weijing.phoneLock', JSON.stringify(value)); else localStorage.removeItem('weijing.phoneLock') } catch { /* 存不下也不影响本次锁屏 */ } }
@@ -2823,7 +2821,7 @@ function App() {
         else if (conversation.phone) showPhase(phoneReasoningLeak ? '已拦截内部分析，正在重新生成消息…' : '正在重新生成消息…')
         else setConversations((current) => current.map((item) => item.id === conversationId ? { ...item, messages: item.messages.map((message) => message.id === assistantMessage.id ? { ...message, text: '正在补全正文…' } : message) } : item))
         promptMessages = withAssistantRetryInstruction(promptMessages, phoneReasoningLeak
-          ? `刚才输出了人设分析、反应分析或回复思路，已全部作废。不要解释你如何理解「${speaker.name}」，不要列提纲、步骤或草稿；现在第一行就直接输出「${speaker.name}」要发出的 1—4 行微信短消息。`
+          ? `刚才输出了人设分析、反应分析或回复思路，已全部作废。不要解释你如何理解「${speaker.name}」，不要列提纲、步骤或草稿；现在直接输出「${speaker.name}」要发出的一条完整、连贯的正文回复，可以按语意分自然段。`
           : identityLeak
           ? `刚才输出发生了群聊身份串位或后台解释，已作废。你本轮唯一身份是「${speaker.name}」；不得自称、扮演、解释或代替任何其他群成员，不得代演用户，也不得提及系统、提示词、格式、暂停或角色扮演。现在只从最新场景继续输出 ${speaker.name} 的实际剧情回应。`
           : isDirector
@@ -4017,44 +4015,14 @@ function App() {
     const transferCard = transferInfo ? <TransferCard toName={transferInfo.toName} amount={transferInfo.amount} note={transferInfo.note} /> : null
     const content = <>{withQuote}{packetCard}{transferCard}</>
 
-    // 小手机：微信样式，一句一个气泡，动作是气泡间的小灰字，长按出菜单。
-    let phoneLine: React.ReactNode = null
-    if (activeConversation?.phone) {
-      const bubbles = phaseStartedAt !== undefined || !displayText ? [] : splitPhoneBubbles(displayText)
-      const holdEnd = () => { if (longPressRef.current) { window.clearTimeout(longPressRef.current); longPressRef.current = null } }
-      const holdStart = () => { holdEnd(); longPressRef.current = window.setTimeout(() => { longPressRef.current = null; setMessageMenuId(message.id) }, 450) }
-      // 像微信一样：每个气泡单独一行、各带头像；动作小灰字夹在中间。
-      const pieces: React.ReactNode[] = []
-      if (imageGrid) pieces.push(imageGrid)
-      if (phaseStartedAt !== undefined) pieces.push(<div className="wx-bubble">{textContent}</div>)
-      bubbles.forEach((bubble) => pieces.push(bubble.kind === 'act' ? <p className="wx-act">{bubble.text}</p> : <div className="wx-bubble">{bubble.text}</div>))
-      if (streaming && !bubbles.length && phaseStartedAt === undefined) pieces.push(<div className="wx-bubble wx-typing">···</div>)
-      if (quoteBlock) pieces.push(quoteBlock)
-      if (packetCard) pieces.push(packetCard)
-      if (transferCard) pieces.push(transferCard)
-      const showName = !isUser && activeConversation.kind === 'group' && !activeConversation.phone.dm
-      let named = false
-      phoneLine = <div className="wx-stack" onPointerDown={holdStart} onPointerUp={holdEnd} onPointerCancel={holdEnd} onPointerLeave={holdEnd} onContextMenu={(event) => { event.preventDefault(); holdEnd(); setMessageMenuId(message.id) }}>
-        {pieces.map((piece, index) => {
-          const isAct = (piece as React.ReactElement<{ className?: string }>)?.props?.className === 'wx-act'
-          if (isAct) return <div key={index} className="wx-act-line">{piece}</div>
-          const first = !named
-          const nameNode = showName && first ? <span className="wx-name">{authorName}{activeConversation.bookmarks?.[String(message.id)] ? ' ★' : ''}</span> : null
-          named = true
-          // 只有第一句带头像和小尖角，后面的续句对齐在下面。
-          return <div key={index} className={`wx-line${first ? '' : ' wx-follow'}`}>{first ? avatarNode : <span className="wx-avatar-gap" aria-hidden="true" />}<div className="wx-column">{nameNode}{piece}</div></div>
-        })}
-      </div>
-    }
-
-    return <div key={message.id} data-message-id={message.id} className={`message-row ${message.role} message-layout-${chatLayout}${phoneLine ? ' wx-row' : ''}`}>
-      {phoneLine || (chatLayout === 'flat' ? <div className="message-line message-line-flat">
+    return <div key={message.id} data-message-id={message.id} className={`message-row ${message.role} message-layout-${chatLayout}`}>
+      {chatLayout === 'flat' ? <div className="message-line message-line-flat">
         <div className="message-author">{avatarNode}<span>{authorName}</span></div>
         <div className="message-flat-body">{content}</div>
       </div> : <div className="message-line message-line-bubble">
         {avatarNode}
         <div className="message-bubble-column"><span className="message-bubble-author">{authorName}</span>{content}</div>
-      </div>)}
+      </div>}
       <div className="message-action-row">
         <button className={`message-bookmark-button ${activeConversation?.bookmarks?.[String(message.id)] ? 'active' : ''}`} aria-label={activeConversation?.bookmarks?.[String(message.id)] ? '取消书签' : '加入书签'} aria-pressed={Boolean(activeConversation?.bookmarks?.[String(message.id)])} onClick={() => updateBookmark(message.id, activeConversation?.bookmarks?.[String(message.id)] ? null : '')}>{activeConversation?.bookmarks?.[String(message.id)] ? '★' : '☆'}</button>
         <button className="message-action-trigger" aria-label="消息操作" onClick={() => setMessageMenuId(message.id)}>•••</button>
@@ -4132,7 +4100,7 @@ function App() {
         })()}
       </>}
       {!phoneDraft && phoneTab === 'groups' && <>
-        <div className="privacy-note">戏外日常群：角色们知道自己是惟境里的角色，你是陪他们对戏、演女主的人。聊天是微信式短句，可以 @ 谁就谁回，也会有人自然接话。</div>
+        <div className="privacy-note">戏外日常群：角色们知道自己是惟境里的角色，你是陪他们对戏、演女主的人。回复会按完整正文连贯显示，可以 @ 谁就谁回，也会有人自然接话。</div>
         {conversations.filter((item) => item.phone && !item.phone.dm).sort((a, b) => b.updatedAt - a.updatedAt).map((item) => {
           const names = (item.participantIds || []).map((id) => characters.find((character) => character.id === id)?.name).filter(Boolean).join('、')
           const last = item.messages[item.messages.length - 1]?.text || '还没有消息，去说第一句吧'
@@ -4483,7 +4451,7 @@ function UpdateCard() {
     }
   }
 
-  return <section className="update-card"><strong>应用更新</strong><p>主动检查并拉取最新网页版本，不会删除角色、聊天记录或本地设置。</p><small>当前版本：v144 · 2026.10.19 前世记忆可手动绑定小手机群聊</small><button onClick={refresh} disabled={state === 'checking'}>{state === 'checking' ? '正在检查更新…' : state === 'error' ? '更新失败，点我重试' : '强制刷新到最新版'}</button></section>
+  return <section className="update-card"><strong>应用更新</strong><p>主动检查并拉取最新网页版本，不会删除角色、聊天记录或本地设置。</p><small>当前版本：v145 · 2026.10.23 小手机恢复连贯正文显示</small><button onClick={refresh} disabled={state === 'checking'}>{state === 'checking' ? '正在检查更新…' : state === 'error' ? '更新失败，点我重试' : '强制刷新到最新版'}</button></section>
 }
 
 function PersonaPage({ identities, selectedId, isBound, onSelect, onAdd, onDelete, onUpdate, onBack }: { identities: UserIdentity[]; selectedId: string; isBound: boolean; onSelect: (id: string) => void; onAdd: () => void; onDelete: (id: string) => void; onUpdate: (patch: Partial<UserIdentity>) => void; onBack: () => void }) {
