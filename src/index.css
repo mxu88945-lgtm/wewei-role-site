@@ -271,9 +271,23 @@ button { cursor: pointer; }
 .appearance-actions { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
 .appearance-actions label, .appearance-actions button { min-height: 48px; border: 0; border-radius: 16px; display: grid; place-items: center; font-weight: 800; }
 .appearance-actions input { display: none; }
-.message-script-frame { width: 100%; min-width: 0; max-height: 1200px; border: 0; display: block; overflow-anchor: none; background: transparent; }
+.message-script-shell { position: relative; width: 100%; min-width: 0; overflow: hidden; border-radius: 18px; background: rgba(245,241,247,.72); }
+.message-script-state { position: absolute; z-index: 1; inset: 0; display: grid; place-items: center; min-height: 76px; color: #918797; font-size: 12px; pointer-events: none; }
+.message-script-frame { position: relative; z-index: 0; width: 100%; min-width: 0; max-height: 1200px; border: 0; display: block; overflow-anchor: none; background: transparent; }
 .message-script-frame.full-document { height: min(68dvh, 620px); max-height: min(68dvh, 620px); border-radius: 18px; overflow: auto; }
 .message-script-frame.fenced-page { max-height: 4000px; }
+.message-script-shell.is-failed { padding: 12px; }
+.message-script-shell.is-failed .message-script-frame { display: none; }
+.message-script-fallback { display: grid; gap: 7px; padding: 15px; border: 1px solid rgba(126,93,147,.16); border-radius: 15px; color: #5d5363; background: rgba(255,255,255,.74); font-size: 12px; line-height: 1.55; }
+.message-script-fallback strong { color: #574462; font-size: 13px; }
+.message-script-fallback span { color: #8c8192; }
+.message-script-fallback-actions { display: flex; align-items: flex-start; flex-wrap: wrap; gap: 8px; margin-top: 2px; }
+.message-script-fallback-actions > button, .message-script-fallback-actions summary { min-height: 34px; padding: 7px 11px; border: 0; border-radius: 10px; color: #694c83; background: #eee6f3; font: inherit; font-weight: 800; cursor: pointer; }
+.message-script-fallback-actions > details { min-width: 0; }
+.message-script-fallback-actions details[open] { flex: 1 1 100%; }
+.message-script-fallback-actions summary { display: inline-block; list-style: none; }
+.message-script-fallback-actions summary::-webkit-details-marker { display: none; }
+.message-script-fallback-actions pre { max-height: 260px; margin: 8px 0 0; padding: 10px; overflow: auto; white-space: pre-wrap; overflow-wrap: anywhere; border-radius: 10px; color: #625868; background: #f1edf3; font: inherit; }
 .message-content-segments { display: flex; flex-direction: column; gap: 10px; min-width: 0; }
 .message-tools { margin-top: 7px; display: flex; gap: 6px; }
 .message-tools button { border: 0; padding: 5px 8px; border-radius: 999px; color: #918997; background: transparent; font-size: 10px; }

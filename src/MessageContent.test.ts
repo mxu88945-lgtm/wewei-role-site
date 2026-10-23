@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { isFullHtmlDocument, isPendingAssistantText, normalizeMixedMarkup, plainTextParagraphs, userTextParagraphs } from './MessageContent'
+import { isFullHtmlDocument, isPendingAssistantText, normalizeMixedMarkup, plainTextParagraphs, richRenderFallback, userTextParagraphs } from './MessageContent'
 
 describe('character-card mixed markup', () => {
   it('renders Tavo-style plot fences, inline thoughts and paragraph spacing', () => {
@@ -54,6 +54,11 @@ describe('character-card mixed markup', () => {
     expect(isPendingAssistantText('正在回应…')).toBe(true)
     expect(isPendingAssistantText('正在回应...')).toBe(true)
     expect(isPendingAssistantText('他正在回应你的问题。')).toBe(false)
+  })
+
+  it('keeps readable text when a rich card needs to fall back', () => {
+    const fallback = richRenderFallback('<style>.x{display:none}</style><div>顾祁砚</div><script>throw new Error()</script><p>播放器暂时不可用</p>')
+    expect(fallback.replace(/\s+/g, ' ').trim()).toBe('顾祁砚 播放器暂时不可用')
   })
 
 })

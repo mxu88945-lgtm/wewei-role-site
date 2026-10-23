@@ -149,10 +149,47 @@ function mergeEvidence(existing: StoryEvidence[], proposed: StoryEvidence[]) {
   const next = existing.map((item) => ({ ...item, knownByCharacterIds: [...item.knownByCharacterIds] }))
   proposed.forEach((item) => {
     const index = next.findIndex((entry) => (item.id && entry.id === item.id) || (item.title && entry.title === item.title))
-    if (index >= 0) next[index] = { ...next[index], ...item, id: next[index].id }
+    if (index >= 0) {
+      const current = next[index]
+      next[index] = {
+        ...current,
+        title: item.title || current.title,
+        detail: item.detail || current.detail,
+        knownByCharacterIds: unique([...current.knownByCharacterIds, ...item.knownByCharacterIds]),
+        visibility: current.visibility === 'hidden' ? 'hidden' : item.visibility,
+        id: current.id,
+      }
+    }
     else if (item.title || item.detail) next.push({ ...item, id: item.id || `evidence-${Date.now()}-${next.length}` })
   })
   return next
+}
+
+function mergeKnowledgeFacts(existing: StoryCockpit['characterKnowledge'], proposed: StoryCockpit['characterKnowledge']) {
+  const knowledge = new Map(existing.map((item) => [item.characterId, {
+    characterId: item.characterId,
+    knownFacts: [...item.knownFacts],
+    unknownFacts: [...item.unknownFacts],
+    mistakenBeliefs: [...item.mistakenBeliefs],
+  }]))
+  proposed.forEach((item) => {
+    const current = knowledge.get(item.characterId)
+    if (!current) {
+      knowledge.set(item.characterId, {
+        characterId: item.characterId,
+        knownFacts: [...item.knownFacts],
+        unknownFacts: [...item.unknownFacts],
+        mistakenBeliefs: [...item.mistakenBeliefs],
+      })
+      return
+    }
+    current.knownFacts = unique([...current.knownFacts, ...item.knownFacts])
+    current.unknownFacts = unique([...current.unknownFacts, ...item.unknownFacts])
+    current.mistakenBeliefs = unique([...current.mistakenBeliefs, ...item.mistakenBeliefs])
+    const known = new Set(current.knownFacts)
+    current.unknownFacts = current.unknownFacts.filter((fact) => !known.has(fact))
+  })
+  return [...knowledge.values()]
 }
 
 export function mergeAutomaticContinuity(existingValue: StoryCockpit, result: AutomaticContinuityResult): StoryCockpit {
@@ -161,8 +198,6 @@ export function mergeAutomaticContinuity(existingValue: StoryCockpit, result: Au
   const consumed = new Set(result.consumedOpenHooks.filter((hook) => existing.openHooks.includes(hook)))
   const completedEvents = unique([...existing.completedEvents, ...proposed.completedEvents])
   const openHooks = unique([...existing.openHooks.filter((hook) => !consumed.has(hook)), ...proposed.openHooks]).filter((hook) => !consumed.has(hook))
-  const knowledge = new Map(existing.characterKnowledge.map((item) => [item.characterId, item]))
-  proposed.characterKnowledge.forEach((item) => knowledge.set(item.characterId, item))
   const eventUpdates = new Map(result.plannedEventUpdates.map((item) => [item.id, item]))
   const completedPlannedEvents: string[] = []
   const plannedEvents = existing.plannedEvents.map((item) => {
@@ -182,7 +217,7 @@ export function mergeAutomaticContinuity(existingValue: StoryCockpit, result: Au
     completedEvents: unique([...completedEvents, ...completedPlannedEvents]),
     openHooks,
     evidence: mergeEvidence(existing.evidence, proposed.evidence),
-    characterKnowledge: [...knowledge.values()],
+    characterKnowledge: mergeKnowledgeFacts(existing.characterKnowledge, proposed.characterKnowledge),
     nextDirections: proposed.nextDirections.length ? proposed.nextDirections : existing.nextDirections,
     plannedEvents,
   }

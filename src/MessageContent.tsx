@@ -179,15 +179,34 @@ function SafeInlineHtml({ html }: { html: string }) {
   return <div className="message-safe-html" dangerouslySetInnerHTML={{ __html: clean }} />
 }
 
+export function richRenderFallback(value: string) {
+  return unwrapCodeFence(value)
+    .replace(/<script\b[\s\S]*?<\/script>/gi, '')
+    .replace(/<style\b[\s\S]*?<\/style>/gi, '')
+    .replace(/<br\s*\/?>/gi, '\n')
+    .replace(/<[^>]+>/g, ' ')
+    .replace(/&nbsp;/gi, ' ')
+    .replace(/&amp;/gi, '&')
+    .replace(/&lt;/gi, '<')
+    .replace(/&gt;/gi, '>')
+    .replace(/[ \t]+\n/g, '\n')
+    .replace(/\n{3,}/g, '\n\n')
+    .trim()
+}
+
 type SceneHooks = { greetings?: string[]; onSelectGreeting?: (index: number, text: string) => void }
 
 function SandboxHtml({ html, raw = false, greetings, onSelectGreeting }: { html: string; raw?: boolean } & SceneHooks) {
   const frameRef = useRef<HTMLIFrameElement>(null)
   const tokenRef = useRef(`render-${crypto.randomUUID()}`)
+  const failTimeoutRef = useRef<number | null>(null)
   const fullDocument = useMemo(() => /<!doctype\s+html|<html[\s>]/i.test(unwrapCodeFence(html)), [html])
   // A fenced page is sized to its own content, like Tavo, instead of a fixed 620px box.
   const autoSize = raw || !fullDocument
   const [height, setHeight] = useState(raw ? 120 : fullDocument ? 620 : 220)
+  const [frameKey, setFrameKey] = useState(0)
+  const [frameLoaded, setFrameLoaded] = useState(false)
+  const [frameFailed, setFrameFailed] = useState(false)
   const greetingsKey = greetings ? JSON.stringify(greetings) : ''
   const source = useMemo(() => {
     // Rich character cards containing their own <style> are rendered in an iframe.
@@ -227,13 +246,17 @@ function SandboxHtml({ html, raw = false, greetings, onSelectGreeting }: { html:
       document.body.append(reporter)
     }
     return `<!doctype html>${document.documentElement.outerHTML}`
-  }, [html, fullDocument, raw, autoSize, greetingsKey])
+  }, [html, raw, autoSize, greetingsKey])
 
   const greetingsRef = useRef(greetings)
   const onSelectRef = useRef(onSelectGreeting)
   greetingsRef.current = greetings
   onSelectRef.current = onSelectGreeting
   useLayoutEffect(() => {
+    setFrameLoaded(false)
+    setFrameFailed(false)
+    const timeout = window.setTimeout(() => setFrameFailed(true), 8000)
+    failTimeoutRef.current = timeout
     const receive = (event: MessageEvent) => {
       if (event.source !== frameRef.current?.contentWindow || event.data?.token !== tokenRef.current) return
       if (event.data?.type === 'weijing-select-greeting') {
@@ -247,10 +270,30 @@ function SandboxHtml({ html, raw = false, greetings, onSelectGreeting }: { html:
       setHeight((current) => Math.abs(current - next) > 1 ? next : current)
     }
     window.addEventListener('message', receive)
-    return () => window.removeEventListener('message', receive)
-  }, [])
+    return () => {
+      window.clearTimeout(timeout)
+      if (failTimeoutRef.current === timeout) failTimeoutRef.current = null
+      window.removeEventListener('message', receive)
+    }
+  }, [source, raw, frameKey])
 
-  return <iframe ref={frameRef} className={`message-script-frame ${fullDocument && !raw ? 'full-document' : 'inline-script'}${raw ? ' fenced-page' : ''}`} title="角色卡互动内容" sandbox="allow-scripts" srcDoc={source} style={{ height }} />
+  const retry = () => {
+    setFrameLoaded(false)
+    setFrameFailed(false)
+    setFrameKey((current) => current + 1)
+  }
+  return <div className={`message-script-shell${frameFailed ? ' is-failed' : ''}`}>
+    {!frameLoaded && !frameFailed && <div className="message-script-state" role="status">正在加载卡片…</div>}
+    <iframe key={frameKey} ref={frameRef} className={`message-script-frame ${fullDocument && !raw ? 'full-document' : 'inline-script'}${raw ? ' fenced-page' : ''}`} title="角色卡互动内容" sandbox="allow-scripts" srcDoc={source} style={{ height }} onLoad={() => { if (failTimeoutRef.current !== null) window.clearTimeout(failTimeoutRef.current); failTimeoutRef.current = null; setFrameLoaded(true); setFrameFailed(false) }} onError={() => { if (failTimeoutRef.current !== null) window.clearTimeout(failTimeoutRef.current); failTimeoutRef.current = null; setFrameLoaded(false); setFrameFailed(true) }} />
+    {frameFailed && <div className="message-script-fallback" role="alert">
+      <strong>这张卡片暂时没有正常渲染</strong>
+      <span>你可以重试，或先查看未执行脚本的纯文本内容。</span>
+      <div className="message-script-fallback-actions">
+        <button type="button" onClick={retry}>重新加载</button>
+        <details><summary>查看纯文本</summary><pre>{richRenderFallback(html) || '（没有可显示的文本内容）'}</pre></details>
+      </div>
+    </div>}
+  </div>
 }
 
 function MessageContent({ text, role, character, userName, layout = 'bubble', streaming = false, greetings, onSelectGreeting, noStatus = false }: { text: string; role: 'user' | 'assistant'; character: Character; userName: string; layout?: 'bubble' | 'flat'; streaming?: boolean; noStatus?: boolean } & SceneHooks) {

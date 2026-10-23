@@ -135,6 +135,35 @@ describe('automatic story continuity', () => {
     expect(mergeAutomaticContinuity(existing, parsed).presentCharacterIds).toEqual(['pei', 'zhou'])
   })
 
+  it('merges character knowledge incrementally instead of replacing old facts', () => {
+    const existing = {
+      ...createStoryProject(1).cockpit,
+      characterKnowledge: [{ characterId: 'pei', knownFacts: ['见过照片'], unknownFacts: ['真正救人者'], mistakenBeliefs: ['杨颖就是救命恩人'] }],
+    }
+    const parsed = parseAutomaticContinuityResponse(JSON.stringify({ cockpit: {
+      characterKnowledge: [{ characterId: 'pei', knownFacts: ['拿到调查报告'], unknownFacts: [], mistakenBeliefs: [] }],
+    } }), ['pei'])
+    expect(mergeAutomaticContinuity(existing, parsed).characterKnowledge).toEqual([{
+      characterId: 'pei',
+      knownFacts: ['见过照片', '拿到调查报告'],
+      unknownFacts: ['真正救人者'],
+      mistakenBeliefs: ['杨颖就是救命恩人'],
+    }])
+  })
+
+  it('does not reveal hidden evidence or erase its existing witnesses during an incremental update', () => {
+    const existing = {
+      ...createStoryProject(1).cockpit,
+      evidence: [{ id: 'e1', title: '秘密转账', detail: '真正收款人是霍启铭', visibility: 'hidden' as const, knownByCharacterIds: ['director'] }],
+    }
+    const parsed = parseAutomaticContinuityResponse(JSON.stringify({ cockpit: {
+      evidence: [{ id: 'e1', title: '秘密转账', detail: '', visibility: 'public', knownByCharacterIds: ['pei'] }],
+    } }), ['pei'])
+    expect(mergeAutomaticContinuity(existing, parsed).evidence).toEqual([{
+      id: 'e1', title: '秘密转账', detail: '真正收款人是霍启铭', visibility: 'hidden', knownByCharacterIds: ['director', 'pei'],
+    }])
+  })
+
   it('allows an explicit empty present-character list when the dialogue confirms everyone left', () => {
     const existing = { ...createStoryProject(1).cockpit, presentCharacterIds: ['pei'] }
     const parsed = parseAutomaticContinuityResponse(JSON.stringify({ cockpit: { presentCharacterIds: [] } }), ['pei'])
