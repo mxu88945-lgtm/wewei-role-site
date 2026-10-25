@@ -13,10 +13,11 @@ import './runtime-enhancements.css'
 import './theme-pudding.css'
 import './theme-cute.css'
 import './theme-cute-icons.css'
+import './theme-liquid.css'
 import './memoryApiEnhancements'
 
 const APP_SCOPE = '/wewei-role-site/'
-const SERVICE_WORKER_RELEASE = '2026-10-23-phone-novel-body-v145'
+const SERVICE_WORKER_RELEASE = '2026-10-26-liquid-glass-v146'
 
 if ('serviceWorker' in navigator) {
   let reloadingForUpdate = false
