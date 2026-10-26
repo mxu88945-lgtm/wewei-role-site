@@ -161,8 +161,8 @@ export function phoneGiftMessage(userName: string, characterName: string, item: 
   return `🎁 礼物｜${userName}送给${characterName}「${item.name}」\n${item.subtitle}${note.trim() ? `\n附言：${note.trim().slice(0, 240)}` : ''}`
 }
 
-export function phoneGiftReactionPrompt(userName: string, item: PhoneGiftItem, note: string) {
-  return `${userName}刚刚主动送给你一份礼物「${item.name}」（${item.subtitle}）${note.trim() ? `，附言是“${note.trim().slice(0, 240)}”` : ''}。这是刚发生的真实小手机事件。先按你的人设自然接住礼物并回应她，可以嘴硬、惊喜、吃醋或认真，但不要像客服报商品信息，不要替她补动作或心理；1—4 条像真人私聊的消息。`
+export function phoneGiftReactionPrompt(userName: string, item: PhoneGiftItem, note: string, publicGroup = false) {
+  return `${userName}刚刚主动送给你一份礼物「${item.name}」（${item.subtitle}）${note.trim() ? `，附言是“${note.trim().slice(0, 240)}”` : ''}。这是刚发生的真实小手机事件。先按你的人设自然接住礼物并回应她，可以嘴硬、惊喜、吃醋或认真，但不要像客服报商品信息，不要替她补动作或心理；1—4 条像真人${publicGroup ? '群聊' : '私聊'}的消息。${publicGroup ? '礼物是当着群友的面公开送给你的，其他人都看得见；你可以在意他们的目光，但本轮只说你自己的话。' : ''}`
 }
 
 export function buildPhoneGiftMemoryNote(state: PhoneGiftState, characterId: string, userName: string, max = 8) {

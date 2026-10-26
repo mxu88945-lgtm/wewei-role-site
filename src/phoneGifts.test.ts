@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { addPhoneGift, buildPhoneGiftMemoryNote, makeDiyGift, normalizePhoneGiftState, phoneGiftMessage, phoneGiftsFor, setPhoneGiftReaction, PHONE_GIFT_CATALOG } from './phoneGifts'
+import { addPhoneGift, buildPhoneGiftMemoryNote, makeDiyGift, normalizePhoneGiftState, phoneGiftMessage, phoneGiftReactionPrompt, phoneGiftsFor, setPhoneGiftReaction, PHONE_GIFT_CATALOG } from './phoneGifts'
 
 describe('phone gifts', () => {
   it('keeps gift history isolated by character id', () => {
@@ -39,5 +39,12 @@ describe('phone gifts', () => {
     const note = buildPhoneGiftMemoryNote(b.state, 'a', '惟惟')
     expect(note).toContain('A 的')
     expect(note).not.toContain('B 的')
+  })
+
+  it('tells a public gift recipient that group mates can see it', () => {
+    const prompt = phoneGiftReactionPrompt('惟惟', PHONE_GIFT_CATALOG[0], '', true)
+    expect(prompt).toContain('真人群聊')
+    expect(prompt).toContain('其他人都看得见')
+    expect(prompt).not.toContain('真人私聊')
   })
 })

@@ -1056,6 +1056,13 @@ button { cursor: pointer; }
 .phone-gift-people i { display: grid; place-items: center; background: #eadfd7; font-style: normal; }
 .phone-gift-categories button { flex: none; min-height: 32px; padding: 0 13px; border: 0; border-radius: 16px; background: #eee9e4; color: #8a7a70; font-weight: 700; }
 .phone-gift-categories button.active { background: #9e6c52; color: #fff; }
+.phone-gift-routes { display: grid; gap: 7px; padding: 11px 12px; border: 1px solid rgba(113,82,62,.1); border-radius: 16px; background: rgba(255,255,255,.7); }
+.phone-gift-routes > small { color: #9b8679; font-weight: 800; }
+.phone-gift-routes > div { display: flex; gap: 6px; overflow-x: auto; scrollbar-width: none; }
+.phone-gift-routes > div::-webkit-scrollbar { display: none; }
+.phone-gift-routes button { flex: none; min-height: 34px; padding: 0 11px; border: 1px solid #e8ddd5; border-radius: 12px; background: #fff; color: #77675e; font-weight: 700; }
+.phone-gift-routes button.active { border-color: #a86f51; background: #a86f51; color: #fff; }
+.phone-gift-routes p { margin: 0; color: #9a887d; font-size: 11.5px; line-height: 1.45; }
 .phone-gift-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 10px; }
 .phone-gift-item { --gift-a: #fff5e8; --gift-b: #d8a77f; display: grid; grid-template-rows: 92px auto auto auto; gap: 4px; min-width: 0; padding: 0 11px 12px; overflow: hidden; border: 1px solid rgba(114, 78, 54, .09); border-radius: 18px; background: rgba(255,255,255,.86); color: #433832; text-align: left; box-shadow: 0 6px 18px rgba(100,70,50,.06); }
 .phone-gift-art { display: grid; place-items: center; margin: 0 -11px 5px; background: radial-gradient(circle at 50% 38%, rgba(255,255,255,.95), transparent 32%), linear-gradient(145deg, var(--gift-a), color-mix(in srgb, var(--gift-b) 58%, white)); font-size: 44px; filter: saturate(.9); }

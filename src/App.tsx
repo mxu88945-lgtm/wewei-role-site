@@ -3086,8 +3086,9 @@ function App() {
     }
   }
 
-  const sendPhoneGift = async (item: PhoneGiftItem, character: Character, note: string) => {
-    const conversation = phoneDmConversation(character.id)
+  const sendPhoneGift = async (item: PhoneGiftItem, character: Character, note: string, destinationId: string) => {
+    const group = destinationId === 'dm' ? undefined : conversations.find((entry) => entry.id === destinationId && entry.phone && !entry.phone.dm && entry.participantIds?.includes(character.id))
+    const conversation = group || phoneDmConversation(character.id)
     if (!conversation) throw new Error('没有找到这个角色。')
     const now = Date.now()
     const added = addPhoneGift(readPhoneGifts(), character.id, item, note, now)
@@ -3109,7 +3110,7 @@ function App() {
       nextMessages,
       character,
       conversationApiFor(conversation, character.id, api),
-      { phoneNudge: phoneGiftReactionPrompt(globalIdentity.name, item, note) },
+      { explicitlyMentioned: Boolean(group), phoneNudge: phoneGiftReactionPrompt(globalIdentity.name, item, note, Boolean(group)) },
     )
     const reply = [...completed].reverse().find((message) => message.role === 'assistant' && message.characterId === character.id && !message.phoneNotice && !isPendingAssistantText(message.text))
     if (reply) writePhoneGifts(setPhoneGiftReaction(readPhoneGifts(), added.record.id, cleanPhoneOutput(reply.text)))
@@ -4153,7 +4154,7 @@ function App() {
       {!phoneDraft && <PhoneAutoSettingsCard status={phoneAutoStatus} />}
       {!phoneDraft && <PhonePointsCard members={[...new Set(conversations.filter((item) => item.phone && !item.phone.dm).flatMap((item) => item.participantIds || []))].map((id) => characters.find((item) => item.id === id)).filter((item): item is Character => Boolean(item))} />}
       {!phoneDraft && <div className="phone-tabs" role="tablist"><button role="tab" aria-selected={phoneTab === 'groups'} className={phoneTab === 'groups' ? 'active' : ''} onClick={() => setPhoneTab('groups')}>群聊{phoneUnread.groups > 0 && <b className="phone-unread inline">{unreadLabel(phoneUnread.groups)}</b>}</button><button role="tab" aria-selected={phoneTab === 'dms'} className={phoneTab === 'dms' ? 'active' : ''} onClick={() => setPhoneTab('dms')}>私聊{phoneUnread.dms > 0 && <b className="phone-unread inline">{unreadLabel(phoneUnread.dms)}</b>}</button><button role="tab" aria-selected={phoneTab === 'moments'} className={phoneTab === 'moments' ? 'active' : ''} onClick={() => setPhoneTab('moments')}>论坛</button><button role="tab" aria-selected={phoneTab === 'gifts'} className={phoneTab === 'gifts' ? 'active' : ''} onClick={() => setPhoneTab('gifts')}>🎁 礼物</button><button role="tab" aria-selected={phoneTab === 'shop'} className={phoneTab === 'shop' ? 'active' : ''} onClick={() => setPhoneTab('shop')}>🏪 商店</button></div>}
-      {!phoneDraft && phoneTab === 'gifts' && <PhoneGifts members={[...new Set(conversations.filter((item) => item.phone && !item.phone.dm).flatMap((item) => item.participantIds || []))].map((id) => characters.find((item) => item.id === id)).filter((item): item is Character => Boolean(item))} onSend={sendPhoneGift} />}
+      {!phoneDraft && phoneTab === 'gifts' && <PhoneGifts groups={conversations.filter((item) => item.phone && !item.phone.dm).map((item) => ({ id: item.id, title: phoneGroupDisplayTitle(item.title, item.participantIds?.length || 0), memberIds: item.participantIds || [], updatedAt: item.updatedAt }))} members={[...new Set(conversations.filter((item) => item.phone && !item.phone.dm).flatMap((item) => item.participantIds || []))].map((id) => characters.find((item) => item.id === id)).filter((item): item is Character => Boolean(item))} onSend={sendPhoneGift} />}
       {!phoneDraft && phoneTab === 'shop' && <PhoneShop userName={globalIdentity.name} onGranted={(order) => setCharacters((current) => current.map((item) => item.id === order.buyerId ? addWishPoolLine(item, grantedWishLine(order, globalIdentity.name), globalIdentity.name) : item))} members={[...new Set(conversations.filter((item) => item.phone && !item.phone.dm).flatMap((item) => item.participantIds || []))].map((id) => characters.find((item) => item.id === id)).filter((item): item is Character => Boolean(item))} />}
       {!phoneDraft && phoneTab === 'moments' && <Forum characters={characters} conversations={conversations} userName={globalIdentity.name} userAvatar={globalIdentity.avatar} api={api} seed={momentSeed} onSeedUsed={clearMomentSeed} onSaveToMemory={saveMomentToMemory} onThreadsChange={handleForumChange} onShare={shareForumToChat} />}
       {!phoneDraft && phoneTab === 'dms' && <>
@@ -4527,7 +4528,7 @@ function UpdateCard() {
     }
   }
 
-  return <section className="update-card"><strong>应用更新</strong><p>主动检查并拉取最新网页版本，不会删除角色、聊天记录或本地设置。</p><small>当前版本：v148 · 2026.10.26 小手机礼物图鉴与即时回应</small><button onClick={refresh} disabled={state === 'checking'}>{state === 'checking' ? '正在检查更新…' : state === 'error' ? '更新失败，点我重试' : '强制刷新到最新版'}</button></section>
+  return <section className="update-card"><strong>应用更新</strong><p>主动检查并拉取最新网页版本，不会删除角色、聊天记录或本地设置。</p><small>当前版本：v149 · 2026.10.26 礼物可选群聊公开或私聊送达</small><button onClick={refresh} disabled={state === 'checking'}>{state === 'checking' ? '正在检查更新…' : state === 'error' ? '更新失败，点我重试' : '强制刷新到最新版'}</button></section>
 }
 
 function PersonaPage({ identities, selectedId, isBound, onSelect, onAdd, onDelete, onUpdate, onBack }: { identities: UserIdentity[]; selectedId: string; isBound: boolean; onSelect: (id: string) => void; onAdd: () => void; onDelete: (id: string) => void; onUpdate: (patch: Partial<UserIdentity>) => void; onBack: () => void }) {

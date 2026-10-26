@@ -4,16 +4,18 @@ import { PHONE_GIFT_CATALOG, PHONE_GIFT_CATEGORIES, PHONE_GIFTS_EVENT, makeDiyGi
 
 type Props = {
   members: Character[]
-  onSend: (item: PhoneGiftItem, character: Character, note: string) => Promise<void>
+  groups: Array<{ id: string; title: string; memberIds: string[]; updatedAt: number }>
+  onSend: (item: PhoneGiftItem, character: Character, note: string, destinationId: string) => Promise<void>
 }
 
 const when = (at: number) => new Date(at).toLocaleString('zh-CN', { month: 'numeric', day: 'numeric', hour: '2-digit', minute: '2-digit' })
 
-export default function PhoneGifts({ members, onSend }: Props) {
+export default function PhoneGifts({ members, groups, onSend }: Props) {
   const [characterId, setCharacterId] = useState(members[0]?.id || '')
   const [category, setCategory] = useState<'all' | PhoneGiftCategory>('all')
   const [selected, setSelected] = useState<PhoneGiftItem | null>(null)
   const [note, setNote] = useState('')
+  const [destinationId, setDestinationId] = useState('')
   const [diyOpen, setDiyOpen] = useState(false)
   const [diyName, setDiyName] = useState('')
   const [diyIcon, setDiyIcon] = useState('🎁')
@@ -31,6 +33,10 @@ export default function PhoneGifts({ members, onSend }: Props) {
   }, [members, characterId])
 
   const person = members.find((item) => item.id === characterId)
+  const destinations = useMemo(() => groups.filter((group) => group.memberIds.includes(characterId)).sort((a, b) => b.updatedAt - a.updatedAt), [groups, characterId])
+  useEffect(() => {
+    if (!destinationId || (destinationId !== 'dm' && !destinations.some((item) => item.id === destinationId))) setDestinationId(destinations[0]?.id || 'dm')
+  }, [destinations, destinationId])
   const items = category === 'all' ? PHONE_GIFT_CATALOG : PHONE_GIFT_CATALOG.filter((item) => item.category === category)
   const history = useMemo(() => {
     void tick
@@ -42,7 +48,7 @@ export default function PhoneGifts({ members, onSend }: Props) {
     setBusy(true)
     setError('')
     try {
-      await onSend(item, person, note)
+      await onSend(item, person, note, destinationId || 'dm')
       setSelected(null)
       setDiyOpen(false)
       setDiyName('')
@@ -61,7 +67,7 @@ export default function PhoneGifts({ members, onSend }: Props) {
     <header className="phone-gifts-hero">
       <span>GIFT · 心意</span>
       <h2>给 TA 的心意，不只一种</h2>
-      <p>送出后会进入对应私聊，TA 会按自己的人设当场回应。</p>
+      <p>可以公开送进群里，也可以只放进 TA 的私聊。</p>
     </header>
 
     <div className="phone-gift-people" aria-label="选择收礼人">
@@ -73,6 +79,12 @@ export default function PhoneGifts({ members, onSend }: Props) {
 
     <div className="phone-gift-categories">
       {PHONE_GIFT_CATEGORIES.map((item) => <button key={item.id} className={category === item.id ? 'active' : ''} onClick={() => setCategory(item.id)}>{item.label}</button>)}
+    </div>
+
+    <div className="phone-gift-routes" aria-label="选择送礼场合">
+      <small>送到哪里</small>
+      <div>{destinations.map((group) => <button key={group.id} className={destinationId === group.id ? 'active' : ''} onClick={() => setDestinationId(group.id)}>👥 {group.title}</button>)}<button className={destinationId === 'dm' ? 'active' : ''} onClick={() => setDestinationId('dm')}>🔒 只发私聊</button></div>
+      <p>{destinationId === 'dm' ? '只有 TA 看得到，回应也留在私聊。' : '礼物会公开出现在群里；收礼人先回应，其他群友都看得见，可以接着酸。'}</p>
     </div>
 
     <div className="phone-gift-grid">
