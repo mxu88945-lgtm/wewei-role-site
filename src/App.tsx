@@ -1,3 +1,6 @@
+Warning: truncated output (original token count: 102591)
+Total output lines: 4547
+
 import { useCallback, useEffect, useId, useLayoutEffect, useMemo, useRef, useState } from 'react'
 import ApiSettingsPage from './ApiSettingsPage'
 import BackupCard from './BackupCard'
@@ -29,6 +32,8 @@ import { fixStageMentions, phoneStageNameNote } from './phoneStageName'
 import { addWishPoolLine, grantedWishLine, takeWishPoolTags, wishPoolNote } from './wishPool'
 import { applyPardons, applyShopTags, buildShopNote, readShop, spendLockTicket, takePriority, writeShop } from './phoneShop'
 import PhoneShop from './PhoneShop'
+import PhoneGifts from './PhoneGifts'
+import { addPhoneGift, buildPhoneGiftMemoryNote, phoneGiftMessage, phoneGiftReactionPrompt, readPhoneGifts, setPhoneGiftReaction, writePhoneGifts, type PhoneGiftItem } from './phoneGifts'
 import PhoneGames, { PhoneGameCard } from './PhoneGames'
 import { buildPhoneGameNote, nextPhoneGame, phoneGameSpeakers, phoneGameText, type GamePlayer, type PhoneGameKind, type PhoneGameRound, type TruthMode } from './phoneGames'
 import { collageAvatar, phoneAvatarSignature, squareAvatarFromFile } from './groupAvatar'
@@ -500,7 +505,7 @@ function App() {
   const [characterSelectionMode, setCharacterSelectionMode] = useState(false)
   const [selectedCharacterIds, setSelectedCharacterIds] = useState<string[]>([])
   const [collapsedLibraryGroups, setCollapsedLibraryGroups] = useState<string[]>(() => read<string[]>('weijing.libraryCollapsed', []))
-  const [phoneTab, setPhoneTab] = useState<'groups' | 'dms' | 'moments' | 'shop'>('groups')
+  const [phoneTab, setPhoneTab] = useState<'groups' | 'dms' | 'moments' | 'gifts' | 'shop'>('groups')
   const [momentSeed, setMomentSeed] = useState<MomentSeed | null>(null)
   const clearMomentSeed = useCallback(() => setMomentSeed(null), [])
   const [phoneDraft, setPhoneDraft] = useState<{ editingId?: string; title: string; memberIds: string[]; bindings: Record<string, string>; avatar?: string; avatarCollage?: boolean; noticeText?: string; noticeHours?: number; allowQuit?: boolean; allowKick?: boolean; allowForumShare?: boolean } | null>(null)
@@ -2024,14 +2029,14 @@ function App() {
     setActiveId(members[0].id); setActiveConversationId(conversation.id)
     replacePage('chat')
   }
-  const openPhoneDm = (characterId: string) => {
+  const phoneDmConversation = (characterId: string) => {
     const existing = conversations.filter((item) => item.phone?.dm && item.participantIds?.[0] === characterId).sort((a, b) => b.updatedAt - a.updatedAt)[0]
-    if (existing) { openConversation(existing); return }
+    if (existing) return existing
     const character = characters.find((item) => item.id === characterId)
-    if (!character) return
+    if (!character) return undefined
     const now = Date.now()
     const binding = conversations.map((item) => item.phone && !item.phone.dm ? item.phone.bindings[characterId] : undefined).find(Boolean)
-    const conversation: Conversation = {
+    return {
       id: `group-phone-dm-${now}-${Math.random().toString(36).slice(2, 8)}`,
       kind: 'group', characterId,
       participantIds: [characterId],
@@ -2039,8 +2044,12 @@ function App() {
       title: character.name, messages: [], createdAt: now, updatedAt: now,
       phone: { bindings: binding ? { [characterId]: binding } : {}, dm: true },
       theaterWorldBackground: buildPhoneGroupBackground([character]),
-    }
-    setConversations((current) => [...current, conversation])
+    } satisfies Conversation
+  }
+  const openPhoneDm = (characterId: string) => {
+    const conversation = phoneDmConversation(characterId)
+    if (!conversation) return
+    if (!conversations.some((item) => item.id === conversation.id)) setConversations((current) => [...current, conversation])
     setActiveId(characterId); setActiveConversationId(conversation.id)
     navigate('chat')
   }
@@ -2528,8 +2537,9 @@ function App() {
       const funNote = conversation.phone?.dm ? `【拍一拍】看到「👋 ${identity.name} 拍了拍 …」就是她拍了你一下，接住它；你也可以单独一行写【拍一拍：${identity.name}】拍她。偶尔用。\n${buildRedPacketNote(readRedPackets(), conversation.id, speaker.id, Date.now(), true)}`.trim() : `【拍一拍】看到「👋 某人 拍了拍 @你」就是有人拍了你，要接话；你也可以在消息最后单独一行写【拍一拍：名字】拍一个群友（他会马上出来回你）或拍${identity.name}。偶尔用，别每条都拍。\n${(() => { const top = todayTopPoints(readPoints(), (conversation.participantIds || []).map((id) => ({ id, name: characters.find((item) => item.id === id)?.name || '' })), Date.now()); return top.length ? `【今日积分榜·群顶上挂着】${top.map((item, index) => `${['第一', '第二', '第三'][index]} ${item.name} +${item.points}`).join('，')}。上榜的可以得意，没上榜的可以酸。\n` : '' })()}${buildRedPacketNote(readRedPackets(), conversation.id, speaker.id, Date.now())}`
       const noticeNote = conversation.phone?.dm ? funNote : [funNote, buildNoticeNote(activeNotice(conversation.phone?.notice), identity.name), (() => { const story = phoneStoryNoteRef.current; return story && story.conversationId === conversation.id ? story.note : '' })()].filter(Boolean).join('\n\n')
       const pointsNote = buildPointsNote(readPoints(), [...members, ...dmMates].map((member) => ({ id: member.id, name: member.name })), identity.name)
+      const giftNote = buildPhoneGiftMemoryNote(readPhoneGifts(), speaker.id, identity.name)
       const shopNote = buildShopNote(readShop(), readPoints(), { id: speaker.id, name: speaker.name }, [...members, ...dmMates].map((member) => ({ id: member.id, name: member.name })), identity.name, Date.now()) + '\n' + wishPoolNote(speaker, identity.name) + '\n' + TRANSFER_NOTE(identity.name) + phoneStageNameNote(identities.map((item) => item.name), identity.name)
-      return [conversation.phone?.dm ? phoneDmRules(speaker.name, identity.name) : phoneModeRules(speaker.name, members.map((member) => member.name), identity.name, { allowQuit: conversation.phone?.allowQuit, allowKick: conversation.phone?.allowKick, allowForumShare: conversation.phone?.allowForumShare }), realWorld, noticeNote, pointsNote, shopNote, mateBackground, dmBackground, dmPeek, privateDmMemory, buildPhoneArchive(sources, speaker.id, identity.name, (message) => message.characterId ? nameOf(message) : sources.find((source) => source.conversation?.messages.includes(message))?.character.name || '角色'),
+      return [conversation.phone?.dm ? phoneDmRules(speaker.name, identity.name) : phoneModeRules(speaker.name, members.map((member) => member.name), identity.name, { allowQuit: conversation.phone?.allowQuit, allowKick: conversation.phone?.allowKick, allowForumShare: conversation.phone?.allowForumShare }), realWorld, noticeNote, pointsNote, shopNote, giftNote, mateBackground, dmBackground, dmPeek, privateDmMemory, buildPhoneArchive(sources, speaker.id, identity.name, (message) => message.characterId ? nameOf(message) : sources.find((source) => source.conversation?.messages.includes(message))?.character.name || '角色'),
         // 人格窗口 → 小手机：只给正在说话的这个角色，群里其他人看不到。自动按角色 id 匹配，外加手动绑定的（只取跟说话人对应的）。
         (() => {
           if (!isPersonaStoreHydrated()) return ''
@@ -2797,131 +2807,7 @@ function App() {
             else if (activity === 'content' && !output) showPhase('已收到数据，正在生成消息…')
             return
           }
-          if (activity !== 'thinking' || output || thinkingIndicatorShown || phaseTimer !== null) return
-          thinkingIndicatorShown = true
-          setConversations((current) => current.map((item) => item.id === conversationId ? {
-            ...item,
-            messages: item.messages.map((message) => message.id === assistantMessage.id ? { ...message, text: '正在思考…' } : message),
-          } : item))
-        },
-        onDelta: (delta) => {
-          output += delta
-          // Finite arrangements are shown only after their private check, so
-          // an ignored first draft cannot briefly look like the final reply.
-          if (capturedTemporaryPlot && capturedTemporaryPlot.mode !== 'persistent') return
-          const staged = sanitizeAssistantOutput(output, { director: isDirector })
-          // Keep partial analysis headings private, but show completed chat sentences
-          // while the model is still generating the rest of its reply.
-          const preview = conversation.phone ? phoneStreamPreview(staged) : stripStatusBlocksForStreaming(staged)
-          if (conversation.phone && (!preview || preview === stagedVisibleOutput)) return
-          stagedVisibleOutput = preview
-          // About 20 visual updates per second still looks fluid, while avoiding a full
-          // React + regex + HTML sanitization pass for every tiny network chunk.
-          if (streamRenderTimer === null) streamRenderTimer = window.setTimeout(commitStreamOutput, 48)
-        },
-      })
-      }
-      const finitePlot = Boolean(capturedTemporaryPlot && capturedTemporaryPlot.mode !== 'persistent')
-      if (finitePlot) showPhase('幕后安排 1/3 · 正在写第一稿')
-      else if (conversation.phone) showPhase('正在等待模型回复…')
-      let completion = await runCompletion()
-      cancelQueuedStreamRender()
-      if (!output.trim()) throw new Error('模型没有返回内容')
-      let cleanOutput = sanitizeAssistantOutput(output, { director: isDirector })
-      const identityLeak = isGroup && !isDirector && hasGroupIdentityLeak(cleanOutput || output, speaker.name, groupNames)
-      const phoneReasoningLeak = Boolean(conversation.phone && containsPhoneReasoning(cleanOutput || output) && !cleanPhoneOutput(cleanOutput || output))
-      if (!hasCompleteRoleplayBody(cleanOutput || output, isDirector) || identityLeak || phoneReasoningLeak) {
-        output = ''
-        stagedVisibleOutput = ''
-        thinkingIndicatorShown = false
-        if (finitePlot) showPhase('幕后安排 1/3 · 第一稿不完整，正在补全正文')
-        else if (conversation.phone) showPhase(phoneReasoningLeak ? '已拦截内部分析，正在重新生成消息…' : '正在重新生成消息…')
-        else setConversations((current) => current.map((item) => item.id === conversationId ? { ...item, messages: item.messages.map((message) => message.id === assistantMessage.id ? { ...message, text: '正在补全正文…' } : message) } : item))
-        promptMessages = withAssistantRetryInstruction(promptMessages, phoneReasoningLeak
-          ? `刚才输出了人设分析、反应分析或回复思路，已全部作废。不要解释你如何理解「${speaker.name}」，不要列提纲、步骤或草稿；现在直接输出「${speaker.name}」要发出的一条完整、连贯的正文回复，可以按语意分自然段。`
-          : identityLeak
-          ? `刚才输出发生了群聊身份串位或后台解释，已作废。你本轮唯一身份是「${speaker.name}」；不得自称、扮演、解释或代替任何其他群成员，不得代演用户，也不得提及系统、提示词、格式、暂停或角色扮演。现在只从最新场景继续输出 ${speaker.name} 的实际剧情回应。`
-          : isDirector
-          ? '刚才输出不完整：只写了状态栏或缺少场景正文。现在从“最新场景锚点”续写，必须输出 <scene>...</scene>、至少一段实际剧情正文，最后再输出唯一的 <director_status>...</director_status>；不得解释、分析或只输出状态栏。'
-          : '刚才输出不完整：只写了状态栏，缺少实际剧情正文。现在从当前场景继续，必须先写至少一段角色正文，再在结尾输出状态栏；不得解释或只输出状态栏。', Boolean(capturedTemporaryPlot))
-        completion = await runCompletion()
-        cancelQueuedStreamRender()
-        if (!output.trim()) throw new Error('模型补全正文失败，请重试或更换模型。')
-        cleanOutput = sanitizeAssistantOutput(output, { director: isDirector })
-        if (!hasCompleteRoleplayBody(cleanOutput || output, isDirector) || (isGroup && !isDirector && hasGroupIdentityLeak(cleanOutput || output, speaker.name, groupNames)) || (conversation.phone && containsPhoneReasoning(cleanOutput || output) && !cleanPhoneOutput(cleanOutput || output))) throw new Error(phoneReasoningLeak
-          ? '模型连续两次只返回内部分析，已拦截且没有发进小手机。请重试或更换模型。'
-          : identityLeak
-          ? `模型连续两次发生身份串位，未写入本轮剧情。请重试；若仍出现，请改用 @${speaker.name} 点名回复或更换模型。`
-          : '模型连续两次只返回状态栏或缺少剧情正文，未写入本轮剧情。请重试或更换模型。')
-      }
-      let plotApplied = true
-      if (capturedTemporaryPlot && capturedTemporaryPlot.mode !== 'persistent') {
-        let repairing = false
-        const checked = await checkAndRepairTemporaryPlot(cleanOutput || output, (reply) => (showPhase(repairing ? '幕后安排 3/3 · 重写完成，正在复查' : '幕后安排 2/3 · 正在检查是否落实'), reviewTemporaryPlotReply({
-          api: resolvedSpeakerApi,
-          signal: controller.signal,
-          direction: capturedTemporaryPlot.text,
-          reply,
-          speakerName: speaker.name,
-          director: isDirector,
-          userName: identity.name,
-          independentRoleNames: groupNames.filter((name) => name !== speaker.name),
-          // The checker receives visible recent history only, never another
-          // member's card, project files, memories or private variables.
-          recentHistory: nextMessages.slice(-4).map((message) => `${message.role}: ${modelVisibleMessageText({ ...message, text: sanitizeAssistantOutput(message.text, { director: message.characterId === conversation.directorCharacterId }) })}`).join('\n').slice(-6000),
-        })), async () => {
-          repairing = true
-          output = ''
-          stagedVisibleOutput = ''
-          thinkingIndicatorShown = false
-          showPhase('幕后安排 3/3 · 第一稿没落实，正在重写')
-          promptMessages = withAssistantRetryInstruction(promptMessages, '上次回复没有落实本轮幕后安排，不能把只延续旧场景或沿用旧的阻断状态当作完成。请重新生成本轮完整回复，实际启动安排的第一步，并停在用户或独立角色可以回应的位置；不替他们行动或决定，不复述后台指令，保持原输出结构。', true)
-          completion = await runCompletion()
-          cancelQueuedStreamRender()
-          const repaired = sanitizeAssistantOutput(output, { director: isDirector })
-          if (!hasCompleteRoleplayBody(repaired, isDirector) || (isGroup && !isDirector && hasGroupIdentityLeak(repaired, speaker.name, groupNames))) {
-            output = ''
-            throw new Error('补写幕后安排时模型未返回有效正文；安排已保留，请重试。')
-          }
-          return repaired
-        })
-        stopPhase()
-        cleanOutput = checked.reply
-        plotApplied = checked.applied
-        if (checked.verdict.status === 'ignored') {
-          // Two drafts and minutes of waiting must not end in nothing: keep the
-          // rewrite as this turn's reply, and leave the arrangement pending.
-          setChatError('两次都没完全落实幕后安排，已保留重写后的这一稿；安排未消耗，可以重生成再试，或点“已落实，结束安排”。')
-        } else if (!plotApplied) setChatError('检查认为幕后安排可能与当前事实或角色控制权冲突，本轮回复已保留，安排未消耗。若正文其实已落实，点“已落实，结束安排”即可清空。')
-      }
-      if (completion.finishReason) {
-        setConversations((current) => current.map((item) => item.id === conversationId ? { ...item, messages: item.messages.map((message) => message.id === assistantMessage.id ? { ...message, finishReason: completion.finishReason } : message) } : item))
-      }
-
-      if (!cleanOutput && containsHiddenReasoning(output, isDirector)) throw new Error('模型只返回了内部分析，惟境已拦截且没有写入剧情。请重试或换一个更遵守指令的模型。')
-      const phoneLockCommand = conversation.phone ? parsePhoneLockCommand(cleanOutput || output) : null
-      let phoneLockDenied = false
-      let visibleOutput = isDirector
-        ? normalizeDirectorStatusOutput(cleanOutput || output)
-        : conversation.phone ? cleanPhoneOutput(cleanOutput || output) || phoneLockCommand?.text || cleanOutput || output
-        : cleanOutput || output
-      if (conversation.phone && !conversation.phone.dm && !isDirector) {
-        if (phoneVotingRef.current) {
-          const voted = parsePhoneVote(visibleOutput)
-          visibleOutput = voted.text
-          phoneLastVoteRef.current = voted.vote
-        } else if (conversation.phone.allowKick === false) {
-          visibleOutput = stripPhoneKickTag(visibleOutput)
-        } else {
-          const kick = parsePhoneKick(visibleOutput, (conversation.participantIds || []).map((id) => ({ id, name: characters.find((item) => item.id === id)?.name || '' })), speaker.id)
-          if (kick) {
-            visibleOutput = kick.text
-            if (kick.targetId) phoneKickRef.current = { conversationId, targetId: kick.targetId, byId: speaker.id, reason: kick.reason }
-          }
-        }
-      }
-      if (conversation.phone && !conversation.phone.dm && !isDirector && conversation.phone.allowQuit === false) visibleOutput = stripPhoneQuitTag(visibleOutput)
-      const phoneQuit = conversation.phone && !conversation.phone.dm && !isDirector && conversation.phone.allowQuit !== false ? parsePhoneQuit(visibleOutput, speaker.name) : null
+       …2591 tokens truncated…eQuit(visibleOutput, speaker.name) : null
       if (phoneQuit) {
         visibleOutput = phoneQuit.text
         writePoints(addPoints(readPoints(), speaker.id, -20, `退群${phoneQuit.reason ? `：${phoneQuit.reason}` : ''}`, Date.now()))
@@ -3077,6 +2963,35 @@ function App() {
         setGeneratingIds((current) => current.filter((id) => id !== conversationId))
       }
     }
+  }
+
+  const sendPhoneGift = async (item: PhoneGiftItem, character: Character, note: string) => {
+    const conversation = phoneDmConversation(character.id)
+    if (!conversation) throw new Error('没有找到这个角色。')
+    const now = Date.now()
+    const added = addPhoneGift(readPhoneGifts(), character.id, item, note, now)
+    writePhoneGifts(added.state)
+    const giftMessage: Message = {
+      id: nextMessageId(conversation.messages),
+      role: 'user',
+      text: phoneGiftMessage(globalIdentity.name, character.name, item, note),
+    }
+    const nextMessages = [...conversation.messages, giftMessage]
+    setConversations((current) => current.some((entry) => entry.id === conversation.id)
+      ? current.map((entry) => entry.id === conversation.id ? { ...entry, messages: nextMessages, updatedAt: now } : entry)
+      : [...current, { ...conversation, messages: nextMessages, updatedAt: now }])
+    setActiveId(character.id)
+    setActiveConversationId(conversation.id)
+    replacePage('chat')
+    const completed = await generateAssistant(
+      conversation,
+      nextMessages,
+      character,
+      conversationApiFor(conversation, character.id, api),
+      { phoneNudge: phoneGiftReactionPrompt(globalIdentity.name, item, note) },
+    )
+    const reply = [...completed].reverse().find((message) => message.role === 'assistant' && message.characterId === character.id && !message.phoneNotice && !isPendingAssistantText(message.text))
+    if (reply) writePhoneGifts(setPhoneGiftReaction(readPhoneGifts(), added.record.id, cleanPhoneOutput(reply.text)))
   }
 
   /** 小手机：用户不说话，让群里的角色自己聊几句。 */
@@ -4116,7 +4031,8 @@ function App() {
       {!phoneDraft && <PhoneWebSettings />}
       {!phoneDraft && <PhoneAutoSettingsCard status={phoneAutoStatus} />}
       {!phoneDraft && <PhonePointsCard members={[...new Set(conversations.filter((item) => item.phone && !item.phone.dm).flatMap((item) => item.participantIds || []))].map((id) => characters.find((item) => item.id === id)).filter((item): item is Character => Boolean(item))} />}
-      {!phoneDraft && <div className="phone-tabs" role="tablist"><button role="tab" aria-selected={phoneTab === 'groups'} className={phoneTab === 'groups' ? 'active' : ''} onClick={() => setPhoneTab('groups')}>群聊{phoneUnread.groups > 0 && <b className="phone-unread inline">{unreadLabel(phoneUnread.groups)}</b>}</button><button role="tab" aria-selected={phoneTab === 'dms'} className={phoneTab === 'dms' ? 'active' : ''} onClick={() => setPhoneTab('dms')}>私聊{phoneUnread.dms > 0 && <b className="phone-unread inline">{unreadLabel(phoneUnread.dms)}</b>}</button><button role="tab" aria-selected={phoneTab === 'moments'} className={phoneTab === 'moments' ? 'active' : ''} onClick={() => setPhoneTab('moments')}>论坛</button><button role="tab" aria-selected={phoneTab === 'shop'} className={phoneTab === 'shop' ? 'active' : ''} onClick={() => setPhoneTab('shop')}>🏪 商店</button></div>}
+      {!phoneDraft && <div className="phone-tabs" role="tablist"><button role="tab" aria-selected={phoneTab === 'groups'} className={phoneTab === 'groups' ? 'active' : ''} onClick={() => setPhoneTab('groups')}>群聊{phoneUnread.groups > 0 && <b className="phone-unread inline">{unreadLabel(phoneUnread.groups)}</b>}</button><button role="tab" aria-selected={phoneTab === 'dms'} className={phoneTab === 'dms' ? 'active' : ''} onClick={() => setPhoneTab('dms')}>私聊{phoneUnread.dms > 0 && <b className="phone-unread inline">{unreadLabel(phoneUnread.dms)}</b>}</button><button role="tab" aria-selected={phoneTab === 'moments'} className={phoneTab === 'moments' ? 'active' : ''} onClick={() => setPhoneTab('moments')}>论坛</button><button role="tab" aria-selected={phoneTab === 'gifts'} className={phoneTab === 'gifts' ? 'active' : ''} onClick={() => setPhoneTab('gifts')}>🎁 礼物</button><button role="tab" aria-selected={phoneTab === 'shop'} className={phoneTab === 'shop' ? 'active' : ''} onClick={() => setPhoneTab('shop')}>🏪 商店</button></div>}
+      {!phoneDraft && phoneTab === 'gifts' && <PhoneGifts members={[...new Set(conversations.filter((item) => item.phone && !item.phone.dm).flatMap((item) => item.participantIds || []))].map((id) => characters.find((item) => item.id === id)).filter((item): item is Character => Boolean(item))} onSend={sendPhoneGift} />}
       {!phoneDraft && phoneTab === 'shop' && <PhoneShop userName={globalIdentity.name} onGranted={(order) => setCharacters((current) => current.map((item) => item.id === order.buyerId ? addWishPoolLine(item, grantedWishLine(order, globalIdentity.name), globalIdentity.name) : item))} members={[...new Set(conversations.filter((item) => item.phone && !item.phone.dm).flatMap((item) => item.participantIds || []))].map((id) => characters.find((item) => item.id === id)).filter((item): item is Character => Boolean(item))} />}
       {!phoneDraft && phoneTab === 'moments' && <Forum characters={characters} conversations={conversations} userName={globalIdentity.name} userAvatar={globalIdentity.avatar} api={api} seed={momentSeed} onSeedUsed={clearMomentSeed} onSaveToMemory={saveMomentToMemory} onThreadsChange={handleForumChange} onShare={shareForumToChat} />}
       {!phoneDraft && phoneTab === 'dms' && <>
@@ -4490,7 +4406,7 @@ function UpdateCard() {
     }
   }
 
-  return <section className="update-card"><strong>应用更新</strong><p>主动检查并拉取最新网页版本，不会删除角色、聊天记录或本地设置。</p><small>当前版本：v147 · 2026.10.26 液态主题珍珠米白与输入框修复</small><button onClick={refresh} disabled={state === 'checking'}>{state === 'checking' ? '正在检查更新…' : state === 'error' ? '更新失败，点我重试' : '强制刷新到最新版'}</button></section>
+  return <section className="update-card"><strong>应用更新</strong><p>主动检查并拉取最新网页版本，不会删除角色、聊天记录或本地设置。</p><small>当前版本：v148 · 2026.10.26 小手机礼物图鉴与即时回应</small><button onClick={refresh} disabled={state === 'checking'}>{state === 'checking' ? '正在检查更新…' : state === 'error' ? '更新失败，点我重试' : '强制刷新到最新版'}</button></section>
 }
 
 function PersonaPage({ identities, selectedId, isBound, onSelect, onAdd, onDelete, onUpdate, onBack }: { identities: UserIdentity[]; selectedId: string; isBound: boolean; onSelect: (id: string) => void; onAdd: () => void; onDelete: (id: string) => void; onUpdate: (patch: Partial<UserIdentity>) => void; onBack: () => void }) {
