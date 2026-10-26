@@ -27,7 +27,8 @@
   background: linear-gradient(145deg, #f0edf4, #faf7fa);
   box-shadow: 0 15px 35px rgba(67, 48, 78, .07);
 }
-.home-icon { grid-row: 1 / 3; width: 58px; height: 58px; border-radius: 20px; display: grid; place-items: center; color: white; font-size: 24px; background: linear-gradient(145deg, var(--theme-accent-strong), var(--theme-accent-end)); box-shadow: 0 10px 24px var(--theme-accent-shadow); }
+.home-icon { position: relative; grid-row: 1 / 3; width: 58px; height: 58px; border-radius: 20px; display: grid; place-items: center; color: white; font-size: 24px; background: linear-gradient(145deg, var(--theme-accent-strong), var(--theme-accent-end)); box-shadow: 0 10px 24px var(--theme-accent-shadow); }
+.home-icon > svg { width: 28px; height: 28px; overflow: visible; fill: none; stroke: currentColor; stroke-width: 1.65; stroke-linecap: round; stroke-linejoin: round; }
 .theme-pearl .home-icon { color: #69656d; background: linear-gradient(145deg, #e3e0e4, #f7f4f1); box-shadow: 0 10px 24px rgba(72, 68, 76, .13); }
 .theme-pearl .home-heading .eyebrow { color: #7e7982; }
 .theme-sage .home-icon { color: white; background: linear-gradient(145deg, #4f8b7d, #82b5a4); box-shadow: 0 10px 24px rgba(54, 111, 96, .20); }

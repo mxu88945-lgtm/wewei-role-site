@@ -17,7 +17,7 @@ import './theme-liquid.css'
 import './memoryApiEnhancements'
 
 const APP_SCOPE = '/wewei-role-site/'
-const SERVICE_WORKER_RELEASE = '2026-10-26-liquid-glass-v146'
+const SERVICE_WORKER_RELEASE = '2026-10-26-liquid-pearl-v147'
 
 if ('serviceWorker' in navigator) {
   let reloadingForUpdate = false

@@ -230,7 +230,7 @@ const builtInThemes: ChatThemePreset[] = [
   { id: 'pudding', name: '布丁奶黄', mode: 'pudding', baseColor: '#fff6dc', textColor: '#5b4330', narrationColor: '#a07a52', quoteColor: '#c0702c', frost: .70 },
   { id: 'strawberry', name: '草莓奶油兔', mode: 'strawberry', baseColor: '#fff0f3', textColor: '#5c3a44', narrationColor: '#a8707f', quoteColor: '#c04866', frost: .70 },
   { id: 'blueberry', name: '蓝莓蝴蝶结', mode: 'blueberry', baseColor: '#eef5fd', textColor: '#34465e', narrationColor: '#6f86a6', quoteColor: '#3f6fae', frost: .70 },
-  { id: 'liquid', name: '惟镜·液态', mode: 'liquid', baseColor: '#dfece5', textColor: '#203b32', narrationColor: '#627b72', quoteColor: '#2d745f', frost: .34 },
+  { id: 'liquid', name: '惟镜·液态', mode: 'liquid', baseColor: '#f4f0e8', textColor: '#37342f', narrationColor: '#777168', quoteColor: '#6f675d', frost: .34 },
 ]
 
 const migrateMemoryConfigs = (configs: MemoryConfigMap) => Object.fromEntries(Object.entries(configs).map(([id, config]) => [id, {
@@ -413,6 +413,22 @@ function PhaseElapsed({ label, startedAt }: { label: string; startedAt: number }
   }, [])
   const seconds = Math.max(0, Math.round((now - startedAt) / 1000))
   return <div className="message-content message-phase"><p>{label}（已等 {seconds} 秒）</p></div>
+}
+
+type HomeGlyphKind = 'chat' | 'persona' | 'story' | 'characters' | 'group' | 'phone' | 'import' | 'settings'
+
+function HomeGlyph({ kind, children }: { kind: HomeGlyphKind; children?: React.ReactNode }) {
+  const paths: Record<HomeGlyphKind, React.ReactNode> = {
+    chat: <><path d="M5 6.5h10a3 3 0 0 1 3 3v4a3 3 0 0 1-3 3H9l-4 3v-3.8a3 3 0 0 1-2-2.8V9.5a3 3 0 0 1 2-3Z" /><path d="M8 10h7M8 13h4.5" /></>,
+    persona: <><rect x="4" y="3.5" width="16" height="17" rx="4" /><circle cx="12" cy="9" r="2.4" /><path d="M7.8 16.6c.8-2.1 2.2-3.2 4.2-3.2s3.4 1.1 4.2 3.2" /></>,
+    story: <><path d="M4.5 8.5h15v10a2 2 0 0 1-2 2h-11a2 2 0 0 1-2-2v-10Z" /><path d="m5 8.5 2.6-5h12l-2.7 5M8.6 3.5l-2.7 5M14 3.5l-2.7 5" /></>,
+    characters: <><rect x="7" y="4" width="12" height="16" rx="3" /><path d="M7 7H5a2 2 0 0 0-2 2v9a2 2 0 0 0 2 2h9" /><circle cx="13" cy="9.5" r="2" /><path d="M9.8 16c.6-1.8 1.7-2.7 3.2-2.7s2.6.9 3.2 2.7" /></>,
+    group: <><circle cx="12" cy="8" r="2.4" /><circle cx="5.5" cy="10.5" r="1.8" /><circle cx="18.5" cy="10.5" r="1.8" /><path d="M7.5 19c.7-3.2 2.2-4.8 4.5-4.8s3.8 1.6 4.5 4.8M2.8 18c.3-2.2 1.2-3.4 2.7-3.4.8 0 1.4.3 1.9.8M21.2 18c-.3-2.2-1.2-3.4-2.7-3.4-.8 0-1.4.3-1.9.8" /></>,
+    phone: <><rect x="7" y="2.5" width="10" height="19" rx="3" /><path d="M10 5h4M11 18.5h2" /></>,
+    import: <><path d="M4 15v4h16v-4M12 3v12M7.5 10.5 12 15l4.5-4.5" /></>,
+    settings: <><path d="M4 6h16M4 12h16M4 18h16" /><circle cx="9" cy="6" r="2" /><circle cx="15" cy="12" r="2" /><circle cx="8" cy="18" r="2" /></>,
+  }
+  return <span className="home-icon" data-home-icon={kind}><svg viewBox="0 0 24 24" aria-hidden="true" focusable="false">{paths[kind]}</svg>{children}</span>
 }
 
 function App() {
@@ -4067,14 +4083,14 @@ function App() {
     {page === 'home' && <section className="home-dashboard">
       <header className="home-heading"><p className="eyebrow">WeiWei Role</p><h1>{pageTitle}</h1><p>选择今天要进入的空间。</p></header>
       <div className="home-entrances">
-        <button onClick={() => continueConversation()}><span className="home-icon">✦</span><strong>聊天</strong><small>{activeConversation ? `继续「${activeConversation.title}」` : '开始一段新的共演'}</small><i>›</i></button>
-        <button onClick={() => navigate('persona-window')}><span className="home-icon">✧</span><strong>人格窗口</strong><small>每个角色一扇独立的窗 · 记忆互不相混</small><i>›</i></button>
-        <button onClick={() => navigate('story-projects')}><span className="home-icon">◈</span><strong>剧本项目</strong><small>{storyProjects.some((project) => project.status === 'active') ? `${storyProjects.filter((project) => project.status === 'active').length} 部戏正在进行` : '组织角色、对话与世界背景'}</small><i>›</i></button>
-        <button onClick={() => navigate('characters')}><span className="home-icon">◉</span><strong>角色库</strong><small>导入、创建与管理角色</small><i>›</i></button>
-        <button onClick={() => navigate('group-create')}><span className="home-icon">◎</span><strong>群聊共演</strong><small>多个角色 · 独立模型 · 共享剧情</small><i>›</i></button>
-        <button onClick={() => openPhonePage()}><span className="home-icon">▢{phoneUnread.groups + phoneUnread.dms > 0 && <b className="phone-unread" aria-label={`${phoneUnread.groups + phoneUnread.dms} 条未读`}>{unreadLabel(phoneUnread.groups + phoneUnread.dms)}</b>}</span><strong>小手机</strong><small>{conversations.some((item) => item.phone) ? `${conversations.filter((item) => item.phone).length} 个戏外群 · 日常吐槽` : '把角色们拉进群，戏外聊天日常'}</small><i>›</i></button>
-        <button onClick={() => conversationTxtInputRef.current?.click()}><span className="home-icon">↥</span><strong>导入对话 TXT</strong><small>惟境 / 伯恩戏剧导出的 TXT，导入成新对话</small><i>›</i></button>
-        <button onClick={() => navigate('more')}><span className="home-icon">⌘</span><strong>设置</strong><small>API、模型、身份与应用</small><i>›</i></button>
+        <button onClick={() => continueConversation()}><HomeGlyph kind="chat" /><strong>聊天</strong><small>{activeConversation ? `继续「${activeConversation.title}」` : '开始一段新的共演'}</small><i>›</i></button>
+        <button onClick={() => navigate('persona-window')}><HomeGlyph kind="persona" /><strong>人格窗口</strong><small>每个角色一扇独立的窗 · 记忆互不相混</small><i>›</i></button>
+        <button onClick={() => navigate('story-projects')}><HomeGlyph kind="story" /><strong>剧本项目</strong><small>{storyProjects.some((project) => project.status === 'active') ? `${storyProjects.filter((project) => project.status === 'active').length} 部戏正在进行` : '组织角色、对话与世界背景'}</small><i>›</i></button>
+        <button onClick={() => navigate('characters')}><HomeGlyph kind="characters" /><strong>角色库</strong><small>导入、创建与管理角色</small><i>›</i></button>
+        <button onClick={() => navigate('group-create')}><HomeGlyph kind="group" /><strong>群聊共演</strong><small>多个角色 · 独立模型 · 共享剧情</small><i>›</i></button>
+        <button onClick={() => openPhonePage()}><HomeGlyph kind="phone">{phoneUnread.groups + phoneUnread.dms > 0 && <b className="phone-unread" aria-label={`${phoneUnread.groups + phoneUnread.dms} 条未读`}>{unreadLabel(phoneUnread.groups + phoneUnread.dms)}</b>}</HomeGlyph><strong>小手机</strong><small>{conversations.some((item) => item.phone) ? `${conversations.filter((item) => item.phone).length} 个戏外群 · 日常吐槽` : '把角色们拉进群，戏外聊天日常'}</small><i>›</i></button>
+        <button onClick={() => conversationTxtInputRef.current?.click()}><HomeGlyph kind="import" /><strong>导入对话 TXT</strong><small>惟境 / 伯恩戏剧导出的 TXT，导入成新对话</small><i>›</i></button>
+        <button onClick={() => navigate('more')}><HomeGlyph kind="settings" /><strong>设置</strong><small>API、模型、身份与应用</small><i>›</i></button>
       </div>
     </section>}
 
@@ -4474,7 +4490,7 @@ function UpdateCard() {
     }
   }
 
-  return <section className="update-card"><strong>应用更新</strong><p>主动检查并拉取最新网页版本，不会删除角色、聊天记录或本地设置。</p><small>当前版本：v146 · 2026.10.26 新增惟镜·液态主题</small><button onClick={refresh} disabled={state === 'checking'}>{state === 'checking' ? '正在检查更新…' : state === 'error' ? '更新失败，点我重试' : '强制刷新到最新版'}</button></section>
+  return <section className="update-card"><strong>应用更新</strong><p>主动检查并拉取最新网页版本，不会删除角色、聊天记录或本地设置。</p><small>当前版本：v147 · 2026.10.26 液态主题珍珠米白与输入框修复</small><button onClick={refresh} disabled={state === 'checking'}>{state === 'checking' ? '正在检查更新…' : state === 'error' ? '更新失败，点我重试' : '强制刷新到最新版'}</button></section>
 }
 
 function PersonaPage({ identities, selectedId, isBound, onSelect, onAdd, onDelete, onUpdate, onBack }: { identities: UserIdentity[]; selectedId: string; isBound: boolean; onSelect: (id: string) => void; onAdd: () => void; onDelete: (id: string) => void; onUpdate: (patch: Partial<UserIdentity>) => void; onBack: () => void }) {

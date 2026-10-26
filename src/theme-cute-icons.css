@@ -1,4 +1,7 @@
 /* Cute themes swap the home glyphs for emoji; the plain themes keep theirs. */
+.theme-pudding .home-entrances .home-icon > svg,
+.theme-strawberry .home-entrances .home-icon > svg,
+.theme-blueberry .home-entrances .home-icon > svg { display: none; }
 .theme-pudding .home-entrances .home-icon { font-size: 0; border: 2px solid #fff; border-radius: 24px; background: radial-gradient(circle at 30% 25%, #fff 0 18%, transparent 19%), #fff3d2; box-shadow: 0 4px 0 #f6d9a0, 0 10px 20px rgba(0,0,0,.05); }
 .theme-pudding .home-entrances .home-icon::before { font-size: 32px; line-height: 1; filter: drop-shadow(0 2px 2px rgba(0,0,0,.08)); }
 .theme-pudding .home-entrances > button:nth-child(1) .home-icon::before { content: '🍮'; }
