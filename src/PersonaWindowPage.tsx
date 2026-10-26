@@ -8,6 +8,7 @@ import type { StoryProject } from './storyProject'
 import type { ChatApiMessage } from './chatApi'
 import { applyMacros } from './regexEngine'
 import { CHAT_IMAGE_LIMIT, prepareChatImage, type ChatImage } from './chatImages'
+import { CHAT_ATTACHMENT_ACCEPT, CHAT_ATTACHMENT_LIMIT, attachmentSizeLabel, isReadableAttachment, prepareChatAttachment, type ChatAttachment } from './chatAttachments'
 import { CHAT_RENDER_WINDOW, earlierChatMessageCount, earlierChatWindowAnchor, resolveChatWindowStart } from './chatWindow'
 import { createKeyboardScrollPin, VIEWPORT_CHANGE_EVENT, VIEWPORT_WILL_CHANGE_EVENT } from './keyboardScrollPin'
 import MessageContent, { isPendingAssistantText } from './MessageContent'
@@ -78,6 +79,14 @@ function timeLabel(at: number) {
   return `${date.getMonth() + 1}/${date.getDate()}`
 }
 
+function messagePreview(message: PersonaMessage) {
+  const text = (message.role === 'user' ? message.text : personaReplyText(message.text)).replace(/\s+/g, ' ').trim()
+  if (text) return text.slice(0, 40)
+  if (message.attachments?.length) return `[文件：${message.attachments.map((item) => item.name).join('、')}]`.slice(0, 40)
+  if (message.images?.length) return `[图片 × ${message.images.length}]`
+  return '等待正文'
+}
+
 /** Channel + model for one persona (same fields as the main chat's member API binding). */
 function PersonaModelPicker({ persona, channels, mainApi, onChange, onFocus }: { persona: PersonaWindow; channels: ApiChannel[]; mainApi: ApiChannel; onChange: (patch: { apiChannelId?: string; modelName?: string }) => void; onFocus: (event: React.FocusEvent<HTMLElement>) => void }) {
   const listId = useId()
@@ -131,7 +140,9 @@ export default function PersonaWindowPage(props: Props) {
   const [libraryOpen, setLibraryOpen] = useState<boolean | null>(null)
   const [draft, setDraft] = useState('')
   const [pendingImages, setPendingImages] = useState<ChatImage[]>([])
+  const [pendingAttachments, setPendingAttachments] = useState<ChatAttachment[]>([])
   const [imageBusy, setImageBusy] = useState(false)
+  const [attachmentBusy, setAttachmentBusy] = useState(false)
   const [viewerImage, setViewerImage] = useState<ChatImage | null>(null)
   const [menuMessageId, setMenuMessageId] = useState<number | null>(null)
   const [editingMessageId, setEditingMessageId] = useState<number | null>(null)
@@ -165,7 +176,7 @@ export default function PersonaWindowPage(props: Props) {
   useEffect(() => () => { if (personaJumpHideTimer.current) window.clearTimeout(personaJumpHideTimer.current) }, [])
   const composerRef = useRef<HTMLDivElement>(null)
   const textareaRef = useRef<HTMLTextAreaElement>(null)
-  const imageInputRef = useRef<HTMLInputElement>(null)
+  const attachmentInputRef = useRef<HTMLInputElement>(null)
   const settingsRef = useRef<HTMLElement>(null)
   const stickRef = useRef(true)
   const prependRef = useRef<{ height: number; top: number } | null>(null)
@@ -319,12 +330,15 @@ export default function PersonaWindowPage(props: Props) {
     if (!active || !activeCharacter || !thread) return
     if (generating) { stopPersonaReply(thread.id); return }
     const text = draft.trim()
-    if (!text && !pendingImages.length) return
+    if (!text && !pendingImages.length && !pendingAttachments.length) return
+    if (imageBusy || attachmentBusy) return
     const deps = depsFor(active.characterId)
     if (!deps) return
     setDraft('')
     const images = pendingImages
+    const attachments = pendingAttachments
     setPendingImages([])
+    setPendingAttachments([])
     // 编辑重发：先删掉原消息，避免重复
     const editingId = editingMessageId
     setEditingMessageId(null)
@@ -336,7 +350,7 @@ export default function PersonaWindowPage(props: Props) {
     stickRef.current = true
     setWindowAnchors((current) => ({ ...current, [thread.id]: null }))
     if (isTouchDevice()) textareaRef.current?.blur()
-    void generatePersonaReply(active.id, deps, { text, images, threadId: thread.id, ...(quote ? { quote } : {}) })
+    void generatePersonaReply(active.id, deps, { text, images, attachments, threadId: thread.id, ...(quote ? { quote } : {}) })
   }
 
   const letThemSpeak = () => {
@@ -365,35 +379,46 @@ export default function PersonaWindowPage(props: Props) {
   }
 
   const resend = (message: PersonaMessage) => {
-    if (!active || generating || message.role !== 'user' || (!message.text.trim() && !message.images?.length)) return
+    if (!active || generating || message.role !== 'user' || (!message.text.trim() && !message.images?.length && !message.attachments?.length)) return
     const deps = depsFor(active.characterId)
     if (!deps) return
     setMenuMessageId(null)
     stickRef.current = true
     setWindowAnchors((current) => ({ ...current, [threadId]: null }))
-    void generatePersonaReply(active.id, deps, { text: message.text, images: message.images, threadId })
+    void generatePersonaReply(active.id, deps, { text: message.text, images: message.images, attachments: message.attachments, threadId })
   }
 
   const editForResend = (message: PersonaMessage) => {
-    if ((draft.trim() || pendingImages.length) && !window.confirm('输入框里已有未发送的内容，要替换成这条消息吗？')) return
+    if ((draft.trim() || pendingImages.length || pendingAttachments.length) && !window.confirm('输入框里已有未发送的内容，要替换成这条消息吗？')) return
     setDraft(message.text)
     setPendingImages(message.images ? [...message.images] : [])
+    setPendingAttachments(message.attachments ? [...message.attachments] : [])
     setEditingMessageId(message.id)
     setMenuMessageId(null)
     textareaRef.current?.focus({ preventScroll: true })
   }
 
-  const addImages = async (files: FileList | null) => {
-    const list = Array.from(files || []).slice(0, Math.max(0, CHAT_IMAGE_LIMIT - pendingImages.length))
+  const addFiles = async (files: FileList | null) => {
+    const list = Array.from(files || [])
     if (!list.length || !active) return
-    setImageBusy(true)
+    const imageFiles = list.filter((file) => !isReadableAttachment(file)).slice(0, Math.max(0, CHAT_IMAGE_LIMIT - pendingImages.length))
+    const documentFiles = list.filter(isReadableAttachment).slice(0, Math.max(0, CHAT_ATTACHMENT_LIMIT - pendingAttachments.length))
+    if (!imageFiles.length && !documentFiles.length) return
+    setImageBusy(imageFiles.length > 0)
+    setAttachmentBusy(documentFiles.length > 0)
     try {
-      const prepared: ChatImage[] = []
-      for (const file of list) prepared.push(await prepareChatImage(file))
-      setPendingImages((current) => [...current, ...prepared].slice(0, CHAT_IMAGE_LIMIT))
+      const images: ChatImage[] = []
+      const attachments: ChatAttachment[] = []
+      for (const file of imageFiles) images.push(await prepareChatImage(file))
+      for (const file of documentFiles) attachments.push(await prepareChatAttachment(file))
+      if (images.length) setPendingImages((current) => [...current, ...images].slice(0, CHAT_IMAGE_LIMIT))
+      if (attachments.length) setPendingAttachments((current) => [...current, ...attachments].slice(0, CHAT_ATTACHMENT_LIMIT))
     } catch (problem) {
-      setPersonaError(threadId, problem instanceof Error ? problem.message : '图片处理失败，换一张试试。')
-    } finally { setImageBusy(false) }
+      setPersonaError(threadId, problem instanceof Error ? problem.message : '文件处理失败，换一个试试。')
+    } finally {
+      setImageBusy(false)
+      setAttachmentBusy(false)
+    }
   }
 
   const choosePersona = (id: string) => {
@@ -403,6 +428,7 @@ export default function PersonaWindowPage(props: Props) {
     setSidebarOpen(false)
     setMenuMessageId(null)
     setPendingImages([])
+    setPendingAttachments([])
     setView('chat')
   }
 
@@ -414,6 +440,7 @@ export default function PersonaWindowPage(props: Props) {
     setView('chat')
     setMenuMessageId(null)
     setPendingImages([])
+    setPendingAttachments([])
     setRenaming(null)
   }
 
@@ -530,7 +557,7 @@ export default function PersonaWindowPage(props: Props) {
         const past = collectPastLifeMemory({ character: activeCharacter, characters, conversations, memoryEntries, userName: identity.name, boundGroupIds: active.boundGroupIds })
         const pastText = applyMacros(past.text, activeCharacter, identity.name)
         const deps = requestOpen ? depsFor(active.characterId) : null
-        const request: ChatApiMessage[] = deps && thread ? buildPersonaRequest(active, thread.messages.filter((item) => item.text.trim() || item.images?.length), deps, thread) : []
+        const request: ChatApiMessage[] = deps && thread ? buildPersonaRequest(active, thread.messages.filter((item) => item.text.trim() || item.images?.length || item.attachments?.length), deps, thread) : []
         const contentText = (message: ChatApiMessage) => typeof message.content === 'string' ? message.content : message.content.map((part) => part.type === 'text' ? part.text : '[图片]').join('\n')
         return <div className="persona-source-card">
           <strong>前世记忆来源</strong>
@@ -584,6 +611,7 @@ export default function PersonaWindowPage(props: Props) {
             <div className="message-flat-body">
               {message.quote && <div className="persona-message-quote"><b>{message.quote.author}：</b>{message.quote.text}</div>}
               {message.images?.length ? <div className={`message-images persona-message-images count-${Math.min(message.images.length, 4)}`}>{message.images.map((image) => <button type="button" key={image.id} aria-label="查看图片" {...tap(() => setViewerImage(image))}><img src={image.dataUrl} alt="" width={image.width} height={image.height} loading="lazy" decoding="async" /></button>)}</div> : null}
+              {message.attachments?.length ? <div className="persona-attachment-list" aria-label="消息文件">{message.attachments.map((attachment) => <div className="persona-attachment-card" key={attachment.id}><span aria-hidden="true">📄</span><div><strong>{attachment.name}</strong><small>{attachmentSizeLabel(attachment.size)}{attachment.truncated ? ' · 已读取前 24000 字' : ''}</small></div></div>)}</div> : null}
               {streamingNow && (!message.text || isPendingAssistantText(message.text)) ? <div className="persona-typing">（{activeCharacter.name}正在回应…）</div> : (message.text.trim() ? <MessageContent text={isUser ? message.text : personaReplyText(message.text)} role={message.role} character={activeCharacter} userName={identity.name} layout="flat" streaming={streamingNow} noStatus /> : null)}
             </div>
           </div>
@@ -591,8 +619,8 @@ export default function PersonaWindowPage(props: Props) {
             <button className="message-action-trigger" aria-label="消息操作" {...tap(() => setMenuMessageId(menuMessageId === message.id ? null : message.id))}>•••</button>
             {menuMessageId === message.id && <span className="persona-message-menu">
               <button {...tap(() => { void navigator.clipboard?.writeText(message.text).catch(() => undefined); setMenuMessageId(null) })}>复制</button>
-              <button {...tap(() => { const author = message.role === 'user' ? (identity.name || '我') : (activeCharacter?.name || ''); setQuoteDraft({ messageId: message.id, author, text: message.text.slice(0, 120) }); setMenuMessageId(null); textareaRef.current?.focus({ preventScroll: true }) })}>引用</button>
-              {isUser && <><button disabled={generating || imageBusy} {...tap(() => resend(message))}>重新发送</button><button disabled={imageBusy} {...tap(() => editForResend(message))}>编辑后重发</button></>}
+              <button {...tap(() => { const author = message.role === 'user' ? (identity.name || '我') : (activeCharacter?.name || ''); const quoted = message.text.trim() || (message.attachments?.length ? `[文件：${message.attachments.map((item) => item.name).join('、')}]` : message.images?.length ? '[图片]' : ''); setQuoteDraft({ messageId: message.id, author, text: quoted.slice(0, 120) }); setMenuMessageId(null); textareaRef.current?.focus({ preventScroll: true }) })}>引用</button>
+              {isUser && <><button disabled={generating || imageBusy || attachmentBusy} {...tap(() => resend(message))}>重新发送</button><button disabled={imageBusy || attachmentBusy} {...tap(() => editForResend(message))}>编辑后重发</button></>}
               {!isUser && message.id === lastMessage?.id && <button disabled={generating} {...tap(() => { setMenuMessageId(null); regenerate() })}>重新生成</button>}
               <button className="danger" {...tap(() => { if (window.confirm('删除这条消息？')) setPersonaState((current) => deletePersonaMessage(current, active.id, threadId, message.id)); setMenuMessageId(null) })}>删除</button>
             </span>}
@@ -606,14 +634,17 @@ export default function PersonaWindowPage(props: Props) {
     </div>
     {messages.length > 0 && !drawerOpen && !sidebarOpen && !viewerImage && (personaJump.up || personaJump.down) && <nav className={`persona-jump-controls${personaJump.visible ? ' visible' : ''}`} aria-label="快速浏览对话">{personaJump.up && <button aria-label="回到顶部" {...tap(() => scrollChat('top'))}>↑</button>}{personaJump.down && <button aria-label="跳到最新消息" {...tap(() => scrollChat('bottom'))}>↓</button>}</nav>}
     {activeTasks.length > 0 && !drawerOpen && !sidebarOpen && <PersonaTaskPin tasks={activeTasks} tap={tap} onOpen={() => { setSidebarOpen(false); setSettingsPanel('tasks'); setDrawerOpen(true) }} onDone={(id) => taskAction(id, 'done')} />}
-    <div ref={composerRef} className={`composer persona-composer${pendingImages.length || imageBusy ? ' has-images' : ''}`}>
-      {(pendingImages.length > 0 || imageBusy) && <div className="composer-images" aria-label="待发送图片">{pendingImages.map((image) => <div key={image.id}><img src={image.dataUrl} alt="" role="button" aria-label="查看大图" onClick={() => setViewerImage(image)} /><button type="button" aria-label="移除图片" onClick={() => setPendingImages((current) => current.filter((item) => item.id !== image.id))}>×</button></div>)}{imageBusy && <span className="composer-images-busy">处理中…</span>}</div>}
+    <div ref={composerRef} className={`composer persona-composer${pendingImages.length || imageBusy || pendingAttachments.length || attachmentBusy ? ' has-images' : ''}`}>
+      {(pendingImages.length > 0 || imageBusy || pendingAttachments.length > 0 || attachmentBusy) && <div className="persona-composer-media">
+        {(pendingImages.length > 0 || imageBusy) && <div className="composer-images" aria-label="待发送图片">{pendingImages.map((image) => <div key={image.id}><img src={image.dataUrl} alt="" role="button" aria-label="查看大图" onClick={() => setViewerImage(image)} /><button type="button" aria-label="移除图片" onClick={() => setPendingImages((current) => current.filter((item) => item.id !== image.id))}>×</button></div>)}{imageBusy && <span className="composer-images-busy">处理中…</span>}</div>}
+        {(pendingAttachments.length > 0 || attachmentBusy) && <div className="persona-composer-attachments" aria-label="待发送文件">{pendingAttachments.map((attachment) => <div className="persona-pending-attachment" key={attachment.id}><span aria-hidden="true">📄</span><div><strong>{attachment.name}</strong><small>{attachmentSizeLabel(attachment.size)}</small></div><button type="button" aria-label={`移除${attachment.name}`} onClick={() => setPendingAttachments((current) => current.filter((item) => item.id !== attachment.id))}>×</button></div>)}{attachmentBusy && <span className="persona-attachment-busy">正在读取文件…</span>}</div>}
+      </div>}
       {quoteDraft && <div className="persona-quote-draft" aria-label="引用回复"><span><b>{quoteDraft.author}：</b>{quoteDraft.text}</span><button type="button" aria-label="取消引用" onClick={() => setQuoteDraft(null)}>×</button></div>}
-      {editingMessageId !== null && <div className="persona-editing-hint" aria-label="正在编辑"><span>正在编辑已发送的消息，发送后替换原文</span><button type="button" aria-label="取消编辑" onClick={() => { setEditingMessageId(null); setDraft(''); setPendingImages([]) }}>×</button></div>}
-      <button className="composer-plus" aria-label="添加图片" {...tap(() => imageInputRef.current?.click())}>＋</button>
+      {editingMessageId !== null && <div className="persona-editing-hint" aria-label="正在编辑"><span>正在编辑已发送的消息，发送后替换原文</span><button type="button" aria-label="取消编辑" onClick={() => { setEditingMessageId(null); setDraft(''); setPendingImages([]); setPendingAttachments([]) }}>×</button></div>}
+      <button className="composer-plus" aria-label="添加图片或文件" {...tap(() => attachmentInputRef.current?.click())}>＋</button>
       <textarea ref={textareaRef} rows={1} value={draft} onChange={(event) => setDraft(event.target.value)} onFocus={() => { setPersonaJump((current) => ({ ...current, visible: false })); if (personaJumpHideTimer.current) window.clearTimeout(personaJumpHideTimer.current) }} placeholder={generating ? '可以先写下一条，停止后再发送' : `对${activeCharacter.name}说……`} />
       <button className={`send-button ${generating ? 'stop' : ''}`} aria-label={generating ? '停止生成' : '发送'} {...tap(send)}>{generating ? '■' : '↑'}</button>
-      <input ref={imageInputRef} type="file" accept="image/*" multiple hidden onChange={(event) => { const files = event.currentTarget.files; void addImages(files).finally(() => { if (imageInputRef.current) imageInputRef.current.value = '' }) }} />
+      <input ref={attachmentInputRef} type="file" accept={`image/*,${CHAT_ATTACHMENT_ACCEPT}`} multiple hidden onChange={(event) => { const files = event.currentTarget.files; void addFiles(files).finally(() => { if (attachmentInputRef.current) attachmentInputRef.current.value = '' }) }} />
     </div>
     {(drawerOpen || sidebarOpen) && <div className="drawer-layer persona-drawer-layer" role="presentation">
       <button className="drawer-backdrop" aria-label="关闭侧栏" {...tap(() => { setDrawerOpen(false); setSidebarOpen(false); setRenaming(null) })} />
@@ -630,14 +661,14 @@ export default function PersonaWindowPage(props: Props) {
           {sidebarOpen && <section className="drawer-compact-group persona-threads">
             <h3 className="persona-section-title">最近</h3>
             {active.threads.slice().sort((a, b) => (b.updatedAt || 0) - (a.updatedAt || 0)).map((item) => {
-              const last = [...item.messages].reverse().find((entry) => entry.text.trim())
+              const last = [...item.messages].reverse().find((entry) => entry.text.trim() || entry.images?.length || entry.attachments?.length)
               const current = item.id === threadId
               if (renaming?.id === item.id) return <div key={item.id} className="persona-thread-row editing">
                 <input value={renaming.title} autoFocus maxLength={40} onFocus={scrollFieldIntoView} onChange={(event) => setRenaming({ id: item.id, title: event.target.value })} onKeyDown={(event) => { if (event.key === 'Enter') { setPersonaState((state) => renamePersonaThread(state, active.id, item.id, renaming.title)); setRenaming(null) } }} />
                 <button className="soft-button" {...tap(() => { setPersonaState((state) => renamePersonaThread(state, active.id, item.id, renaming.title)); setRenaming(null) })}>保存</button>
               </div>
               return <div key={item.id} className={`persona-thread-row${current ? ' active' : ''}`}>
-                <button className="persona-thread-main" aria-current={current} {...tap(() => chooseThread(item.id))}><span><strong>{item.title}</strong><time>{timeLabel(item.updatedAt)}</time></span><small>{last ? `${last.role === 'user' ? '我：' : ''}${(last.role === 'user' ? last.text : personaReplyText(last.text)).replace(/\s+/g, ' ').slice(0, 40) || '等待正文'}` : '还没有对话'}{runtime.generating[item.id] ? ' · 回应中…' : ''}</small></button>
+                <button className="persona-thread-main" aria-current={current} {...tap(() => chooseThread(item.id))}><span><strong>{item.title}</strong><time>{timeLabel(item.updatedAt)}</time></span><small>{last ? `${last.role === 'user' ? '我：' : ''}${messagePreview(last)}` : '还没有对话'}{runtime.generating[item.id] ? ' · 回应中…' : ''}</small></button>
                 <button className="persona-thread-action" aria-label={`重命名${item.title}`} {...tap(() => setRenaming({ id: item.id, title: item.title }))}>改名</button>
                 <button className="persona-thread-action danger" aria-label={`删除${item.title}`} {...tap(() => { if (window.confirm(`删除「${item.title}」的聊天记录？长期记忆会保留（所有窗口共用）。此操作无法撤销。`)) { stopPersonaReply(item.id); setPersonaState((state) => deletePersonaThread(state, active.id, item.id)) } })}>删除</button>
               </div>
@@ -663,7 +694,7 @@ export default function PersonaWindowPage(props: Props) {
             {active.systemPrompt?.trim() && <button className="danger-link" {...tap(() => { if (window.confirm(`清空给「${activeCharacter.name}」的补充提示词？默认相处规则、对话和记忆都会保留。`)) setPersonaState((current) => updatePersona(current, active.id, (item) => ({ ...item, systemPrompt: '' }))) })}>清空补充，使用默认规则</button>}
           </section>}
         </div>
-        {sidebarOpen && <nav className="persona-history-footer" aria-label="人格窗口导航"><div className="persona-history-actions"><button type="button" className="persona-circle-btn" aria-label="回到惟镜首页" title="回到惟镜首页" {...tap(onBack)}><svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><path d="M3 10.5 12 3l9 7.5" /><path d="M5 9.5V21h14V9.5" /></svg></button><button type="button" className="persona-circle-btn" aria-label="管理人格" title="管理人格" {...tap(() => { setSidebarOpen(false); setViewReturn(null); setView('manage') })}><svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="3" /><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 1 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 1 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 1 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 1 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1Z" /></svg></button><button type="button" className="persona-circle-btn" aria-label="新聊天" title="新聊天" {...tap(() => { setPersonaState((current) => addPersonaThread(current, active.id)); setSidebarOpen(false); setPendingImages([]); setMenuMessageId(null); setRenaming(null) })}><svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><path d="M12 20h9" /><path d="M16.5 3.5a2.12 2.12 0 0 1 3 3L7 19l-4 1 1-4Z" /></svg></button></div></nav>}
+        {sidebarOpen && <nav className="persona-history-footer" aria-label="人格窗口导航"><div className="persona-history-actions"><button type="button" className="persona-circle-btn" aria-label="回到惟镜首页" title="回到惟镜首页" {...tap(onBack)}><svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><path d="M3 10.5 12 3l9 7.5" /><path d="M5 9.5V21h14V9.5" /></svg></button><button type="button" className="persona-circle-btn" aria-label="管理人格" title="管理人格" {...tap(() => { setSidebarOpen(false); setViewReturn(null); setView('manage') })}><svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="3" /><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 1 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 1 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 1 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 1 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1Z" /></svg></button><button type="button" className="persona-circle-btn" aria-label="新聊天" title="新聊天" {...tap(() => { setPersonaState((current) => addPersonaThread(current, active.id)); setSidebarOpen(false); setPendingImages([]); setPendingAttachments([]); setMenuMessageId(null); setRenaming(null) })}><svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><path d="M12 20h9" /><path d="M16.5 3.5a2.12 2.12 0 0 1 3 3L7 19l-4 1 1-4Z" /></svg></button></div></nav>}
       </aside>
     </div>}
     {viewerImage && <div className="chat-image-viewer" role="dialog" aria-modal="true" aria-label="查看图片" onClick={() => setViewerImage(null)}><img src={viewerImage.dataUrl} alt="" /><button type="button" aria-label="关闭图片">×</button></div>}

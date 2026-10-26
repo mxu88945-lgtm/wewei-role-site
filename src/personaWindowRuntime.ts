@@ -3,6 +3,7 @@ import { completeChat } from './chatApi'
 import type { Character } from './characterCard'
 import type { ChatImage } from './chatImages'
 import { imagePromptIndices, userContentWithImages } from './chatImages'
+import { attachmentPromptIndices, attachmentPromptText, type ChatAttachment } from './chatAttachments'
 import { quotePromptPrefix } from './quoteReply'
 import { isApiChannelComplete } from './apiChannels'
 import { activeEntries } from './promptBuilder'
@@ -128,11 +129,14 @@ export function planPersonaRequest(persona: PersonaWindow, history: PersonaMessa
     PERSONA_FINAL_GUARD,
   ].filter(Boolean).join('\n\n')
   const imageTurns = imagePromptIndices(recent)
+  const attachmentTurns = attachmentPromptIndices(recent)
   const messages: ChatApiMessage[] = [
     { role: 'system', content: applyMacros(system, character, deps.user.name) },
     ...recent.map((item, index): ChatApiMessage => {
       const textWithQuote = item.quote ? `${quotePromptPrefix({ messageId: String(item.quote.messageId), author: item.quote.author, text: item.quote.text })}\n${item.text}` : item.text
-      return { role: item.role, content: item.role === 'user' ? userContentWithImages(textWithQuote, item.images, imageTurns.has(index)) : textWithQuote }
+      const attachmentText = item.role === 'user' ? attachmentPromptText(item.attachments, attachmentTurns.has(index)) : ''
+      const content = [textWithQuote, attachmentText].filter(Boolean).join('\n\n')
+      return { role: item.role, content: item.role === 'user' ? userContentWithImages(content, item.images, imageTurns.has(index)) : content }
     })
       .filter((item) => Array.isArray(item.content) || String(item.content).trim()),
   ]
@@ -169,9 +173,9 @@ export function consolidatePersonaMessages(messages: ChatApiMessage[]): ChatApiM
 }
 
 /** Visible history for a request: no empty placeholders, no failed turns. */
-const requestHistory = (messages: PersonaMessage[]) => messages.filter((item) => item.text.trim() || item.images?.length)
+const requestHistory = (messages: PersonaMessage[]) => messages.filter((item) => item.text.trim() || item.images?.length || item.attachments?.length)
 
-export async function generatePersonaReply(personaId: string, deps: PersonaRuntimeDeps, input: { text?: string; images?: ChatImage[]; regenerate?: boolean; threadId?: string; taskCompletionId?: string; quote?: { messageId: number; author: string; text: string } } = {}) {
+export async function generatePersonaReply(personaId: string, deps: PersonaRuntimeDeps, input: { text?: string; images?: ChatImage[]; attachments?: ChatAttachment[]; regenerate?: boolean; threadId?: string; taskCompletionId?: string; quote?: { messageId: number; author: string; text: string } } = {}) {
   const persona = findPersona(personaId)
   if (!persona) return
   const thread = activeThread(persona, input.threadId)
@@ -190,8 +194,8 @@ export async function generatePersonaReply(personaId: string, deps: PersonaRunti
   const now = Date.now()
   const additions: PersonaMessage[] = []
   const firstId = Math.max(nextPersonaMessageId(base), (thread.messageSequence || 0) + 1)
-  if ((input.text || '').trim() || input.images?.length) {
-    additions.push({ id: firstId, role: 'user', text: (input.text || '').trim(), createdAt: now, ...(input.images?.length ? { images: input.images } : {}), ...(input.quote ? { quote: input.quote } : {}) })
+  if ((input.text || '').trim() || input.images?.length || input.attachments?.length) {
+    additions.push({ id: firstId, role: 'user', text: (input.text || '').trim(), createdAt: now, ...(input.images?.length ? { images: input.images } : {}), ...(input.attachments?.length ? { attachments: input.attachments } : {}), ...(input.quote ? { quote: input.quote } : {}) })
   }
   const withUser = [...base, ...additions]
   const replyId = Math.max(nextPersonaMessageId(withUser), firstId + additions.length)

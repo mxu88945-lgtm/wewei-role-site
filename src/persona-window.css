@@ -192,6 +192,22 @@ button.persona-settings-row:active { background: var(--theme-accent-soft); }
 .persona-message-list .persona-message-images button { min-width: 0; max-width: 100%; border-radius: 12px; }
 .persona-message-list .persona-message-images.count-1 img { width: auto; height: auto; max-width: min(180px, 55vw); max-height: 220px; object-fit: contain; }
 .persona-message-list .persona-message-images:not(.count-1) img { width: 100%; height: auto; max-height: 108px; aspect-ratio: 1; object-fit: cover; }
+.persona-attachment-list { display: grid; gap: 6px; width: min(280px, 72vw); margin: 2px 0 7px; }
+.message-row.user .persona-attachment-list { margin-left: auto; }
+.persona-attachment-card, .persona-pending-attachment { display: flex; align-items: center; gap: 9px; min-width: 0; border: 1px solid var(--theme-accent-soft-strong); border-radius: 13px; background: rgba(255,255,255,.76); color: #655a69; }
+.persona-attachment-card { padding: 9px 11px; }
+.persona-attachment-card > span, .persona-pending-attachment > span { flex: none; font-size: 20px; }
+.persona-attachment-card > div, .persona-pending-attachment > div { flex: 1; min-width: 0; }
+.persona-attachment-card strong, .persona-attachment-card small, .persona-pending-attachment strong, .persona-pending-attachment small { display: block; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.persona-attachment-card strong, .persona-pending-attachment strong { font-size: 12px; }
+.persona-attachment-card small, .persona-pending-attachment small { margin-top: 2px; color: #998c9d; font-size: 10px; }
+.persona-composer-media { grid-area: thumbs; display: grid; gap: 7px; min-width: 0; }
+.persona-composer-media .composer-images { grid-area: auto; }
+.persona-composer-attachments { display: flex; gap: 7px; min-width: 0; overflow-x: auto; padding: 1px 2px 3px; scrollbar-width: none; }
+.persona-composer-attachments::-webkit-scrollbar { display: none; }
+.persona-pending-attachment { flex: 0 0 min(210px, 64vw); padding: 7px 8px 7px 10px; }
+.persona-pending-attachment > button { flex: none; width: 24px; height: 24px; padding: 0; border: 0; border-radius: 50%; background: rgba(125,104,141,.12); color: #84738e; font: inherit; line-height: 1; }
+.persona-attachment-busy { align-self: center; flex: none; padding: 7px 9px; color: #8a818e; font-size: 11px; }
 @media (prefers-reduced-motion: reduce) { .persona-history-sidebar { animation: none; } }
 
 .persona-appearance-settings { display: grid; gap: 14px; min-width: 0; }

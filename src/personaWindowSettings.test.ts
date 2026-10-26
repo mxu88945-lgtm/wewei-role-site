@@ -67,6 +67,17 @@ describe('人格设置：提示词、背景和窗口范围 (v138)', () => {
     expect(request[request.length - 1].content).toEqual([{ type: 'text', text: '看这张图' }, { type: 'image_url', image_url: { url: 'data:image/png;base64,aGVsbG8=', detail: 'auto' } }])
   })
 
+  it('keeps a text attachment inside its persona window and sends the extracted body to the model', () => {
+    const attachment = { id: 'file-1', name: '旧剧情.txt', mimeType: 'text/plain', size: 18, text: '只给这个人格看的文件正文' }
+    const restored = normalizePersonaState({ personas: [{ characterId: 'yu', messages: [{ id: 1, role: 'user', text: '', createdAt: 1, attachments: [attachment] }] }] })
+    const persona = restored.personas[0]
+    const message = activeThread(persona).messages[0]
+    expect(message.attachments).toEqual([attachment])
+    const request = buildPersonaRequest(persona, [message], deps)
+    expect(String(request[request.length - 1].content)).toContain('附件：旧剧情.txt')
+    expect(String(request[request.length - 1].content)).toContain('只给这个人格看的文件正文')
+  })
+
   it('renders grouped navigation with readable descriptions and a switch, not inline cramped controls', () => {
     const noop = () => undefined
     const markup = renderToStaticMarkup(createElement(PersonaSettingsHome, { promptLength: 38, memoryCount: 7, threadCount: 2, threadTitle: '窗口 2', channelName: '很长的渠道名称', modelName: 'long-model-name', pastLifeEnabled: true, onNavigate: noop, onThreads: noop, onMemory: noop, onManage: noop, onTogglePastLife: noop, tap: () => ({ onPointerUp: noop, onClick: noop }) }))

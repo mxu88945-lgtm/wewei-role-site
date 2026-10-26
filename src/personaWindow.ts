@@ -12,6 +12,7 @@ import type { Character, CharacterBook, CharacterMemoryEntry } from './character
 import type { StoryProject } from './storyProject'
 import { stripPresentationalHtmlForPrompt } from './regexEngine'
 import type { ChatImage } from './chatImages'
+import { CHAT_ATTACHMENT_LIMIT, CHAT_ATTACHMENT_MAX_CHARS, type ChatAttachment } from './chatAttachments'
 import type { Conversation } from './conversationLifecycle'
 import type { LongMemoryEntry, LongMemoryMap } from './memoryEngine'
 import { stripUiOnlyStatusBlocks } from './modelContext'
@@ -37,6 +38,7 @@ export type PersonaMessage = {
   role: 'user' | 'assistant'
   text: string
   images?: ChatImage[]
+  attachments?: ChatAttachment[]
   createdAt: number
   finishReason?: string | null
   recallSources?: PersonaRecallSource[]
@@ -130,9 +132,15 @@ function normalizeMessage(value: unknown): PersonaMessage | null {
   const role = value.role === 'user' ? 'user' : value.role === 'assistant' ? 'assistant' : null
   if (!Number.isFinite(id) || !role) return null
   const images = Array.isArray(value.images) ? (value.images as ChatImage[]).filter((image) => image && typeof image.dataUrl === 'string') : undefined
+  const attachments = (Array.isArray(value.attachments) ? value.attachments : []).filter(isRecord).map((item): ChatAttachment | null => {
+    const body = text(item.text).slice(0, CHAT_ATTACHMENT_MAX_CHARS)
+    const name = text(item.name).trim()
+    if (!body.trim() || !name) return null
+    return { id: text(item.id) || crypto.randomUUID(), name, mimeType: text(item.mimeType) || 'text/plain', size: Math.max(0, Number(item.size) || 0), text: body, ...(item.truncated ? { truncated: true } : {}) }
+  }).filter((item): item is ChatAttachment => Boolean(item)).slice(0, CHAT_ATTACHMENT_LIMIT)
   const recallSources = (Array.isArray(value.recallSources) ? value.recallSources : []).filter(isRecord).filter((source) => text(source.threadId) && Number.isSafeInteger(source.messageId) && (source.role === 'user' || source.role === 'assistant')).slice(0, 20).map((source): PersonaRecallSource => ({ threadId: text(source.threadId), messageId: Number(source.messageId), title: text(source.title), role: source.role === 'user' ? 'user' : 'assistant', createdAt: Number(source.createdAt) || 0 }))
   const quote = isRecord(value.quote) && Number.isFinite(Number(value.quote.messageId)) ? { messageId: Number(value.quote.messageId), author: text(value.quote.author), text: text(value.quote.text) } : undefined
-  return { id, role, text: text(value.text), createdAt: Number(value.createdAt) || 0, ...(images?.length ? { images } : {}), ...(value.finishReason !== undefined ? { finishReason: (value.finishReason as string | null) } : {}), ...(recallSources.length ? { recallSources } : {}), ...(role === 'assistant' && text(value.taskCompletionId) ? { taskCompletionId: text(value.taskCompletionId) } : {}), ...(quote ? { quote } : {}) }
+  return { id, role, text: text(value.text), createdAt: Number(value.createdAt) || 0, ...(images?.length ? { images } : {}), ...(attachments.length ? { attachments } : {}), ...(value.finishReason !== undefined ? { finishReason: (value.finishReason as string | null) } : {}), ...(recallSources.length ? { recallSources } : {}), ...(role === 'assistant' && text(value.taskCompletionId) ? { taskCompletionId: text(value.taskCompletionId) } : {}), ...(quote ? { quote } : {}) }
 }
 
 function normalizeMemory(value: unknown): PersonaMemoryEntry | null {

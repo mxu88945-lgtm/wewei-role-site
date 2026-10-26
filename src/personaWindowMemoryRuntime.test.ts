@@ -156,17 +156,18 @@ describe('人格分层记忆的实际运行流程 (v139)', () => {
     expect(current().memories).toHaveLength(1)
   })
 
-  it('resends the original text and image as a new turn, preserving the source and earlier replies', async () => {
+  it('resends the original text, image and file as a new turn, preserving the source and earlier replies', async () => {
     const image = { id: 'photo', dataUrl: 'data:image/png;base64,YQ==', width: 30, height: 80 }
-    await generatePersonaReply(persona.id, deps, { text: '看看这张图', images: [image] })
+    const attachment = { id: 'file', name: '剧情.txt', mimeType: 'text/plain', size: 12, text: '文件里的关键正文' }
+    await generatePersonaReply(persona.id, deps, { text: '看看这张图', images: [image], attachments: [attachment] })
     const original = JSON.parse(JSON.stringify(current().threads[0].messages)) as PersonaMessage[]
-    await generatePersonaReply(persona.id, deps, { text: original[0].text, images: original[0].images, threadId: persona.activeThreadId })
+    await generatePersonaReply(persona.id, deps, { text: original[0].text, images: original[0].images, attachments: original[0].attachments, threadId: persona.activeThreadId })
     const messages = current().threads[0].messages
     expect(messages.slice(0, 2)).toEqual(original)
-    expect(messages[2]).toMatchObject({ role: 'user', text: '看看这张图', images: [image] })
+    expect(messages[2]).toMatchObject({ role: 'user', text: '看看这张图', images: [image], attachments: [attachment] })
     expect(messages[2].id).toBeGreaterThan(original[1].id)
     const request = mock.calls[1].messages
-    expect(request[request.length - 1]?.content).toEqual([{ type: 'text', text: '看看这张图' }, { type: 'image_url', image_url: { url: image.dataUrl, detail: 'auto' } }])
+    expect(request[request.length - 1]?.content).toEqual([{ type: 'text', text: expect.stringContaining('文件里的关键正文') }, { type: 'image_url', image_url: { url: image.dataUrl, detail: 'auto' } }])
   })
 
   it('creates at most one task after successful generation, hides controls, respects the off switch and deduplicates active cards', async () => {
