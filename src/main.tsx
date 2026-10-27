@@ -17,7 +17,7 @@ import './theme-liquid.css'
 import './memoryApiEnhancements'
 
 const APP_SCOPE = '/wewei-role-site/'
-const SERVICE_WORKER_RELEASE = '2026-10-27-character-picker-groups-v154'
+const SERVICE_WORKER_RELEASE = '2026-10-27-composer-ui-v155'
 
 if ('serviceWorker' in navigator) {
   let reloadingForUpdate = false
