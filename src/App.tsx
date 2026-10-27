@@ -232,7 +232,7 @@ const builtInThemes: ChatThemePreset[] = [
   { id: 'pudding', name: '布丁奶黄', mode: 'pudding', baseColor: '#fff6dc', textColor: '#5b4330', narrationColor: '#a07a52', quoteColor: '#c0702c', frost: .70 },
   { id: 'strawberry', name: '草莓奶油兔', mode: 'strawberry', baseColor: '#fff0f3', textColor: '#5c3a44', narrationColor: '#a8707f', quoteColor: '#c04866', frost: .70 },
   { id: 'blueberry', name: '蓝莓蝴蝶结', mode: 'blueberry', baseColor: '#eef5fd', textColor: '#34465e', narrationColor: '#6f86a6', quoteColor: '#3f6fae', frost: .70 },
-  { id: 'liquid', name: '惟镜·液态', mode: 'liquid', baseColor: '#f4f0e8', textColor: '#37342f', narrationColor: '#777168', quoteColor: '#6f675d', frost: .34 },
+  { id: 'liquid', name: '惟镜·液态', mode: 'liquid', baseColor: '#f7f6f2', textColor: '#383735', narrationColor: '#74716c', quoteColor: '#69645f', frost: .34 },
 ]
 
 const migrateMemoryConfigs = (configs: MemoryConfigMap) => Object.fromEntries(Object.entries(configs).map(([id, config]) => [id, {
@@ -4528,7 +4528,7 @@ function UpdateCard() {
     }
   }
 
-  return <section className="update-card"><strong>应用更新</strong><p>主动检查并拉取最新网页版本，不会删除角色、聊天记录或本地设置。</p><small>当前版本：v150 · 2026.10.27 人格窗口支持发送文字文件</small><button onClick={refresh} disabled={state === 'checking'}>{state === 'checking' ? '正在检查更新…' : state === 'error' ? '更新失败，点我重试' : '强制刷新到最新版'}</button></section>
+  return <section className="update-card"><strong>应用更新</strong><p>主动检查并拉取最新网页版本，不会删除角色、聊天记录或本地设置。</p><small>当前版本：v151 · 2026.10.27 液态主题调整为奶白色调</small><button onClick={refresh} disabled={state === 'checking'}>{state === 'checking' ? '正在检查更新…' : state === 'error' ? '更新失败，点我重试' : '强制刷新到最新版'}</button></section>
 }
 
 function PersonaPage({ identities, selectedId, isBound, onSelect, onAdd, onDelete, onUpdate, onBack }: { identities: UserIdentity[]; selectedId: string; isBound: boolean; onSelect: (id: string) => void; onAdd: () => void; onDelete: (id: string) => void; onUpdate: (patch: Partial<UserIdentity>) => void; onBack: () => void }) {

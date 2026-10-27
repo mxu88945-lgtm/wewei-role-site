@@ -9,21 +9,21 @@
 }
 
 .phone-canvas.theme-liquid {
-  --theme-accent: #8a8378;
-  --theme-accent-strong: #6f6960;
-  --theme-accent-end: #b4ac9f;
-  --theme-accent-soft: rgba(244, 240, 232, .88);
-  --theme-accent-soft-strong: rgba(235, 229, 218, .94);
-  --theme-accent-text: #625c54;
-  --theme-accent-shadow: rgba(82, 74, 63, .16);
-  --composer-dock-rgb: 246, 242, 234;
+  --theme-accent: #85817b;
+  --theme-accent-strong: #6b6863;
+  --theme-accent-end: #b2afaa;
+  --theme-accent-soft: rgba(248, 247, 244, .88);
+  --theme-accent-soft-strong: rgba(239, 238, 234, .94);
+  --theme-accent-text: #625f5a;
+  --theme-accent-shadow: rgba(72, 70, 66, .15);
+  --composer-dock-rgb: 250, 249, 246;
 }
 
 .theme-choice-grid button.liquid i {
   background:
     radial-gradient(circle at 24% 18%, rgba(255,255,255,.94) 0 8%, transparent 9%),
-    linear-gradient(145deg, #fffdf8 0%, #d7d0c4 48%, #746d64 100%) !important;
-  box-shadow: inset 0 0 0 1px rgba(255,255,255,.78), 0 5px 12px rgba(82,74,63,.16);
+    linear-gradient(145deg, #fff 0%, #dedcd7 48%, #7a7772 100%) !important;
+  box-shadow: inset 0 0 0 1px rgba(255,255,255,.78), 0 5px 12px rgba(72,70,66,.15);
 }
 
 .theme-liquid.chat-canvas > .wallpaper-layers::after {
@@ -32,8 +32,8 @@
   inset: 0;
   background:
     radial-gradient(circle at 16% 18%, rgba(255,255,255,.24), transparent 25%),
-    radial-gradient(circle at 84% 68%, rgba(143,132,116,.12), transparent 30%),
-    linear-gradient(150deg, rgba(76,68,57,.045), transparent 46%, rgba(255,255,255,.14));
+    radial-gradient(circle at 84% 68%, rgba(136,132,126,.11), transparent 30%),
+    linear-gradient(150deg, rgba(68,66,62,.04), transparent 46%, rgba(255,255,255,.14));
   pointer-events: none;
 }
 
@@ -41,12 +41,12 @@
   overflow: hidden;
   contain: paint;
   border-color: rgba(255,255,255,.92);
-  background: rgba(249, 247, 241, .9);
+  background: rgba(251, 250, 247, .9);
   box-shadow:
     inset 0 1px 0 rgba(255,255,255,.98),
-    inset 0 -1px 0 rgba(102,91,76,.1),
-    0 14px 34px rgba(70,62,52,.14),
-    0 0 0 1px rgba(106,96,81,.06);
+    inset 0 -1px 0 rgba(92,89,83,.09),
+    0 14px 34px rgba(65,62,58,.13),
+    0 0 0 1px rgba(96,92,86,.06);
   -webkit-backdrop-filter: blur(30px) saturate(.9);
   backdrop-filter: blur(30px) saturate(.9);
 }
@@ -55,9 +55,9 @@
   inset: 0;
   border-radius: inherit;
   background-image:
-    linear-gradient(135deg, rgba(255,255,255,.7), rgba(224,216,203,.38)),
+    linear-gradient(135deg, rgba(255,255,255,.7), rgba(227,225,220,.38)),
     var(--liquid-wallpaper-image),
-    linear-gradient(145deg, #fffdf8, #ded7cb 54%, #aaa194);
+    linear-gradient(145deg, #fff, #e3e1dc 54%, #b1aea8);
   background-position: center;
   background-size: cover;
   opacity: .2;
@@ -68,24 +68,24 @@
 }
 
 .theme-liquid .composer > * { position: relative; z-index: 1; }
-.theme-liquid .composer textarea { color: #3b3732; }
-.theme-liquid .composer textarea::placeholder { color: rgba(84,77,69,.62); }
+.theme-liquid .composer textarea { color: #3a3937; }
+.theme-liquid .composer textarea::placeholder { color: rgba(82,79,75,.62); }
 .theme-liquid .composer-plus,
 .theme-liquid .composer-expand {
-  color: #625b52;
-  background: rgba(239,234,225,.94);
-  box-shadow: inset 0 1px 0 rgba(255,255,255,.9), 0 5px 13px rgba(84,75,63,.1);
+  color: #625f5a;
+  background: rgba(241,239,235,.94);
+  box-shadow: inset 0 1px 0 rgba(255,255,255,.9), 0 5px 13px rgba(78,74,68,.1);
 }
-.theme-liquid .send-button { background: linear-gradient(145deg,#6e675e,#aaa194); }
+.theme-liquid .send-button { background: linear-gradient(145deg,#6b6863,#aaa7a1); }
 
 html[data-standalone][data-kb] .theme-liquid .composer::before { bottom: 0; }
 
 .theme-liquid .chat-header::before {
   height: calc(88px + env(safe-area-inset-top));
   background-image:
-    linear-gradient(to bottom, rgba(247,243,236,.82), rgba(247,243,236,.48) 58%, transparent),
+    linear-gradient(to bottom, rgba(249,248,245,.82), rgba(249,248,245,.48) 58%, transparent),
     var(--liquid-wallpaper-image),
-    linear-gradient(145deg,#fffdf8,#c8c0b4);
+    linear-gradient(145deg,#fff,#cfccc6);
   background-position: center top;
   background-size: cover;
   opacity: .84;
@@ -96,8 +96,8 @@ html[data-standalone][data-kb] .theme-liquid .composer::before { bottom: 0; }
 }
 
 .theme-liquid .chat-identity,
-.theme-liquid .more-button { color: #4f4942; }
-.theme-liquid .chat-identity small { color: #7f786f; }
+.theme-liquid .more-button { color: #4d4b48; }
+.theme-liquid .chat-identity small { color: #7b7873; }
 
 .theme-liquid .bottom-nav,
 .theme-liquid .phone-tabs,
@@ -107,56 +107,56 @@ html[data-standalone][data-kb] .theme-liquid .composer::before { bottom: 0; }
 .theme-liquid .left-drawer,
 .theme-liquid .right-drawer {
   border-color: rgba(255,255,255,.7);
-  background: rgba(247,244,238,.9);
-  box-shadow: inset 0 1px 0 rgba(255,255,255,.88), 0 18px 45px rgba(77,68,56,.13);
+  background: rgba(250,249,246,.9);
+  box-shadow: inset 0 1px 0 rgba(255,255,255,.88), 0 18px 45px rgba(69,66,61,.12);
   -webkit-backdrop-filter: blur(24px) saturate(.94);
   backdrop-filter: blur(24px) saturate(.94);
 }
 
 .theme-liquid .bottom-nav button.active,
 .theme-liquid .phone-tabs button.active {
-  color: #625b52;
-  background: rgba(255,253,248,.82);
-  box-shadow: inset 0 1px 0 rgba(255,255,255,.94), 0 5px 15px rgba(82,73,61,.1);
+  color: #625f5a;
+  background: rgba(255,254,251,.82);
+  box-shadow: inset 0 1px 0 rgba(255,255,255,.94), 0 5px 15px rgba(74,71,66,.1);
 }
 
 .theme-liquid .chat-jump-controls button,
 .theme-liquid .chat-load-earlier {
   border-color: rgba(255,255,255,.7);
-  color: #675f56;
-  background: rgba(244,239,231,.9);
-  box-shadow: inset 0 1px 0 rgba(255,255,255,.9), 0 8px 22px rgba(78,69,58,.13);
+  color: #65615c;
+  background: rgba(247,245,241,.9);
+  box-shadow: inset 0 1px 0 rgba(255,255,255,.9), 0 8px 22px rgba(70,67,62,.12);
 }
 
 .theme-liquid .message-content-bubble,
 .theme-liquid .message-layout-bubble .message-content-rich {
   border: 1px solid rgba(255,255,255,.68);
-  background: rgba(252,250,246,.84);
-  box-shadow: inset 0 1px 0 rgba(255,255,255,.86), 0 10px 26px rgba(77,68,57,.08);
+  background: rgba(253,252,249,.84);
+  box-shadow: inset 0 1px 0 rgba(255,255,255,.86), 0 10px 26px rgba(69,66,61,.08);
 }
 
 .theme-liquid .message-row.user .message-content-bubble,
 .theme-liquid .message-row.user .message-content-rich {
   border-color: rgba(255,255,255,.25);
   color: white;
-  background: linear-gradient(145deg,rgba(101,94,84,.94),rgba(166,157,144,.93));
+  background: linear-gradient(145deg,rgba(99,96,91,.94),rgba(164,160,154,.93));
 }
 
-.theme-liquid .home-heading .eyebrow { color: #81796f; }
+.theme-liquid .home-heading .eyebrow { color: #7d7973; }
 .theme-liquid .home-entrances > button {
-  border-color: rgba(121,110,96,.09);
-  background: linear-gradient(145deg, rgba(241,237,230,.94), rgba(255,253,249,.97));
-  box-shadow: 0 15px 35px rgba(81,72,60,.08);
+  border-color: rgba(112,107,100,.09);
+  background: linear-gradient(145deg, rgba(244,242,238,.94), rgba(255,254,252,.97));
+  box-shadow: 0 15px 35px rgba(73,69,63,.08);
 }
 .theme-liquid .home-icon {
-  color: #655e55;
+  color: #625f5a;
   border: 1px solid rgba(255,255,255,.92);
   background:
     radial-gradient(circle at 27% 20%, rgba(255,255,255,.98) 0 12%, transparent 28%),
-    linear-gradient(145deg, #f0ebe2, #d5ccbe);
-  box-shadow: inset 0 1px 0 rgba(255,255,255,.94), 0 9px 20px rgba(81,72,60,.13);
+    linear-gradient(145deg, #f3f1ed, #dad7d1);
+  box-shadow: inset 0 1px 0 rgba(255,255,255,.94), 0 9px 20px rgba(73,69,63,.12);
 }
-.theme-liquid .home-entrances i { color: #9c9489; }
+.theme-liquid .home-entrances i { color: #98948e; }
 
 @media (prefers-reduced-motion: reduce) {
   .theme-liquid .composer,
