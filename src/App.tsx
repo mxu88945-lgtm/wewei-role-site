@@ -42,7 +42,7 @@ import { buildBackstageNote, buildDmGroupPeek, buildGroupDmPeek, parsePhoneForum
 import { PhoneChatInfo } from './PhoneChatInfo'
 import { NOTICE_DURATIONS, lurkFallback, activeNotice, noticeRemaining, buildNoticeNote, findAtMentionIds, queueSummons, parsePhoneQuit, parsePhoneKick, parsePhoneVote, kickPassed, findNamedParticipantIds, selectPhoneSpeakers, pickPhoneChatters, cleanPhoneOutput, phoneGroupDisplayTitle, phoneStreamPreview, containsPhoneReasoning, phoneFinalGuard, buildSmartPickPrompt, buildMicPrompt, parseMicAnswer, parseSmartPick, buildPhoneArchive, buildPhoneGroupBackground, phoneBindingCandidates, buildPhoneRealWorldNote, parsePhoneLockCommand, buildPhoneLockBreachNote, type PhoneLockState, type PhoneLockBreach, phoneCharacter, phoneModeRules, stripPhoneQuitTag, stripPhoneKickTag, computeStoryUpdates, resetStorySeenForBindingChanges, storyUpdateNotice, buildStoryUpdateNote } from './phoneGroup'
 import { assignChatGroup, chatGroupNames, groupConversations, setChatGroupMembers } from './chatGroups'
-import { assignLibraryGroup, setLibraryGroupMembers, effectiveLibraryRole, groupLibraryCharacters, LIBRARY_ROLE_LABELS, libraryGroupNames } from './characterLibraryGroups'
+import { assignLibraryGroup, autoOrganizeLibraryCharacters, setLibraryGroupMembers, effectiveLibraryRole, groupLibraryCharacters, LIBRARY_ROLE_LABELS, libraryGroupNames } from './characterLibraryGroups'
 import { activeCharacterMemory, characterMemoryEntryFromConversation, characterMemoryExtractionPrompt, characterMemorySummaryProtocol, parseCharacterMemoryCandidates, splitCharacterMemorySummary } from './characterMemory'
 import { ChatApiError, completeChat, fetchApiModels, testApiConnection, type ApiConfig, type ApiModel } from './chatApi'
 import { buildChatPrompt } from './promptBuilder'
@@ -332,6 +332,7 @@ function exportableCharacter(character: Character) {
         ...(character.directorTemplateConfig ? { weijing_director_template: character.directorTemplateConfig } : {}),
         ...(character.beautificationProtocol?.trim() ? { beautification_protocol: character.beautificationProtocol } : {}),
         ...(character.characterMemory?.length ? { weijing_character_memory: character.characterMemory } : {}),
+        ...((character.libraryGroup || character.libraryRole) ? { weijing_library: { group: character.libraryGroup, role: character.libraryRole } } : {}),
       },
     },
   }
@@ -992,6 +993,16 @@ function App() {
     })
   }, [characters, persistenceReady])
   useEffect(() => { if (persistenceReady) writeDurable('weijing.characters', characters) }, [characters, persistenceReady])
+  const libraryAutoGroupSignature = useMemo(() => JSON.stringify({
+    projects: storyProjects.map((project) => [project.id, project.title, project.status, project.characterIds, project.directorCharacterId]),
+    conversations: conversations.map((conversation) => [conversation.id, conversation.kind, conversation.title, conversation.chatGroup, conversation.characterId, conversation.participantIds, conversation.directorCharacterId, Boolean(conversation.phone)]),
+  }), [storyProjects, conversations])
+  useEffect(() => {
+    if (!persistenceReady) return
+    setCharacters((current) => autoOrganizeLibraryCharacters(current, storyProjects, conversations))
+    // The signature excludes messages and timestamps so streaming cannot retrigger organisation.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [persistenceReady, libraryAutoGroupSignature])
   useEffect(() => { if (persistenceReady) writeDurable('weijing.plotTemplates', plotTemplates) }, [plotTemplates, persistenceReady])
   useEffect(() => { if (persistenceReady) writeDurable('weijing.storyProjects', storyProjects) }, [storyProjects, persistenceReady])
   useEffect(() => {
@@ -1569,7 +1580,17 @@ function App() {
     const existing = characters.find((item) => item.directorLibrarySourceId === source.id && item.creator !== '惟境内置导演模板')
     const snapshot = config === activeConversation?.directorConfig ? source : { ...createDirectorCharacter(config, source.id), avatar: source.avatar }
     const card = saveDirectorLibraryCard(snapshot, config, existing)
-    setCharacters((current) => [...current.filter((item) => item.id !== card.id), card])
+    setCharacters((current) => {
+      const old = current.find((item) => item.id === card.id)
+      const next = old ? {
+        ...card,
+        libraryGroup: old.libraryGroup,
+        libraryRole: old.libraryRole,
+        libraryGroupSource: old.libraryGroupSource,
+        libraryGroupOptOut: old.libraryGroupOptOut,
+      } : card
+      return [...current.filter((item) => item.id !== card.id), next]
+    })
     if (!existing) {
       setMemoryConfigs((current) => ({ ...current, [card.id]: defaultMemoryConfig() }))
       setMemoryEntries((current) => ({ ...current, [card.id]: [] }))
@@ -1580,7 +1601,14 @@ function App() {
   const saveConversationDirector = (config: DirectorTemplateConfig) => {
     if (!activeConversation?.directorCharacterId) return
     const existing = characters.find((item) => item.id === activeConversation.directorCharacterId)
-    const nextDirector = { ...createDirectorCharacter(config, activeConversation.directorCharacterId), avatar: existing?.avatar }
+    const nextDirector = {
+      ...createDirectorCharacter(config, activeConversation.directorCharacterId),
+      avatar: existing?.avatar,
+      libraryGroup: existing?.libraryGroup,
+      libraryRole: existing?.libraryRole,
+      libraryGroupSource: existing?.libraryGroupSource,
+      libraryGroupOptOut: existing?.libraryGroupOptOut,
+    }
     setCharacters((current) => current.map((item) => item.id === nextDirector.id ? nextDirector : item))
     setConversations((current) => current.map((item) => item.id === activeConversation.id ? {
       ...item,
@@ -1688,7 +1716,17 @@ function App() {
   }
 
   const addImportedCharacter = (character: Character, nextPage: Page = 'character-detail') => {
-    setCharacters((current) => [...current.filter((item) => item.id !== character.id), character])
+    setCharacters((current) => {
+      const existing = current.find((item) => item.id === character.id)
+      const next = existing ? {
+        ...character,
+        libraryGroup: character.libraryGroup ?? existing.libraryGroup,
+        libraryRole: character.libraryRole ?? existing.libraryRole,
+        libraryGroupSource: character.libraryGroupSource ?? existing.libraryGroupSource,
+        libraryGroupOptOut: character.libraryGroupOptOut ?? existing.libraryGroupOptOut,
+      } : character
+      return [...current.filter((item) => item.id !== character.id), next]
+    })
     setActiveConversationId('')
     setMemoryConfigs((current) => ({ ...current, [character.id]: defaultMemoryConfig() }))
     setMemoryEntries((current) => ({ ...current, [character.id]: [] }))
@@ -4528,7 +4566,7 @@ function UpdateCard() {
     }
   }
 
-  return <section className="update-card"><strong>应用更新</strong><p>主动检查并拉取最新网页版本，不会删除角色、聊天记录或本地设置。</p><small>当前版本：v151 · 2026.10.27 液态主题调整为奶白色调</small><button onClick={refresh} disabled={state === 'checking'}>{state === 'checking' ? '正在检查更新…' : state === 'error' ? '更新失败，点我重试' : '强制刷新到最新版'}</button></section>
+  return <section className="update-card"><strong>应用更新</strong><p>主动检查并拉取最新网页版本，不会删除角色、聊天记录或本地设置。</p><small>当前版本：v152 · 2026.10.27 角色库自动识别剧本分组并保留手动整理</small><button onClick={refresh} disabled={state === 'checking'}>{state === 'checking' ? '正在检查更新…' : state === 'error' ? '更新失败，点我重试' : '强制刷新到最新版'}</button></section>
 }
 
 function PersonaPage({ identities, selectedId, isBound, onSelect, onAdd, onDelete, onUpdate, onBack }: { identities: UserIdentity[]; selectedId: string; isBound: boolean; onSelect: (id: string) => void; onAdd: () => void; onDelete: (id: string) => void; onUpdate: (patch: Partial<UserIdentity>) => void; onBack: () => void }) {

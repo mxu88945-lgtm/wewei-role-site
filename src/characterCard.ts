@@ -157,10 +157,14 @@ export type Character = {
   regexScripts: RegexScript[]
   directorTemplateConfig?: DirectorTemplateConfig
   directorLibrarySourceId?: string
-  /** 角色库分组（故事名），只在本机整理用，不写进导出的卡。 */
+  /** 角色库分组（故事名）；本机整理为主，导出时写入惟境私有扩展以便再导入。 */
   libraryGroup?: string
   /** 在分组里的身份：主角 / 独立卡 / NPC / 导演。 */
   libraryRole?: LibraryRole
+  /** 自动分组可随剧本更名；旧卡没有此字段时视为手动分组。 */
+  libraryGroupSource?: 'manual' | 'auto'
+  /** 她手动选择“不分组”后，自动识别不再把这张卡塞回去。 */
+  libraryGroupOptOut?: boolean
   rawCard?: Record<string, unknown>
 }
 
@@ -183,7 +187,11 @@ type CardData = Record<string, unknown> & {
   character_version?: string
   alternate_greetings?: string[]
   character_book?: CharacterBook
-  extensions?: Record<string, unknown> & { regex_scripts?: RegexScript[]; beautification_protocol?: string }
+  extensions?: Record<string, unknown> & {
+    regex_scripts?: RegexScript[]
+    beautification_protocol?: string
+    weijing_library?: { group?: unknown; role?: unknown }
+  }
 }
 
 type RawCard = Record<string, unknown> & {
@@ -522,6 +530,11 @@ export async function importCharacterCard(file: File): Promise<Character> {
     ?? extensions.character_memory
     ?? (data as Record<string, unknown>).character_memory
     ?? (rawCard as Record<string, unknown>).character_memory
+  const libraryPlacement = extensions.weijing_library && typeof extensions.weijing_library === 'object'
+    ? extensions.weijing_library
+    : undefined
+  const libraryGroup = stringValue(libraryPlacement?.group).trim().slice(0, 40)
+  const libraryRole = isLibraryRole(libraryPlacement?.role) ? libraryPlacement.role : undefined
 
   return normalizeStoredCharacter({
     id: crypto.randomUUID(),
@@ -548,6 +561,9 @@ export async function importCharacterCard(file: File): Promise<Character> {
     characterMemory: normalizeCharacterMemory(rawCharacterMemory),
     regexScripts,
     directorTemplateConfig: extensions.weijing_director_template as DirectorTemplateConfig | undefined,
+    libraryGroup: libraryGroup || undefined,
+    libraryRole,
+    libraryGroupSource: libraryGroup ? 'manual' : undefined,
     rawCard,
   })
 }
@@ -931,6 +947,8 @@ export function normalizeStoredCharacter(character: Partial<Character>): Charact
     directorLibrarySourceId: character.directorLibrarySourceId,
     libraryGroup: typeof character.libraryGroup === 'string' && character.libraryGroup.trim() ? character.libraryGroup.trim().slice(0, 40) : undefined,
     libraryRole: isLibraryRole(character.libraryRole) ? character.libraryRole : undefined,
+    libraryGroupSource: character.libraryGroupSource === 'auto' || character.libraryGroupSource === 'manual' ? character.libraryGroupSource : undefined,
+    libraryGroupOptOut: character.libraryGroupOptOut === true,
     rawCard: character.rawCard,
   }
 }
