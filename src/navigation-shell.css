@@ -136,6 +136,11 @@
 .member-picker header strong { margin-top: 4px; font-size: 19px; }
 .member-picker header > button { width: 40px; height: 40px; border: 0; border-radius: 14px; color: #746d78; background: #eeeaf0; font-size: 24px; }
 .member-picker-list { display: grid; gap: 10px; overflow-y: auto; }
+.member-picker-group { display: grid; gap: 8px; }
+.member-picker-group + .member-picker-group { margin-top: 5px; }
+.member-picker-group-heading { min-height: 26px; padding: 2px 4px 0; display: flex; align-items: baseline; justify-content: space-between; gap: 10px; color: #65586d; }
+.member-picker-group-heading strong { font-size: 13px; font-weight: 850; }
+.member-picker-group-heading span { color: #a39aa8; font-size: 10px; font-weight: 750; }
 .member-picker-list article { padding: 12px; border: 1px solid transparent; border-radius: 22px; background: #efedf0; }
 .member-picker-list article.joined { border-color: var(--theme-accent); background: var(--theme-accent-soft); }
 .member-picker-main { display: grid; grid-template-columns: 50px 1fr auto; align-items: center; gap: 12px; }
