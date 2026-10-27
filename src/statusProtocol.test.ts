@@ -68,4 +68,15 @@ describe('status protocol', () => {
       fields: ['当前心境', '好感／占有', '现场局势', '角色已知线索', '状态', '关系', '待回应'],
     })
   })
+
+  it('canonicalizes an imported backstage-facing user label for future turns', () => {
+    const imported = {
+      ...character,
+      greeting: '<gts_status>内心状态：审慎｜对待用户：欣赏她的胆量</gts_status>',
+    }
+    expect(getStatusProtocol(imported)).toEqual({
+      tag: 'gts_status',
+      fields: ['内心状态', '对待你'],
+    })
+  })
 })

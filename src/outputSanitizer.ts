@@ -18,12 +18,34 @@ const STATUS_FIELD_MARKER = /(?:^|[\n｜|；;])\s*(?:【([^】\n]{1,40})】\s*|(
 const STATUS_WRAPPER = new RegExp(`<\\/?${STATUS_TAG_PATTERN}\\b[^>]*>`, 'gi')
 const COMPLETE_STATUS_BLOCK = new RegExp(`<(${STATUS_TAG_PATTERN})\\b[^>]*>[\\s\\S]*?<\\/\\1\\s*>`, 'gi')
 const OPEN_OR_PARTIAL_STATUS_BLOCK = new RegExp(`<(${STATUS_TAG_PATTERN})\\b[^>]*>[\\s\\S]*?(?:<\\/\\1\\s*>|$)`, 'gi')
+const STATUS_BLOCK_WITH_CONTENT = new RegExp(`<(${STATUS_TAG_PATTERN})\\b([^>]*)>([\\s\\S]*?)<\\/\\1\\s*>`, 'gi')
+const USER_FACING_STATUS_LABEL = /(^|[\n｜|；;]\s*)(【\s*)?对待用户(\s*】)?\s*([：:])/g
 
 export type StatusFieldValue = { label: string; value: string }
 
+function normalizeStatusLabel(label: string) {
+  return label.normalize('NFKC').replace(/\s+/g, '') === '对待用户' ? '对待你' : label
+}
+
+/**
+ * Status panels address the person reading the chat directly. Older cards and
+ * occasional model replies used the product-facing label “对待用户”, which
+ * reads like backstage metadata. Rewrite only that exact field label inside a
+ * status tag; ordinary story dialogue containing the same words is untouched.
+ */
+export function normalizeSecondPersonStatusLabels(value: string) {
+  STATUS_BLOCK_WITH_CONTENT.lastIndex = 0
+  const normalized = value.replace(STATUS_BLOCK_WITH_CONTENT, (_block, tag: string, attributes: string, content: string) => {
+    const status = content.replace(USER_FACING_STATUS_LABEL, '$1$2对待你$3$4')
+    return `<${tag}${attributes}>${status}</${tag}>`
+  })
+  STATUS_BLOCK_WITH_CONTENT.lastIndex = 0
+  return normalized
+}
+
 /** Compare visually different spellings of the same status field as one key. */
 export function statusFieldKey(label: string) {
-  return label
+  return normalizeStatusLabel(label)
     .normalize('NFKC')
     .replace(/\s+/g, '')
     .replace(/好感度/g, '好感')
@@ -77,14 +99,14 @@ export function sanitizeAssistantOutput(value: string, options: { director?: boo
     const start = directorStoryStart(output)
     output = start >= 0 ? output.slice(start).trimStart() : ''
   }
-  if (!STATUS_INSTRUCTION_MARKER.test(output.slice(0, 1600))) return output
+  if (!STATUS_INSTRUCTION_MARKER.test(output.slice(0, 1600))) return normalizeSecondPersonStatusLabels(output)
   const match = STORY_START.exec(output)
   if (!match) return ''
   const storyIndex = match.index
   const plotIndex = output.lastIndexOf('<plot>', storyIndex)
   const fenceIndex = output.lastIndexOf('```', storyIndex)
   const start = plotIndex >= 0 ? plotIndex : fenceIndex >= 0 ? fenceIndex : storyIndex
-  return output.slice(start).trimStart()
+  return normalizeSecondPersonStatusLabels(output.slice(start).trimStart())
 }
 
 /**
@@ -142,7 +164,7 @@ export function extractStatusFields(value: string): StatusFieldValue[] {
   for (let index = 0; index < markers.length; index += 1) {
     const marker = markers[index]
     const next = markers[index + 1]
-    const label = (marker[1] || marker[2])?.trim()
+    const label = normalizeStatusLabel((marker[1] || marker[2])?.trim() || '')
     const start = (marker.index || 0) + marker[0].length
     const end = next?.index ?? plainValue.length
     const fieldValue = plainValue.slice(start, end).trim().replace(/[｜|；;]+$/, '').trim()

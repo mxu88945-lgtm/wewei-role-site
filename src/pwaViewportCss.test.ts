@@ -5,6 +5,7 @@ import { describe, expect, it } from 'vitest'
 const dir = new URL('./', import.meta.url)
 const stylesheets = readdirSync(dir).filter((file) => file.endsWith('.css')).map((file) => readFileSync(new URL(file, dir), 'utf8'))
 const indexHtml = readFileSync(new URL('../index.html', import.meta.url), 'utf8')
+const appSource = readFileSync(new URL('./App.tsx', import.meta.url), 'utf8')
 const strip = (css: string) => css.replace(/\/\*[\s\S]*?\*\//g, '')
 
 describe('iOS standalone app height', () => {
@@ -34,5 +35,12 @@ describe('message editor above the iOS keyboard', () => {
     const css = readFileSync(new URL('./pwa-fix.css', import.meta.url), 'utf8')
     expect(css).toContain('html[data-standalone] .message-editor-layer { bottom: auto; }')
     expect(css).toContain('html[data-standalone][data-kb] .message-editor-layer { align-items: flex-end;')
+  })
+})
+
+describe('full-page composer entry', () => {
+  it('keeps the expand button available before a draft becomes long', () => {
+    expect(appSource).toContain('<button className="composer-expand" aria-label="展开长消息编辑器"')
+    expect(appSource).not.toMatch(/composerCanExpand\s*&&\s*<button className="composer-expand"/)
   })
 })
