@@ -15,10 +15,11 @@ import './theme-cute.css'
 import './theme-cute-icons.css'
 import './theme-liquid.css'
 import './theme-paper.css'
+import './theme-scrapbook.css'
 import './memoryApiEnhancements'
 
 const APP_SCOPE = '/wewei-role-site/'
-const SERVICE_WORKER_RELEASE = '2026-10-29-paper-theme-v158'
+const SERVICE_WORKER_RELEASE = '2026-10-29-scrapbook-theme-v159'
 
 if ('serviceWorker' in navigator) {
   let reloadingForUpdate = false
