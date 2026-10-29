@@ -14,10 +14,11 @@ import './theme-pudding.css'
 import './theme-cute.css'
 import './theme-cute-icons.css'
 import './theme-liquid.css'
+import './theme-paper.css'
 import './memoryApiEnhancements'
 
 const APP_SCOPE = '/wewei-role-site/'
-const SERVICE_WORKER_RELEASE = '2026-10-27-conversation-trash-v156'
+const SERVICE_WORKER_RELEASE = '2026-10-29-paper-theme-v158'
 
 if ('serviceWorker' in navigator) {
   let reloadingForUpdate = false

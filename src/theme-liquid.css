@@ -67,7 +67,8 @@
   mask-image: none;
 }
 
-.theme-liquid .composer > * { position: relative; z-index: 1; }
+.theme-liquid .composer > :not(.composer-expand) { position: relative; z-index: 1; }
+.theme-liquid .composer-expand { position: absolute; z-index: 2; }
 .theme-liquid .composer textarea { color: #3a3937; }
 .theme-liquid .composer textarea::placeholder { color: rgba(82,79,75,.62); }
 .theme-liquid .composer-plus,

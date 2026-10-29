@@ -1,0 +1,156 @@
+/* A centered manuscript, scoped to story chat; phone conversations keep their layout. */
+.phone-canvas.theme-paper {
+  --theme-accent: #8198a8;
+  --theme-accent-strong: #617e91;
+  --theme-accent-end: #a0b4c0;
+  --theme-accent-soft: #f3f6f8;
+  --theme-accent-soft-strong: #e4ecf1;
+  --theme-accent-text: #526c7e;
+  --theme-accent-shadow: rgba(72, 96, 114, .12);
+  --composer-dock-rgb: 237, 242, 245;
+  --paper-sheet: #fcfcf9;
+  --paper-rule: rgba(111, 140, 159, .13);
+}
+.theme-choice-grid button.paper i {
+  background: repeating-linear-gradient(0deg, #fbfcfa 0 7px, #d9e4eb 7px 8px) !important;
+  border-radius: 2px;
+  transform: rotate(-5deg);
+  box-shadow: 3px 3px 0 #d8e3eb;
+}
+.theme-paper .chat-page:not(.phone-chat) .chat-header {
+  background: rgba(243, 247, 249, .93);
+  border-bottom: 1px solid rgba(115, 140, 156, .13);
+  box-shadow: none;
+  backdrop-filter: blur(18px);
+  -webkit-backdrop-filter: blur(18px);
+}
+.theme-paper .chat-page:not(.phone-chat) .message-list { gap: 28px; }
+.theme-paper .chat-page:not(.phone-chat) .message-row {
+  position: relative;
+  isolation: isolate;
+  flex: 0 0 auto;
+  align-self: center;
+  align-items: center;
+  width: 100%;
+  max-width: 820px;
+  margin: 10px 0;
+  padding: 28px clamp(16px, 4vw, 34px) 18px;
+  background: var(--paper-sheet);
+  box-shadow: 0 10px 25px rgba(71, 93, 108, .07);
+  color: var(--chat-text-color);
+}
+/* Jagged strips are decorative only: no clipping of long content or controls. */
+.theme-paper .chat-page:not(.phone-chat) .message-row::before,
+.theme-paper .chat-page:not(.phone-chat) .message-row::after {
+  content: '';
+  position: absolute;
+  z-index: -1;
+  left: 0;
+  right: 0;
+  height: 13px;
+  background: var(--paper-sheet);
+  pointer-events: none;
+  clip-path: polygon(0 50%, 2% 35%, 4% 65%, 7% 24%, 10% 50%, 13% 35%, 16% 65%, 20% 30%, 24% 55%, 28% 20%, 32% 58%, 36% 35%, 40% 60%, 44% 24%, 48% 45%, 52% 20%, 56% 55%, 60% 35%, 64% 66%, 68% 30%, 72% 50%, 76% 25%, 80% 60%, 84% 32%, 88% 56%, 92% 20%, 96% 55%, 100% 35%, 100% 100%, 0 100%);
+}
+.theme-paper .chat-page:not(.phone-chat) .message-row::before { top: -12px; }
+.theme-paper .chat-page:not(.phone-chat) .message-row::after { bottom: -12px; transform: rotate(180deg); }
+.theme-paper .chat-page:not(.phone-chat) :is(.message-line-flat, .message-line-bubble) {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  width: 100%;
+  gap: 18px;
+}
+.theme-paper .chat-page:not(.phone-chat) .message-avatar { display: none; }
+.theme-paper .chat-page:not(.phone-chat) :is(.message-author, .message-bubble-author) {
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  flex-direction: row;
+  width: 100%;
+  gap: 14px;
+  padding: 0;
+  color: var(--chat-text-color);
+  font-family: 'Songti SC', 'Noto Serif SC', serif;
+  font-size: 1.25em;
+  font-weight: 500;
+  letter-spacing: .15em;
+}
+.theme-paper .chat-page:not(.phone-chat) :is(.message-author, .message-bubble-author)::before,
+.theme-paper .chat-page:not(.phone-chat) :is(.message-author, .message-bubble-author)::after {
+  content: '';
+  width: 32px;
+  height: 1px;
+  background: rgba(110, 139, 158, .35);
+}
+.theme-paper .chat-page:not(.phone-chat) :is(.message-flat-body, .message-bubble-column) {
+  width: 100%;
+  max-width: 100%;
+  margin: 0;
+  align-items: center;
+  gap: 18px;
+  text-align: center;
+}
+.theme-paper .chat-page:not(.phone-chat) :is(.message-content-flat, .message-content-bubble, .message-content-rich) {
+  width: 100%;
+  max-width: 100%;
+  padding: 0;
+  border: 0;
+  border-radius: 0;
+  background: transparent;
+  box-shadow: none;
+  color: var(--chat-text-color);
+  line-height: 1.95;
+  text-align: center;
+}
+.theme-paper .chat-page:not(.phone-chat) :is(.message-plain-text, .message-safe-html) {
+  background-image: repeating-linear-gradient(to bottom, transparent 0 calc(1.95em - 1px), var(--paper-rule) calc(1.95em - 1px) 1.95em);
+  background-size: 100% 1.95em;
+  overflow-wrap: anywhere;
+}
+.theme-paper .chat-page:not(.phone-chat) :is(.message-plain-text p, .message-story-paragraph) { margin: 0 0 1.3em; text-align: center; }
+.theme-paper .chat-page:not(.phone-chat) .message-quote {
+  display: inline;
+  padding: 0 0 2px;
+  border-radius: 0;
+  background: transparent;
+  border-bottom: 1px solid rgba(101, 130, 151, .45);
+  color: var(--chat-quote-color);
+  line-height: inherit;
+}
+.theme-paper .chat-page:not(.phone-chat) .message-safe-html > :is(section, article, div):not(.message-paragraph-break) {
+  max-width: min(100%, 580px);
+  margin-left: auto !important;
+  margin-right: auto !important;
+  text-align: left;
+}
+.theme-paper .chat-page:not(.phone-chat) :is(.weijing-status-card, .weijing-scene-strip) {
+  width: min(100%, 580px);
+  margin: 24px auto;
+  padding: 18px 20px;
+  background: #f0f4f6;
+  border: 1px solid #dce5ea;
+  border-radius: 14px;
+  box-shadow: none;
+  text-align: left;
+}
+.theme-paper .chat-page:not(.phone-chat) .message-action-row { align-self: center; opacity: .6; }
+.theme-paper .chat-page:not(.phone-chat) .composer {
+  border: 0;
+  border-bottom: 1px solid #9cafbc;
+  border-radius: 0;
+  background: rgba(244, 248, 250, .96);
+  box-shadow: none;
+}
+.theme-paper .chat-page:not(.phone-chat) .composer :is(.composer-plus, .send-button) {
+  border: 1px solid #9cafbc;
+  border-radius: 50%;
+  color: #617e91;
+  background: transparent;
+  box-shadow: none;
+}
+.theme-paper .chat-page:not(.phone-chat) .composer textarea { color: var(--chat-text-color); }
+@media (max-width: 480px) {
+  .theme-paper .chat-page:not(.phone-chat) .message-list { padding-left: 12px; padding-right: 12px; }
+  .theme-paper .chat-page:not(.phone-chat) .message-row { padding-left: 18px; padding-right: 18px; }
+}

@@ -196,7 +196,7 @@ export function richRenderFallback(value: string) {
 
 type SceneHooks = { greetings?: string[]; onSelectGreeting?: (index: number, text: string) => void }
 
-function SandboxHtml({ html, raw = false, greetings, onSelectGreeting }: { html: string; raw?: boolean } & SceneHooks) {
+function SandboxHtml({ html, raw = false, paper = false, greetings, onSelectGreeting }: { html: string; raw?: boolean; paper?: boolean } & SceneHooks) {
   const frameRef = useRef<HTMLIFrameElement>(null)
   const tokenRef = useRef(`render-${crypto.randomUUID()}`)
   const failTimeoutRef = useRef<number | null>(null)
@@ -223,6 +223,11 @@ function SandboxHtml({ html, raw = false, greetings, onSelectGreeting }: { html:
     const baseStyle = document.createElement('style')
     baseStyle.textContent = (raw ? 'html,body{margin:0!important;' : 'html,body{margin:0!important;padding:0!important;') + 'min-height:0!important;overflow-x:hidden;box-sizing:border-box}*,*:before,*:after{box-sizing:border-box;max-width:100%}.message-paragraph-break{display:block;height:.62em}.message-auto-paragraph-break{height:.82em}'
     document.head.append(baseStyle)
+    if (paper && !raw) {
+      const paperStyle = document.createElement('style')
+      paperStyle.textContent = `html,body{background:transparent!important;color:#3e4c57!important;font-family:-apple-system,'PingFang SC',sans-serif;line-height:1.95;text-align:center}body>div,body>section,body>article{margin-left:auto!important;margin-right:auto!important;max-width:100%!important}p,.message-story-paragraph{text-align:center!important;margin:0 0 1.3em!important}section,article,[class*="status"],[class*="scene"],[class*="private"]{margin-left:auto!important;margin-right:auto!important;text-align:left!important}section,[class*="status-card"],[class*="scene-card"]{max-width:580px!important;background:#f0f4f6!important;color:#3e4c57!important;border-color:#dce5ea!important}section p,[class*="status"] p,[class*="scene"] p,[class*="private"] p{text-align:left!important}.message-story-paragraph{background:repeating-linear-gradient(to bottom,transparent 0 calc(1.95em - 1px),rgba(111,140,159,.13) calc(1.95em - 1px) 1.95em)}`
+      document.head.append(paperStyle)
+    }
     if (raw) {
       // Size a fenced page to its content: html/body must not stretch to the iframe's own
       // height (height:100% / 100vh), or the measured height feeds back and leaves a huge blank.
@@ -246,7 +251,7 @@ function SandboxHtml({ html, raw = false, greetings, onSelectGreeting }: { html:
       document.body.append(reporter)
     }
     return `<!doctype html>${document.documentElement.outerHTML}`
-  }, [html, raw, autoSize, greetingsKey])
+  }, [html, raw, autoSize, greetingsKey, paper])
 
   const greetingsRef = useRef(greetings)
   const onSelectRef = useRef(onSelectGreeting)
@@ -296,7 +301,7 @@ function SandboxHtml({ html, raw = false, greetings, onSelectGreeting }: { html:
   </div>
 }
 
-function MessageContent({ text, role, character, userName, layout = 'bubble', streaming = false, greetings, onSelectGreeting, noStatus = false }: { text: string; role: 'user' | 'assistant'; character: Character; userName: string; layout?: 'bubble' | 'flat'; streaming?: boolean; noStatus?: boolean } & SceneHooks) {
+function MessageContent({ text, role, character, userName, layout = 'bubble', streaming = false, greetings, onSelectGreeting, noStatus = false, paper = false }: { text: string; role: 'user' | 'assistant'; character: Character; userName: string; layout?: 'bubble' | 'flat'; streaming?: boolean; noStatus?: boolean; paper?: boolean } & SceneHooks) {
   const rendered = useMemo(() => {
     const director = character.tags.includes('共演导演') || character.tags.includes('旁白导演')
     const cleanText = role === 'assistant' ? sanitizeAssistantOutput(text, { director }) : text
@@ -333,13 +338,13 @@ function MessageContent({ text, role, character, userName, layout = 'bubble', st
   if (segments) {
     return <div className="message-content message-content-rich message-content-segments">{segments.map((segment, index) => segment.kind === 'html'
       ? <SandboxHtml key={`h${index}`} html={segment.value} raw greetings={greetings} onSelectGreeting={onSelectGreeting} />
-      : <RenderedBlock key={`t${index}`} rendered={segment.value} role={role} layout={layout} />)}</div>
+      : <RenderedBlock key={`t${index}`} rendered={segment.value} role={role} layout={layout} paper={paper} />)}</div>
   }
-  return <RenderedBlock rendered={rendered} role={role} layout={layout} />
+  return <RenderedBlock rendered={rendered} role={role} layout={layout} paper={paper} />
 }
 
-function RenderedBlock({ rendered, role, layout }: { rendered: string; role: 'user' | 'assistant'; layout: 'bubble' | 'flat' }) {
-  if (hasExecutableScript(rendered) || isFullHtmlDocument(rendered)) return <div className="message-content message-content-rich"><SandboxHtml html={rendered} /></div>
+function RenderedBlock({ rendered, role, layout, paper = false }: { rendered: string; role: 'user' | 'assistant'; layout: 'bubble' | 'flat'; paper?: boolean }) {
+  if (hasExecutableScript(rendered) || isFullHtmlDocument(rendered)) return <div className="message-content message-content-rich"><SandboxHtml html={rendered} paper={paper} /></div>
   if (looksLikeHtml(rendered)) return <div className="message-content message-content-rich"><SafeInlineHtml html={rendered} /></div>
   const paragraphs = role === 'user' ? userTextParagraphs(rendered) : plainTextParagraphs(rendered)
   return <div className={`message-content message-content-plain ${layout === 'bubble' ? 'message-content-bubble' : 'message-content-flat'}`}><div className={`message-plain-text ${role === 'user' ? 'message-plain-text-user' : ''}`}>{paragraphs.map((paragraph, index) => <p key={`${index}-${paragraph.slice(0, 12)}`}>{styledPlainText(paragraph)}</p>)}</div></div>

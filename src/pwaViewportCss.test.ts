@@ -39,8 +39,14 @@ describe('message editor above the iOS keyboard', () => {
 })
 
 describe('full-page composer entry', () => {
-  it('keeps the expand button available before a draft becomes long', () => {
-    expect(appSource).toContain('<button className="composer-expand" aria-label="展开长消息编辑器"')
-    expect(appSource).not.toMatch(/composerCanExpand\s*&&\s*<button className="composer-expand"/)
+  it('shows the expand button only after a draft needs the long editor', () => {
+    expect(appSource).toContain('setComposerCanExpand(contentHeight > 72)')
+    expect(appSource).toMatch(/composerCanExpand\s*&&\s*<button className="composer-expand"/)
+  })
+
+  it('keeps the liquid-theme expand button out of the composer grid', () => {
+    const css = readFileSync(new URL('./theme-liquid.css', import.meta.url), 'utf8')
+    expect(css).toContain('.theme-liquid .composer > :not(.composer-expand)')
+    expect(css).toContain('.theme-liquid .composer-expand { position: absolute;')
   })
 })
