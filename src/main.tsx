@@ -20,7 +20,7 @@ import './theme-archives.css'
 import './memoryApiEnhancements'
 
 const APP_SCOPE = '/wewei-role-site/'
-const SERVICE_WORKER_RELEASE = '2026-10-30-archive-themes-v160'
+const SERVICE_WORKER_RELEASE = '2026-10-30-home-sticker-icons-v161'
 
 if ('serviceWorker' in navigator) {
   let reloadingForUpdate = false
