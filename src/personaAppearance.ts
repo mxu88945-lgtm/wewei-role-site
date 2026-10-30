@@ -1,7 +1,7 @@
 import type { ChatWallpaper, ChatWallpapers } from './chatWallpaper'
 import { normalizeWallpaper, themeWallpaperKey } from './chatWallpaper'
 
-export type PersonaTheme = { id: string; name: string; mode: 'mist' | 'pearl' | 'sage' | 'pudding' | 'strawberry' | 'blueberry' | 'liquid' | 'paper' | 'scrapbook'; baseColor: string; textColor: string; narrationColor: string; quoteColor: string; frost: number }
+export type PersonaTheme = { id: string; name: string; mode: 'mist' | 'pearl' | 'sage' | 'pudding' | 'strawberry' | 'blueberry' | 'liquid' | 'paper' | 'scrapbook' | 'academy' | 'vinyl'; baseColor: string; textColor: string; narrationColor: string; quoteColor: string; frost: number }
 export type PersonaAppearance = { theme?: PersonaTheme; fontSize?: number; uiScale?: number; uiWeight?: number; baseColor?: string; textColor?: string; narrationColor?: string; quoteColor?: string }
 export type PersonaAppearanceValues = { theme: PersonaTheme; fontSize: number; uiScale: number; uiWeight: number; baseColor: string; textColor: string; narrationColor: string; quoteColor: string }
 const record = (value: unknown): value is Record<string, unknown> => Boolean(value && typeof value === 'object' && !Array.isArray(value))
@@ -17,7 +17,7 @@ export function normalizePersonaAppearance(raw: unknown): PersonaAppearance | un
     if (typeof value === 'number' && Number.isFinite(value)) result[key] = Math.round(Math.max(min, Math.min(max, value)))
   }
   const theme = raw.theme
-  if (record(theme) && typeof theme.id === 'string' && theme.id.trim() && typeof theme.name === 'string' && ['mist', 'pearl', 'sage', 'pudding', 'strawberry', 'blueberry', 'liquid', 'paper', 'scrapbook'].includes(String(theme.mode)) && validColor(theme.baseColor) && validColor(theme.textColor) && validColor(theme.narrationColor) && validColor(theme.quoteColor)) {
+  if (record(theme) && typeof theme.id === 'string' && theme.id.trim() && typeof theme.name === 'string' && ['mist', 'pearl', 'sage', 'pudding', 'strawberry', 'blueberry', 'liquid', 'paper', 'scrapbook', 'academy', 'vinyl'].includes(String(theme.mode)) && validColor(theme.baseColor) && validColor(theme.textColor) && validColor(theme.narrationColor) && validColor(theme.quoteColor)) {
     result.theme = { id: theme.id.slice(0, 160), name: theme.name.slice(0, 80), mode: theme.mode as PersonaTheme['mode'], baseColor: theme.baseColor, textColor: theme.textColor, narrationColor: theme.narrationColor, quoteColor: theme.quoteColor, frost: typeof theme.frost === 'number' && Number.isFinite(theme.frost) ? Math.max(0, Math.min(1, theme.frost)) : .72 }
   }
   return Object.keys(result).length ? result : undefined

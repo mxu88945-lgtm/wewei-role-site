@@ -196,7 +196,8 @@ export function richRenderFallback(value: string) {
 
 type SceneHooks = { greetings?: string[]; onSelectGreeting?: (index: number, text: string) => void }
 
-function SandboxHtml({ html, raw = false, paper = false, greetings, onSelectGreeting }: { html: string; raw?: boolean; paper?: boolean | 'scrapbook' } & SceneHooks) {
+type MessageTheme = boolean | 'scrapbook' | 'academy' | 'vinyl'
+function SandboxHtml({ html, raw = false, paper = false, greetings, onSelectGreeting }: { html: string; raw?: boolean; paper?: MessageTheme } & SceneHooks) {
   const frameRef = useRef<HTMLIFrameElement>(null)
   const tokenRef = useRef(`render-${crypto.randomUUID()}`)
   const failTimeoutRef = useRef<number | null>(null)
@@ -223,6 +224,12 @@ function SandboxHtml({ html, raw = false, paper = false, greetings, onSelectGree
     const baseStyle = document.createElement('style')
     baseStyle.textContent = (raw ? 'html,body{margin:0!important;' : 'html,body{margin:0!important;padding:0!important;') + 'min-height:0!important;overflow-x:hidden;box-sizing:border-box}*,*:before,*:after{box-sizing:border-box;max-width:100%}.message-paragraph-break{display:block;height:.62em}.message-auto-paragraph-break{height:.82em}'
     document.head.append(baseStyle)
+    if ((paper === 'academy' || paper === 'vinyl') && !raw) {
+      const archiveStyle = document.createElement('style')
+      const vinyl = paper === 'vinyl'
+      archiveStyle.textContent = `html,body{background:transparent!important;color:${vinyl ? '#315868' : '#272a29'}!important;font-family:-apple-system,'PingFang SC',sans-serif;line-height:1.95;text-align:left}p,.message-story-paragraph{text-align:left!important;font-family:inherit!important;line-height:1.95!important}section,[class*="status-card"],[class*="scene-card"]{background:${vinyl ? '#f7f9fb' : '#f9f9f5'}!important;color:inherit!important;border-color:#d9dedf!important;box-shadow:none!important}header,[class*="title"]{font-family:Georgia,'Songti SC',serif;letter-spacing:.12em}.message-quote{display:inline!important;line-height:inherit!important;color:${vinyl ? '#b46b43' : '#a14148'}!important;background:${vinyl ? 'linear-gradient(100deg,#cfe4e9,#f6d6c7)' : 'linear-gradient(transparent 65%,#fff17d 65%)'}!important;box-decoration-break:clone;-webkit-box-decoration-break:clone}`
+      document.head.append(archiveStyle)
+    }
     if (paper === 'scrapbook' && !raw) {
       const scrapbookStyle = document.createElement('style')
       scrapbookStyle.textContent = `html,body{background:transparent!important;color:#503b37!important;font-family:-apple-system,'PingFang SC',sans-serif;line-height:1.9;text-align:left}body>div,body>section,body>article{margin-left:auto!important;margin-right:auto!important;max-width:100%!important}p,.message-story-paragraph{text-align:left!important;line-height:1.9!important}section,[class*="status-card"],[class*="scene-card"]{background:#f8f1e6!important;color:#503b37!important;border-color:#dfd2c3!important;box-shadow:none!important}section p,[class*="status"] p,[class*="scene"] p{color:inherit!important}.message-quote{background:#f6e1d4;color:#9d4947;border:1px solid #dab1a5;border-radius:4px;padding:2px 4px}`
@@ -306,7 +313,7 @@ function SandboxHtml({ html, raw = false, paper = false, greetings, onSelectGree
   </div>
 }
 
-function MessageContent({ text, role, character, userName, layout = 'bubble', streaming = false, greetings, onSelectGreeting, noStatus = false, paper = false }: { text: string; role: 'user' | 'assistant'; character: Character; userName: string; layout?: 'bubble' | 'flat'; streaming?: boolean; noStatus?: boolean; paper?: boolean | 'scrapbook' } & SceneHooks) {
+function MessageContent({ text, role, character, userName, layout = 'bubble', streaming = false, greetings, onSelectGreeting, noStatus = false, paper = false }: { text: string; role: 'user' | 'assistant'; character: Character; userName: string; layout?: 'bubble' | 'flat'; streaming?: boolean; noStatus?: boolean; paper?: MessageTheme } & SceneHooks) {
   const rendered = useMemo(() => {
     const director = character.tags.includes('共演导演') || character.tags.includes('旁白导演')
     const cleanText = role === 'assistant' ? sanitizeAssistantOutput(text, { director }) : text
@@ -348,7 +355,7 @@ function MessageContent({ text, role, character, userName, layout = 'bubble', st
   return <RenderedBlock rendered={rendered} role={role} layout={layout} paper={paper} />
 }
 
-function RenderedBlock({ rendered, role, layout, paper = false }: { rendered: string; role: 'user' | 'assistant'; layout: 'bubble' | 'flat'; paper?: boolean | 'scrapbook' }) {
+function RenderedBlock({ rendered, role, layout, paper = false }: { rendered: string; role: 'user' | 'assistant'; layout: 'bubble' | 'flat'; paper?: MessageTheme }) {
   if (hasExecutableScript(rendered) || isFullHtmlDocument(rendered)) return <div className="message-content message-content-rich"><SandboxHtml html={rendered} paper={paper} /></div>
   if (looksLikeHtml(rendered)) return <div className="message-content message-content-rich"><SafeInlineHtml html={rendered} /></div>
   const paragraphs = role === 'user' ? userTextParagraphs(rendered) : plainTextParagraphs(rendered)

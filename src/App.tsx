@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useId, useLayoutEffect, useMemo, useRef, useState } from 'react'
 import ApiSettingsPage from './ApiSettingsPage'
+import ArchiveHeading from './ArchiveHeading'
 import BackupCard from './BackupCard'
 import ChatSearchPage from './ChatSearchPage'
 import TemporaryPlotPage, { type PlotTemplate } from './TemporaryPlotPage'
@@ -116,7 +117,7 @@ type MemoryConfig = {
 type MemoryConfigMap = Record<string, MemoryConfig>
 type MemoryEntryMap = Record<string, MemoryEntry[]>
 type UserIdentity = { id: string; name: string; description: string; avatar?: string }
-type ChatThemeMode = 'mist' | 'pearl' | 'sage' | 'pudding' | 'strawberry' | 'blueberry' | 'liquid' | 'paper' | 'scrapbook'
+type ChatThemeMode = 'mist' | 'pearl' | 'sage' | 'pudding' | 'strawberry' | 'blueberry' | 'liquid' | 'paper' | 'scrapbook' | 'academy' | 'vinyl'
 type ChatThemePreset = { id: string; name: string; mode: ChatThemeMode; baseColor: string; textColor: string; narrationColor: string; quoteColor: string; frost: number; custom?: boolean }
 
 const demoCharacter: Character = {
@@ -236,6 +237,8 @@ const builtInThemes: ChatThemePreset[] = [
   { id: 'liquid', name: '惟镜·液态', mode: 'liquid', baseColor: '#f7f6f2', textColor: '#383735', narrationColor: '#74716c', quoteColor: '#69645f', frost: .34 },
   { id: 'paper', name: '雾蓝纸笺', mode: 'paper', baseColor: '#edf2f5', textColor: '#3e4c57', narrationColor: '#7b8992', quoteColor: '#526f84', frost: .58 },
   { id: 'scrapbook', name: '莓红剪贴簿', mode: 'scrapbook', baseColor: '#faf8f4', textColor: '#503b37', narrationColor: '#967b73', quoteColor: '#9d4947', frost: .58 },
+  { id: 'academy', name: '秋日批注', mode: 'academy', baseColor: '#fafaf6', textColor: '#272a29', narrationColor: '#6d716b', quoteColor: '#a14148', frost: .64 },
+  { id: 'vinyl', name: '青橙唱片', mode: 'vinyl', baseColor: '#ffffff', textColor: '#315868', narrationColor: '#7b98a4', quoteColor: '#b46b43', frost: .55 },
 ]
 
 const migrateMemoryConfigs = (configs: MemoryConfigMap) => Object.fromEntries(Object.entries(configs).map(([id, config]) => [id, {
@@ -4129,7 +4132,8 @@ function App() {
     const openingGreetings = isOpening ? [messageCharacter.greeting, ...messageCharacter.alternateGreetings].filter((item) => typeof item === 'string') : undefined
     const selectOpening = isOpening ? (_index: number, text: string) => setConversations((current) => current.map((item) => item.id === openingConversationId ? { ...item, messages: item.messages.map((entry) => entry.id === message.id ? { ...entry, text } : entry), updatedAt: Date.now() } : item)) : undefined
     const phaseStartedAt = streaming && activeConversation ? phaseStartedAtRef.current.get(`${activeConversation.id}|${message.id}`) : undefined
-    const textContent = phaseStartedAt !== undefined ? <PhaseElapsed label={displayText} startedAt={phaseStartedAt} /> : displayText ? <MessageContent text={displayText} role={message.role} character={messageCharacter} noStatus={Boolean(activeConversation?.phone)} paper={activeConversation?.phone ? false : chatTheme === 'scrapbook' ? 'scrapbook' : chatTheme === 'paper'} userName={identity.name} layout={chatLayout} streaming={streaming} greetings={openingGreetings} onSelectGreeting={selectOpening} /> : null
+    const archiveTheme = !activeConversation?.phone && (chatTheme === 'academy' || chatTheme === 'vinyl') ? chatTheme : null
+    const textContent = phaseStartedAt !== undefined ? <PhaseElapsed label={displayText} startedAt={phaseStartedAt} /> : displayText ? <MessageContent text={displayText} role={message.role} character={messageCharacter} noStatus={Boolean(activeConversation?.phone)} paper={archiveTheme || (activeConversation?.phone ? false : chatTheme === 'scrapbook' ? 'scrapbook' : chatTheme === 'paper')} userName={identity.name} layout={archiveTheme ? 'flat' : chatLayout} streaming={streaming} greetings={openingGreetings} onSelectGreeting={selectOpening} /> : null
     const quoteExists = Boolean(message.quote && messages.some((item) => String(item.id) === message.quote!.messageId))
     const quoteBlock = isUser && message.quote && activeConversation?.phone ? <button type="button" className={`phone-message-quote${quoteExists ? '' : ' missing'}`} aria-label={quoteExists ? `跳到被引用的消息：${message.quote.author}` : '被引用的消息已不在'} disabled={!quoteExists} onClick={() => jumpToQuoted(message.quote!.messageId)}><b>{message.quote.author}：</b>{message.quote.text}</button> : null
     const body = imageGrid ? <>{imageGrid}{textContent}</> : textContent
@@ -4140,8 +4144,8 @@ function App() {
     const transferCard = transferInfo ? <TransferCard toName={transferInfo.toName} amount={transferInfo.amount} note={transferInfo.note} /> : null
     const content = <>{withQuote}{packetCard}{transferCard}</>
 
-    return <div key={message.id} data-message-id={message.id} className={`message-row ${message.role} message-layout-${chatLayout}`}>
-      {chatLayout === 'flat' ? <div className="message-line message-line-flat">
+    return <div key={message.id} data-message-id={message.id} className={`message-row ${message.role} message-layout-${chatLayout}${archiveTheme ? ` archive-row archive-${archiveTheme}` : ''}`}>
+      {archiveTheme ? <><ArchiveHeading theme={archiveTheme} name={authorName} avatar={avatar} user={isUser} /><div className="archive-body">{content}</div></> : chatLayout === 'flat' ? <div className="message-line message-line-flat">
         <div className="message-author">{avatarNode}<span>{authorName}</span></div>
         <div className="message-flat-body">{content}</div>
       </div> : <div className="message-line message-line-bubble">
@@ -4605,7 +4609,7 @@ function UpdateCard() {
     }
   }
 
-  return <section className="update-card"><strong>应用更新</strong><p>主动检查并拉取最新网页版本，不会删除角色、聊天记录或本地设置。</p><small>当前版本：v159 · 2026.10.29 新增莓红剪贴簿：拍立得头像、棋盘格与拼贴纸框</small><button onClick={refresh} disabled={state === 'checking'}>{state === 'checking' ? '正在检查更新…' : state === 'error' ? '更新失败，点我重试' : '强制刷新到最新版'}</button></section>
+  return <section className="update-card"><strong>应用更新</strong><p>主动检查并拉取最新网页版本，不会删除角色、聊天记录或本地设置。</p><small>当前版本：v160 · 2026.10.30 新增秋日批注与青橙唱片主题</small><button onClick={refresh} disabled={state === 'checking'}>{state === 'checking' ? '正在检查更新…' : state === 'error' ? '更新失败，点我重试' : '强制刷新到最新版'}</button></section>
 }
 
 function PersonaPage({ identities, selectedId, isBound, onSelect, onAdd, onDelete, onUpdate, onBack }: { identities: UserIdentity[]; selectedId: string; isBound: boolean; onSelect: (id: string) => void; onAdd: () => void; onDelete: (id: string) => void; onUpdate: (patch: Partial<UserIdentity>) => void; onBack: () => void }) {

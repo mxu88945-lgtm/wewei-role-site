@@ -1,0 +1,58 @@
+/* Shared presentation for the autumn notebook and cyan/amber record archive. */
+.archive-row { box-sizing: border-box; position: relative; width: 100%; max-width: 820px; min-width: 0; flex: 0 0 auto; align-self: center; display: flex; flex-direction: column; align-items: stretch; gap: 0; }
+.archive-row *, .archive-row *::before, .archive-row *::after { box-sizing: border-box; }
+.archive-row .archive-body { width: 100%; min-width: 0; font-family: -apple-system, BlinkMacSystemFont, 'PingFang SC', 'Microsoft YaHei', sans-serif; font-size: var(--chat-font-size, var(--msg-font, 16px)); font-weight: 450; line-height: 1.95; overflow-wrap: anywhere; text-align: left; }
+.archive-row .archive-body :is(.message-content, .bubble) { width: 100%; max-width: 100%; padding: 0; border: 0; border-radius: 0; box-shadow: none; background: transparent; color: inherit; font: inherit; line-height: inherit; text-align: inherit; }
+.archive-row .archive-body :is(p, .message-story-paragraph) { margin: 0 0 1em; text-align: inherit; }
+.archive-row .archive-body :is(.message-content-segments, .roleplay-html-stack) { gap: 18px; }
+.archive-row .archive-heading { position: relative; flex: 0 0 auto; display: flex; align-items: center; width: 100%; min-width: 0; }
+.archive-row .archive-cover { position: relative; display: grid; place-items: center; width: 100%; height: 100%; overflow: hidden; }
+.archive-row .archive-cover img { display: block; width: 100%; height: 100%; object-fit: cover; }
+.archive-row .archive-portrait { position: relative; flex-shrink: 0; }
+.archive-row .archive-name { display: block; overflow-wrap: anywhere; font-weight: 500; }
+.archive-row .archive-heading-copy { min-width: 0; }
+.archive-row :is(.message-action-row, .msg-actions) { align-self: flex-start; padding: 0 14px; margin: 12px 0; }
+.archive-row .archive-body :is(.weijing-status-card, .weijing-scene-strip, .rp-status-card, details) { margin: 20px auto; max-width: 100%; padding: 16px; border: 1px solid #d9d8d0; border-radius: 16px; background: #f9f9f5; text-align: left; font-size: .92em; line-height: 1.8; }
+.archive-row .archive-body :is(.weijing-status-title, .weijing-czw-status-header, .rp-status-card > header) { font-family: Georgia, 'Times New Roman', 'Songti SC', serif; font-size: .8em; letter-spacing: .14em; }
+.archive-academy { margin: 100px auto 30px !important; padding: 0 18px 18px; color: #272a29; background: #fffff6; border: 1px solid #efeee1; border-radius: 2px; box-shadow: 0 12px 28px #33362f28; }
+.archive-academy::before { content: ''; position: absolute; height: 65px; left: -8px; right: -8px; top: -90px; background: url('./archive-castle.svg') center / contain no-repeat; pointer-events: none; }
+.archive-academy::after { content: ''; position: absolute; right: -8px; bottom: -20px; width: 52px; height: 42px; background: url('./archive-envelope.svg') center / contain no-repeat; transform: rotate(4deg); pointer-events: none; }
+.archive-academy .archive-heading { min-height: 88px; margin: 0 -18px 22px; width: calc(100% + 36px); padding: 10px 68px 10px 100px; border-bottom: 1px solid #b95c61; }
+.archive-academy .archive-heading::before { content: ''; position: absolute; top: -10px; left: 42%; width: 85px; height: 23px; transform: rotate(3deg); background: #eddaa480; box-shadow: 0 2px 3px #6c583c12; pointer-events: none; }
+.archive-academy .archive-portrait { position: absolute; left: 16px; top: -35px; width: 70px; height: 88px; padding: 5px 5px 16px; background: #fff; box-shadow: 0 5px 12px #443e3540; transform: rotate(-7deg); }
+.archive-academy .archive-cover { color: #735c4c; background: #e6e2d9; font: 26px Georgia, serif; }
+.archive-academy .archive-portrait::after { content: '99'; position: absolute; bottom: 1px; left: 0; right: 0; text-align: center; color: #65594f; font: italic 12px Georgia, serif; }
+.archive-academy .archive-name { color: #ac353d; font-family: 'Kaiti SC', STKaiti, KaiTi, 'Songti SC', serif; font-size: clamp(24px, 5vw, 33px); line-height: 1.2; }
+.archive-academy.user .archive-name { color: #28558a; }
+.archive-academy .archive-grade { position: absolute; right: 12px; top: 10px; display: grid; place-items: center; width: 48px; height: 48px; border: 2px solid #ba3e43; border-radius: 50%; color: #ba3e43; font: italic 30px/1 'Kaiti SC', Georgia, serif; transform: rotate(-12deg); }
+.archive-academy.user .archive-grade { color: #3d8b58; border-color: #3d8b58; }
+.archive-academy .archive-disc { display: none; }
+.archive-academy .archive-body :is(.message-quote, .chat-quote) { display: inline; color: #a14148; padding: 0 2px; border: 0; border-radius: 0; background: linear-gradient(transparent 65%, #fff17d 65%); box-decoration-break: clone; -webkit-box-decoration-break: clone; line-height: inherit; }
+.archive-academy .archive-body :is(.message-narration, .chat-narration, em) { color: #6d716b; font-style: normal; }
+.archive-academy .archive-body { padding-bottom: 10px; }
+.archive-vinyl { margin: 35px auto 30px !important; padding: 0; color: #315868; }
+.archive-vinyl .archive-heading { min-height: 164px; padding: 38px 12px 32px; gap: 20px; border-top: 1px solid #658694; border-bottom: 1px solid #658694; margin: 8px 0 24px; }
+.archive-vinyl .archive-kicker { position: absolute; top: -12px; left: 0; right: 0; display: flex; align-items: center; justify-content: space-between; gap: 10px; color: #557987; font-size: 8px; letter-spacing: .12em; }
+.archive-vinyl .archive-kicker b { padding: 4px 10px; background: #fff; font-size: 10px; letter-spacing: .22em; font-weight: 500; white-space: nowrap; }
+.archive-vinyl .archive-kicker > span { max-width: 27%; }
+.archive-vinyl .archive-portrait { width: 106px; height: 86px; margin: 0 4px; }
+.archive-vinyl .archive-cover { width: 80px; height: 86px; border: 1px solid #2d5363; padding: 3px; background: #e5edf0; box-shadow: -4px -4px 0 -3px #2d5363, 5px 5px 0 -4px #2d5363; color: #315868; font: 28px Georgia, serif; }
+.archive-vinyl .archive-disc { position: absolute; right: -4px; top: 2px; width: 82px; height: 82px; border-radius: 50%; border: 1px solid #5a7d88; background: repeating-radial-gradient(circle, transparent 0 3px, #60828c44 4px, transparent 5px), radial-gradient(circle, #bbd0d4 0 3%, #214956 4% 18%, #557d89 19% 23%, #153d4d 24% 65%, #2d5663 68% 70%); box-shadow: 2px 5px 10px #23465326; }
+.archive-vinyl .archive-heading-copy { flex: 1; border-left: 1px solid #7b9aa680; padding-left: 12px; }
+.archive-vinyl .archive-heading-copy small { display: block; color: #557987; font: 9px/1.4 -apple-system, sans-serif; letter-spacing: .13em; }
+.archive-vinyl .archive-name { margin: 6px 0; color: #315868; font-family: 'Songti SC', Georgia, serif; font-size: 24px; line-height: 1.2; }
+.archive-vinyl .archive-heading-copy em { display: block; color: #7a929d; font: italic 11px/1.4 Georgia, serif; }
+.archive-vinyl .archive-track { display: flex; align-items: center; gap: 8px; margin-top: 9px; font: 8px/1 Georgia, serif; letter-spacing: .1em; color: #557987; }
+.archive-vinyl .archive-track i { flex: 1; height: 1px; background: linear-gradient(90deg, #658694 0 58%, #c9d5d9 58%); }
+.archive-vinyl .archive-caption { position: absolute; bottom: -5px; left: 50%; transform: translateX(-50%); max-width: 95%; width: max-content; background: #fff; padding: 0 10px; color: #658694; font: 7px/1.5 -apple-system, sans-serif; letter-spacing: .19em; text-align: center; }
+.archive-vinyl .archive-body :is(.message-quote, .chat-quote) { display: inline; color: #b46b43; padding: 1px 5px; border: 0; border-radius: 10px; background: linear-gradient(100deg, #cfe4e9, #f6d6c7); box-decoration-break: clone; -webkit-box-decoration-break: clone; line-height: inherit; }
+.archive-vinyl .archive-body :is(.message-narration, .chat-narration, em) { color: #7b98a4; font-style: normal; }
+.archive-vinyl .archive-body :is(.weijing-status-card, .weijing-scene-strip, .rp-status-card, details) { background: #f7f9fb; color: #315868; border-color: #d7e0e4; }
+.theme-academy { --theme-accent: #ab4248; --theme-accent-strong: #9d343d; --theme-accent-end: #c28572; --theme-accent-soft: #f5ede0; --theme-accent-soft-strong: #eadfca; --theme-accent-text: #9d343d; --theme-accent-shadow: #6c493b20; --composer-dock-rgb: 250,250,246; }
+.theme-vinyl { --theme-accent: #416978; --theme-accent-strong: #315868; --theme-accent-end: #7597a4; --theme-accent-soft: #edf4f6; --theme-accent-soft-strong: #dde9ee; --theme-accent-text: #315868; --theme-accent-shadow: #31586820; --composer-dock-rgb: 250,252,253; }
+:is(.theme-academy, .theme-vinyl) .chat-page:not(.phone-chat) .composer,
+html:is([data-theme-key="academy"], [data-theme-key="vinyl"]) body:not(.rp-chat-active) .composer { background: rgba(255,255,252,.97); border-radius: 26px; border: 1px solid #b9c6c9; box-shadow: 0 7px 20px #253c4920; }
+:is(.theme-academy, .theme-vinyl) .chat-page:not(.phone-chat) .composer::after { content: none; }
+.theme-choice-grid button.academy i { background: linear-gradient(transparent 65%, #f4e57d 65%), #fffef5 !important; border: 1px solid #cfbca4; }
+.theme-choice-grid button.vinyl i { background: repeating-radial-gradient(circle, #183b49 0 3px, #4c7180 4px 5px) !important; border-radius: 50%; }
+@media (max-width: 380px) { .archive-vinyl .archive-heading { gap: 8px; padding-left: 0; padding-right: 0; } .archive-vinyl .archive-heading-copy { padding-left: 8px; } .archive-vinyl .archive-heading-copy small { font-size: 8px; letter-spacing: .05em; } }
