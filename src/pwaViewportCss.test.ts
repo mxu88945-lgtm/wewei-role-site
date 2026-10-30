@@ -50,3 +50,12 @@ describe('full-page composer entry', () => {
     expect(css).toContain('.theme-liquid .composer-expand { position: absolute;')
   })
 })
+
+describe('compact chat settings drawer', () => {
+  it('uses an 80% right drawer with independently scrollable members and settings', () => {
+    const css = readFileSync(new URL('./navigation-shell.css', import.meta.url), 'utf8')
+    expect(css).toMatch(/\.right-drawer\s*\{[^}]*width:\s*min\(80vw,\s*420px\)/)
+    expect(css).toMatch(/\.right-drawer-scroll\s*\{[^}]*overflow-y:\s*auto/)
+    expect(css).toMatch(/\.drawer-member-row\s*\{[^}]*overflow-x:\s*auto/)
+  })
+})
