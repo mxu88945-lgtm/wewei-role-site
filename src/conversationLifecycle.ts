@@ -141,6 +141,15 @@ export function removeConversationParticipant(source: Conversation, participantI
   }
 }
 
+/** Remove several members as one management action without ever emptying the conversation. */
+export function removeConversationParticipants(source: Conversation, participantIds: string[], singleMemberName = '角色'): Conversation {
+  const existingIds = source.kind === 'group' && source.participantIds?.length ? source.participantIds : [source.characterId]
+  const removalIds = [...new Set(participantIds)].filter((id) => existingIds.includes(id))
+  if (!removalIds.length || existingIds.length - removalIds.length < 1) return source
+
+  return removalIds.reduce((current, id) => removeConversationParticipant(current, id, singleMemberName) || current, source)
+}
+
 export function createFreshConversationFrom(source: Conversation, greeting: string, greetingCharacterId?: string): Conversation {
   const now = Date.now()
   const openingMessage: Message = { id: now, role: 'assistant', text: greeting }

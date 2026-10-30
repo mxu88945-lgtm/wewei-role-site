@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { addConversationParticipant, createFreshConversationFrom, removeConversationParticipant, restartConversationInPlace, type Conversation } from './conversationLifecycle'
+import { addConversationParticipant, createFreshConversationFrom, removeConversationParticipant, removeConversationParticipants, restartConversationInPlace, type Conversation } from './conversationLifecycle'
 
 describe('new conversation lifecycle', () => {
   it('creates a clean single-role conversation without changing the source history', () => {
@@ -110,6 +110,40 @@ describe('new conversation lifecycle', () => {
     const regrouped = addConversationParticipant(single!, 'new-member', { apiId: 'api-default', modelName: 'model-default' })
     expect(regrouped.participantApiIds).toEqual({ yu: 'api-yu', 'new-member': 'api-default' })
     expect(regrouped.participantModelNames).toEqual({ yu: 'gemini-yu', 'new-member': 'model-default' })
+  })
+
+  it('removes a managed selection atomically while preserving one member and all history', () => {
+    const source: Conversation = {
+      id: 'managed-group', kind: 'group', characterId: 'yu', title: '三人剧场',
+      participantIds: ['yu', 'pei', 'director'],
+      participantApiIds: { yu: 'api-yu', pei: 'api-pei', director: 'api-director' },
+      participantModelNames: { yu: 'gemini-yu', pei: 'claude-pei', director: 'gemini-director' },
+      messages: [{ id: 1, role: 'assistant', text: '保留的旧剧情', characterId: 'pei' }],
+      createdAt: 1, updatedAt: 2, directorCharacterId: 'director', directorConfig: { enabled: true } as NonNullable<Conversation['directorConfig']>,
+      theaterWorldBackground: '共演背景', contextSummary: '共演摘要',
+    }
+
+    const managed = removeConversationParticipants(source, ['pei', 'director'], '虞山行')
+
+    expect(managed.kind).toBe('single')
+    expect(managed.characterId).toBe('yu')
+    expect(managed.participantIds).toBeUndefined()
+    expect(managed.participantApiIds).toEqual({ yu: 'api-yu' })
+    expect(managed.participantModelNames).toEqual({ yu: 'gemini-yu' })
+    expect(managed.directorCharacterId).toBeUndefined()
+    expect(managed.directorConfig).toBeUndefined()
+    expect(managed.theaterWorldBackground).toBeUndefined()
+    expect(managed.messages).toEqual(source.messages)
+    expect(managed.contextSummary).toBe('共演摘要')
+  })
+
+  it('refuses a managed selection that would empty the conversation', () => {
+    const source: Conversation = {
+      id: 'keep-one', kind: 'group', characterId: 'yu', title: '双人剧场', participantIds: ['yu', 'pei'],
+      messages: [], createdAt: 1, updatedAt: 2,
+    }
+
+    expect(removeConversationParticipants(source, ['yu', 'pei'])).toBe(source)
   })
 
   it('restarts the current chat at its opening without changing its identity or settings', () => {

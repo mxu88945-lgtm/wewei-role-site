@@ -83,7 +83,7 @@ import StoryScriptsPage from './StoryScriptsPage'
 import WallpaperSettings, { WallpaperLayers } from './WallpaperSettings'
 import { migrateLegacyWallpaper, migrateThemeWallpapers, themeWallpaperKey, normalizeWallpaper, normalizeWallpapers, readWallpaperImage, sampleImageTopColor, WALLPAPERS_KEY, WallpaperUploadTickets, wallpaperImage, wallpaperScopeKey, wallpaperTopColor, type ChatWallpaper, type ChatWallpapers } from './chatWallpaper'
 import { buildStoryVariablesPrompt, runStoryScript } from './storyScripts'
-import { addConversationParticipant, createFreshConversationFrom, removeConversationParticipant, restartConversationInPlace, type Conversation, type ConversationContextSnapshot, type Message } from './conversationLifecycle'
+import { addConversationParticipant, createFreshConversationFrom, removeConversationParticipant, removeConversationParticipants, restartConversationInPlace, type Conversation, type ConversationContextSnapshot, type Message } from './conversationLifecycle'
 import { createConversationTrashEntry, restoreConversationTrashEntry, type ConversationTrashEntry } from './conversationTrash'
 import { appendReplyAlternative, captureConversationContext, contextAtMessage, forkConversationAtMessage, projectContextFromSnapshot, replyAlternatives, restoreConversationContext, selectReplyAlternative, storeContextSnapshot } from './conversationBranches'
 import { memoriesForConversationCharacter, mergeConversationCharacterMemories, migrateCardMemoriesToConversations, setConversationCharacterMemories } from './conversationCharacterMemory'
@@ -535,6 +535,8 @@ function App() {
   const [replyHelperApiId, setReplyHelperApiId] = useState(() => read('weijing.replyHelperApiId', ''))
   const [replyHelperModelName, setReplyHelperModelName] = useState(() => read('weijing.replyHelperModelName', ''))
   const [memberPickerOpen, setMemberPickerOpen] = useState(false)
+  const [memberManagementMode, setMemberManagementMode] = useState(false)
+  const [managedMemberIds, setManagedMemberIds] = useState<string[]>([])
   const [characterIntroExpanded, setCharacterIntroExpanded] = useState(false)
   const [characters, setCharacters] = useState<Character[]>(() => read<Partial<Character>[]>('weijing.characters', [demoCharacter]).map(normalizeStoredCharacter))
   const [activeId, setActiveId] = useState(() => read('weijing.activeCharacter', demoCharacter.id))
@@ -546,6 +548,10 @@ function App() {
   const pendingMessageJumpRef = useRef<{ conversationId: string; messageId: number } | null>(null)
   const [storyProjects, setStoryProjects] = useState<StoryProject[]>(() => normalizeStoryProjects(read('weijing.storyProjects', [])))
   const [activeConversationId, setActiveConversationId] = useState(() => read('weijing.activeConversation', ''))
+  useEffect(() => {
+    if (drawer !== 'right') setMemberManagementMode(false)
+    setManagedMemberIds([])
+  }, [drawer, activeConversationId])
   const [draft, setDraft] = useState('')
   // 小手机「引用回复」：输入框上方的引用条，只在小手机群聊/私聊里出现。
   const [quoteDraft, setQuoteDraft] = useState<(MessageQuote & { conversationId: string }) | null>(null)
@@ -1713,6 +1719,33 @@ function App() {
     const remainingName = characters.find((character) => character.id === remaining[0])?.name || '角色'
     setConversations((current) => current.map((item) => item.id === activeConversation.id ? removeConversationParticipant(item, characterId, remainingName) || item : item))
     setActiveId(remaining[0])
+  }
+  const closeMemberManagement = () => {
+    setMemberManagementMode(false)
+    setManagedMemberIds([])
+  }
+  const toggleManagedMember = (characterId: string) => {
+    const memberIds = conversationMemberIds()
+    setManagedMemberIds((current) => {
+      if (current.includes(characterId)) return current.filter((id) => id !== characterId)
+      if (current.length >= memberIds.length - 1) {
+        window.alert('当前对话至少要保留一位成员。')
+        return current
+      }
+      return [...current, characterId]
+    })
+  }
+  const removeManagedMembers = () => {
+    if (!activeConversation || !managedMemberIds.length) return
+    const remaining = conversationMemberIds().filter((id) => !managedMemberIds.includes(id))
+    if (!remaining.length) return
+    if (!window.confirm(`从当前对话移出已选的 ${managedMemberIds.length} 位成员？\n\n角色卡和已有消息都会保留。`)) return
+    const remainingName = characters.find((character) => character.id === remaining[0])?.name || '角色'
+    const conversationId = activeConversation.id
+    const selected = [...managedMemberIds]
+    setConversations((current) => current.map((item) => item.id === conversationId ? removeConversationParticipants(item, selected, remainingName) : item))
+    setActiveId(remaining[0])
+    closeMemberManagement()
   }
   const updateConversationMemberApi = (characterId: string, channelId: string) => {
     if (!activeConversation) return
@@ -4461,11 +4494,11 @@ function App() {
       </aside>}
 
       {drawer === 'right' && <aside className="app-drawer right-drawer" aria-label="聊天设置">
-        <header className="drawer-character compact"><div><small>{activeConversation?.kind === 'group' ? '群聊设置' : '聊天设置'}</small><h2>{(activeConversation ? shownTitle(activeConversation) : '') || activeCharacter.name}</h2></div><button onClick={() => setDrawer(null)}>×</button></header>
+        <header className="drawer-character compact"><div><small>{activeConversation?.kind === 'group' ? '群聊设置' : '聊天设置'}</small><h2>{(activeConversation ? shownTitle(activeConversation) : '') || activeCharacter.name}</h2></div><button onClick={() => { closeMemberManagement(); setDrawer(null) }}>×</button></header>
         <div className="right-drawer-scroll">
           {activeConversation?.fork && <section className="drawer-compact-group"><div className="drawer-section-title"><strong>独立剧情分线</strong></div><p className="branch-context-note">只沿这条分线的正文与记忆继续，不同步原线后来的事实。项目场记沿用分叉时快照；另行绑定剧本项目后使用新项目。</p><button disabled={isGenerating || !conversations.some((item) => item.id === activeConversation.fork?.parentId)} onClick={returnToParentConversation}><span>{conversations.some((item) => item.id === activeConversation.fork?.parentId) ? '返回原剧情（原线已保留）' : '原剧情已删除，分线仍独立保留'}</span><i>↩</i></button></section>}
           <section className="conversation-stats-card" aria-label="本次共演统计"><div className="conversation-stats-heading"><strong>本次共演</strong><small>你每发送一次计一轮</small></div><div className="conversation-stats-grid"><div><strong>{conversationStats.rounds}</strong><span>对话轮数</span></div><div><strong>{conversationStats.replies}</strong><span>角色回复</span></div><div><strong>{conversationStats.total}</strong><span>消息总数</span></div></div></section>
-          <section className="drawer-members-section"><div className="drawer-section-title"><strong>成员（{conversationMemberIds().length}）</strong><button onClick={() => { setDrawer(null); setMemberPickerOpen(true) }}>＋ 添加 / 配置 API</button></div><div className="drawer-member-row">{conversationMemberIds().map((id) => { const member = characters.find((item) => item.id === id); if (!member) return null; return <div className="drawer-member-chip" key={id}>{member.avatar ? <img src={member.avatar} alt="" /> : <span>{member.name.slice(-1)}</span>}<small>{member.name}</small>{conversationMemberIds().length > 1 && <button aria-label={`移除${member.name}`} onClick={() => removeConversationMember(id)}>×</button>}</div> })}</div></section>
+          <section className={`drawer-members-section${memberManagementMode ? ' managing' : ''}`}><div className="drawer-section-title"><strong>{memberManagementMode ? `选择成员（已选 ${managedMemberIds.length}）` : `成员（${conversationMemberIds().length}）`}</strong><div className="drawer-member-actions">{!memberManagementMode && <button onClick={() => { closeMemberManagement(); setDrawer(null); setMemberPickerOpen(true) }}>＋ 添加 / 配置 API</button>}<button className={memberManagementMode ? 'active' : ''} onClick={() => memberManagementMode ? closeMemberManagement() : setMemberManagementMode(true)}>{memberManagementMode ? '退出' : '管理'}</button></div></div><div className="drawer-member-row">{conversationMemberIds().map((id) => { const member = characters.find((item) => item.id === id); if (!member) return null; const selected = managedMemberIds.includes(id); return <button type="button" className={`drawer-member-chip${selected ? ' selected' : ''}`} key={id} onClick={() => { if (memberManagementMode) toggleManagedMember(id) }} aria-pressed={memberManagementMode ? selected : undefined}>{member.avatar ? <img src={member.avatar} alt="" /> : <span>{member.name.slice(-1)}</span>}<small>{member.name}</small>{memberManagementMode && <i className="drawer-member-check" aria-hidden="true">{selected ? '✓' : ''}</i>}</button> })}</div>{memberManagementMode && <div className="drawer-member-management"><span>已选 {managedMemberIds.length}</span><button className="danger" disabled={!managedMemberIds.length} onClick={removeManagedMembers}>删除所选</button><button onClick={closeMemberManagement}>退出</button></div>}</section>
           {activeConversation?.phone && isPersonaStoreHydrated() && (() => {
             const personas = getPersonaState().personas.filter((p) => p.enabled)
             if (!personas.length) return null
@@ -4486,7 +4519,7 @@ function App() {
               const next = pinned.includes(id) ? pinned.filter((item) => item !== id) : [...pinned, id].slice(-2)
               setConversations((current) => current.map((item) => item.id === activeConversation.id ? { ...item, backstageGroupIds: next.length ? next : undefined } : item))
             }
-            return <section className="drawer-compact-group backstage-groups"><div className="drawer-section-title"><strong>戏外小手机记忆</strong></div><p className="branch-context-note">{pinned.length ? `已指定 ${pinned.length}/2 个群，私聊照常带上。` : '未指定：自动带最近活跃的两个群和私聊。点选最多两个群来固定。'}</p>{groups.map((group) => <button key={group.id} aria-pressed={pinned.includes(group.id)} onClick={() => toggle(group.id)}><span>{shownTitle(group)}</span><i>{pinned.includes(group.id) ? '✓' : '＋'}</i></button>)}</section>
+            return <section className="drawer-compact-group backstage-groups"><div className="drawer-section-title"><strong>戏外小手机记忆</strong></div>{groups.map((group) => <button key={group.id} aria-pressed={pinned.includes(group.id)} onClick={() => toggle(group.id)}><span>{shownTitle(group)}</span><i>{pinned.includes(group.id) ? '✓' : '＋'}</i></button>)}</section>
           })()}
           {activeConversation?.phone && <section className="drawer-compact-group"><div className="drawer-section-title"><strong>小手机</strong></div><button onClick={() => { setDrawer(null); openPhonePage(activeConversation) }}><span>成员与绑定的过往对话</span><i>›</i></button></section>}
           <section className="drawer-compact-group"><div className="drawer-section-title"><strong>聊天设置</strong></div>{activeConversation?.directorCharacterId ? <button onClick={() => { setDirectorEditorTarget('conversation'); navigate('director-template', 'right') }}><span>共演导演资料 · 已启用</span><i>›</i></button> : <button onClick={openConversationDirectorCreator}><span>添加共演导演 · 保留当前剧情</span><i>＋</i></button>}{activeConversation?.directorCharacterId && activeConversation.directorConfig && <button disabled={!persistenceReady} onClick={() => saveDirectorToLibrary()}><span>保存导演卡到角色库</span><i>＋</i></button>}{[['剧情搜索与书签', 'chat-search'], ['模型发送内容', 'request-preview'], [`临时剧情 · ${activeConversation?.temporaryPlot?.text.trim() ? '待使用' : '未填写'}`, 'temporary-plot'], ['剧情脚本与变量', 'story-scripts'], ['情景与角色资料', 'card-data'], [`本剧场世界观背景 · ${activeConversation?.theaterWorldBackground?.trim() ? '已填写' : '未填写'}`, 'theater-world'], ['用户身份', 'identity'], ['主题与背景', 'appearance'], ['字体与文字颜色', 'font'], ['显示与回复', 'display-reply']].map(([label, target]) => <button key={label} onClick={() => target === 'request-preview' ? openRequestPreview() : navigate(target as Page, 'right')}><span>{label}</span><i>›</i></button>)}</section>
@@ -4609,7 +4642,7 @@ function UpdateCard() {
     }
   }
 
-  return <section className="update-card"><strong>应用更新</strong><p>主动检查并拉取最新网页版本，不会删除角色、聊天记录或本地设置。</p><small>当前版本：v162 · 2026.10.30 调整设置页顺序，降低回收站误触</small><button onClick={refresh} disabled={state === 'checking'}>{state === 'checking' ? '正在检查更新…' : state === 'error' ? '更新失败，点我重试' : '强制刷新到最新版'}</button></section>
+  return <section className="update-card"><strong>应用更新</strong><p>主动检查并拉取最新网页版本，不会删除角色、聊天记录或本地设置。</p><small>当前版本：v163 · 2026.10.30 共演成员改为勾选管理，并精简小手机记忆说明</small><button onClick={refresh} disabled={state === 'checking'}>{state === 'checking' ? '正在检查更新…' : state === 'error' ? '更新失败，点我重试' : '强制刷新到最新版'}</button></section>
 }
 
 function PersonaPage({ identities, selectedId, isBound, onSelect, onAdd, onDelete, onUpdate, onBack }: { identities: UserIdentity[]; selectedId: string; isBound: boolean; onSelect: (id: string) => void; onAdd: () => void; onDelete: (id: string) => void; onUpdate: (patch: Partial<UserIdentity>) => void; onBack: () => void }) {
