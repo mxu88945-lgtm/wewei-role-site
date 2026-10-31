@@ -56,3 +56,28 @@ html:is([data-theme-key="academy"], [data-theme-key="vinyl"]) body:not(.rp-chat-
 .theme-choice-grid button.academy i { background: linear-gradient(transparent 65%, #f4e57d 65%), #fffef5 !important; border: 1px solid #cfbca4; }
 .theme-choice-grid button.vinyl i { background: repeating-radial-gradient(circle, #183b49 0 3px, #4c7180 4px 5px) !important; border-radius: 50%; }
 @media (max-width: 380px) { .archive-vinyl .archive-heading { gap: 8px; padding-left: 0; padding-right: 0; } .archive-vinyl .archive-heading-copy { padding-left: 8px; } .archive-vinyl .archive-heading-copy small { font-size: 8px; letter-spacing: .05em; } }
+
+/* 白笺通讯: message-local identity cards, with user text anchored on the right. */
+.archive-row.archive-mobile { margin: 24px auto 28px !important; padding: 20px 22px 22px !important; border: 1px solid #ededf0 !important; border-radius: 26px !important; background: #fff !important; color: #242429 !important; box-shadow: 0 10px 28px #2929360d !important; gap: 0 !important; }
+.archive-mobile .archive-heading { position: relative; display: flex; flex-direction: row; align-items: center; gap: 20px; min-height: 138px; padding: 32px 0 24px; margin: 0 0 22px; width: 100%; border-bottom: 1px solid #efeff2; }
+.archive-mobile .mobile-status { position: absolute; top: 0; left: 0; right: 0; display: flex; justify-content: space-between; color: #242429; font: 600 11px/1.4 -apple-system,sans-serif; letter-spacing: .1em; }
+.archive-mobile .mobile-status span:last-child { font-size: 18px; line-height: 1; letter-spacing: .12em; }
+.archive-mobile .archive-portrait { position: relative; width: 64px; height: 64px; flex: 0 0 64px; margin: 0; padding: 0; border-radius: 50%; overflow: hidden; background: #f4f4f6; }
+.archive-mobile .archive-cover { border-radius: 50%; color: #7e7e87; font-size: 26px; }
+.archive-mobile .archive-disc { display: none; }
+.archive-mobile .archive-name { color: #19191d; font: 650 23px/1.4 -apple-system,'PingFang SC',sans-serif; }
+.archive-mobile .archive-heading-copy small { display: block; margin-top: 4px; color: #93939b; font-size: 12px; letter-spacing: .06em; }
+.archive-mobile .archive-body { line-height: 1.95; text-align: left; }
+.archive-mobile .archive-body :is(.message-quote,.chat-quote) {display: table !important;width: fit-content !important;max-width: 100% !important;margin: 10px 0 !important;padding: 8px 13px !important;color: #34343b !important;background: linear-gradient(120deg,#f2f2f5,#e5e5ea) !important;border: 1px solid #dddde3 !important;border-radius: 17px !important;box-shadow: 0 3px 10px #29293606 !important;line-height: 1.7 !important;overflow-wrap: anywhere !important;text-align: left !important;box-decoration-break: clone !important;-webkit-box-decoration-break: clone !important; }
+.archive-mobile.user .archive-heading { flex-direction: row-reverse; text-align: right; }
+.archive-mobile.user .archive-body { text-align: right !important; }
+.archive-mobile.user .archive-body :is(p,.message-story-paragraph,.rp-story-text,.bubble) { width: fit-content; max-width: 100%; margin-left: auto !important; margin-right: 0 !important; text-align: left !important; }
+.archive-mobile.user .archive-body :is(.message-quote,.chat-quote) { margin-left: auto; margin-right: 0; }
+.archive-mobile .archive-body :is(.weijing-status-card,.weijing-scene-strip,.rp-status-card,details) { background: #fafafc; border: 1px solid #e8e8ed; border-radius: 18px; box-shadow: 0 6px 18px #30303d06; color: #45454d; text-align: left; }
+.theme-mobile { --theme-accent: #777781; --theme-accent-strong: #55555f; --theme-accent-end: #9999a3; --theme-accent-soft: #f1f1f4; --theme-accent-soft-strong: #e7e7ec; --theme-accent-text: #55555f; --theme-accent-shadow: #30303d12; --composer-dock-rgb: 250,250,252; }
+.theme-mobile .chat-page:not(.phone-chat) .composer { background: #ffffffed; border: 1px solid #eeeef2; border-radius: 24px; box-shadow: 0 5px 18px #30303d08; }
+.theme-choice-grid button.mobile i { background: linear-gradient(135deg,#fff 50%,#e5e5eb 50%) !important; border: 1px solid #e1e1e7; border-radius: 9px; }
+@media(max-width:380px) { .archive-row.archive-mobile { padding: 16px 16px 20px !important; border-radius: 23px !important; } .archive-mobile .archive-heading { gap: 14px; } .archive-mobile .archive-name { font-size: 21px; } .archive-mobile .archive-portrait { width: 56px; height: 56px; flex-basis: 56px; } }
+
+.archive-mobile.user .archive-body :is(.message-plain-text,.bubble) { display: block; width: fit-content; max-width: 100%; margin-left: auto !important; margin-right: 0 !important; padding: 10px 14px !important; border: 1px solid #dddde3 !important; border-radius: 17px !important; background: linear-gradient(120deg,#f2f2f5,#e5e5ea) !important; text-align: left !important; }
+.archive-mobile.user .archive-body .message-quote { display: inline; margin: 0; padding: 0; border: 0; border-radius: 0; background: transparent; box-shadow: none; }

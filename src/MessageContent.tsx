@@ -205,7 +205,7 @@ export function richRenderFallback(value: string) {
 
 type SceneHooks = { greetings?: string[]; onSelectGreeting?: (index: number, text: string) => void }
 
-type MessageTheme = boolean | 'scrapbook' | 'academy' | 'vinyl'
+type MessageTheme = boolean | 'scrapbook' | 'academy' | 'vinyl' | 'mobile'
 function SandboxHtml({ html, raw = false, paper = false, greetings, onSelectGreeting }: { html: string; raw?: boolean; paper?: MessageTheme } & SceneHooks) {
   const frameRef = useRef<HTMLIFrameElement>(null)
   const tokenRef = useRef(`render-${crypto.randomUUID()}`)
@@ -238,6 +238,11 @@ function SandboxHtml({ html, raw = false, paper = false, greetings, onSelectGree
       const vinyl = paper === 'vinyl'
       archiveStyle.textContent = `html,body{background:transparent!important;color:${vinyl ? '#315868' : '#272a29'}!important;font-family:-apple-system,'PingFang SC',sans-serif;line-height:1.95;text-align:left}p,.message-story-paragraph{text-align:left!important;font-family:inherit!important;line-height:1.95!important}section,[class*="status-card"],[class*="scene-card"]{background:${vinyl ? '#f7f9fb' : '#f9f9f5'}!important;color:inherit!important;border-color:#d9dedf!important;box-shadow:none!important}header,[class*="title"]{font-family:Georgia,'Songti SC',serif;letter-spacing:.12em}.message-quote{display:inline!important;line-height:inherit!important;color:${vinyl ? '#b46b43' : '#a14148'}!important;background:${vinyl ? 'linear-gradient(100deg,#cfe4e9,#f6d6c7)' : 'linear-gradient(transparent 65%,#fff17d 65%)'}!important;box-decoration-break:clone;-webkit-box-decoration-break:clone}`
       document.head.append(archiveStyle)
+    }
+    if (paper === 'mobile' && !raw) {
+      const style = document.createElement('style')
+      style.textContent = `html,body{background:transparent!important;color:#242429!important;font-family:-apple-system,'PingFang SC',sans-serif;line-height:1.95;text-align:left}.message-quote{display:table!important;width:fit-content;max-width:100%;margin:10px 0;padding:8px 13px;border:1px solid #dddde3;border-radius:17px;background:linear-gradient(120deg,#f2f2f5,#e5e5ea);color:#34343b;line-height:1.7;text-align:left}section,[class*=status-card],[class*=scene-card]{background:#fafafc!important;color:#45454d!important;border-color:#e8e8ed!important;border-radius:18px!important;box-shadow:none!important}`
+      document.head.append(style)
     }
     if (paper === 'scrapbook' && !raw) {
       const scrapbookStyle = document.createElement('style')
