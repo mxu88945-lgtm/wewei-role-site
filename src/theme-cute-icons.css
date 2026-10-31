@@ -27,20 +27,21 @@
 .theme-blueberry .home-entrances > button:nth-child(6) .home-icon::before { content: '☁️'; }
 .theme-blueberry .home-entrances > button:nth-child(5) .home-icon::before { content: '📱'; }
 
-/* Manuscript themes: a full eight-icon set, keyed by meaning rather than row order. */
+/* Card themes: a full eight-icon set, keyed by meaning rather than row order. */
 .theme-paper { --home-sticker-fill: #edf5fb; --home-sticker-edge: #c0d4e2; }
 .theme-scrapbook { --home-sticker-fill: #fff0e9; --home-sticker-edge: #e3b9b0; }
 .theme-academy { --home-sticker-fill: #fcf5e5; --home-sticker-edge: #ddc99f; }
 .theme-vinyl { --home-sticker-fill: #eaf4f6; --home-sticker-edge: #b6d0d9; }
-:is(.theme-paper, .theme-scrapbook, .theme-academy, .theme-vinyl) .home-entrances .home-icon > svg { display: none; }
-:is(.theme-paper, .theme-scrapbook, .theme-academy, .theme-vinyl) .home-entrances .home-icon {
+.theme-mobile { --home-sticker-fill: #f0f0f6; --home-sticker-edge: #d6d6e1; }
+:is(.theme-paper, .theme-scrapbook, .theme-academy, .theme-vinyl, .theme-mobile) .home-entrances .home-icon > svg { display: none; }
+:is(.theme-paper, .theme-scrapbook, .theme-academy, .theme-vinyl, .theme-mobile) .home-entrances .home-icon {
   font-size: 0;
   border: 2px solid #fff;
   border-radius: 23px;
   background: radial-gradient(circle at 28% 22%, #fff 0 17%, transparent 18%), linear-gradient(145deg, #fff, var(--home-sticker-fill) 70%);
   box-shadow: 0 4px 0 var(--home-sticker-edge), 0 9px 18px rgba(61,53,54,.07), inset 0 -2px 4px rgba(255,255,255,.7);
 }
-:is(.theme-paper, .theme-scrapbook, .theme-academy, .theme-vinyl) .home-entrances .home-icon::before {
+:is(.theme-paper, .theme-scrapbook, .theme-academy, .theme-vinyl, .theme-mobile) .home-entrances .home-icon::before {
   content: var(--home-sticker, '✨');
   font-family: 'Apple Color Emoji', 'Segoe UI Emoji', 'Noto Color Emoji', sans-serif;
   font-size: 31px;
@@ -80,6 +81,14 @@
 .theme-vinyl [data-home-icon="phone"] { --home-sticker: '📻'; }
 .theme-vinyl [data-home-icon="import"] { --home-sticker: '🎼'; }
 .theme-vinyl [data-home-icon="settings"] { --home-sticker: '🎛️'; }
+.theme-mobile [data-home-icon="chat"] { --home-sticker: '💬'; }
+.theme-mobile [data-home-icon="persona"] { --home-sticker: '🪞'; }
+.theme-mobile [data-home-icon="story"] { --home-sticker: '🎬'; }
+.theme-mobile [data-home-icon="characters"] { --home-sticker: '🧸'; }
+.theme-mobile [data-home-icon="group"] { --home-sticker: '🫧'; }
+.theme-mobile [data-home-icon="phone"] { --home-sticker: '📱'; }
+.theme-mobile [data-home-icon="import"] { --home-sticker: '💌'; }
+.theme-mobile [data-home-icon="settings"] { --home-sticker: '✨'; }
 
 /* Fill the two formerly blank shortcuts in the existing cute sets too. */
 :is(.theme-pudding, .theme-strawberry, .theme-blueberry) .home-entrances [data-home-icon="import"]::before { content: '💌'; font-size: 32px; }

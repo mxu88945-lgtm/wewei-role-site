@@ -59,3 +59,13 @@ describe('compact chat settings drawer', () => {
     expect(css).toMatch(/\.drawer-member-row\s*\{[^}]*overflow-x:\s*auto/)
   })
 })
+
+describe('白笺通讯首页图标', () => {
+  it('用八枚专属贴纸替换默认线框图标', () => {
+    const css = readFileSync(new URL('./theme-cute-icons.css', import.meta.url), 'utf8')
+    expect(css).toContain('.theme-mobile) .home-entrances .home-icon > svg { display: none; }')
+    for (const [kind, sticker] of Object.entries({ chat: '💬', persona: '🪞', story: '🎬', characters: '🧸', group: '🫧', phone: '📱', import: '💌', settings: '✨' })) {
+      expect(css).toContain(`.theme-mobile [data-home-icon="${kind}"] { --home-sticker: '${sticker}'; }`)
+    }
+  })
+})

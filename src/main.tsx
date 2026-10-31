@@ -20,7 +20,7 @@ import './theme-archives.css'
 import './memoryApiEnhancements'
 
 const APP_SCOPE = '/wewei-role-site/'
-const SERVICE_WORKER_RELEASE = '2026-10-31-mobile-card-v168'
+const SERVICE_WORKER_RELEASE = '2026-10-31-mobile-icons-v169'
 
 if ('serviceWorker' in navigator) {
   let reloadingForUpdate = false
