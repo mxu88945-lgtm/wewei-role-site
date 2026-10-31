@@ -50,24 +50,28 @@ function hasExecutableScript(value: string) {
 }
 
 function renderInlineMarkdown(value: string) {
-  return value
-    .replace(/(“[^”\n]+”|「[^」\n]+」|『[^』\n]+』)/g, '<span class="message-quote">$1</span>')
-    .replace(/```[ \t]*\n?([\s\S]*?)```/g, '<div class="message-code-block">$1</div>')
-    .replace(/`([^`\n]+)`/g, '<span class="message-inline-code">$1</span>')
+  const code: string[] = []
+  const protectedValue = value.replace(/```[ \t]*\n?([\s\S]*?)```|`([^`\n]+)`/g, (_match, block: string | undefined, inline: string | undefined) => {
+    const index = code.push(block !== undefined ? `<div class="message-code-block">${block}</div>` : `<span class="message-inline-code">${inline}</span>`) - 1
+    return `\uE000CODE_${index}\uE001`
+  })
+  return protectedValue
+    .replace(/(“[^”\n]+”|「[^」\n]+」|『[^』\n]+』|"[^"\n]+"|＂[^＂\n]+＂)/g, '<span class="message-quote">$1</span>')
     .replace(/\*\*([^*\n]+)\*\*/g, '<strong>$1</strong>')
     .replace(/__([^_\n]+)__/g, '<strong>$1</strong>')
     .replace(/(^|[^*])\*([^*\n]+)\*/g, '$1<em>$2</em>')
     .replace(/(^|[^_])_([^_\n]+)_/g, '$1<em>$2</em>')
     .replace(/~~([^~\n]+)~~/g, '<del>$1</del>')
+    .replace(/\uE000CODE_(\d+)\uE001/g, (_match, index: string) => code[Number(index)] || '')
 }
 
 function styledPlainText(value: string) {
-  const pattern = /(\*[^*\n]+\*|（[^）\n]+）|\([^\n)]+\)|“[^”\n]+”|「[^」\n]+」|『[^』\n]+』)/g
+  const pattern = /(`[^`\n]+`|\*[^*\n]+\*|（[^）\n]+）|\([^\n)]+\)|“[^”\n]+”|「[^」\n]+」|『[^』\n]+』|"[^"\n]+"|＂[^＂\n]+＂)/g
   const parts = value.split(pattern)
   return parts.map((part, index) => {
     if (/^\*[^*\n]+\*$/.test(part)) return <span className="message-narration" key={index}>{part.slice(1, -1)}</span>
     if (/^(?:（[^）\n]+）|\([^\n)]+\))$/.test(part)) return <span className="message-narration" key={index}>{part}</span>
-    if (/^(?:“[^”\n]+”|「[^」\n]+」|『[^』\n]+』)$/.test(part)) return <span className="message-quote" key={index}>{part}</span>
+    if (/^(?:“[^”\n]+”|「[^」\n]+」|『[^』\n]+』|"[^"\n]+"|＂[^＂\n]+＂)$/.test(part)) return <span className="message-quote" key={index}>{part}</span>
     return part
   })
 }
@@ -83,7 +87,12 @@ export function isPendingAssistantText(value: string) {
 
 function segmentLongChineseParagraph(value: string) {
   if (value.length < 100) return [value]
-  const sentences = value.match(SENTENCE_RE)?.map((sentence) => sentence.trim()).filter(Boolean) || [value]
+  // Keep a long utterance intact so visual paragraphing cannot separate its
+  // opening and closing quotes before dialogue styling runs.
+  const quotes: string[] = []
+  const protectedValue = value.replace(/“[^”\n]+”|「[^」\n]+」|『[^』\n]+』|"[^"\n]+"|＂[^＂\n]+＂/g, (quote) => `\uE000QUOTE_${quotes.push(quote) - 1}\uE001`)
+  const sentences = protectedValue.match(SENTENCE_RE)?.map((sentence) => sentence.trim()
+    .replace(/\uE000QUOTE_(\d+)\uE001/g, (_match, index: string) => quotes[Number(index)] || '')).filter(Boolean) || [value]
   if (sentences.length < 2) return [value]
 
   const paragraphs: string[] = []
@@ -94,7 +103,7 @@ function segmentLongChineseParagraph(value: string) {
   }
 
   for (const sentence of sentences) {
-    const standaloneDialogue = /^[“「『].*[”」』]$/.test(sentence)
+    const standaloneDialogue = /^(?:“[^”]+”|「[^」]+」|『[^』]+』|"[^"]+"|＂[^＂]+＂)$/.test(sentence)
     if (standaloneDialogue) {
       flush()
       paragraphs.push(sentence)

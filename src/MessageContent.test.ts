@@ -1,7 +1,45 @@
 import { describe, expect, it } from 'vitest'
+import { createElement } from 'react'
+import { renderToStaticMarkup } from 'react-dom/server'
+import MessageContent from './MessageContent'
+import { normalizeStoredCharacter } from './characterCard'
 import { isFullHtmlDocument, isPendingAssistantText, normalizeMixedMarkup, plainTextParagraphs, richRenderFallback, userTextParagraphs } from './MessageContent'
 
 describe('character-card mixed markup', () => {
+  it('styles straight Claude quotes in saved and streaming plain messages', () => {
+    const text = '"不是装。"\n\n陈述安说：\n\n"继续盯着，她一离开，立即通知我。"'
+    const character = normalizeStoredCharacter({ id: 'quote-test', name: '测试角色' })
+    for (const streaming of [false, true]) {
+      const html = renderToStaticMarkup(createElement(MessageContent, { text, role: 'assistant', character, userName: '用户', noStatus: true, streaming }))
+      expect(html.match(/class="message-quote"/g)).toHaveLength(2)
+      expect(html).toContain('陈述安说：')
+    }
+  })
+
+  it('supports straight, curved, corner and fullwidth double quotes in mixed HTML', () => {
+    const result = normalizeMixedMarkup('<div title="说明">"不是装。" “弯引号。”「角引号。」『双角引号。』＂全角引号。＂</div>')
+    expect(result.match(/class="message-quote"/g)).toHaveLength(5)
+    expect(result).toContain('<div title="说明">')
+  })
+
+  it('keeps long quoted dialogue intact before styling', () => {
+    const text = '"' + '这句话还有后半段。'.repeat(20) + '"'
+    expect(plainTextParagraphs(text)).toEqual([text])
+    const character = normalizeStoredCharacter({ id: 'quote-test', name: '测试角色' })
+    const html = renderToStaticMarkup(createElement(MessageContent, { text, role: 'assistant', character, userName: '用户', noStatus: true }))
+    expect(html.match(/class="message-quote"/g)).toHaveLength(1)
+    expect(normalizeMixedMarkup('<div>' + text + '</div>')).toContain('<span class="message-quote">' + text + '</span>')
+  })
+
+  it('keeps code quotes and incomplete dialogue out of quote styling', () => {
+    const result = normalizeMixedMarkup('<div>`const x = "code"`\n```\n{"key":"value"}\n```\n"未结束</div>')
+    expect(result).not.toContain('message-quote')
+    expect(result).toContain('message-code-block')
+    expect(result).toContain('message-inline-code')
+    const character = normalizeStoredCharacter({ id: 'quote-test', name: '测试角色' })
+    const html = renderToStaticMarkup(createElement(MessageContent, { text: '`const x = "code"`\n\n"未结束', role: 'assistant', character, userName: '用户', noStatus: true }))
+    expect(html).not.toContain('message-quote')
+  })
   it('renders Tavo-style plot fences, inline thoughts and paragraph spacing', () => {
     const result = normalizeMixedMarkup('<plot>\n```\n⏰时间:2034年01月09日 09:38\n🗺️地点:H市\n```\n</plot>\n\n*动作*与`心理`')
 
