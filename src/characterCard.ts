@@ -911,6 +911,16 @@ function upgradeGuTingshenStageProgression(character: Partial<Character>): Parti
 }
 
 export function normalizeStoredCharacter(character: Partial<Character>): Character {
+  // Recover only recorded card metadata, never a guessed story association.
+  // An explicit manual ungrouping always wins over the original imported card.
+  if (!character.libraryGroup?.trim() && !character.libraryGroupOptOut && character.rawCard) {
+    const raw = character.rawCard as RawCard
+    const extensions = (raw.data?.extensions || raw.extensions) as { weijing_library?: { group?: unknown; role?: unknown } } | undefined
+    const placement = extensions?.weijing_library
+    const group = stringValue(placement?.group).trim().slice(0, 40)
+    if (group) character = { ...character, libraryGroup: group, libraryGroupSource: 'manual',
+      libraryRole: character.libraryRole || (isLibraryRole(placement?.role) ? placement.role : undefined) }
+  }
   const normalizedBook = normalizeCharacterBook(character.characterBook, character.name || '')
   character = normalizedBook ? { ...character, characterBook: normalizedBook } : character
   character = upgradeXingguiKnowledgeBoundaries(character)

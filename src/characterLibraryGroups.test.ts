@@ -1,12 +1,41 @@
 import { describe, expect, it } from 'vitest'
 import { normalizeStoredCharacter } from './characterCard'
-import { assignLibraryGroup, autoOrganizeLibraryCharacters, setLibraryGroupMembers, effectiveLibraryRole, groupLibraryCharacters, libraryGroupNames } from './characterLibraryGroups'
+import { assignLibraryGroup, libraryPlacementDraft, preserveLibraryPlacement, autoOrganizeLibraryCharacters, setLibraryGroupMembers, effectiveLibraryRole, groupLibraryCharacters, libraryGroupNames } from './characterLibraryGroups'
 import { createStoryProject } from './storyProject'
 import type { Conversation } from './conversationLifecycle'
 
 const card = (id: string, extra: Record<string, unknown> = {}) => normalizeStoredCharacter({ id, name: id, ...extra })
 
 describe('character library groups', () => {
+  it('keeps different groups when a batch edit changes only the role', () => {
+    const list = [card('a', { libraryGroup: 'A' }), card('b', { libraryGroup: 'B' }), card('c')]
+    const draft = libraryPlacementDraft(list, ['a', 'b', 'c'])
+    const changed = assignLibraryGroup(list, draft.ids, { group: draft.group, role: 'npc' })
+    expect(changed.map((item) => item.libraryGroup)).toEqual(['A', 'B', undefined])
+    expect(changed.every((item) => item.libraryRole === 'npc')).toBe(true)
+    const cleared = assignLibraryGroup(changed, draft.ids, { group: '' })
+    expect(cleared.every((item) => !item.libraryGroup && item.libraryGroupOptOut)).toBe(true)
+    expect(autoOrganizeLibraryCharacters(cleared, [], [])).toBe(cleared)
+  })
+
+  it('keeps newer placement when a delayed card editor saves an older snapshot', () => {
+    const old = card('a', { libraryGroup: '旧组' })
+    const current = assignLibraryGroup([old], ['a'], { group: '新组', role: 'lead' })[0]
+    const edited = preserveLibraryPlacement({ ...old, description: '编辑后的资料' }, current)
+    expect(edited).toMatchObject({ libraryGroup: '新组', libraryRole: 'lead', description: '编辑后的资料' })
+    const ungrouped = assignLibraryGroup([current], ['a'], { group: '' })[0]
+    expect(preserveLibraryPlacement(old, ungrouped)).toMatchObject({ libraryGroup: undefined, libraryGroupOptOut: true })
+  })
+
+  it('recovers missing placement from imported metadata while respecting manual changes', () => {
+    const rawCard = { data: { extensions: { weijing_library: { group: '原卡分组', role: 'npc' } } } }
+    const recovered = card('a', { rawCard })
+    expect(recovered).toMatchObject({ libraryGroup: '原卡分组', libraryRole: 'npc' })
+    expect(normalizeStoredCharacter(recovered)).toEqual(recovered)
+    expect(card('a', { rawCard, libraryGroup: '手动分组' }).libraryGroup).toBe('手动分组')
+    expect(card('a', { rawCard, libraryGroupOptOut: true }).libraryGroup).toBeUndefined()
+    expect(card('a').libraryGroup).toBeUndefined()
+  })
   it('keeps group and role through normalisation and drops junk', () => {
     expect(card('a', { libraryGroup: ' 谢聿衡篇 ', libraryRole: 'npc' })).toMatchObject({ libraryGroup: '谢聿衡篇', libraryRole: 'npc' })
     expect(card('b', { libraryGroup: '  ', libraryRole: 'boss' })).toMatchObject({ libraryGroup: undefined, libraryRole: undefined })

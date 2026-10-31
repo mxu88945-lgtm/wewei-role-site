@@ -43,7 +43,7 @@ import { buildBackstageNote, buildDmGroupPeek, buildGroupDmPeek, parsePhoneForum
 import { PhoneChatInfo } from './PhoneChatInfo'
 import { NOTICE_DURATIONS, lurkFallback, activeNotice, noticeRemaining, buildNoticeNote, findAtMentionIds, queueSummons, parsePhoneQuit, parsePhoneKick, parsePhoneVote, kickPassed, findNamedParticipantIds, selectPhoneSpeakers, pickPhoneChatters, cleanPhoneOutput, phoneGroupDisplayTitle, phoneStreamPreview, containsPhoneReasoning, phoneFinalGuard, buildSmartPickPrompt, buildMicPrompt, parseMicAnswer, parseSmartPick, buildPhoneArchive, buildPhoneGroupBackground, phoneBindingCandidates, buildPhoneRealWorldNote, parsePhoneLockCommand, buildPhoneLockBreachNote, type PhoneLockState, type PhoneLockBreach, phoneCharacter, phoneModeRules, stripPhoneQuitTag, stripPhoneKickTag, computeStoryUpdates, resetStorySeenForBindingChanges, storyUpdateNotice, buildStoryUpdateNote } from './phoneGroup'
 import { assignChatGroup, chatGroupNames, groupConversations, setChatGroupMembers } from './chatGroups'
-import { assignLibraryGroup, autoOrganizeLibraryCharacters, setLibraryGroupMembers, effectiveLibraryRole, groupLibraryCharacters, LIBRARY_ROLE_LABELS, libraryGroupNames } from './characterLibraryGroups'
+import { assignLibraryGroup, libraryPlacementDraft, preserveLibraryPlacement, autoOrganizeLibraryCharacters, setLibraryGroupMembers, effectiveLibraryRole, groupLibraryCharacters, LIBRARY_ROLE_LABELS, libraryGroupNames } from './characterLibraryGroups'
 import { activeCharacterMemory, characterMemoryEntryFromConversation, characterMemoryExtractionPrompt, characterMemorySummaryProtocol, parseCharacterMemoryCandidates, splitCharacterMemorySummary } from './characterMemory'
 import { ChatApiError, completeChat, fetchApiModels, testApiConnection, type ApiConfig, type ApiModel } from './chatApi'
 import { buildChatPrompt } from './promptBuilder'
@@ -517,7 +517,7 @@ function App() {
   const [chatGroupSheet, setChatGroupSheet] = useState<{ id: string; group: string } | null>(null)
   const [chatGroupEditor, setChatGroupEditor] = useState<{ original: string; name: string; memberIds: string[] } | null>(null)
   const [groupEditor, setGroupEditor] = useState<{ original: string; name: string; memberIds: string[] } | null>(null)
-  const [librarySheet, setLibrarySheet] = useState<{ ids: string[]; group: string; role: LibraryRole | null | undefined } | null>(null)
+  const [librarySheet, setLibrarySheet] = useState<{ ids: string[]; group: string | undefined; role: LibraryRole | null | undefined } | null>(null)
   const [groupDraft, setGroupDraft] = useState<{ title: string; participantIds: string[]; apiIds: Record<string, string>; modelNames: Record<string, string> }>({ title: '', participantIds: [], apiIds: {}, modelNames: {} })
   const [groupDirectorDraft, setGroupDirectorDraft] = useState<DirectorTemplateConfig>(() => createDirectorTemplateConfig())
   const [directorEditorTarget, setDirectorEditorTarget] = useState<'draft' | 'conversation-new' | 'conversation'>('draft')
@@ -1762,10 +1762,10 @@ function App() {
       const existing = current.find((item) => item.id === character.id)
       const next = existing ? {
         ...character,
-        libraryGroup: character.libraryGroup ?? existing.libraryGroup,
-        libraryRole: character.libraryRole ?? existing.libraryRole,
-        libraryGroupSource: character.libraryGroupSource ?? existing.libraryGroupSource,
-        libraryGroupOptOut: character.libraryGroupOptOut ?? existing.libraryGroupOptOut,
+        libraryGroup: existing.libraryGroupOptOut ? undefined : existing.libraryGroup ?? character.libraryGroup,
+        libraryRole: existing.libraryRole ?? character.libraryRole,
+        libraryGroupSource: existing.libraryGroupSource ?? character.libraryGroupSource,
+        libraryGroupOptOut: existing.libraryGroupOptOut || character.libraryGroupOptOut,
       } : character
       return [...current.filter((item) => item.id !== character.id), next]
     })
@@ -1923,13 +1923,11 @@ function App() {
   const openLibrarySheet = (ids: string[]) => {
     const picked = characters.filter((item) => ids.includes(item.id))
     if (!picked.length) return
-    const groups = new Set(picked.map((item) => item.libraryGroup || ''))
-    const roles = new Set(picked.map((item) => item.libraryRole || null))
-    setLibrarySheet({ ids, group: groups.size === 1 ? [...groups][0] : '', role: roles.size === 1 ? [...roles][0] : undefined })
+    setLibrarySheet(libraryPlacementDraft(characters, ids))
   }
   const saveLibrarySheet = () => {
     if (!librarySheet) return
-    const group = librarySheet.group.trim()
+    const group = librarySheet.group?.trim()
     setCharacters((current) => assignLibraryGroup(current, librarySheet.ids, { group, ...(librarySheet.role !== undefined ? { role: librarySheet.role } : {}) }))
     if (group) setCollapsedLibraryGroups((current) => current.filter((item) => item !== group))
     setLibrarySheet(null)
@@ -4053,7 +4051,7 @@ function App() {
   const updateCardManagerCharacter = (next: Character) => {
     const scoped = next.characterMemory || []
     setCharacters((current) => current.map((character) => character.id === next.id
-      ? { ...next, characterMemory: activeConversation ? character.characterMemory || [] : scoped }
+      ? { ...preserveLibraryPlacement(next, character), characterMemory: activeConversation ? character.characterMemory || [] : scoped }
       : character))
     if (activeConversation) setConversations((current) => current.map((conversation) => conversation.id === activeConversation.id
       ? setConversationCharacterMemories(conversation, next.id, scoped)
@@ -4462,7 +4460,7 @@ function App() {
       })}</div>
       <button className="library-sheet-save" onClick={saveGroupEditor}>保存</button></section></div>}
     {librarySheet && <div className="character-menu-layer library-sheet-layer"><button className="drawer-backdrop" aria-label="关闭分组" onClick={() => setLibrarySheet(null)} /><section className="conversation-menu library-group-sheet"><header><div><small>分组与身份</small><strong>{librarySheet.ids.length > 1 ? `${librarySheet.ids.length} 个角色` : characters.find((item) => item.id === librarySheet.ids[0])?.name}</strong></div><button onClick={() => setLibrarySheet(null)}>×</button></header>
-      <div className="library-sheet-block"><small>属于哪个故事</small><input value={librarySheet.group} maxLength={40} onChange={(event) => setLibrarySheet({ ...librarySheet, group: event.target.value })} placeholder="例如：谢聿衡篇（留空 = 不分组）" /><div className="library-chip-row">{libraryGroupNames(characters).map((name) => <button key={name} className={librarySheet.group.trim() === name ? 'active' : ''} onClick={() => setLibrarySheet({ ...librarySheet, group: name })}>{name}</button>)}<button className={!librarySheet.group.trim() ? 'active' : ''} onClick={() => setLibrarySheet({ ...librarySheet, group: '' })}>不分组</button></div></div>
+      <div className="library-sheet-block"><small>属于哪个故事</small><input value={librarySheet.group ?? ''} maxLength={40} onChange={(event) => setLibrarySheet({ ...librarySheet, group: event.target.value })} placeholder={librarySheet.group === undefined ? '分组不同，未修改时各自保留' : '例如：谢聿衡篇（留空 = 不分组）'} /><div className="library-chip-row">{libraryGroupNames(characters).map((name) => <button key={name} className={librarySheet.group?.trim() === name ? 'active' : ''} onClick={() => setLibrarySheet({ ...librarySheet, group: name })}>{name}</button>)}<button className={librarySheet.group === '' ? 'active' : ''} onClick={() => setLibrarySheet({ ...librarySheet, group: '' })}>不分组</button></div></div>
       <div className="library-sheet-block"><small>在故事里的身份</small><div className="library-chip-row">{LIBRARY_ROLES.map((role) => <button key={role} className={librarySheet.role === role ? 'active' : ''} onClick={() => setLibrarySheet({ ...librarySheet, role })}>{LIBRARY_ROLE_LABELS[role]}</button>)}<button className={librarySheet.role === null ? 'active' : ''} onClick={() => setLibrarySheet({ ...librarySheet, role: null })}>不标</button></div>{librarySheet.role === undefined && <p>这几张身份不一样，不点就各自保留。</p>}</div>
       <button className="library-sheet-save" onClick={saveLibrarySheet}>保存</button></section></div>}
     {menuCharacter && <div className="character-menu-layer"><button className="drawer-backdrop" aria-label="关闭角色菜单" onClick={() => setCharacterMenuId(null)} /><section className="conversation-menu character-action-menu"><header><div><small>角色操作</small><strong>{menuCharacter.name}</strong></div><button onClick={() => setCharacterMenuId(null)}>×</button></header><button onClick={() => { selectLibraryCharacter(menuCharacter.id); setCharacterMenuId(null); navigate('card-data') }}>编辑角色卡</button><button onClick={() => { openLibrarySheet([menuCharacter.id]); setCharacterMenuId(null) }}>分组与身份{menuCharacter.libraryGroup ? ` · ${menuCharacter.libraryGroup}` : ''}</button><button onClick={() => duplicateCharacter(menuCharacter)}>复制角色</button><button onClick={() => exportCharacter(menuCharacter)}>导出 Character Card V3 JSON</button><button className="danger" onClick={() => deleteCharacter(menuCharacter)}>删除角色及相关数据</button></section></div>}
@@ -4642,7 +4640,7 @@ function UpdateCard() {
     }
   }
 
-  return <section className="update-card"><strong>应用更新</strong><p>主动检查并拉取最新网页版本，不会删除角色、聊天记录或本地设置。</p><small>当前版本：v164 · 2026.10.30 设置抽屉收窄至屏幕八成，成员与页面支持独立滚动</small><button onClick={refresh} disabled={state === 'checking'}>{state === 'checking' ? '正在检查更新…' : state === 'error' ? '更新失败，点我重试' : '强制刷新到最新版'}</button></section>
+  return <section className="update-card"><strong>应用更新</strong><p>主动检查并拉取最新网页版本，不会删除角色、聊天记录或本地设置。</p><small>当前版本：v165 · 2026.10.31 修复跨组批量编辑与角色卡保存导致分组丢失，恢复原卡分组元数据</small><button onClick={refresh} disabled={state === 'checking'}>{state === 'checking' ? '正在检查更新…' : state === 'error' ? '更新失败，点我重试' : '强制刷新到最新版'}</button></section>
 }
 
 function PersonaPage({ identities, selectedId, isBound, onSelect, onAdd, onDelete, onUpdate, onBack }: { identities: UserIdentity[]; selectedId: string; isBound: boolean; onSelect: (id: string) => void; onAdd: () => void; onDelete: (id: string) => void; onUpdate: (patch: Partial<UserIdentity>) => void; onBack: () => void }) {

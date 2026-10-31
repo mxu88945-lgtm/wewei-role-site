@@ -43,6 +43,19 @@ export function libraryGroupNames(characters: Character[]) {
   return [...new Set(characters.map((item) => item.libraryGroup?.trim()).filter(Boolean) as string[])].sort((a, b) => a.localeCompare(b, 'zh-Hans-CN'))
 }
 
+export function libraryPlacementDraft(characters: Character[], ids: string[]) {
+  const picked = characters.filter((character) => ids.includes(character.id))
+  const groups = new Set(picked.map((character) => character.libraryGroup || ''))
+  const roles = new Set(picked.map((character) => character.libraryRole || null))
+  return { ids, group: groups.size === 1 ? [...groups][0] : undefined, role: roles.size === 1 ? [...roles][0] : undefined }
+}
+
+/** Card-content editors must not overwrite library placement from an older snapshot. */
+export function preserveLibraryPlacement(next: Character, current: Character): Character {
+  return { ...next, libraryGroup: current.libraryGroup, libraryRole: current.libraryRole,
+    libraryGroupSource: current.libraryGroupSource, libraryGroupOptOut: current.libraryGroupOptOut }
+}
+
 /** Apply a group and/or role to the given ids. group '' clears the group; role null clears the role; undefined leaves it. */
 export function assignLibraryGroup(characters: Character[], ids: string[], change: { group?: string; role?: LibraryRole | null }) {
   const wanted = new Set(ids)
