@@ -205,7 +205,7 @@ export function richRenderFallback(value: string) {
 
 type SceneHooks = { greetings?: string[]; onSelectGreeting?: (index: number, text: string) => void }
 
-type MessageTheme = boolean | 'scrapbook' | 'academy' | 'vinyl' | 'mobile'
+type MessageTheme = boolean | 'scrapbook' | 'academy' | 'vinyl' | 'mobile' | 'letter'
 function SandboxHtml({ html, raw = false, paper = false, greetings, onSelectGreeting }: { html: string; raw?: boolean; paper?: MessageTheme } & SceneHooks) {
   const frameRef = useRef<HTMLIFrameElement>(null)
   const tokenRef = useRef(`render-${crypto.randomUUID()}`)
@@ -242,6 +242,11 @@ function SandboxHtml({ html, raw = false, paper = false, greetings, onSelectGree
     if (paper === 'mobile' && !raw) {
       const style = document.createElement('style')
       style.textContent = `html,body{background:transparent!important;color:#242429!important;font-family:-apple-system,'PingFang SC',sans-serif;line-height:1.95;text-align:left}.message-quote{display:table!important;width:fit-content;max-width:100%;margin:10px 0;padding:8px 13px;border:1px solid #dddde3;border-radius:17px;background:linear-gradient(120deg,#f2f2f5,#e5e5ea);color:#34343b;line-height:1.7;text-align:left}section,[class*=status-card],[class*=scene-card]{background:#fafafc!important;color:#45454d!important;border-color:#e8e8ed!important;border-radius:18px!important;box-shadow:none!important}`
+      document.head.append(style)
+    }
+    if (paper === 'letter' && !raw) {
+      const style = document.createElement('style')
+      style.textContent = `html,body{background:transparent!important;color:#34383d!important;font-family:-apple-system,'PingFang SC',sans-serif;line-height:1.95;text-align:left}.message-quote{display:inline!important;padding:.16em .62em;border:1px solid rgba(94,112,124,.22);border-radius:12px;background:linear-gradient(135deg,rgba(219,227,231,.86),rgba(235,229,223,.9));color:#4f6170;line-height:inherit;box-decoration-break:clone;-webkit-box-decoration-break:clone}section,[class*=status-card],[class*=scene-card]{background:#eeefed!important;color:#4e555a!important;border-color:#d9dde0!important;border-radius:18px!important;box-shadow:none!important}`
       document.head.append(style)
     }
     if (paper === 'scrapbook' && !raw) {
