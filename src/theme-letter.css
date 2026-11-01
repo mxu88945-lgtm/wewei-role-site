@@ -55,4 +55,9 @@
 .theme-letter .archive-letter .archive-body :is(section,[class*='status-card'],[class*='scene-card'],details) { margin: 18px 0; padding: 15px; border: 1px solid rgba(104,114,121,.20); border-radius: 18px; color: #4e555a; background: rgba(238,239,237,.74); box-shadow: none; }
 .theme-letter .archive-letter .message-action-row { justify-content: flex-start; margin-top: 14px; }
 .theme-letter .archive-letter.user .message-action-row { justify-content: flex-end; }
+.theme-letter .archive-letter.user .archive-portrait { left: auto; right: 20px; }
+.theme-letter .archive-letter.user .archive-heading-copy { display: flex; flex-direction: column; align-items: flex-end; text-align: right; }
+.theme-letter .archive-letter.user .letter-stats { justify-content: flex-end; }
+.theme-letter .archive-letter.user .archive-body { text-align: right; }
+.theme-letter .archive-letter.user .archive-body :is(.message-content,.message-content-flat,.message-flat-body,.message-content-rich) { width: fit-content; max-width: 100%; margin-left: auto; margin-right: 0; text-align: left; }
 @media (max-width: 430px) { .theme-letter .archive-letter.user { width: 90%; } .theme-letter .archive-letter .archive-heading { min-height: 250px; } }

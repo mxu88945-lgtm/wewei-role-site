@@ -21,7 +21,7 @@ import './theme-archives.css'
 import './memoryApiEnhancements'
 
 const APP_SCOPE = '/wewei-role-site/'
-const SERVICE_WORKER_RELEASE = '2026-10-31-mist-letter-v170'
+const SERVICE_WORKER_RELEASE = '2026-11-01-mist-letter-user-right-v171'
 
 if ('serviceWorker' in navigator) {
   let reloadingForUpdate = false
