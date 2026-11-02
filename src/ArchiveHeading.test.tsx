@@ -36,4 +36,12 @@ describe('archive message identity headers', () => {
     expect(user).toContain('用户名字')
     expect(role).not.toContain('<button')
   })
+  it('renders the mist-note identity ribbon with restrained copy on either side', () => {
+    const role = renderToStaticMarkup(<ArchiveHeading theme="mistnote" name="角色名" user={false} />)
+    const user = renderToStaticMarkup(<ArchiveHeading theme="mistnote" name="用户名字" user />)
+    expect(role).toContain('mistnote-kicker')
+    expect(role).toContain('雾色来信')
+    expect(user).toContain('循光而来')
+    expect(user).toContain('用户名字')
+  })
 })
