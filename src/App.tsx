@@ -117,7 +117,7 @@ type MemoryConfig = {
 type MemoryConfigMap = Record<string, MemoryConfig>
 type MemoryEntryMap = Record<string, MemoryEntry[]>
 type UserIdentity = { id: string; name: string; description: string; avatar?: string }
-type ChatThemeMode = 'mist' | 'pearl' | 'sage' | 'pudding' | 'strawberry' | 'blueberry' | 'liquid' | 'paper' | 'scrapbook' | 'academy' | 'vinyl' | 'mobile' | 'letter' | 'mistnote'
+type ChatThemeMode = 'mist' | 'pearl' | 'sage' | 'pudding' | 'strawberry' | 'blueberry' | 'liquid' | 'paper' | 'scrapbook' | 'academy' | 'vinyl' | 'mobile' | 'letter' | 'mistnote' | 'nightglow'
 type ChatThemePreset = { id: string; name: string; mode: ChatThemeMode; baseColor: string; textColor: string; narrationColor: string; quoteColor: string; frost: number; custom?: boolean }
 
 const demoCharacter: Character = {
@@ -241,6 +241,7 @@ const builtInThemes: ChatThemePreset[] = [
   { id: 'mobile', name: '白笺通讯', mode: 'mobile', baseColor: '#fafafc', textColor: '#242429', narrationColor: '#797982', quoteColor: '#34343b', frost: .4 },
   { id: 'letter', name: '雾白来信', mode: 'letter', baseColor: '#f3f1ed', textColor: '#34383d', narrationColor: '#7a7f84', quoteColor: '#4f6170', frost: .46 },
   { id: 'mistnote', name: '雾蓝长笺', mode: 'mistnote', baseColor: '#f3f6f7', textColor: '#35424b', narrationColor: '#74828b', quoteColor: '#486274', frost: .48 },
+  { id: 'nightglow', name: '暗夜流光', mode: 'nightglow', baseColor: '#060607', textColor: '#e9e9ec', narrationColor: '#b3b6bd', quoteColor: '#9fe3c6', frost: .3 },
   { id: 'vinyl', name: '青橙唱片', mode: 'vinyl', baseColor: '#ffffff', textColor: '#315868', narrationColor: '#7b98a4', quoteColor: '#b46b43', frost: .55 },
 ]
 
@@ -4166,7 +4167,7 @@ function App() {
     const openingGreetings = isOpening ? [messageCharacter.greeting, ...messageCharacter.alternateGreetings].filter((item) => typeof item === 'string') : undefined
     const selectOpening = isOpening ? (_index: number, text: string) => setConversations((current) => current.map((item) => item.id === openingConversationId ? { ...item, messages: item.messages.map((entry) => entry.id === message.id ? { ...entry, text } : entry), updatedAt: Date.now() } : item)) : undefined
     const phaseStartedAt = streaming && activeConversation ? phaseStartedAtRef.current.get(`${activeConversation.id}|${message.id}`) : undefined
-    const archiveTheme = !activeConversation?.phone && (chatTheme === 'academy' || chatTheme === 'vinyl' || chatTheme === 'mobile' || chatTheme === 'letter' || chatTheme === 'mistnote') ? chatTheme : null
+    const archiveTheme = !activeConversation?.phone && (chatTheme === 'academy' || chatTheme === 'vinyl' || chatTheme === 'mobile' || chatTheme === 'letter' || chatTheme === 'mistnote' || chatTheme === 'nightglow') ? chatTheme : null
     const textContent = phaseStartedAt !== undefined ? <PhaseElapsed label={displayText} startedAt={phaseStartedAt} /> : displayText ? <MessageContent text={displayText} role={message.role} character={messageCharacter} noStatus={Boolean(activeConversation?.phone)} paper={archiveTheme || (activeConversation?.phone ? false : chatTheme === 'scrapbook' ? 'scrapbook' : chatTheme === 'paper')} userName={identity.name} layout={archiveTheme ? 'flat' : chatLayout} streaming={streaming} greetings={openingGreetings} onSelectGreeting={selectOpening} /> : null
     const quoteExists = Boolean(message.quote && messages.some((item) => String(item.id) === message.quote!.messageId))
     const quoteBlock = isUser && message.quote && activeConversation?.phone ? <button type="button" className={`phone-message-quote${quoteExists ? '' : ' missing'}`} aria-label={quoteExists ? `跳到被引用的消息：${message.quote.author}` : '被引用的消息已不在'} disabled={!quoteExists} onClick={() => jumpToQuoted(message.quote!.messageId)}><b>{message.quote.author}：</b>{message.quote.text}</button> : null
@@ -4643,7 +4644,7 @@ function UpdateCard() {
     }
   }
 
-  return <section className="update-card"><strong>应用更新</strong><p>主动检查并拉取最新网页版本，不会删除角色、聊天记录或本地设置。</p><small>当前版本：v172 · 2026.11.02 雾蓝长笺独立气泡与小说分段</small><button onClick={refresh} disabled={state === 'checking'}>{state === 'checking' ? '正在检查更新…' : state === 'error' ? '更新失败，点我重试' : '强制刷新到最新版'}</button></section>
+  return <section className="update-card"><strong>应用更新</strong><p>主动检查并拉取最新网页版本，不会删除角色、聊天记录或本地设置。</p><small>当前版本：v173 · 2026.11.04 新主题暗夜流光（发光对白）</small><button onClick={refresh} disabled={state === 'checking'}>{state === 'checking' ? '正在检查更新…' : state === 'error' ? '更新失败，点我重试' : '强制刷新到最新版'}</button></section>
 }
 
 function PersonaPage({ identities, selectedId, isBound, onSelect, onAdd, onDelete, onUpdate, onBack }: { identities: UserIdentity[]; selectedId: string; isBound: boolean; onSelect: (id: string) => void; onAdd: () => void; onDelete: (id: string) => void; onUpdate: (patch: Partial<UserIdentity>) => void; onBack: () => void }) {

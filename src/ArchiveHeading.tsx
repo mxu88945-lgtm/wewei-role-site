@@ -1,4 +1,4 @@
-export type ArchiveTheme = 'academy' | 'vinyl' | 'mobile' | 'letter' | 'mistnote'
+export type ArchiveTheme = 'academy' | 'vinyl' | 'mobile' | 'letter' | 'mistnote' | 'nightglow'
 
 export default function ArchiveHeading({ theme, name, avatar, user }: { theme: ArchiveTheme; name: string; avatar?: string; user: boolean }) {
   return <div className="archive-heading">
