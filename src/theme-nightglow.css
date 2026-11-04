@@ -3,39 +3,39 @@
   --theme-accent: #8ab8ff;
   --theme-accent-strong: #6f9fe8;
   --theme-accent-end: #72dcc4;
-  --theme-accent-soft: #1b2230;
+  --theme-accent-soft: #3a2f26;
   --theme-accent-soft-strong: #232c3d;
   --theme-accent-text: #9fc4ff;
   --theme-accent-shadow: rgba(0,0,0,.5);
-  --composer-dock-rgb: 31,34,41;
-  background: #1f2229;
-  color: #dcdee2;
+  --composer-dock-rgb: 42,35,30;
+  background: #2a231e;
+  color: #ece2d6;
 }
-.theme-choice-grid button.nightglow i { border: 1px solid #3a3f48; border-radius: 11px; background: linear-gradient(145deg,#1f2229 0 55%,#f7e27c 56% 66%,#72dcc4 67% 80%,#8ab8ff 81%); }
-.theme-nightglow .chat-header::before { background: rgba(31,34,41,.9); }
-.theme-nightglow .chat-header, .theme-nightglow .chat-header :is(button,h1,h2,strong,span) { color: #dcdee2; }
-.theme-nightglow .composer { border: 1px solid #2c2f36; border-radius: 28px; background: rgba(40,44,51,.95); box-shadow: 0 10px 30px rgba(0,0,0,.55); }
-.theme-nightglow .composer textarea { color: #dcdee2; }
-.theme-nightglow .composer-plus { color: #c9ccd3; background: #353941; }
-.theme-nightglow .send-button { color: #1f2229; background: linear-gradient(145deg,#f7e27c,#72dcc4 55%,#8ab8ff); box-shadow: 0 0 14px rgba(114,220,196,.35); }
+.theme-choice-grid button.nightglow i { border: 1px solid #4a3f36; border-radius: 11px; background: linear-gradient(145deg,#2a231e 0 55%,#f7e27c 56% 66%,#72dcc4 67% 80%,#8ab8ff 81%); }
+.theme-nightglow .chat-header::before { background: rgba(42,35,30,.9); }
+.theme-nightglow .chat-header, .theme-nightglow .chat-header :is(button,h1,h2,strong,span) { color: #ece2d6; }
+.theme-nightglow .composer { border: 1px solid #2c2f36; border-radius: 28px; background: rgba(54,45,38,.95); box-shadow: 0 10px 30px rgba(0,0,0,.55); }
+.theme-nightglow .composer textarea { color: #ece2d6; }
+.theme-nightglow .composer-plus { color: #c9ccd3; background: #43382f; }
+.theme-nightglow .send-button { color: #2a231e; background: linear-gradient(145deg,#f7e27c,#72dcc4 55%,#8ab8ff); box-shadow: 0 0 14px rgba(114,220,196,.35); }
 .theme-nightglow .message-list { gap: 20px; }
-.theme-nightglow .archive-nightglow { box-sizing: border-box; width: 100%; min-width: 0; align-self: stretch; color: var(--chat-text-color,#dcdee2); }
+.theme-nightglow .archive-nightglow { box-sizing: border-box; width: 100%; min-width: 0; align-self: stretch; color: var(--chat-text-color,#ece2d6); }
 .theme-nightglow .archive-nightglow::after { content: ''; display: block; width: 72%; height: 1px; margin: 28px auto 0; background: linear-gradient(90deg,transparent,#3a3f49 30%,#5b4a3e 70%,transparent); }
 .theme-nightglow .archive-nightglow .archive-heading { display: flex; align-items: flex-end; gap: 14px; margin: 0 0 16px; padding: 0; border: 0; background: transparent; box-shadow: none; }
-.theme-nightglow .archive-nightglow .archive-portrait { flex: 0 0 62px; width: 62px; height: 74px; padding: 5px 5px 9px; border-radius: 2px; background: #4f545e; box-shadow: 0 6px 16px rgba(0,0,0,.5); }
+.theme-nightglow .archive-nightglow .archive-portrait { flex: 0 0 62px; width: 62px; height: 74px; padding: 5px 5px 9px; border-radius: 2px; background: #5c4e42; box-shadow: 0 6px 16px rgba(0,0,0,.5); }
 .theme-nightglow .archive-nightglow .archive-disc { display: none; }
-.theme-nightglow .archive-nightglow .archive-cover { width: 100%; height: 100%; display: grid; place-items: center; overflow: hidden; border-radius: 1px; color: #cfd2d8; background: #30343c; font: 22px/1 Georgia,serif; }
+.theme-nightglow .archive-nightglow .archive-cover { width: 100%; height: 100%; display: grid; place-items: center; overflow: hidden; border-radius: 1px; color: #cfd2d8; background: #3c322a; font: 22px/1 Georgia,serif; }
 .theme-nightglow .archive-nightglow .archive-cover img { width: 100%; height: 100%; object-fit: cover; }
 .theme-nightglow .archive-nightglow .archive-heading-copy { min-width: 0; margin: 0 0 2px; }
 .theme-nightglow .archive-nightglow .archive-name { display: block; color: #f4f4f6; font-size: 19px; line-height: 1.2; font-weight: 800; letter-spacing: .04em; overflow-wrap: anywhere; }
-.theme-nightglow .archive-nightglow .archive-body { box-sizing: border-box; width: 100%; min-width: 0; padding: 0 2px; border: 0; background: transparent; box-shadow: none; color: var(--chat-text-color,#dcdee2); line-height: 2; text-align: left; }
+.theme-nightglow .archive-nightglow .archive-body { box-sizing: border-box; width: 100%; min-width: 0; padding: 0 2px; border: 0; background: transparent; box-shadow: none; color: var(--chat-text-color,#ece2d6); line-height: 2; text-align: left; }
 .theme-nightglow .archive-nightglow .archive-body :is(.message-content,.message-content-flat,.message-flat-body,.message-content-rich) { width: 100%; max-width: 100%; padding: 0; border: 0; border-radius: 0; background: transparent; box-shadow: none; color: inherit; line-height: inherit; }
 .theme-nightglow .archive-nightglow .archive-body :is(.message-story-paragraph,p) { margin: 0 0 1.15em; line-height: 2; }
 .theme-nightglow .archive-nightglow .archive-body :is(.message-story-paragraph,p):last-child { margin-bottom: 0; }
-.theme-nightglow .archive-nightglow .archive-body :is(.message-narration,.chat-narration,em) { color: var(--chat-narration-color,#a6aab2); font-style: normal; }
+.theme-nightglow .archive-nightglow .archive-body :is(.message-narration,.chat-narration,em) { color: var(--chat-narration-color,#b9ab9b); font-style: normal; }
 .theme-nightglow .archive-nightglow .archive-body :is(.message-quote,.chat-quote) { display: inline !important; margin: 0 !important; padding: 0 1px !important; border: 0 !important; border-radius: 0 !important; box-shadow: none !important; background: linear-gradient(90deg,#f7e27c,#b2e67c 34%,#72dcc4 66%,#8ab8ff) !important; -webkit-background-clip: text !important; background-clip: text !important; color: transparent !important; -webkit-text-fill-color: transparent !important; font-weight: 700 !important; filter: drop-shadow(0 0 5px rgba(130,225,195,.22)); line-height: inherit !important; box-decoration-break: clone; -webkit-box-decoration-break: clone; }
-.theme-nightglow .archive-nightglow .archive-body :is(section,[class*='status-card'],[class*='scene-card'],[class*='private'],details) { margin: 20px 0; padding: 16px 18px; border: 1px solid #3a3f48; border-left: 3px solid #4b515d; border-radius: 14px; color: #cdd0d6; background: #2a2e36; box-shadow: none; line-height: 1.8; }
-.theme-nightglow .archive-nightglow .message-action-row { justify-content: flex-start; margin-top: 12px; color: #a6aab2; }
+.theme-nightglow .archive-nightglow .archive-body :is(section,[class*='status-card'],[class*='scene-card'],[class*='private'],details) { margin: 20px 0; padding: 16px 18px; border: 1px solid #4a3f36; border-left: 3px solid #665446; border-radius: 14px; color: #cdd0d6; background: #362d26; box-shadow: none; line-height: 1.8; }
+.theme-nightglow .archive-nightglow .message-action-row { justify-content: flex-start; margin-top: 12px; color: #b9ab9b; }
 .theme-nightglow .archive-nightglow.user .archive-heading { flex-direction: row-reverse; }
 .theme-nightglow .archive-nightglow.user .archive-heading-copy { text-align: right; }
 .theme-nightglow .archive-nightglow.user .archive-body :is(.message-content,.message-content-flat,.message-flat-body,.message-content-rich) { width: fit-content; max-width: 100%; margin-left: auto; text-align: left; }
