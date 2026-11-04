@@ -4,9 +4,11 @@ import { describe, expect, it } from 'vitest'
 const css = readFileSync(new URL('./theme-nightglow.css', import.meta.url), 'utf8')
 
 describe('nightglow theme', () => {
-  it('puts the user identity top right and makes quotes glowing gradient text', () => {
+  it('puts the user identity top right and makes quotes dark red in Huiwen Mincho', () => {
     expect(css).toContain('.archive-nightglow.user .archive-heading { flex-direction: row-reverse; }')
-    expect(css).toContain('-webkit-background-clip: text !important')
+    expect(css).toContain('color: #a8383c !important')
+    expect(css).toContain('"Huiwen-mincho"')
+    expect(css).toContain('background: #f6f1ee')
   })
   it('has one slowly flowing warm liquid layer behind the chat', () => {
     expect(css).toContain('.theme-nightglow.chat-canvas > .wallpaper-layers::after')
