@@ -23,7 +23,7 @@ import './theme-archives.css'
 import './memoryApiEnhancements'
 
 const APP_SCOPE = '/wewei-role-site/'
-const SERVICE_WORKER_RELEASE = '2026-11-04-nightglow-liquid-v176'
+const SERVICE_WORKER_RELEASE = '2026-11-04-nightglow-light-v177'
 
 if ('serviceWorker' in navigator) {
   let reloadingForUpdate = false

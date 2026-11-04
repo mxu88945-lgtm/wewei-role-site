@@ -241,7 +241,7 @@ const builtInThemes: ChatThemePreset[] = [
   { id: 'mobile', name: '白笺通讯', mode: 'mobile', baseColor: '#fafafc', textColor: '#242429', narrationColor: '#797982', quoteColor: '#34343b', frost: .4 },
   { id: 'letter', name: '雾白来信', mode: 'letter', baseColor: '#f3f1ed', textColor: '#34383d', narrationColor: '#7a7f84', quoteColor: '#4f6170', frost: .46 },
   { id: 'mistnote', name: '雾蓝长笺', mode: 'mistnote', baseColor: '#f3f6f7', textColor: '#35424b', narrationColor: '#74828b', quoteColor: '#486274', frost: .48 },
-  { id: 'nightglow', name: '暗夜流光', mode: 'nightglow', baseColor: '#2a231e', textColor: '#ece2d6', narrationColor: '#b9ab9b', quoteColor: '#9fe3c6', frost: .3 },
+  { id: 'nightglow', name: '暗夜流光', mode: 'nightglow', baseColor: '#eef4fa', textColor: '#2a3038', narrationColor: '#6b7480', quoteColor: '#2f8f8a', frost: .5 },
   { id: 'vinyl', name: '青橙唱片', mode: 'vinyl', baseColor: '#ffffff', textColor: '#315868', narrationColor: '#7b98a4', quoteColor: '#b46b43', frost: .55 },
 ]
 
@@ -4644,7 +4644,7 @@ function UpdateCard() {
     }
   }
 
-  return <section className="update-card"><strong>应用更新</strong><p>主动检查并拉取最新网页版本，不会删除角色、聊天记录或本地设置。</p><small>当前版本：v176 · 2026.11.04 暗夜流光暖棕液态背景</small><button onClick={refresh} disabled={state === 'checking'}>{state === 'checking' ? '正在检查更新…' : state === 'error' ? '更新失败，点我重试' : '强制刷新到最新版'}</button></section>
+  return <section className="update-card"><strong>应用更新</strong><p>主动检查并拉取最新网页版本，不会删除角色、聊天记录或本地设置。</p><small>当前版本：v177 · 2026.11.04 暗夜流光改浅天蓝底+液态流光</small><button onClick={refresh} disabled={state === 'checking'}>{state === 'checking' ? '正在检查更新…' : state === 'error' ? '更新失败，点我重试' : '强制刷新到最新版'}</button></section>
 }
 
 function PersonaPage({ identities, selectedId, isBound, onSelect, onAdd, onDelete, onUpdate, onBack }: { identities: UserIdentity[]; selectedId: string; isBound: boolean; onSelect: (id: string) => void; onAdd: () => void; onDelete: (id: string) => void; onUpdate: (patch: Partial<UserIdentity>) => void; onBack: () => void }) {

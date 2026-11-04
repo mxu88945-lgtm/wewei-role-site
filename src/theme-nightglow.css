@@ -1,46 +1,44 @@
-/* 暗夜流光：黑底、方框头像加名字（用户在右上）、正文一段一段分开、对白渐变发光字。 */
+/* 暗夜流光（浅色版）：浅天蓝灰底，天蓝/淡紫/蜜桃三团柔光慢慢流动；白边方框头像加名字，用户在右上；正文一段段分开；对白是渐变流光字。 */
 .phone-canvas.theme-nightglow {
-  --theme-accent: #8ab8ff;
-  --theme-accent-strong: #6f9fe8;
-  --theme-accent-end: #72dcc4;
-  --theme-accent-soft: #3a2f26;
-  --theme-accent-soft-strong: #232c3d;
-  --theme-accent-text: #9fc4ff;
-  --theme-accent-shadow: rgba(0,0,0,.5);
-  --composer-dock-rgb: 42,35,30;
-  background: #2a231e;
-  color: #ece2d6;
+  --theme-accent: #6f9cc8;
+  --theme-accent-strong: #4f83b8;
+  --theme-accent-end: #79c9c0;
+  --theme-accent-soft: #e3edf7;
+  --theme-accent-soft-strong: #d4e3f1;
+  --theme-accent-text: #3d6f9e;
+  --theme-accent-shadow: rgba(56,96,140,.12);
+  --composer-dock-rgb: 238,244,250;
+  background: #eef4fa;
+  color: #2a3038;
 }
-.theme-choice-grid button.nightglow i { border: 1px solid #4a3f36; border-radius: 11px; background: linear-gradient(145deg,#2a231e 0 55%,#f7e27c 56% 66%,#72dcc4 67% 80%,#8ab8ff 81%); }
-.theme-nightglow .chat-header::before { background: rgba(42,35,30,.9); }
-.theme-nightglow .chat-header, .theme-nightglow .chat-header :is(button,h1,h2,strong,span) { color: #ece2d6; }
-.theme-nightglow .composer { border: 1px solid #2c2f36; border-radius: 28px; background: rgba(54,45,38,.95); box-shadow: 0 10px 30px rgba(0,0,0,.55); }
-.theme-nightglow .composer textarea { color: #ece2d6; }
-.theme-nightglow .composer-plus { color: #c9ccd3; background: #43382f; }
-.theme-nightglow .send-button { color: #2a231e; background: linear-gradient(145deg,#f7e27c,#72dcc4 55%,#8ab8ff); box-shadow: 0 0 14px rgba(114,220,196,.35); }
+.theme-choice-grid button.nightglow i { border: 1px solid #d3dee9; border-radius: 11px; background: linear-gradient(145deg,#f4f8fc 0 55%,#e0a01c 56% 66%,#15a58c 67% 80%,#3b7ee6 81%); }
+.theme-nightglow .chat-header::before { background: rgba(238,244,250,.9); }
+.theme-nightglow .composer { border: 1px solid #d9e2eb; border-radius: 28px; background: rgba(255,255,255,.92); box-shadow: 0 10px 28px rgba(56,96,140,.10); }
+.theme-nightglow .composer-plus { color: #4f6275; background: #e4ecf4; }
+.theme-nightglow .send-button { color: #fff; background: linear-gradient(145deg,#5b95d6,#4fb3a6); box-shadow: 0 6px 16px rgba(60,130,180,.25); }
+/* 液态背景：放在壁纸层上面（壁纸层会盖住画布自己的 ::before），只动 transform。 */
+@keyframes ngFlow { 0% { transform: translate3d(-6%,-4%,0) rotate(0deg) scale(1.05); } 50% { transform: translate3d(5%,3%,0) rotate(8deg) scale(1.15); } 100% { transform: translate3d(-3%,6%,0) rotate(-6deg) scale(1.08); } }
+.theme-nightglow.chat-canvas > .wallpaper-layers::after { content: ''; position: absolute; inset: -25%; pointer-events: none; background: radial-gradient(38% 32% at 22% 26%, rgba(150,200,240,.50), transparent 70%), radial-gradient(34% 30% at 78% 44%, rgba(200,185,240,.38), transparent 70%), radial-gradient(40% 34% at 46% 82%, rgba(255,205,170,.38), transparent 72%); animation: ngFlow 26s ease-in-out infinite alternate; will-change: transform; }
+@media (prefers-reduced-motion: reduce) { .theme-nightglow.chat-canvas > .wallpaper-layers::after { animation: none; } }
 .theme-nightglow .message-list { gap: 20px; }
-.theme-nightglow .archive-nightglow { box-sizing: border-box; width: 100%; min-width: 0; align-self: stretch; color: var(--chat-text-color,#ece2d6); }
-.theme-nightglow .archive-nightglow::after { content: ''; display: block; width: 72%; height: 1px; margin: 28px auto 0; background: linear-gradient(90deg,transparent,#3a3f49 30%,#5b4a3e 70%,transparent); }
+.theme-nightglow .archive-nightglow { box-sizing: border-box; width: 100%; min-width: 0; align-self: stretch; color: var(--chat-text-color,#2a3038); }
+.theme-nightglow .archive-nightglow::after { content: ''; display: block; width: 72%; height: 1px; margin: 28px auto 0; background: linear-gradient(90deg,transparent,#c9d6e3 30%,#e3cfc0 70%,transparent); }
 .theme-nightglow .archive-nightglow .archive-heading { display: flex; align-items: flex-end; gap: 14px; margin: 0 0 16px; padding: 0; border: 0; background: transparent; box-shadow: none; }
-.theme-nightglow .archive-nightglow .archive-portrait { flex: 0 0 62px; width: 62px; height: 74px; padding: 5px 5px 9px; border-radius: 2px; background: #5c4e42; box-shadow: 0 6px 16px rgba(0,0,0,.5); }
+.theme-nightglow .archive-nightglow .archive-portrait { flex: 0 0 62px; width: 62px; height: 74px; padding: 5px 5px 9px; border-radius: 2px; background: #ffffff; box-shadow: 0 6px 16px rgba(56,86,120,.18); }
 .theme-nightglow .archive-nightglow .archive-disc { display: none; }
-.theme-nightglow .archive-nightglow .archive-cover { width: 100%; height: 100%; display: grid; place-items: center; overflow: hidden; border-radius: 1px; color: #cfd2d8; background: #3c322a; font: 22px/1 Georgia,serif; }
+.theme-nightglow .archive-nightglow .archive-cover { width: 100%; height: 100%; display: grid; place-items: center; overflow: hidden; border-radius: 1px; color: #5a6b7c; background: #e3ebf3; font: 22px/1 Georgia,serif; }
 .theme-nightglow .archive-nightglow .archive-cover img { width: 100%; height: 100%; object-fit: cover; }
 .theme-nightglow .archive-nightglow .archive-heading-copy { min-width: 0; margin: 0 0 2px; }
-.theme-nightglow .archive-nightglow .archive-name { display: block; color: #f4f4f6; font-size: 19px; line-height: 1.2; font-weight: 800; letter-spacing: .04em; overflow-wrap: anywhere; }
-.theme-nightglow .archive-nightglow .archive-body { box-sizing: border-box; width: 100%; min-width: 0; padding: 0 2px; border: 0; background: transparent; box-shadow: none; color: var(--chat-text-color,#ece2d6); line-height: 2; text-align: left; }
+.theme-nightglow .archive-nightglow .archive-name { display: block; color: #1f242b; font-size: 19px; line-height: 1.2; font-weight: 800; letter-spacing: .04em; overflow-wrap: anywhere; }
+.theme-nightglow .archive-nightglow .archive-body { box-sizing: border-box; width: 100%; min-width: 0; padding: 0 2px; border: 0; background: transparent; box-shadow: none; color: var(--chat-text-color,#2a3038); line-height: 2; text-align: left; }
 .theme-nightglow .archive-nightglow .archive-body :is(.message-content,.message-content-flat,.message-flat-body,.message-content-rich) { width: 100%; max-width: 100%; padding: 0; border: 0; border-radius: 0; background: transparent; box-shadow: none; color: inherit; line-height: inherit; }
 .theme-nightglow .archive-nightglow .archive-body :is(.message-story-paragraph,p) { margin: 0 0 1.15em; line-height: 2; }
 .theme-nightglow .archive-nightglow .archive-body :is(.message-story-paragraph,p):last-child { margin-bottom: 0; }
-.theme-nightglow .archive-nightglow .archive-body :is(.message-narration,.chat-narration,em) { color: var(--chat-narration-color,#b9ab9b); font-style: normal; }
-.theme-nightglow .archive-nightglow .archive-body :is(.message-quote,.chat-quote) { display: inline !important; margin: 0 !important; padding: 0 1px !important; border: 0 !important; border-radius: 0 !important; box-shadow: none !important; background: linear-gradient(90deg,#f7e27c,#b2e67c 34%,#72dcc4 66%,#8ab8ff) !important; -webkit-background-clip: text !important; background-clip: text !important; color: transparent !important; -webkit-text-fill-color: transparent !important; font-weight: 700 !important; filter: drop-shadow(0 0 5px rgba(130,225,195,.22)); line-height: inherit !important; box-decoration-break: clone; -webkit-box-decoration-break: clone; }
-.theme-nightglow .archive-nightglow .archive-body :is(section,[class*='status-card'],[class*='scene-card'],[class*='private'],details) { margin: 20px 0; padding: 16px 18px; border: 1px solid #4a3f36; border-left: 3px solid #665446; border-radius: 14px; color: #cdd0d6; background: #362d26; box-shadow: none; line-height: 1.8; }
-.theme-nightglow .archive-nightglow .message-action-row { justify-content: flex-start; margin-top: 12px; color: #b9ab9b; }
+.theme-nightglow .archive-nightglow .archive-body :is(.message-narration,.chat-narration,em) { color: var(--chat-narration-color,#6b7480); font-style: normal; }
+.theme-nightglow .archive-nightglow .archive-body :is(.message-quote,.chat-quote) { display: inline !important; margin: 0 !important; padding: 0 1px !important; border: 0 !important; border-radius: 0 !important; box-shadow: none !important; background: linear-gradient(90deg,#e0a01c,#6bb03a 34%,#15a58c 66%,#3b7ee6) !important; -webkit-background-clip: text !important; background-clip: text !important; color: transparent !important; -webkit-text-fill-color: transparent !important; font-weight: 700 !important; filter: drop-shadow(0 0 4px rgba(60,150,200,.22)); line-height: inherit !important; box-decoration-break: clone; -webkit-box-decoration-break: clone; }
+.theme-nightglow .archive-nightglow .archive-body :is(section,[class*='status-card'],[class*='scene-card'],[class*='private'],details) { margin: 20px 0; padding: 16px 18px; border: 1px solid #dbe3ec; border-left: 3px solid #9fb3c8; border-radius: 14px; color: #3a4350; background: rgba(255,255,255,.82); box-shadow: 0 4px 14px rgba(56,86,120,.06); line-height: 1.8; }
+.theme-nightglow .archive-nightglow .message-action-row { justify-content: flex-start; margin-top: 12px; color: #7a8592; }
 .theme-nightglow .archive-nightglow.user .archive-heading { flex-direction: row-reverse; }
 .theme-nightglow .archive-nightglow.user .archive-heading-copy { text-align: right; }
 .theme-nightglow .archive-nightglow.user .archive-body :is(.message-content,.message-content-flat,.message-flat-body,.message-content-rich) { width: fit-content; max-width: 100%; margin-left: auto; text-align: left; }
 .theme-nightglow .archive-nightglow.user .message-action-row { justify-content: flex-end; }
-/* 液态背景：暖棕底上三团琥珀/玫瑰/橘色柔光慢慢流动。只有一层，只动 transform。 */
-@keyframes ngFlow { 0% { transform: translate3d(-6%,-4%,0) rotate(0deg) scale(1.05); } 50% { transform: translate3d(5%,3%,0) rotate(8deg) scale(1.15); } 100% { transform: translate3d(-3%,6%,0) rotate(-6deg) scale(1.08); } }
-.chat-canvas.theme-nightglow::before { content: ''; position: absolute; inset: -25%; z-index: -1; pointer-events: none; background: radial-gradient(38% 32% at 22% 28%, rgba(214,140,72,.40), transparent 70%), radial-gradient(34% 30% at 78% 42%, rgba(196,92,104,.30), transparent 70%), radial-gradient(40% 34% at 46% 82%, rgba(232,176,96,.28), transparent 72%); animation: ngFlow 26s ease-in-out infinite alternate; will-change: transform; }
-@media (prefers-reduced-motion: reduce) { .chat-canvas.theme-nightglow::before { animation: none; } }
