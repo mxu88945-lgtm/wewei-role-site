@@ -40,3 +40,7 @@
 .theme-nightglow .archive-nightglow.user .archive-heading-copy { text-align: right; }
 .theme-nightglow .archive-nightglow.user .archive-body :is(.message-content,.message-content-flat,.message-flat-body,.message-content-rich) { width: fit-content; max-width: 100%; margin-left: auto; text-align: left; }
 .theme-nightglow .archive-nightglow.user .message-action-row { justify-content: flex-end; }
+/* 液态背景：暖棕底上三团琥珀/玫瑰/橘色柔光慢慢流动。只有一层，只动 transform。 */
+@keyframes ngFlow { 0% { transform: translate3d(-6%,-4%,0) rotate(0deg) scale(1.05); } 50% { transform: translate3d(5%,3%,0) rotate(8deg) scale(1.15); } 100% { transform: translate3d(-3%,6%,0) rotate(-6deg) scale(1.08); } }
+.chat-canvas.theme-nightglow::before { content: ''; position: absolute; inset: -25%; z-index: -1; pointer-events: none; background: radial-gradient(38% 32% at 22% 28%, rgba(214,140,72,.40), transparent 70%), radial-gradient(34% 30% at 78% 42%, rgba(196,92,104,.30), transparent 70%), radial-gradient(40% 34% at 46% 82%, rgba(232,176,96,.28), transparent 72%); animation: ngFlow 26s ease-in-out infinite alternate; will-change: transform; }
+@media (prefers-reduced-motion: reduce) { .chat-canvas.theme-nightglow::before { animation: none; } }
