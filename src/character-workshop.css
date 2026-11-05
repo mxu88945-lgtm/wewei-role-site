@@ -138,3 +138,6 @@
 .enhance-file input { position: absolute; inset: 0; opacity: 0; width: 100%; }
 .enhance-loaded { display: grid; gap: 8px; font-size: .92em; overflow-wrap: anywhere; }
 .enhance-loaded small { opacity: .72; line-height: 1.55; }
+
+/* v179: concept / opener boxes are big and grow with long pasted settings. */
+.workshop-card textarea.workshop-big-text { min-height: 240px; font-size: 15px; line-height: 1.7; -webkit-overflow-scrolling: touch; }
