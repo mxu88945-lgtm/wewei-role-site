@@ -23,7 +23,7 @@ import './theme-archives.css'
 import './memoryApiEnhancements'
 
 const APP_SCOPE = '/wewei-role-site/'
-const SERVICE_WORKER_RELEASE = '2026-11-05-workshop-bigtext-v179'
+const SERVICE_WORKER_RELEASE = '2026-11-05-workshop-fold-v180'
 
 if ('serviceWorker' in navigator) {
   let reloadingForUpdate = false

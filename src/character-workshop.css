@@ -5,7 +5,7 @@
 .workshop-intro strong { font-size: 17px; }
 .workshop-intro p { margin: 5px 0 0; color: #8e8493; font-size: 11px; line-height: 1.6; }
 .workshop-card { padding: 17px; display: grid; gap: 14px; border-radius: 25px; background: #efedf1; }
-.workshop-card label { min-width: 0; display: grid; gap: 7px; color: #716876; font-size: 11px; font-weight: 800; }
+.workshop-card label, .workshop-card .workshop-fold-field { min-width: 0; display: grid; gap: 7px; color: #716876; font-size: 11px; font-weight: 800; }
 .workshop-card input,.workshop-card textarea,.workshop-card select { width: 100%; min-width: 0; border: 1px solid rgba(84,63,95,.07); outline: 0; border-radius: 16px; padding: 12px 13px; color: #403943; background: rgba(255,255,255,.72); line-height: 1.55; }
 .workshop-card textarea { resize: vertical; }
 .workshop-two { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
@@ -140,4 +140,7 @@
 .enhance-loaded small { opacity: .72; line-height: 1.55; }
 
 /* v179: concept / opener boxes are big and grow with long pasted settings. */
-.workshop-card textarea.workshop-big-text { min-height: 240px; font-size: 15px; line-height: 1.7; -webkit-overflow-scrolling: touch; }
+.workshop-card textarea.workshop-big-text { height: 260px; min-height: 160px; font-size: 15px; line-height: 1.7; -webkit-overflow-scrolling: touch; }
+.workshop-card textarea.workshop-big-text[data-expanded="1"] { resize: none; }
+.workshop-fold-head { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
+.workshop-card .workshop-fold-toggle { flex: none; width: auto; border: 0; border-radius: 999px; padding: 4px 11px; font-size: 12px; color: #6d5f72; background: rgba(255,255,255,.7); box-shadow: 0 1px 4px rgba(84,63,95,.08); }
