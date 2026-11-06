@@ -4,6 +4,7 @@ import App from './App'
 import './index.css'
 import './pwa-fix.css'
 import './memory.css'
+import './backstage-notes.css'
 import './character-card.css'
 import './import-flow.css'
 import './navigation-shell.css'
@@ -23,7 +24,7 @@ import './theme-archives.css'
 import './memoryApiEnhancements'
 
 const APP_SCOPE = '/wewei-role-site/'
-const SERVICE_WORKER_RELEASE = '2026-11-06-backstage-notes-v182'
+const SERVICE_WORKER_RELEASE = '2026-11-06-backstage-notes-v183'
 
 if ('serviceWorker' in navigator) {
   let reloadingForUpdate = false

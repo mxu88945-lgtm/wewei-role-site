@@ -17,7 +17,11 @@ export type BackstageNote = {
 export type BackstageNotebook = {
   writerIds: string[]
   notes: BackstageNote[]
+  /** 她上次打开手记页的时间，用来算未读。 */
+  seenAt?: number
 }
+
+export const unreadBackstageCount = (book?: BackstageNotebook) => book ? book.notes.filter((note) => note.createdAt > (book.seenAt || 0)).length : 0
 
 const NOTE_TAG = /\n?[ \t]*[[［【]\s*幕后\s*[:：]\s*([\s\S]*?)\s*[\]］】][ \t]*/g
 

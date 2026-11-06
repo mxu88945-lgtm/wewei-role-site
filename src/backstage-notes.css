@@ -1,0 +1,27 @@
+/* v183 幕后手记（App.css 没有被引入，所以单独成文件） */
+.backstage-notebook-group .backstage-open { margin-top: 4px; font-weight: 700; }
+.backstage-notebook-group .backstage-open em { font-style: normal; margin-left: 6px; padding: 1px 7px; border-radius: 999px; background: #e0566b; color: #fff; font-size: 11px; font-weight: 700; }
+.backstage-notes-page { gap: 14px; }
+.backstage-notes-page .backstage-tabs { display: flex; gap: 8px; overflow-x: auto; padding: 2px 2px 6px; -webkit-overflow-scrolling: touch; }
+.backstage-notes-page .backstage-tabs button { flex: 0 0 auto; display: flex; align-items: center; gap: 6px; padding: 6px 12px 6px 6px; border: 1px solid rgba(84,63,95,.14); border-radius: 999px; background: rgba(255,255,255,.75); color: inherit; font: inherit; }
+.backstage-notes-page .backstage-tabs button[aria-selected="true"] { border-color: currentColor; background: #fff; font-weight: 700; }
+.backstage-notes-page .backstage-tabs img, .backstage-notes-page .backstage-tabs span { width: 26px; height: 26px; border-radius: 50%; object-fit: cover; display: grid; place-items: center; background: rgba(84,63,95,.08); font-size: 12px; }
+.backstage-notes-page .backstage-tabs b { font-size: 11px; opacity: .55; font-weight: 600; }
+.backstage-note { display: grid; gap: 10px; padding: 16px; border: 1px solid rgba(84,63,95,.1); border-radius: 20px; background: rgba(255,255,255,.88); box-shadow: 0 4px 16px rgba(60,40,70,.05); }
+.backstage-note.unread { border-color: rgba(224,86,107,.45); }
+.backstage-note header { display: flex; justify-content: space-between; align-items: baseline; gap: 10px; }
+.backstage-note header small { opacity: .5; font-size: 11px; white-space: nowrap; }
+.backstage-note > p { margin: 0; white-space: pre-wrap; line-height: 1.85; font-size: 15px; }
+.backstage-reply { padding: 10px 13px; border-radius: 14px; background: rgba(84,63,95,.06); line-height: 1.75; white-space: pre-wrap; font-size: 14px; }
+.backstage-reply small { opacity: .6; margin-right: 4px; }
+.backstage-reply-state { opacity: .55; font-size: 11px; }
+.backstage-note-actions { display: flex; align-items: center; gap: 10px; }
+.backstage-note-actions .backstage-reply-open { border: 1px solid rgba(84,63,95,.16); border-radius: 999px; padding: 7px 16px; background: #fff; color: inherit; font: inherit; font-size: 14px; font-weight: 700; }
+.backstage-note-actions .danger-link { margin-left: auto; }
+.backstage-reply-box { display: grid; gap: 8px; }
+.backstage-reply-box textarea { width: 100%; box-sizing: border-box; min-height: 128px; border: 1px solid rgba(84,63,95,.16); border-radius: 16px; padding: 12px 14px; font: inherit; font-size: 16px; line-height: 1.7; resize: vertical; background: #fff; color: inherit; }
+.backstage-reply-box div { display: flex; justify-content: flex-end; gap: 8px; }
+.backstage-reply-box button { border: 0; border-radius: 999px; padding: 9px 18px; font: inherit; font-size: 14px; font-weight: 700; background: rgba(84,63,95,.08); color: inherit; }
+.backstage-reply-box button.send { background: #3f3843; color: #fff; }
+.backstage-reply-box button:disabled { opacity: .35; }
+.backstage-toast button:first-of-type { white-space: nowrap; }
