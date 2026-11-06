@@ -94,9 +94,10 @@ import { enforceRelationshipStageFloor, extractRelationshipStage, highestRelatio
 import { buildStatusFallback, getStatusProtocol, latestStatusContent } from './statusProtocol'
 import { dismissComposerKeyboard } from './composerKeyboard'
 import { createKeyboardScrollPin, VIEWPORT_CHANGE_EVENT, VIEWPORT_WILL_CHANGE_EVENT } from './keyboardScrollPin'
+import { addBackstageNote, buildBackstagePrompt, deleteBackstageNote, extractBackstageNote, replyToBackstageNote, stripBackstageForStreaming, toggleBackstageWriter, type BackstageNote } from './backstageNotes'
 import { isChatScoped, legacyDefaultThemeId, pickGlobalIdentity, pickIdentity, pickThemeId, repairLeakedGlobalPersona } from './chatScope'
 
-type Page = 'home' | 'persona-window' | 'phone' | 'story-projects' | 'characters' | 'create' | 'character-workshop' | 'group-create' | 'director-template' | 'group-greeting-picker' | 'import-preview' | 'character-detail' | 'card-data' | 'card-worldbook' | 'card-regex' | 'card-memory' | 'greeting-picker' | 'chat' | 'more' | 'api' | 'reply-helper-api' | 'model' | 'settings' | 'trash' | 'appearance' | 'font' | 'display-reply' | 'identity' | 'worldbook' | 'theater-world' | 'temporary-plot' | 'story-scripts' | 'chat-search' | 'request-preview' | 'preset' | 'memory' | 'memory-api' | 'memory-list'
+type Page = 'home' | 'persona-window' | 'phone' | 'story-projects' | 'characters' | 'create' | 'character-workshop' | 'group-create' | 'director-template' | 'group-greeting-picker' | 'import-preview' | 'character-detail' | 'card-data' | 'card-worldbook' | 'card-regex' | 'card-memory' | 'greeting-picker' | 'chat' | 'more' | 'api' | 'reply-helper-api' | 'model' | 'settings' | 'trash' | 'appearance' | 'font' | 'display-reply' | 'identity' | 'worldbook' | 'theater-world' | 'temporary-plot' | 'story-scripts' | 'chat-search' | 'request-preview' | 'preset' | 'memory' | 'memory-api' | 'memory-list' | 'backstage-notes'
 type MessageEditor = { mode: 'assistant' | 'resend'; messageId: number; text: string }
 type AssistantRequestOptions = { continueWithoutUser?: boolean; phoneNudge?: string; explicitlyMentioned?: boolean; replacement?: Message; rollbackConversation?: Conversation; contextOverride?: ConversationContextSnapshot }
 type Drawer = 'left' | 'right'
@@ -447,6 +448,8 @@ function HomeGlyph({ kind, children }: { kind: HomeGlyphKind; children?: React.R
 function App() {
   const [page, setPage] = useState<Page>('home')
   const [taskDueNotices, setTaskDueNotices] = useState<PersonaTaskDue[]>([])
+  const [backstageTab, setBackstageTab] = useState('')
+  const [backstageDrafts, setBackstageDrafts] = useState<Record<string, string>>({})
   const taskToastSuppressUntil = useRef(0)
   const taskToastTap = (action: () => void) => ({
     onPointerUp: (event: React.PointerEvent) => {
@@ -2713,6 +2716,8 @@ function App() {
       // 长剧情里的他私底下知道小手机上的戏外日常，但戏里不提。
       const backstage = buildBackstageNote(conversations, speaker.id, speaker.name, identity.name, (id) => characters.find((item) => item.id === id)?.name || '角色', conversation.backstageGroupIds)
       if (backstage) promptMessages.push({ role: 'system', content: backstage })
+      const notebookPrompt = buildBackstagePrompt({ notebook: conversation.backstageNotebook, speakerId: speaker.id, speakerName: speaker.name, userName: globalIdentity.name, heroineName: identity.name !== globalIdentity.name ? identity.name : '', statusTag: requiresCharacterStatus ? statusTag : '' })
+      if (notebookPrompt) promptMessages.push({ role: 'system', content: notebookPrompt })
     }
     if (storedRelationshipStage) promptMessages.push({ role: 'system', content: relationshipStageLockInstruction(storedRelationshipStage) })
     if (isPhone) {
@@ -2928,7 +2933,7 @@ function App() {
           const staged = sanitizeAssistantOutput(output, { director: isDirector })
           // Keep partial analysis headings private, but show completed chat sentences
           // while the model is still generating the rest of its reply.
-          const preview = conversation.phone ? phoneStreamPreview(staged) : stripStatusBlocksForStreaming(staged)
+          const preview = conversation.phone ? phoneStreamPreview(staged) : stripStatusBlocksForStreaming(stripBackstageForStreaming(staged))
           if (conversation.phone && (!preview || preview === stagedVisibleOutput)) return
           stagedVisibleOutput = preview
           // About 20 visual updates per second still looks fluid, while avoiding a full
@@ -3021,6 +3026,12 @@ function App() {
         ? normalizeDirectorStatusOutput(cleanOutput || output)
         : conversation.phone ? cleanPhoneOutput(cleanOutput || output) || phoneLockCommand?.text || cleanOutput || output
         : cleanOutput || output
+      let backstageNoteText = ''
+      if (!conversation.phone && !isDirector) {
+        const extracted = extractBackstageNote(visibleOutput)
+        visibleOutput = extracted.text
+        backstageNoteText = extracted.note
+      }
       if (conversation.phone && !conversation.phone.dm && !isDirector) {
         if (phoneVotingRef.current) {
           const voted = parsePhoneVote(visibleOutput)
@@ -3129,6 +3140,7 @@ function App() {
         ...(plotApplied ? consumeTemporaryPlot(item, capturedTemporaryPlot, conversation.historyRevision || 0) : item),
         messages: item.messages.map((message) => message.id === assistantMessage.id ? completedMessage : message),
         relationshipStages: nextRelationshipStage ? { ...(item.relationshipStages || {}), [capturedCharacter.id]: nextRelationshipStage } : item.relationshipStages,
+        backstageNotebook: backstageNoteText ? addBackstageNote(item.backstageNotebook, speaker.id, backstageNoteText, Date.now()) : item.backstageNotebook,
         updatedAt: Date.now(),
       } : item))
       const completed = [...nextMessages, completedMessage]
@@ -4396,6 +4408,17 @@ function App() {
 
     {page === 'memory-api' && <><BackHeader title={currentMemoryConfig.useGlobalApi === false ? `${activeCharacter.name} · 独立记忆 API` : '全局默认记忆 API'} onBack={goBack} action={<span className="saved-label">自动保存</span>} /><section className="content-stack form-stack" data-memory-api-scope={currentMemoryConfig.useGlobalApi === false ? activeCharacter.id : 'global'}><div className="api-status"><span className={selectedMemoryApi.apiKey ? 'ok' : ''}></span><div><strong>{selectedMemoryApi.apiKey ? '记忆接口已配置' : memoryUsesChatFallback ? '当前自动沿用聊天渠道' : '尚未填写密钥'}</strong><small>{currentMemoryConfig.useGlobalApi === false ? `仅覆盖 ${activeCharacter.name}，其他角色仍使用全局接口` : '所有选择“全局默认”的角色与新剧场都会使用此接口'}</small></div></div><label>API 格式<select value={selectedMemoryApi.protocol || 'openai'} onChange={(e) => updateMemoryApi({ protocol: e.target.value === 'anthropic' ? 'anthropic' : 'openai' })}><option value="openai">OpenAI 兼容</option><option value="anthropic">Anthropic（Claude 原生）</option></select></label><label>Base URL<input value={selectedMemoryApi.baseUrl} onChange={(e) => updateMemoryApi({ baseUrl: e.target.value })} autoCapitalize="none" autoCorrect="off" /></label><label>API Key<div className="secret-input-field"><input type={memoryApiKeyVisible ? 'text' : 'password'} value={selectedMemoryApi.apiKey} onChange={(e) => updateMemoryApi({ apiKey: e.target.value })} autoCapitalize="none" autoCorrect="off" autoComplete="off" spellCheck={false} placeholder="sk-••••••••" /><button type="button" onClick={() => setMemoryApiKeyVisible((visible) => !visible)}>{memoryApiKeyVisible ? '隐藏' : '显示'}</button><button type="button" className="danger" disabled={!selectedMemoryApi.apiKey} onClick={() => updateMemoryApi({ apiKey: '' })}>清除</button></div></label><label>模型名称<input value={selectedMemoryApi.modelName} onChange={(e) => updateMemoryApi({ modelName: e.target.value })} autoCapitalize="none" autoCorrect="off" /></label>{memoryUsesChatFallback && <div className="privacy-note"><strong>当前记忆总结仍可自动沿用聊天渠道。</strong><br />这里显示的是记忆接口自己的配置；清除后不会再被聊天密钥回填到输入框。</div>}<div className="privacy-note">此接口独立于聊天 API。密钥只保存在当前设备，不上传仓库；切回全局接口不会删除当前角色已保存的独立配置。</div></section></>}
 
+    {page === 'backstage-notes' && activeConversation && (() => {
+      const book = activeConversation.backstageNotebook || { writerIds: [], notes: [] }
+      const authorIds = [...new Set([...book.writerIds, ...book.notes.map((note) => note.characterId)])]
+      const tab = authorIds.includes(backstageTab) ? backstageTab : authorIds[0] || ''
+      const nameOf = (id: string) => characters.find((item) => item.id === id)?.name || '已离开的角色'
+      const avatarOf = (id: string) => characters.find((item) => item.id === id)?.avatar
+      const notes = book.notes.filter((note) => note.characterId === tab).slice().reverse()
+      const conversationId = activeConversation.id
+      const updateBook = (change: (current: NonNullable<typeof activeConversation.backstageNotebook>) => NonNullable<typeof activeConversation.backstageNotebook>) => setConversations((current) => current.map((item) => item.id === conversationId ? { ...item, backstageNotebook: change(item.backstageNotebook || { writerIds: [], notes: [] }) } : item))
+      return <><BackHeader title="📓 幕后手记" onBack={goBack} /><section className="content-stack backstage-notes-page"><div className="privacy-note">他们演戏时，以戏外群里的自己偷偷写的真心话。每人一本，互相看不到；你回某一篇，下一轮只有他会接你的话。</div>{authorIds.length > 1 && <div className="backstage-tabs" role="tablist">{authorIds.map((id) => <button key={id} role="tab" aria-selected={id === tab} onClick={() => setBackstageTab(id)}>{avatarOf(id) ? <img src={avatarOf(id)} alt="" /> : <span>{nameOf(id).slice(-1)}</span>}<small>{nameOf(id)}</small><b>{book.notes.filter((note) => note.characterId === id).length}</b></button>)}</div>}{!authorIds.length ? <div className="empty-memory"><span>📓</span><strong>还没人能写</strong><p>回到聊天，在右侧菜单「幕后手记」里勾选谁可以写。</p></div> : !notes.length ? <div className="empty-memory"><span>📓</span><strong>{nameOf(tab)}还没写过</strong><p>{book.writerIds.includes(tab) ? '等哪一轮真戳到他，他就会偷偷写一篇。' : '他现在没被勾选，不会再写。'}</p></div> : notes.map((note: BackstageNote) => <article className="backstage-note" key={note.id}><header><strong>{nameOf(note.characterId)}</strong><small>{new Date(note.createdAt).toLocaleString()}</small></header><p>{note.text}</p>{(note.replies || []).map((reply, index) => <div className="backstage-reply" key={index}><small>你回：</small>{reply.text}</div>)}{note.replies?.length ? <small className="backstage-reply-state">{note.answered ? '他已经接了你的话' : '下一轮他会回你'}</small> : null}<div className="backstage-reply-box"><textarea rows={2} value={backstageDrafts[note.id] || ''} placeholder="回他一句…" onChange={(event) => { const value = event.target.value; setBackstageDrafts((current) => ({ ...current, [note.id]: value })) }} /><button type="button" disabled={!(backstageDrafts[note.id] || '').trim()} onClick={() => { const text = backstageDrafts[note.id] || ''; updateBook((current) => replyToBackstageNote(current, note.id, text, Date.now())); setBackstageDrafts((current) => ({ ...current, [note.id]: '' })) }}>回复</button></div><button type="button" className="danger-link" onClick={() => updateBook((current) => deleteBackstageNote(current, note.id))}>删除这篇</button></article>)}</section></>
+    })()}
     {page === 'memory-list' && <><BackHeader title={`${activeConversation?.title || activeCharacter.name} · 记忆库`} onBack={goBack} /><section className="content-stack"><div className="privacy-note">这份记忆只属于当前对话。历史改写后，旧分支记忆会保留但不再注入新分支。</div>{currentMemories.length === 0 ? <div className="empty-memory"><span>✦</span><strong>{archivedMemories.length ? '当前分支还没有已启用记忆' : '还没有长期记忆'}</strong><p>{archivedMemories.length ? '旧分支记忆仍在下方，确认后可逐条复制回来。' : '返回上一页，配置总结 API 后可立即总结当前对话。'}</p></div> : currentMemories.slice().reverse().map((entry) => <article className={`memory-entry ${entry.pinned ? 'pinned' : ''}`} key={entry.id}><div><strong>{entry.pinned ? '★ 核心 · ' : entry.consolidated ? '阶段整理 · ' : ''}{entry.title}</strong><small>{new Date(entry.createdAt).toLocaleString()} · 来源 {entry.sourceCount} 条消息</small></div><textarea rows={8} value={entry.content} onChange={(e) => updateCurrentMemories((entries) => entries.map((item) => item.id === entry.id ? { ...item, content: e.target.value } : item))} /><div className="memory-entry-actions"><button className="soft-button" disabled={isMemoryFixedToCharacter(entry)} onClick={() => promoteMemoryToCharacter(entry)}>{isMemoryFixedToCharacter(entry) ? '已固定到角色卡' : '固定到角色卡'}</button><button className="soft-button" onClick={() => updateCurrentMemories((entries) => entries.map((item) => item.id === entry.id ? { ...item, pinned: !item.pinned } : item))}>{entry.pinned ? '取消核心' : '设为核心记忆'}</button><button className="danger-link" onClick={() => updateCurrentMemories((entries) => entries.filter((item) => item.id !== entry.id))}>删除</button></div></article>)}{archivedMemories.length > 0 && <div className="memory-archive-section"><div className="privacy-note"><strong>历史分支记忆（{archivedMemories.length}）</strong><br />这些内容没有被删除，只因对话改写而停止注入。确认仍适用于当前剧情后，可以复制回当前分支，也可以直接固定到角色卡。</div>{archivedMemories.slice().reverse().map((entry) => { const restored = Boolean(entry.id && currentMemories.some((item) => item.restoredFromId === entry.id)); return <article className="memory-entry archived" key={`archived-${entry.historyRevision || 0}-${entry.id}`}><div><strong>历史分支 · {entry.title}</strong><small>{new Date(entry.createdAt).toLocaleString()} · 来源 {entry.sourceCount} 条消息 · 分支版本 {entry.historyRevision || 0}</small></div><textarea rows={8} value={entry.content} readOnly /><div className="memory-entry-actions"><button className="soft-button" disabled={isMemoryFixedToCharacter(entry)} onClick={() => promoteMemoryToCharacter(entry)}>{isMemoryFixedToCharacter(entry) ? '已固定到角色卡' : '固定到角色卡'}</button><button className="soft-button" disabled={restored} onClick={() => restoreArchivedMemory(entry)}>{restored ? '已复制到当前分支' : '复制到当前分支'}</button></div></article> })}</div>}</section></>}
 
     {page === 'model' && <><BackHeader title="模型设置" onBack={goBack} /><section className="settings-stack compact-settings"><div className="settings-group range-group"><RangeRow label="记忆长度" value={memoryLength} min={10} max={100} step={1} onChange={setMemoryLength} /><RangeRow label="回复令牌限制" hint={`当前最多请求 ${maxTokens} 个输出令牌`} value={maxTokens} min={1000} max={64000} step={1000} onChange={setMaxTokens} /></div><div className="settings-group range-group"><RangeRow label="温度" value={temperature} min={0} max={2} step={0.05} onChange={setTemperature} /><RangeRow label="Top-P" value={topP} min={0} max={1} step={0.05} onChange={setTopP} /></div><div className="settings-group toggle-row"><div><strong>流式传输</strong><small>立即逐字显示回复</small></div><button className={`switch ${streaming ? 'on' : ''}`} onClick={() => setStreaming(!streaming)}><span /></button></div></section></>}
@@ -4511,6 +4534,16 @@ function App() {
               setConversations((current) => current.map((item) => item.id === id ? { ...item, boundPersonaIds: next.length ? next : undefined } : item))
             }
             return <section className="drawer-compact-group backstage-groups"><div className="drawer-section-title"><strong>绑定人格窗口</strong></div><p className="branch-context-note">{bound.length ? `已绑定 ${bound.length} 个人格，说话时自动带入其窗口记忆。` : '点选要绑定的人格窗口，说话时自动带入其窗口记忆。不选则按角色自动匹配。'}</p>{personas.map((persona) => { const char = characters.find((c) => c.id === persona.characterId); return <button key={persona.id} aria-pressed={bound.includes(persona.id)} onClick={() => toggle(persona.id)}><span>{char?.name || '未知人格'}</span><i>{bound.includes(persona.id) ? '✓' : '＋'}</i></button> })}</section>
+          })()}
+          {activeConversation && !activeConversation.phone && (() => {
+            const book = activeConversation.backstageNotebook
+            const writers = book?.writerIds || []
+            const members = conversationMemberIds().map((id) => characters.find((item) => item.id === id)).filter(Boolean) as Character[]
+            if (!members.length) return null
+            const conversationId = activeConversation.id
+            const toggle = (id: string) => setConversations((current) => current.map((item) => item.id === conversationId ? { ...item, backstageNotebook: toggleBackstageWriter(item.backstageNotebook, id) } : item))
+            const count = book?.notes.length || 0
+            return <section className="drawer-compact-group backstage-groups backstage-notebook-group"><div className="drawer-section-title"><strong>幕后手记</strong></div><p className="branch-context-note">{writers.length ? `已勾选 ${writers.length} 人。被戳到时他们会以戏外群里的自己偷偷写一篇，每人一本，互相看不到。` : '勾选谁可以写：他们会以戏外群里的自己，私下吐槽这场戏。每人一本，互相看不到。'}</p>{members.map((member) => <button key={member.id} aria-pressed={writers.includes(member.id)} onClick={() => toggle(member.id)}><span>{member.name}</span><i>{writers.includes(member.id) ? '✓' : '＋'}</i></button>)}<button className="backstage-open" onClick={() => { setDrawer(null); navigate('backstage-notes') }}><span>📓 打开幕后手记{count ? `（${count} 篇）` : ''}</span><i>›</i></button></section>
           })()}
           {activeConversation && !activeConversation.phone && (() => {
             const memberIds = conversationMemberIds()
@@ -4644,7 +4677,7 @@ function UpdateCard() {
     }
   }
 
-  return <section className="update-card"><strong>应用更新</strong><p>主动检查并拉取最新网页版本，不会删除角色、聊天记录或本地设置。</p><small>当前版本：v180 · 2026.11.05 AI 工坊内容框可折叠展开</small><button onClick={refresh} disabled={state === 'checking'}>{state === 'checking' ? '正在检查更新…' : state === 'error' ? '更新失败，点我重试' : '强制刷新到最新版'}</button></section>
+  return <section className="update-card"><strong>应用更新</strong><p>主动检查并拉取最新网页版本，不会删除角色、聊天记录或本地设置。</p><small>当前版本：v181 · 2026.11.06 长剧情幕后手记（勾选谁写、每人一本）</small><button onClick={refresh} disabled={state === 'checking'}>{state === 'checking' ? '正在检查更新…' : state === 'error' ? '更新失败，点我重试' : '强制刷新到最新版'}</button></section>
 }
 
 function PersonaPage({ identities, selectedId, isBound, onSelect, onAdd, onDelete, onUpdate, onBack }: { identities: UserIdentity[]; selectedId: string; isBound: boolean; onSelect: (id: string) => void; onAdd: () => void; onDelete: (id: string) => void; onUpdate: (patch: Partial<UserIdentity>) => void; onBack: () => void }) {

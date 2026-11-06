@@ -54,6 +54,8 @@ export type Conversation = {
   theaterWorldBackground?: string
   /** 长剧情：指定带入哪几个小手机群的戏外近况（最多 2 个）；空 = 自动取最近活跃的两个。 */
   backstageGroupIds?: string[]
+  /** 长剧情：幕后手记（勾选谁能写，每人一本）。 */
+  backstageNotebook?: import('./backstageNotes').BackstageNotebook
   /** 小手机（群聊/私聊）：手动绑定的人格窗口 id，绑了之后这些人格的窗口记忆会注入给说话的角色。 */
   boundPersonaIds?: string[]
   directorCharacterId?: string
