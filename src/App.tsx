@@ -4538,12 +4538,12 @@ function App() {
           {activeConversation && !activeConversation.phone && (() => {
             const book = activeConversation.backstageNotebook
             const writers = book?.writerIds || []
-            const members = conversationMemberIds().map((id) => characters.find((item) => item.id === id)).filter(Boolean) as Character[]
+            const members = conversationMemberIds().filter((id) => id !== activeConversation.directorCharacterId).map((id) => characters.find((item) => item.id === id)).filter(Boolean) as Character[]
             if (!members.length) return null
             const conversationId = activeConversation.id
             const toggle = (id: string) => setConversations((current) => current.map((item) => item.id === conversationId ? { ...item, backstageNotebook: toggleBackstageWriter(item.backstageNotebook, id) } : item))
             const count = book?.notes.length || 0
-            return <section className="drawer-compact-group backstage-groups backstage-notebook-group"><div className="drawer-section-title"><strong>幕后手记</strong></div><p className="branch-context-note">{writers.length ? `已勾选 ${writers.length} 人。被戳到时他们会以戏外群里的自己偷偷写一篇，每人一本，互相看不到。` : '勾选谁可以写：他们会以戏外群里的自己，私下吐槽这场戏。每人一本，互相看不到。'}</p>{members.map((member) => <button key={member.id} aria-pressed={writers.includes(member.id)} onClick={() => toggle(member.id)}><span>{member.name}</span><i>{writers.includes(member.id) ? '✓' : '＋'}</i></button>)}<button className="backstage-open" onClick={() => { setDrawer(null); navigate('backstage-notes') }}><span>📓 打开幕后手记{count ? `（${count} 篇）` : ''}</span><i>›</i></button></section>
+            return <section className="drawer-compact-group backstage-groups backstage-notebook-group"><div className="drawer-section-title"><strong>幕后手记</strong></div>{members.map((member) => <button key={member.id} aria-pressed={writers.includes(member.id)} onClick={() => toggle(member.id)}><span>{member.name}</span><i>{writers.includes(member.id) ? '✓' : '＋'}</i></button>)}<button className="backstage-open" onClick={() => { setDrawer(null); navigate('backstage-notes') }}><span>📓 打开幕后手记{count ? `（${count} 篇）` : ''}</span><i>›</i></button></section>
           })()}
           {activeConversation && !activeConversation.phone && (() => {
             const memberIds = conversationMemberIds()
@@ -4677,7 +4677,7 @@ function UpdateCard() {
     }
   }
 
-  return <section className="update-card"><strong>应用更新</strong><p>主动检查并拉取最新网页版本，不会删除角色、聊天记录或本地设置。</p><small>当前版本：v181 · 2026.11.06 长剧情幕后手记（勾选谁写、每人一本）</small><button onClick={refresh} disabled={state === 'checking'}>{state === 'checking' ? '正在检查更新…' : state === 'error' ? '更新失败，点我重试' : '强制刷新到最新版'}</button></section>
+  return <section className="update-card"><strong>应用更新</strong><p>主动检查并拉取最新网页版本，不会删除角色、聊天记录或本地设置。</p><small>当前版本：v182 · 2026.11.06 幕后手记说明精简</small><button onClick={refresh} disabled={state === 'checking'}>{state === 'checking' ? '正在检查更新…' : state === 'error' ? '更新失败，点我重试' : '强制刷新到最新版'}</button></section>
 }
 
 function PersonaPage({ identities, selectedId, isBound, onSelect, onAdd, onDelete, onUpdate, onBack }: { identities: UserIdentity[]; selectedId: string; isBound: boolean; onSelect: (id: string) => void; onAdd: () => void; onDelete: (id: string) => void; onUpdate: (patch: Partial<UserIdentity>) => void; onBack: () => void }) {
