@@ -81,3 +81,5 @@ html:is([data-theme-key="academy"], [data-theme-key="vinyl"]) body:not(.rp-chat-
 
 .archive-mobile.user .archive-body :is(.message-plain-text,.bubble) { display: block; width: fit-content; max-width: 100%; margin-left: auto !important; margin-right: 0 !important; padding: 10px 14px !important; border: 1px solid #dddde3 !important; border-radius: 17px !important; background: linear-gradient(120deg,#f2f2f5,#e5e5ea) !important; text-align: left !important; }
 .archive-mobile.user .archive-body .message-quote { display: inline; margin: 0; padding: 0; border: 0; border-radius: 0; background: transparent; box-shadow: none; }
+/* v184: 白笺通讯里用户自己的消息卡片整体靠右、略窄，一眼分出是我说的。 */
+.archive-row.archive-mobile.user { width: min(88%, 720px) !important; align-self: flex-end !important; margin-left: auto !important; margin-right: 0 !important; }
