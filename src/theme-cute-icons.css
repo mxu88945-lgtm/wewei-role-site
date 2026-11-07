@@ -93,3 +93,7 @@
 /* Fill the two formerly blank shortcuts in the existing cute sets too. */
 :is(.theme-pudding, .theme-strawberry, .theme-blueberry) .home-entrances [data-home-icon="import"]::before { content: '💌'; font-size: 32px; }
 :is(.theme-pudding, .theme-strawberry, .theme-blueberry) .home-entrances [data-home-icon="settings"]::before { content: '✨'; font-size: 32px; }
+
+/* v188 首页「一起听歌」入口 */
+:is(.theme-paper, .theme-scrapbook, .theme-academy, .theme-vinyl, .theme-mobile) [data-home-icon="music"] { --home-sticker: '🎧'; }
+:is(.theme-pudding, .theme-strawberry, .theme-blueberry) .home-entrances [data-home-icon="music"]::before { content: '🎧'; font-size: 32px; }

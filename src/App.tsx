@@ -432,7 +432,7 @@ function PhaseElapsed({ label, startedAt }: { label: string; startedAt: number }
   return <div className="message-content message-phase"><p>{label}（已等 {seconds} 秒）</p></div>
 }
 
-type HomeGlyphKind = 'chat' | 'persona' | 'story' | 'characters' | 'group' | 'phone' | 'import' | 'settings'
+type HomeGlyphKind = 'chat' | 'persona' | 'story' | 'characters' | 'group' | 'phone' | 'import' | 'music' | 'settings'
 
 function HomeGlyph({ kind, children }: { kind: HomeGlyphKind; children?: React.ReactNode }) {
   const paths: Record<HomeGlyphKind, React.ReactNode> = {
@@ -443,6 +443,7 @@ function HomeGlyph({ kind, children }: { kind: HomeGlyphKind; children?: React.R
     group: <><circle cx="12" cy="8" r="2.4" /><circle cx="5.5" cy="10.5" r="1.8" /><circle cx="18.5" cy="10.5" r="1.8" /><path d="M7.5 19c.7-3.2 2.2-4.8 4.5-4.8s3.8 1.6 4.5 4.8M2.8 18c.3-2.2 1.2-3.4 2.7-3.4.8 0 1.4.3 1.9.8M21.2 18c-.3-2.2-1.2-3.4-2.7-3.4-.8 0-1.4.3-1.9.8" /></>,
     phone: <><rect x="7" y="2.5" width="10" height="19" rx="3" /><path d="M10 5h4M11 18.5h2" /></>,
     import: <><path d="M4 15v4h16v-4M12 3v12M7.5 10.5 12 15l4.5-4.5" /></>,
+    music: <><path d="M9 18V6l10-2v12" /><circle cx="6.5" cy="18" r="2.5" /><circle cx="16.5" cy="16" r="2.5" /></>,
     settings: <><path d="M4 6h16M4 12h16M4 18h16" /><circle cx="9" cy="6" r="2" /><circle cx="15" cy="12" r="2" /><circle cx="8" cy="18" r="2" /></>,
   }
   return <span className="home-icon" data-home-icon={kind}><svg viewBox="0 0 24 24" aria-hidden="true" focusable="false">{paths[kind]}</svg>{children}</span>
@@ -4272,6 +4273,7 @@ function App() {
         <button onClick={() => navigate('characters')}><HomeGlyph kind="characters" /><strong>角色库</strong><small>导入、创建与管理角色</small><i>›</i></button>
         <button onClick={() => navigate('group-create')}><HomeGlyph kind="group" /><strong>群聊共演</strong><small>多个角色 · 独立模型 · 共享剧情</small><i>›</i></button>
         <button onClick={() => openPhonePage()}><HomeGlyph kind="phone">{phoneUnread.groups + phoneUnread.dms > 0 && <b className="phone-unread" aria-label={`${phoneUnread.groups + phoneUnread.dms} 条未读`}>{unreadLabel(phoneUnread.groups + phoneUnread.dms)}</b>}</HomeGlyph><strong>小手机</strong><small>{conversations.some((item) => item.phone) ? `${conversations.filter((item) => item.phone).length} 个戏外群 · 日常吐槽` : '把角色们拉进群，戏外聊天日常'}</small><i>›</i></button>
+        <button onClick={() => useMusicStore.getState().setSheetOpen(true)}><HomeGlyph kind="music" /><strong>一起听歌</strong><small>导入喜欢的歌 · 剧情里他也能听见</small><i>›</i></button>
         <button onClick={() => conversationTxtInputRef.current?.click()}><HomeGlyph kind="import" /><strong>导入对话 TXT</strong><small>惟境 / 伯恩戏剧导出的 TXT，导入成新对话</small><i>›</i></button>
         <button onClick={() => navigate('more')}><HomeGlyph kind="settings" /><strong>设置</strong><small>API、模型、身份与应用</small><i>›</i></button>
       </div>
@@ -4707,7 +4709,7 @@ function UpdateCard() {
     }
   }
 
-  return <section className="update-card"><strong>应用更新</strong><p>主动检查并拉取最新网页版本，不会删除角色、聊天记录或本地设置。</p><small>当前版本：v187 · 2026.11.07 白笺通讯我的台词气泡靠右</small><button onClick={refresh} disabled={state === 'checking'}>{state === 'checking' ? '正在检查更新…' : state === 'error' ? '更新失败，点我重试' : '强制刷新到最新版'}</button></section>
+  return <section className="update-card"><strong>应用更新</strong><p>主动检查并拉取最新网页版本，不会删除角色、聊天记录或本地设置。</p><small>当前版本：v188 · 2026.11.07 白笺通讯我的台词气泡靠右</small><button onClick={refresh} disabled={state === 'checking'}>{state === 'checking' ? '正在检查更新…' : state === 'error' ? '更新失败，点我重试' : '强制刷新到最新版'}</button></section>
 }
 
 function PersonaPage({ identities, selectedId, isBound, onSelect, onAdd, onDelete, onUpdate, onBack }: { identities: UserIdentity[]; selectedId: string; isBound: boolean; onSelect: (id: string) => void; onAdd: () => void; onDelete: (id: string) => void; onUpdate: (patch: Partial<UserIdentity>) => void; onBack: () => void }) {
