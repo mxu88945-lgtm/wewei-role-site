@@ -24,7 +24,7 @@ import './theme-archives.css'
 import './memoryApiEnhancements'
 
 const APP_SCOPE = '/wewei-role-site/'
-const SERVICE_WORKER_RELEASE = '2026-11-07-backstage-scroll-keep-v189'
+const SERVICE_WORKER_RELEASE = '2026-11-07-reply-helper-close-v190'
 
 if ('serviceWorker' in navigator) {
   let reloadingForUpdate = false

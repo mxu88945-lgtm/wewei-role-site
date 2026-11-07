@@ -551,6 +551,14 @@ function App() {
   const [viewerImage, setViewerImage] = useState<ChatImage | null>(null)
   const chatImageInputRef = useRef<HTMLInputElement>(null)
   const [replyHelperState, setReplyHelperState] = useState<'idle' | 'generating'>('idle')
+  // v190：AI 帮答卡住时可以随时关掉，关掉即中止请求
+  const replyHelperAbortRef = useRef<AbortController | null>(null)
+  const closeComposerTools = () => {
+    replyHelperAbortRef.current?.abort()
+    replyHelperAbortRef.current = null
+    setReplyHelperState('idle')
+    setComposerToolsOpen(false)
+  }
   const [replyHelperApiId, setReplyHelperApiId] = useState(() => read('weijing.replyHelperApiId', ''))
   const [replyHelperModelName, setReplyHelperModelName] = useState(() => read('weijing.replyHelperModelName', ''))
   const [memberPickerOpen, setMemberPickerOpen] = useState(false)
@@ -2588,6 +2596,10 @@ function App() {
     setReplyHelperState('generating')
     setChatError('')
     let output = ''
+    const controller = new AbortController()
+    replyHelperAbortRef.current = controller
+    // 90 秒还没起草好就自动放弃，免得一直转
+    const timeout = window.setTimeout(() => controller.abort(), 90_000)
     try {
       await completeChat({
         api: helperApi,
@@ -2596,18 +2608,24 @@ function App() {
         topP: .95,
         maxTokens: REPLY_HELPER_MAX_TOKENS,
         streaming: false,
-        signal: new AbortController().signal,
+        signal: controller.signal,
         onDelta: (delta) => { output += delta },
       })
+      if (controller.signal.aborted) return
       const nextDraft = cleanReplyHelperDraft(output)
       if (!nextDraft) throw new Error('模型没有生成可用草稿')
       setDraft(nextDraft)
       setComposerToolsOpen(false)
       window.requestAnimationFrame(() => composerRef.current?.focus())
     } catch (error) {
-      setChatError(`AI 帮答：${error instanceof Error ? error.message : '生成失败'}`)
+      if (replyHelperAbortRef.current !== controller) return
+      setChatError(controller.signal.aborted ? 'AI 帮答：等了 90 秒还没回，已停止，可以再试一次。' : `AI 帮答：${error instanceof Error ? error.message : '生成失败'}`)
     } finally {
-      setReplyHelperState('idle')
+      window.clearTimeout(timeout)
+      if (replyHelperAbortRef.current === controller) {
+        replyHelperAbortRef.current = null
+        setReplyHelperState('idle')
+      }
     }
   }
 
@@ -4459,9 +4477,9 @@ function App() {
 
     <MusicPlayer />
     {composerToolsOpen && <div className="composer-tools-layer" role="dialog" aria-modal="true" aria-label="更多功能">
-      <button className="drawer-backdrop" aria-label="关闭更多功能" onClick={() => replyHelperState === 'idle' && setComposerToolsOpen(false)} />
+      <button className="drawer-backdrop" aria-label="关闭更多功能" onClick={closeComposerTools} />
       <section className="composer-tools-sheet">
-        <header><strong>更多</strong><button type="button" aria-label="关闭更多功能" onClick={() => setComposerToolsOpen(false)} disabled={replyHelperState === 'generating'}>×</button></header>
+        <header><strong>更多</strong><button type="button" aria-label="关闭更多功能" onClick={closeComposerTools}>×</button></header>
         <div className="composer-tools-grid">
           <button className="reply-helper-action" aria-label="AI 帮答" onClick={() => void generateReplyHelperDraft()} disabled={replyHelperState === 'generating' || isGenerating}>
             <span aria-hidden="true"><svg viewBox="0 0 32 32"><path d="M16 4c1 7 5 11 12 12-7 1-11 5-12 12-1-7-5-11-12-12 7-1 11-5 12-12Z" /></svg></span>
@@ -4712,7 +4730,7 @@ function UpdateCard() {
     }
   }
 
-  return <section className="update-card"><strong>应用更新</strong><p>主动检查并拉取最新网页版本，不会删除角色、聊天记录或本地设置。</p><small>当前版本：v189 · 2026.11.07 白笺通讯我的台词气泡靠右</small><button onClick={refresh} disabled={state === 'checking'}>{state === 'checking' ? '正在检查更新…' : state === 'error' ? '更新失败，点我重试' : '强制刷新到最新版'}</button></section>
+  return <section className="update-card"><strong>应用更新</strong><p>主动检查并拉取最新网页版本，不会删除角色、聊天记录或本地设置。</p><small>当前版本：v190 · 2026.11.07 白笺通讯我的台词气泡靠右</small><button onClick={refresh} disabled={state === 'checking'}>{state === 'checking' ? '正在检查更新…' : state === 'error' ? '更新失败，点我重试' : '强制刷新到最新版'}</button></section>
 }
 
 function PersonaPage({ identities, selectedId, isBound, onSelect, onAdd, onDelete, onUpdate, onBack }: { identities: UserIdentity[]; selectedId: string; isBound: boolean; onSelect: (id: string) => void; onAdd: () => void; onDelete: (id: string) => void; onUpdate: (patch: Partial<UserIdentity>) => void; onBack: () => void }) {
