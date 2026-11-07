@@ -87,7 +87,7 @@ export function buildMusicNote(now: NowPlaying | null, lines: LyricLine[], playl
     }
   }
   if (playlist.length) parts.push(`她的歌单（${playlist.length} 首）：${playlist.slice(0, 20).join('、')}${playlist.length > 20 ? '…' : ''}`)
-  parts.push('可以自然地聊这首歌、顺着歌词说点什么，别每条都提，别编造没给你的歌词，不要提“系统”“提示”。应景时可以融进剧情氛围里，但不要跳出角色。')
+  parts.push('可以自然地聊这首歌、顺着歌词说点什么，别每条都提，别编造没给你的歌词，不要提“系统”“提示”。剧情需要时（比如他跟着哼、借一句歌词说心事、念给她听），可以让角色在台词里直接说出或唱出上面给到的歌词原句，但只用给到的原句，不要自己续写或改编成假歌词，也不要跳出角色。')
   return '\n\n【一起听歌】\n' + parts.join('\n')
 }
 

@@ -23,6 +23,7 @@ describe('lyrics', () => {
     const n = buildMusicNote({ name: '晴天', playing: true, pos: 16, dur: 269 }, l)
     expect(n).toContain('《晴天》')
     expect(n).toContain('▶ 从出生那年就飘着')
+    expect(n).toContain('直接说出或唱出上面给到的歌词原句')
     expect(buildMusicNote({ name: '晴天', playing: false, pos: 16, dur: 269 }, l)).toBe('')
     expect(buildMusicNote({ name: '晴天', playing: true, pos: 16, dur: 269 }, l, ['晴天', '稻香'])).toContain('她的歌单（2 首）：晴天、稻香')
   })
