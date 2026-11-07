@@ -753,7 +753,8 @@ function App() {
     : 0
   const rememberChatScroll = (conversationKey = chatScrollKey) => {
     const list = messageListRef.current
-    if (!list) return
+    // v189：页面切走时列表已经被收起/卸载（高度 0、scrollTop 0），这时记下来会把她送回最顶端
+    if (!list || !list.isConnected || list.clientHeight === 0) return
     const distanceToBottom = Math.max(0, list.scrollHeight - list.scrollTop - list.clientHeight)
     chatScrollSnapshotsRef.current.set(conversationKey, {
       top: Math.max(0, list.scrollTop),
@@ -1423,6 +1424,8 @@ function App() {
   }, [page, chatScrollKey, messages, chatWindowStart, generatingIds])
   const pageTitle = useMemo(() => page === 'home' ? '惟境' : page === 'characters' ? '角色' : '', [page])
   const openBackstageNotes = (conversationId: string) => {
+    // v189：离开聊天前先记住她看到哪儿，返回时回到原位而不是最顶端
+    if (page === 'chat') rememberChatScroll()
     const book = conversations.find((item) => item.id === conversationId)?.backstageNotebook
     setBackstageSeenSnapshot(book?.seenAt || 0)
     setBackstageNotice(null)
@@ -4709,7 +4712,7 @@ function UpdateCard() {
     }
   }
 
-  return <section className="update-card"><strong>应用更新</strong><p>主动检查并拉取最新网页版本，不会删除角色、聊天记录或本地设置。</p><small>当前版本：v188 · 2026.11.07 白笺通讯我的台词气泡靠右</small><button onClick={refresh} disabled={state === 'checking'}>{state === 'checking' ? '正在检查更新…' : state === 'error' ? '更新失败，点我重试' : '强制刷新到最新版'}</button></section>
+  return <section className="update-card"><strong>应用更新</strong><p>主动检查并拉取最新网页版本，不会删除角色、聊天记录或本地设置。</p><small>当前版本：v189 · 2026.11.07 白笺通讯我的台词气泡靠右</small><button onClick={refresh} disabled={state === 'checking'}>{state === 'checking' ? '正在检查更新…' : state === 'error' ? '更新失败，点我重试' : '强制刷新到最新版'}</button></section>
 }
 
 function PersonaPage({ identities, selectedId, isBound, onSelect, onAdd, onDelete, onUpdate, onBack }: { identities: UserIdentity[]; selectedId: string; isBound: boolean; onSelect: (id: string) => void; onAdd: () => void; onDelete: (id: string) => void; onUpdate: (patch: Partial<UserIdentity>) => void; onBack: () => void }) {
