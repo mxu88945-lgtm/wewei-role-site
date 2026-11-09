@@ -20,6 +20,8 @@ type ApiSettingsPageProps = {
   replyHelperChannelName: string
   replyHelperModelName: string
   onOpenReplyHelper: () => void
+  semanticRecallLabel: string
+  onOpenSemanticRecall: () => void
 }
 
 export default function ApiSettingsPage({
@@ -37,6 +39,8 @@ export default function ApiSettingsPage({
   replyHelperChannelName,
   replyHelperModelName,
   onOpenReplyHelper,
+  semanticRecallLabel,
+  onOpenSemanticRecall,
 }: ApiSettingsPageProps) {
   const [expandedIds, setExpandedIds] = useState<string[]>([api.id])
   const [modelsByChannel, setModelsByChannel] = useState<Record<string, ApiModel[]>>({})
@@ -119,6 +123,11 @@ export default function ApiSettingsPage({
       <button type="button" className="api-feature-binding" onClick={onOpenReplyHelper}>
         <span className="api-feature-binding-icon">✦</span>
         <span className="api-feature-binding-copy"><small>专用功能绑定</small><strong>AI 帮答</strong><em>{replyHelperChannelName || '未选择渠道'} · {replyHelperModelName || '未选择模型'}</em></span>
+        <i>›</i>
+      </button>
+      <button type="button" className="api-feature-binding" onClick={onOpenSemanticRecall}>
+        <span className="api-feature-binding-icon">◎</span>
+        <span className="api-feature-binding-copy"><small>专用功能绑定</small><strong>语义召回</strong><em>{semanticRecallLabel}</em></span>
         <i>›</i>
       </button>
       <section className="api-channels-panel">

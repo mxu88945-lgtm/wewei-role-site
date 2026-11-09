@@ -1,5 +1,7 @@
 import { useCallback, useEffect, useId, useLayoutEffect, useMemo, useRef, useState } from 'react'
 import ApiSettingsPage from './ApiSettingsPage'
+import SemanticRecallPage from './SemanticRecallPage'
+import { getSemanticState, registerSemanticSources, scheduleSemanticIndex, semanticRecallForConversation } from './semanticRuntime'
 import ArchiveHeading from './ArchiveHeading'
 import BackupCard from './BackupCard'
 import ChatSearchPage from './ChatSearchPage'
@@ -100,9 +102,9 @@ import { useMusicStore, currentMusicNote } from './musicStore'
 import { buildMusicNote } from './lyrics'
 import { isChatScoped, legacyDefaultThemeId, pickGlobalIdentity, pickIdentity, pickThemeId, repairLeakedGlobalPersona } from './chatScope'
 
-type Page = 'home' | 'persona-window' | 'phone' | 'story-projects' | 'characters' | 'create' | 'character-workshop' | 'group-create' | 'director-template' | 'group-greeting-picker' | 'import-preview' | 'character-detail' | 'card-data' | 'card-worldbook' | 'card-regex' | 'card-memory' | 'greeting-picker' | 'chat' | 'more' | 'api' | 'reply-helper-api' | 'model' | 'settings' | 'trash' | 'appearance' | 'font' | 'display-reply' | 'identity' | 'worldbook' | 'theater-world' | 'temporary-plot' | 'story-scripts' | 'chat-search' | 'request-preview' | 'preset' | 'memory' | 'memory-api' | 'memory-list' | 'backstage-notes'
+type Page = 'home' | 'persona-window' | 'phone' | 'story-projects' | 'characters' | 'create' | 'character-workshop' | 'group-create' | 'director-template' | 'group-greeting-picker' | 'import-preview' | 'character-detail' | 'card-data' | 'card-worldbook' | 'card-regex' | 'card-memory' | 'greeting-picker' | 'chat' | 'more' | 'api' | 'reply-helper-api' | 'semantic-recall' | 'model' | 'settings' | 'trash' | 'appearance' | 'font' | 'display-reply' | 'identity' | 'worldbook' | 'theater-world' | 'temporary-plot' | 'story-scripts' | 'chat-search' | 'request-preview' | 'preset' | 'memory' | 'memory-api' | 'memory-list' | 'backstage-notes'
 type MessageEditor = { mode: 'assistant' | 'resend'; messageId: number; text: string }
-type AssistantRequestOptions = { continueWithoutUser?: boolean; phoneNudge?: string; explicitlyMentioned?: boolean; replacement?: Message; rollbackConversation?: Conversation; contextOverride?: ConversationContextSnapshot }
+type AssistantRequestOptions = { /** 语义召回块（只来自本对话；关闭时不传） */ semanticRecall?: string; continueWithoutUser?: boolean; phoneNudge?: string; explicitlyMentioned?: boolean; replacement?: Message; rollbackConversation?: Conversation; contextOverride?: ConversationContextSnapshot }
 type Drawer = 'left' | 'right'
 type HistoryEntry = { page: Page; reopenDrawer?: Drawer }
 type LegacySessionMap = Record<string, Message[]>
@@ -682,6 +684,8 @@ function App() {
   const generationRollbacks = useRef(new Map<string, { controller: AbortController; conversation: Conversation }>())
   const conversationsRef = useRef(conversations)
   conversationsRef.current = conversations
+  const apiChannelsRef = useRef(apiChannels)
+  apiChannelsRef.current = apiChannels
   const wallpaperStartupRef = useRef({ characters, conversations, activeConversationId, activeId, chatBackgroundFrost })
   const memoryRunsRef = useRef(new Map<string, AbortController>())
   const conversationStopRevisions = useRef(new Map<string, number>())
@@ -1072,6 +1076,12 @@ function App() {
   useEffect(() => write('weijing.worldbook', worldbook), [worldbook])
   useEffect(() => { write('weijing.presetSections', presetSections); write('weijing.preset', enabledPresetText(presetSections)) }, [presetSections])
   useEffect(() => write('weijing.apiChannels', apiChannels), [apiChannels])
+  // 语义召回：本地数据读完后才接上数据源（避免空列表把向量当成过期清掉），约 60 秒后后台增量建索引；关着时什么也不做。
+  useEffect(() => {
+    if (!persistenceReady) return
+    registerSemanticSources({ conversations: () => conversationsRef.current, channels: () => apiChannelsRef.current })
+    scheduleSemanticIndex(60_000)
+  }, [persistenceReady])
   useEffect(() => write('weijing.activeApiChannel', api.id), [api.id])
   useEffect(() => write('weijing.api', { baseUrl: api.baseUrl, apiKey: api.apiKey, modelName: api.modelName, maxTokenField: api.maxTokenField }), [api])
   useEffect(() => { if (persistenceReady) writeDurable('weijing.memoryConfigs', memoryConfigs) }, [memoryConfigs, persistenceReady])
@@ -2748,6 +2758,7 @@ function App() {
       memory: { entries: capturedMemories, injectPosition: capturedMemoryConfig.injectPosition, injectPrompt: capturedMemoryConfig.injectPrompt },
       memoryLength,
       contextSummary: hasValidContextSummary ? (isPhone ? conversation.contextSummary?.slice(0, 4000) : conversation.contextSummary) : undefined,
+      semanticRecall: isPhone || isDirector ? undefined : requestOptions.semanticRecall,
       // Phone history is already a tail slice: its indices no longer match the saved transcript.
       compressedUntil: !isPhone && hasValidContextSummary ? conversation.compressedUntil : undefined,
     })
@@ -2938,7 +2949,14 @@ function App() {
     }
 
     try {
-      const prepared = prepareAssistantRequest(conversation, nextMessages, speaker, requestOptions)
+      // 语义召回：只在本对话里找意思相近的旧原话；关着时立刻得到 ''，失败/4 秒超时也得到 ''，不挡发送。
+      const isDirectorSpeaker = Boolean(conversation.directorCharacterId && speaker.id === conversation.directorCharacterId)
+      const semanticRecall = conversation.phone || isDirectorSpeaker ? '' : await semanticRecallForConversation({
+        conversation: { id: conversationId, messages: nextMessages },
+        inContextIds: new Set(nextMessages.slice(-Math.max(1, memoryLength)).map((message) => message.id)),
+        speakerName: (message) => message.role === 'user' ? identity.name : messageCharacterName(message as Message, conversation),
+      })
+      const prepared = prepareAssistantRequest(conversation, nextMessages, speaker, semanticRecall ? { ...requestOptions, semanticRecall } : requestOptions)
       const { promptStats, capturedCharacter, capturedMemoryConfig, isGroup, isDirector, statusTag, requiresCharacterStatus, groupNames, storedRelationshipStage } = prepared
       let promptMessages = prepared.promptMessages
       const runCompletion = async () => {
@@ -3194,6 +3212,8 @@ function App() {
         markStoryHistoryForReview(conversationId)
       }
       scheduleAutoContextCompression(conversationId)
+      // 每次回复后：后台增量补语义索引（关着时什么也不做）
+      scheduleSemanticIndex(3000)
       const summarizedCount = Math.min(conversation.memorySummarizedCount || 0, completed.length)
       if (!isGroup && capturedMemoryConfig.autoEvery > 0 && completed.length - summarizedCount >= capturedMemoryConfig.autoEvery && capturedMemoryConfig.api.apiKey) summarizeMemory(completed, conversation, capturedCharacter)
       return completed
@@ -4415,7 +4435,8 @@ function App() {
 
     {page === 'more' && <><BackHeader title="设置" onBack={goBack} /><section className="settings-stack compact-settings">{[[['API 连接', 'api'], ['用户身份', 'identity']], [['模型设置', 'model'], ['模型预设', 'preset'], ['全局世界书', 'worldbook'], ['长记忆', 'memory']], [['回收站', 'trash'], ['应用设置', 'settings']]].map((group, index) => <div className="settings-group" key={index}>{group.map(([label, target]) => <button key={label} onClick={() => navigate(target as Page)}><span>{label}</span><span>›</span></button>)}</div>)}</section></>}
 
-    {page === 'api' && <ApiSettingsPage api={api} channels={apiChannels} connection={connection} connectionMessage={connectionMessage} onApiChange={updateApiChannel} onSelectChannel={selectApiChannel} onAddChannel={addApiChannel} onDeleteChannel={deleteApiChannel} onConnectionReset={resetApiConnection} onBack={goBack} onTest={testConnection} replyHelperChannelName={(apiChannels.find((item) => item.id === replyHelperApiId) || api).name} replyHelperModelName={replyHelperModelName || (apiChannels.find((item) => item.id === replyHelperApiId) || api).modelName} onOpenReplyHelper={() => navigate('reply-helper-api')} />}
+    {page === 'api' && <ApiSettingsPage api={api} channels={apiChannels} connection={connection} connectionMessage={connectionMessage} onApiChange={updateApiChannel} onSelectChannel={selectApiChannel} onAddChannel={addApiChannel} onDeleteChannel={deleteApiChannel} onConnectionReset={resetApiConnection} onBack={goBack} onTest={testConnection} replyHelperChannelName={(apiChannels.find((item) => item.id === replyHelperApiId) || api).name} replyHelperModelName={replyHelperModelName || (apiChannels.find((item) => item.id === replyHelperApiId) || api).modelName} onOpenReplyHelper={() => navigate('reply-helper-api')} semanticRecallLabel={getSemanticState().config.enabled ? `已开启 · ${getSemanticState().config.model}` : '未开启'} onOpenSemanticRecall={() => navigate('semantic-recall')} />}
+    {page === 'semantic-recall' && <SemanticRecallPage channels={apiChannels} onBack={goBack} />}
     {page === 'reply-helper-api' && <ReplyHelperSettingsPage channels={apiChannels} channelId={(apiChannels.find((item) => item.id === replyHelperApiId) || api).id} modelName={replyHelperModelName || (apiChannels.find((item) => item.id === replyHelperApiId) || api).modelName} onChannelChange={setReplyHelperApiId} onModelChange={setReplyHelperModelName} onBack={goBack} />}
 
     {page === 'identity' && <PersonaPage identities={identities} selectedId={identity.id} isBound={Boolean(scopedConversation?.personaId && !scopedConversation.phone)} onSelect={selectIdentity} onAdd={addIdentity} onDelete={deleteIdentity} onUpdate={updateIdentity} onBack={goBack} />}
@@ -4730,7 +4751,7 @@ function UpdateCard() {
     }
   }
 
-  return <section className="update-card"><strong>应用更新</strong><p>主动检查并拉取最新网页版本，不会删除角色、聊天记录或本地设置。</p><small>当前版本：v190 · 2026.11.07 白笺通讯我的台词气泡靠右</small><button onClick={refresh} disabled={state === 'checking'}>{state === 'checking' ? '正在检查更新…' : state === 'error' ? '更新失败，点我重试' : '强制刷新到最新版'}</button></section>
+  return <section className="update-card"><strong>应用更新</strong><p>主动检查并拉取最新网页版本，不会删除角色、聊天记录或本地设置。</p><small>当前版本：v191 · 2026.11.09 语义召回（每段剧情只想起自己的旧原话）</small><button onClick={refresh} disabled={state === 'checking'}>{state === 'checking' ? '正在检查更新…' : state === 'error' ? '更新失败，点我重试' : '强制刷新到最新版'}</button></section>
 }
 
 function PersonaPage({ identities, selectedId, isBound, onSelect, onAdd, onDelete, onUpdate, onBack }: { identities: UserIdentity[]; selectedId: string; isBound: boolean; onSelect: (id: string) => void; onAdd: () => void; onDelete: (id: string) => void; onUpdate: (patch: Partial<UserIdentity>) => void; onBack: () => void }) {

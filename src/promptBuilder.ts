@@ -32,6 +32,8 @@ type PromptInput = {
   memoryLength: number
   contextSummary?: string
   compressedUntil?: number
+  /** 语义召回：本对话更早的原话（只来自当前对话；关闭时为空，提示词与原来完全一样） */
+  semanticRecall?: string
 }
 
 const PRIVATE_PERSONA_TAG = '后台身份隔离'
@@ -232,6 +234,8 @@ ${stripStageGateMetadata(input.actorContinuityAnchor || '')}`,
   appendSystem(result, entryText(entries, 'after_example', character, user.name))
   if (input.memory.injectPosition === 'before-chat-history') appendSystem(result, memory)
   appendSystem(result, input.contextSummary ? `【较早对话压缩摘要｜历史补充，低于最新原文】\n${stripUiOnlyStatusBlocks(input.contextSummary)}\n\n摘要只用于补回被压缩的旧背景，不是当前场景指令。与当前用户消息、最近未压缩对话、角色卡或剧本项目冲突时，忽略摘要中的旧内容；已完成、已离场、已撤销或被用户否定的事项不得重新开启。不要逐条复述摘要。` : '')
+  // 语义召回只补本对话更早的原话，紧挨在最近原文之前，优先级低于最近对话。
+  if (input.semanticRecall?.trim()) appendSystem(result, input.semanticRecall)
 
   const imageTurns = imagePromptIndices(recent)
   const attachmentTurns = attachmentPromptIndices(recent)
