@@ -24,7 +24,7 @@ import './theme-archives.css'
 import './memoryApiEnhancements'
 
 const APP_SCOPE = '/wewei-role-site/'
-const SERVICE_WORKER_RELEASE = '2026-11-09-semantic-recall-v191'
+const SERVICE_WORKER_RELEASE = '2026-11-09-backstage-fold-v192'
 
 if ('serviceWorker' in navigator) {
   let reloadingForUpdate = false
