@@ -25,7 +25,7 @@ import './theme-archives.css'
 import './memoryApiEnhancements'
 
 const APP_SCOPE = '/wewei-role-site/'
-const SERVICE_WORKER_RELEASE = '2026-11-09-warm-tea-icons-v195'
+const SERVICE_WORKER_RELEASE = '2026-11-09-backstage-images-v196'
 
 if ('serviceWorker' in navigator) {
   let reloadingForUpdate = false

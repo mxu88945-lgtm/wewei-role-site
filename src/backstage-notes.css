@@ -25,3 +25,15 @@
 .backstage-reply-box button.send { background: #3f3843; color: #fff; }
 .backstage-reply-box button:disabled { opacity: .35; }
 .backstage-toast button:first-of-type { white-space: nowrap; }
+/* v196 手记回复附图 */
+.backstage-reply-images { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 6px; margin-top: 8px; max-width: 280px; }
+.backstage-reply-images.count-1 { grid-template-columns: minmax(0, 160px); }
+.backstage-reply-images.count-2 { grid-template-columns: repeat(2, minmax(0, 1fr)); max-width: 220px; }
+.backstage-reply-images button { padding: 0; border: 0; border-radius: 10px; overflow: hidden; background: rgba(84,63,95,.08); aspect-ratio: 1; }
+.backstage-reply-images img { width: 100%; height: 100%; object-fit: cover; display: block; }
+.backstage-reply-box div.backstage-reply-pending { display: flex; flex-wrap: wrap; justify-content: flex-start; gap: 8px; }
+.backstage-reply-pending span { position: relative; width: 58px; height: 58px; border-radius: 10px; overflow: hidden; background: rgba(84,63,95,.08); }
+.backstage-reply-pending img { width: 100%; height: 100%; object-fit: cover; display: block; }
+.backstage-reply-box .backstage-reply-pending button { position: absolute; top: 2px; right: 2px; width: 20px; height: 20px; padding: 0; border-radius: 50%; background: rgba(20,14,24,.65); color: #fff; font-size: 13px; line-height: 20px; }
+.backstage-reply-pending em { align-self: center; font-style: normal; font-size: 12px; opacity: .6; }
+.backstage-reply-box button.backstage-image-button { margin-right: auto; padding: 9px 14px; }

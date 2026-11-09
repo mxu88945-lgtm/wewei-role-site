@@ -1,4 +1,4 @@
-const CACHE_NAME = 'weijing-shell-v195'
+const CACHE_NAME = 'weijing-shell-v196'
 const APP_ROOT = '/wewei-role-site/'
 
 async function rememberResponse(key, response) {
