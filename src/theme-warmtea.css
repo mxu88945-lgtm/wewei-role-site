@@ -1,0 +1,56 @@
+/*
+ * 暖茶笺：奶油纸底配焦糖色，干净简洁，不加信封、胶带、贴纸。
+ * 气泡不使用 backdrop-filter；毛玻璃只留在顶栏与输入栏（共享样式）。
+ * 「」『』对白由 MessageContent 打上 data-quote="corner"，其他主题不受影响。
+ */
+.phone-canvas.theme-warmtea {
+  --theme-accent: #c27a45; --theme-accent-strong: #c27a45; --theme-accent-end: #b5573b;
+  --theme-accent-soft: #f6e8d7; --theme-accent-soft-strong: #efdcc6; --theme-accent-text: #a8622f;
+  --theme-accent-shadow: rgba(150,100,60,.14); --composer-dock-rgb: 255,250,243;
+  color: #4a3426;
+  background-color: #fbf4ea;
+  background-image: linear-gradient(180deg, #fbf4ea 0%, #f5e8d6 100%);
+}
+
+/* Theme picker swatch */
+.theme-choice-grid button.warmtea i { border: 1px solid #e8d5bf; background: linear-gradient(180deg,#fbf4ea 0 58%,#c27a45 59% 78%,#b5573b 79%); }
+
+/* Chat background: soft vertical cream gradient under the (optional) wallpaper image */
+.theme-warmtea.chat-canvas > .wallpaper-layers { background-image: linear-gradient(180deg, #fbf4ea 0%, #f5e8d6 100%); }
+
+/* Top frost: cream tint fading out (blur + mask come from the shared rule) */
+.theme-warmtea .chat-header::before { background: linear-gradient(to bottom, rgba(255,250,243,.86) 0, rgba(255,250,243,.66) calc(34px + env(safe-area-inset-top)), rgba(255,250,243,.22) calc(60px + env(safe-area-inset-top)), rgba(255,250,243,0) 100%); }
+.theme-warmtea .chat-identity small { color: #8c6f5a; }
+
+/* Bubbles */
+.theme-warmtea .message-content-bubble, .theme-warmtea.phone-canvas .message-layout-bubble .message-content-rich { border: 1px solid #ebd9c4; border-radius: 18px; color: #4a3426; background: #fffbf5; box-shadow: 0 2px 8px rgba(150,100,60,.08); -webkit-backdrop-filter: none; backdrop-filter: none; }
+.theme-warmtea .message-row.user .message-content-bubble { border-color: transparent; border-radius: 18px; color: #4a3426; background: linear-gradient(160deg,#f6e2cc,#efcfb0); box-shadow: 0 2px 8px rgba(150,100,60,.08); }
+.theme-warmtea .message-bubble-author { color: #8c6f5a; }
+.theme-warmtea .message-narration { color: #8c6f5a; }
+
+/* Avatars: round, caramel ring with a cream gap, soft glow */
+.theme-warmtea .message-avatar, .theme-warmtea .phone-chat .wx-line .message-avatar, .theme-warmtea .chat-identity > img, .theme-warmtea .chat-identity > span { border-radius: 50%; box-shadow: 0 0 0 2px #fbf4ea, 0 0 0 4px #e2b98a, 0 3px 10px rgba(194,122,69,.28); }
+.theme-warmtea .message-avatar, .theme-warmtea .chat-identity > span { background: linear-gradient(145deg,#c27a45,#e2b98a); }
+.theme-warmtea .message-avatar img, .theme-warmtea .chat-identity > img { border-radius: 50%; }
+
+/* “双引号” dialogue: caramel highlighter underline */
+.theme-warmtea :is(.message-quote, .message-safe-html .message-quote) { display: inline; width: auto; margin: 0; padding: 0 2px; border: 0; border-radius: 3px; color: #9a4f2e; font-weight: 600; background: linear-gradient(transparent 60%, rgba(232,177,120,.35) 60%); box-shadow: none; line-height: inherit; -webkit-box-decoration-break: clone; box-decoration-break: clone; }
+/* 「直角引号」 dialogue: thin caramel rule on the left */
+.theme-warmtea :is(.message-quote, .message-safe-html .message-quote)[data-quote="corner"] { padding: 0 2px 0 6px; border: 0; border-left: 2px solid #c27a45; border-radius: 0 4px 4px 0; color: #7a5a44; font-weight: inherit; background: rgba(194,122,69,.08); -webkit-box-decoration-break: clone; box-decoration-break: clone; }
+
+/* Composer: cream dock fade, cream field, caramel send */
+.theme-warmtea .composer::before { background: linear-gradient(180deg, rgba(255,250,243,0) 0, rgba(255,250,243,.6) 20px, rgba(255,250,243,.86) 44px, rgba(255,250,243,.9) 64px, rgba(255,250,243,.9) 100%); }
+.theme-warmtea .composer { border: 1px solid #e8d5bf; background: #fffaf3; box-shadow: 0 6px 18px rgba(150,100,60,.10); }
+.theme-warmtea .composer textarea { color: #4a3426; }
+.theme-warmtea .composer textarea::placeholder { color: #b39a86; }
+.theme-warmtea .composer-plus { color: #a8622f; background: #f6e8d7; }
+.theme-warmtea .send-button { color: #fff; background: #c27a45; box-shadow: 0 4px 12px rgba(194,122,69,.28); }
+.theme-warmtea .send-button.stop { background: #b5573b; box-shadow: 0 4px 12px rgba(181,87,59,.26); }
+.theme-warmtea .chat-jump-controls button { color: #a8622f; background: rgba(255,250,243,.95); box-shadow: 0 4px 14px rgba(150,100,60,.14); }
+
+/* Settings and other pages */
+.theme-warmtea .page-header { background: rgba(251,244,234,.94); }
+.theme-warmtea .page-header::before { background: #fbf4ea; }
+.theme-warmtea .settings-group, .theme-warmtea .appearance-card, .theme-warmtea .theme-choice-card { border: 1px solid #e8d5bf; background: rgba(255,251,245,.92); box-shadow: 0 2px 8px rgba(150,100,60,.06); }
+.theme-warmtea .theme-choice-grid button.active { border-color: #c27a45; }
+.theme-warmtea .duplicate-theme-button { color: #a8622f; border-color: #e2b98a; }

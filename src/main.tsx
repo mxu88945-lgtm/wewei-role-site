@@ -18,13 +18,14 @@ import './theme-liquid.css'
 import './theme-letter.css'
 import './theme-mistnote.css'
 import './theme-nightglow.css'
+import './theme-warmtea.css'
 import './theme-paper.css'
 import './theme-scrapbook.css'
 import './theme-archives.css'
 import './memoryApiEnhancements'
 
 const APP_SCOPE = '/wewei-role-site/'
-const SERVICE_WORKER_RELEASE = '2026-11-09-backstage-fold-v192'
+const SERVICE_WORKER_RELEASE = '2026-11-09-warm-tea-theme-v193'
 
 if ('serviceWorker' in navigator) {
   let reloadingForUpdate = false

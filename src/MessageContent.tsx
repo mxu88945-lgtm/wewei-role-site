@@ -56,7 +56,7 @@ function renderInlineMarkdown(value: string) {
     return `\uE000CODE_${index}\uE001`
   })
   return protectedValue
-    .replace(/(“[^”\n]+”|「[^」\n]+」|『[^』\n]+』|"[^"\n]+"|＂[^＂\n]+＂)/g, '<span class="message-quote">$1</span>')
+    .replace(/(“[^”\n]+”|「[^」\n]+」|『[^』\n]+』|"[^"\n]+"|＂[^＂\n]+＂)/g, (quote: string) => /^[「『]/.test(quote) ? `<span class="message-quote" data-quote="corner">${quote}</span>` : `<span class="message-quote">${quote}</span>`)
     .replace(/\*\*([^*\n]+)\*\*/g, '<strong>$1</strong>')
     .replace(/__([^_\n]+)__/g, '<strong>$1</strong>')
     .replace(/(^|[^*])\*([^*\n]+)\*/g, '$1<em>$2</em>')
@@ -71,7 +71,7 @@ function styledPlainText(value: string) {
   return parts.map((part, index) => {
     if (/^\*[^*\n]+\*$/.test(part)) return <span className="message-narration" key={index}>{part.slice(1, -1)}</span>
     if (/^(?:（[^）\n]+）|\([^\n)]+\))$/.test(part)) return <span className="message-narration" key={index}>{part}</span>
-    if (/^(?:“[^”\n]+”|「[^」\n]+」|『[^』\n]+』|"[^"\n]+"|＂[^＂\n]+＂)$/.test(part)) return <span className="message-quote" key={index}>{part}</span>
+    if (/^(?:“[^”\n]+”|「[^」\n]+」|『[^』\n]+』|"[^"\n]+"|＂[^＂\n]+＂)$/.test(part)) return <span className="message-quote" data-quote={/^[「『]/.test(part) ? 'corner' : undefined} key={index}>{part}</span>
     return part
   })
 }
