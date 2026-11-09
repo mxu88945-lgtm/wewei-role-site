@@ -54,3 +54,9 @@
 .theme-warmtea .settings-group, .theme-warmtea .appearance-card, .theme-warmtea .theme-choice-card { border: 1px solid #e8d5bf; background: rgba(255,251,245,.92); box-shadow: 0 2px 8px rgba(150,100,60,.06); }
 .theme-warmtea .theme-choice-grid button.active { border-color: #c27a45; }
 .theme-warmtea .duplicate-theme-button { color: #a8622f; border-color: #e2b98a; }
+
+/* v194 平铺布局也给气泡：她用平铺时暖茶笺也要有奶白卡片（作者行留在卡片上方） */
+.theme-warmtea .message-layout-flat .message-flat-body { padding: 14px 18px; border: 1px solid #ebd9c4; border-radius: 18px; background: #fffbf5; box-shadow: 0 2px 8px rgba(150,100,60,.08); color: #4a3426; line-height: 1.75; -webkit-backdrop-filter: none; backdrop-filter: none; }
+.theme-warmtea .message-row.user.message-layout-flat .message-flat-body { border-color: transparent; background: linear-gradient(160deg,#f6e2cc,#efcfb0); padding: 10px 16px; }
+.theme-warmtea .message-layout-flat .message-flat-body > :first-child { margin-top: 0; }
+.theme-warmtea .message-layout-flat .message-flat-body > :last-child { margin-bottom: 0; }
