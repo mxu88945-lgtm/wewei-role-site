@@ -32,6 +32,16 @@ import { sanitizeAssistantOutput } from './outputSanitizer'
 export type PhoneGroupConfig = {
   /** characterId → 这张卡绑定的过往对话 id（单聊或群聊） */
   bindings: Record<string, string>
+  /** characterId → 额外绑定的过往对话（第一段仍在 bindings 里），一张卡总共最多 PHONE_MAX_BINDINGS 段 */
+  moreBindings?: Record<string, string[]>
+}
+
+export const PHONE_MAX_BINDINGS = 3
+
+/** 一张卡在这个群里绑定的全部过往对话：第一段 + 额外的，去重、最多 3 段。 */
+export function phoneBoundIds(phone: { bindings?: Record<string, string>; moreBindings?: Record<string, string[]> } | undefined, characterId: string) {
+  const ids = [phone?.bindings?.[characterId], ...(phone?.moreBindings?.[characterId] || [])].filter((id): id is string => Boolean(id))
+  return [...new Set(ids)].slice(0, PHONE_MAX_BINDINGS)
 }
 
 const clip = (value: string | undefined, max: number) => {
@@ -96,6 +106,8 @@ export type PhoneArchiveSource = {
   conversation?: Conversation
   characterMemories: Array<{ title?: string; content: string; enabled?: boolean }>
   longMemories: LongMemoryEntry[]
+  /** 同一张卡绑定的第二、第三段戏：档案压短一些，省字数 */
+  extra?: boolean
 }
 
 const tail = (messages: Message[], names: (message: Message) => string, count: number) => messages
@@ -106,21 +118,21 @@ const tail = (messages: Message[], names: (message: Message) => string, count: n
 
 /** 每位成员绑定的“过往戏份档案”：对话摘要、长期记忆、角色记忆和最近几句。 */
 export function buildPhoneArchive(sources: PhoneArchiveSource[], speakerId: string, userName: string, nameOf: (message: Message) => string) {
-  const blocks = sources.map(({ character, conversation, characterMemories, longMemories }) => {
+  const blocks = sources.map(({ character, conversation, characterMemories, longMemories, extra }) => {
     if (!conversation) return `【${character.name}的剧情档案】还没有绑定过往对话。`
+    const own = character.id === speakerId
     const memories = [
       ...characterMemories.filter((entry) => entry.enabled !== false).map((entry) => `${entry.title ? `${entry.title}：` : ''}${entry.content}`),
       ...longMemories.map((entry) => `${entry.title ? `${entry.title}：` : ''}${entry.content}`),
-    ].filter((line, index, lines) => lines.indexOf(line) === index).map((line) => `· ${clip(line, 400)}`).slice(0, 24).join('\n')
-    const own = character.id === speakerId
+    ].filter((line, index, lines) => lines.indexOf(line) === index).map((line) => `· ${clip(line, 400)}`).slice(0, extra ? 10 : 24).join('\n')
     return [
-      `【${character.name}的剧情档案｜来自对话「${conversation.title}」${own ? '｜这是你自己演过的戏' : ''}】`,
-      conversation.contextSummary?.trim() && `剧情摘要：\n${clip(conversation.contextSummary, own ? 3000 : 2400)}`,
+      `【${character.name}的剧情档案｜来自对话「${conversation.title}」${own ? '｜这是你自己演过的戏' : ''}${extra ? '｜他演过的另一场戏' : ''}】`,
+      conversation.contextSummary?.trim() && `剧情摘要：\n${clip(conversation.contextSummary, extra ? (own ? 1500 : 900) : own ? 3000 : 2400)}`,
       memories && `记忆：\n${memories}`,
-      `最近几句：\n${tail(conversation.messages, (message) => message.role === 'user' ? userName : nameOf(message), own ? 12 : 10)}`,
+      `最近几句：\n${tail(conversation.messages, (message) => message.role === 'user' ? userName : nameOf(message), extra ? (own ? 6 : 4) : own ? 12 : 10)}`,
     ].filter(Boolean).join('\n')
   })
-  return `【小手机｜成员剧情档案｜大家互相公开】\n这些档案所有人都看过，彼此透明：别人演过什么、跟${userName}在戏里发生过什么、各自的人物关系和故事背景，你都知道，可以直接聊、对比、吐槽、拿来调侃。自己那份你最熟，细节最清楚；别人的你看过但只记得大概，别编档案里没有的细节。论坛上的帖子是大家用戏内身份发的调侃，群里提起时当作“戏里那个身份发的帖”来聊，你在群里本人仍是戏外的 AI，别混淆。\n\n${blocks.join('\n\n')}`
+  return `【小手机｜成员剧情档案｜大家互相公开】\n这些档案所有人都看过，彼此透明：别人演过什么、跟${userName}在戏里发生过什么、各自的人物关系和故事背景，你都知道，可以直接聊、对比、吐槽、拿来调侃。自己那份你最熟，细节最清楚；别人的你看过但只记得大概，别编档案里没有的细节。同一个人可能有好几份档案，那是他演过的不同的戏，彼此是不同的故事，别混在一起。论坛上的帖子是大家用戏内身份发的调侃，群里提起时当作“戏里那个身份发的帖”来聊，你在群里本人仍是戏外的 AI，别混淆。\n\n${blocks.join('\n\n')}`
 }
 
 export type PhoneRuleOptions = { allowQuit?: boolean; allowKick?: boolean; allowForumShare?: boolean }

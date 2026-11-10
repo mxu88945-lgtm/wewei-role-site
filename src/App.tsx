@@ -41,7 +41,7 @@ import { PHONE_POINTS_EVENT, addPoints, applyMessagePoints, buildPointsNote, rea
 import { FORUM_UPDATED_EVENT, dueRunAt, forumAutoTick, forumWelcomeThread, isQuietHour, pickAutoGroup, readPhoneAuto, writePhoneAuto } from './phoneAuto'
 import type { Moment } from './moments'
 import { USER_AUTHOR, communityMemberIds, excerptFromMessage } from './moments'
-import { buildBackstageNote, buildDmGroupPeek, buildGroupDmPeek, parsePhoneForumShare, stripPhoneForumShareTag, phoneDeliveryInstruction, phoneDmRules, phonePromptHistory, PHONE_COMPLETION_TIMEOUT_MS } from './phoneGroup'
+import { type PhoneArchiveSource, phoneBoundIds, PHONE_MAX_BINDINGS, buildBackstageNote, buildDmGroupPeek, buildGroupDmPeek, parsePhoneForumShare, stripPhoneForumShareTag, phoneDeliveryInstruction, phoneDmRules, phonePromptHistory, PHONE_COMPLETION_TIMEOUT_MS } from './phoneGroup'
 import { PhoneChatInfo } from './PhoneChatInfo'
 import { NOTICE_DURATIONS, lurkFallback, activeNotice, noticeRemaining, buildNoticeNote, findAtMentionIds, queueSummons, parsePhoneQuit, parsePhoneKick, parsePhoneVote, kickPassed, findNamedParticipantIds, selectPhoneSpeakers, pickPhoneChatters, cleanPhoneOutput, phoneGroupDisplayTitle, phoneStreamPreview, containsPhoneReasoning, phoneFinalGuard, buildSmartPickPrompt, buildMicPrompt, parseMicAnswer, parseSmartPick, buildPhoneArchive, buildPhoneGroupBackground, phoneBindingCandidates, buildPhoneRealWorldNote, parsePhoneLockCommand, buildPhoneLockBreachNote, type PhoneLockState, type PhoneLockBreach, phoneCharacter, phoneModeRules, stripPhoneQuitTag, stripPhoneKickTag, computeStoryUpdates, resetStorySeenForBindingChanges, storyUpdateNotice, buildStoryUpdateNote } from './phoneGroup'
 import { assignChatGroup, chatGroupNames, groupConversations, setChatGroupMembers } from './chatGroups'
@@ -541,7 +541,7 @@ function App() {
   const [phoneTab, setPhoneTab] = useState<'groups' | 'dms' | 'moments' | 'gifts' | 'shop'>('groups')
   const [momentSeed, setMomentSeed] = useState<MomentSeed | null>(null)
   const clearMomentSeed = useCallback(() => setMomentSeed(null), [])
-  const [phoneDraft, setPhoneDraft] = useState<{ editingId?: string; title: string; memberIds: string[]; bindings: Record<string, string>; avatar?: string; avatarCollage?: boolean; noticeText?: string; noticeHours?: number; allowQuit?: boolean; allowKick?: boolean; allowForumShare?: boolean } | null>(null)
+  const [phoneDraft, setPhoneDraft] = useState<{ editingId?: string; title: string; memberIds: string[]; bindings: Record<string, string>; moreBindings?: Record<string, string[]>; avatar?: string; avatarCollage?: boolean; noticeText?: string; noticeHours?: number; allowQuit?: boolean; allowKick?: boolean; allowForumShare?: boolean } | null>(null)
   const [collapsedChatGroups, setCollapsedChatGroups] = useState<string[]>(() => read<string[]>('weijing.chatCollapsed', []))
   const [chatGroupSheet, setChatGroupSheet] = useState<{ id: string; group: string } | null>(null)
   const [chatGroupEditor, setChatGroupEditor] = useState<{ original: string; name: string; memberIds: string[] } | null>(null)
@@ -2094,7 +2094,7 @@ function App() {
   }, [savedCollageKey])
   const phoneMembersPool = characters.filter((item) => item.creator !== '惟境内置导演模板' && !item.directorTemplateConfig)
   const openPhonePage = (editing?: Conversation) => {
-    setPhoneDraft(editing ? { editingId: editing.id, title: editing.title, memberIds: [...(editing.participantIds || [])], bindings: { ...(editing.phone?.bindings || {}) }, avatar: editing.phone?.avatar, avatarCollage: Boolean(editing.phone?.avatar && editing.phone?.avatarCollage), noticeText: activeNotice(editing.phone?.notice)?.text || '', noticeHours: -1, allowQuit: editing.phone?.allowQuit !== false, allowKick: editing.phone?.allowKick !== false, allowForumShare: editing.phone?.allowForumShare !== false } : null)
+    setPhoneDraft(editing ? { editingId: editing.id, title: editing.title, memberIds: [...(editing.participantIds || [])], bindings: { ...(editing.phone?.bindings || {}) }, moreBindings: Object.fromEntries(Object.entries(editing.phone?.moreBindings || {}).map(([id, list]) => [id, [...list]])), avatar: editing.phone?.avatar, avatarCollage: Boolean(editing.phone?.avatar && editing.phone?.avatarCollage), noticeText: activeNotice(editing.phone?.notice)?.text || '', noticeHours: -1, allowQuit: editing.phone?.allowQuit !== false, allowKick: editing.phone?.allowKick !== false, allowForumShare: editing.phone?.allowForumShare !== false } : null)
     navigate('phone')
   }
   const togglePhoneMember = (id: string) => setPhoneDraft((current) => {
@@ -2102,7 +2102,9 @@ function App() {
     if (current.memberIds.includes(id)) {
       const bindings = { ...current.bindings }
       delete bindings[id]
-      return { ...current, memberIds: current.memberIds.filter((item) => item !== id), bindings }
+      const moreBindings = { ...(current.moreBindings || {}) }
+      delete moreBindings[id]
+      return { ...current, memberIds: current.memberIds.filter((item) => item !== id), bindings, moreBindings }
     }
     const latest = phoneBindingCandidates(conversations, id)[0]
     return { ...current, memberIds: [...current.memberIds, id], bindings: latest ? { ...current.bindings, [id]: latest.id } : current.bindings }
@@ -2113,6 +2115,13 @@ function App() {
     if (members.length < 2) { window.alert('小手机群至少拉两张角色卡进来。'); return }
     const now = Date.now()
     const bindings = Object.fromEntries(Object.entries(phoneDraft.bindings).filter(([id, conversationId]) => phoneDraft.memberIds.includes(id) && conversationId))
+    // 额外绑定：第一段空着时把第二段顶上去；去重，最多 3 段。
+    const moreBindings: Record<string, string[]> = {}
+    for (const id of phoneDraft.memberIds) {
+      const all = [...new Set([phoneDraft.bindings[id], ...(phoneDraft.moreBindings?.[id] || [])].filter((item): item is string => Boolean(item)))].slice(0, PHONE_MAX_BINDINGS)
+      if (all[0]) bindings[id] = all[0]
+      if (all.length > 1) moreBindings[id] = all.slice(1)
+    }
     const apiIds = Object.fromEntries(members.map((member) => [member.id, api.id]))
     const modelNames = Object.fromEntries(members.map((member) => [member.id, api.modelName]))
     const title = phoneDraft.title.trim() || '戏外小手机'
@@ -2137,7 +2146,7 @@ function App() {
           ...item, title, characterId: members[0].id, participantIds: members.map((member) => member.id),
           participantApiIds: { ...apiIds, ...Object.fromEntries(Object.entries(item.participantApiIds || {}).filter(([id]) => phoneDraft.memberIds.includes(id))) },
           participantModelNames: { ...modelNames, ...Object.fromEntries(Object.entries(item.participantModelNames || {}).filter(([id]) => phoneDraft.memberIds.includes(id))) },
-          phone: { ...item.phone, bindings, avatar: phoneDraft.avatar, avatarCollage: Boolean(phoneDraft.avatar && phoneDraft.avatarCollage), notice, allowQuit: phoneDraft.allowQuit !== false, allowKick: phoneDraft.allowKick !== false, allowForumShare: phoneDraft.allowForumShare !== false, storySeen: resetStorySeenForBindingChanges(item.phone?.storySeen, item.phone?.bindings || {}, bindings), left: Object.fromEntries(Object.entries(item.phone?.left || {}).filter(([id]) => !phoneDraft.memberIds.includes(id))) },
+          phone: { ...item.phone, bindings, moreBindings, avatar: phoneDraft.avatar, avatarCollage: Boolean(phoneDraft.avatar && phoneDraft.avatarCollage), notice, allowQuit: phoneDraft.allowQuit !== false, allowKick: phoneDraft.allowKick !== false, allowForumShare: phoneDraft.allowForumShare !== false, storySeen: resetStorySeenForBindingChanges(item.phone?.storySeen, item.phone?.bindings || {}, bindings), left: Object.fromEntries(Object.entries(item.phone?.left || {}).filter(([id]) => !phoneDraft.memberIds.includes(id))) },
           theaterWorldBackground: sameMembers && item.theaterWorldBackground?.trim() ? item.theaterWorldBackground : buildPhoneGroupBackground(members),
           updatedAt: now,
         }
@@ -2152,7 +2161,7 @@ function App() {
       participantIds: members.map((member) => member.id),
       participantApiIds: apiIds, participantModelNames: modelNames,
       title, messages: [], createdAt: now, updatedAt: now,
-      phone: { bindings, avatar: phoneDraft.avatar, avatarCollage: Boolean(phoneDraft.avatar && phoneDraft.avatarCollage), notice, allowQuit: phoneDraft.allowQuit !== false, allowKick: phoneDraft.allowKick !== false, allowForumShare: phoneDraft.allowForumShare !== false, readId: now },
+      phone: { bindings, moreBindings, avatar: phoneDraft.avatar, avatarCollage: Boolean(phoneDraft.avatar && phoneDraft.avatarCollage), notice, allowQuit: phoneDraft.allowQuit !== false, allowKick: phoneDraft.allowKick !== false, allowForumShare: phoneDraft.allowForumShare !== false, readId: now },
       theaterWorldBackground: buildPhoneGroupBackground(members),
     }
     setConversations((current) => [...current, conversation])
@@ -2684,16 +2693,22 @@ function App() {
       const members = (conversation.participantIds || []).map((id) => characters.find((item) => item.id === id)).filter(Boolean) as Character[]
       // 私聊：TA 群里的每个人的剧情档案和人设都看得到（大家互相透明）。
       const dmMates = conversation.phone?.dm ? [...new Set(conversations.filter((item) => item.phone && !item.phone.dm && item.participantIds?.includes(speaker.id)).flatMap((item) => item.participantIds || []))].filter((id) => id !== speaker.id).map((id) => characters.find((item) => item.id === id)).filter(Boolean) as Character[] : []
-      const bindingOf = (memberId: string) => conversation.phone?.bindings[memberId] || conversations.map((item) => item.phone && !item.phone.dm ? item.phone.bindings[memberId] : undefined).find(Boolean)
-      const sources = [...members, ...dmMates].map((member) => {
-        const boundId = bindingOf(member.id)
-        const bound = boundId ? conversations.find((item) => item.id === boundId) : undefined
-        return {
+      const bindingsOf = (memberId: string) => {
+        const own = phoneBoundIds(conversation.phone, memberId)
+        if (own.length) return own
+        const other = conversations.find((item) => item.phone && !item.phone.dm && phoneBoundIds(item.phone, memberId).length)
+        return other ? phoneBoundIds(other.phone, memberId) : []
+      }
+      const sources = [...members, ...dmMates].flatMap((member): PhoneArchiveSource[] => {
+        const bounds = bindingsOf(member.id).map((id) => conversations.find((item) => item.id === id)).filter(Boolean) as Conversation[]
+        if (!bounds.length) return [{ character: member, conversation: undefined, characterMemories: [], longMemories: [] }]
+        return bounds.map((bound, index) => ({
           character: member,
           conversation: bound,
-          characterMemories: bound ? memoriesForConversationCharacter(bound, member) : [],
-          longMemories: bound ? memoriesForConversation(memoryEntries, bound.id, member.id, bound.historyRevision || 0) as MemoryEntry[] : [],
-        }
+          characterMemories: memoriesForConversationCharacter(bound, member),
+          longMemories: memoriesForConversation(memoryEntries, bound.id, member.id, bound.historyRevision || 0) as MemoryEntry[],
+          extra: index > 0,
+        }))
       })
       const nameOf = (message: Message) => characters.find((item) => item.id === message.characterId)?.name || members[0]?.name || '角色'
       const realWorld = [(() => { try { return buildPhoneRealWorldNote(new Date(), JSON.parse(localStorage.getItem('weijing.phoneWeather') || 'null')) } catch { return buildPhoneRealWorldNote(new Date()) } })(), (() => { const web = phoneWebNoteRef.current; return web && web.conversationId === conversation.id && Date.now() - web.at < 5 * 60 * 1000 ? web.note : '' })(), buildForumRecapNote(forumThreadsRef.current, members.map((member) => member.id), (id) => id === 'user' ? identity.name : characters.find((item) => item.id === id)?.name || '已离开的角色', identity.name), (() => { try { return buildPhoneLockBreachNote(JSON.parse(localStorage.getItem('weijing.phoneLockBreach') || 'null'), Date.now(), identity.name) } catch { return '' } })()].filter(Boolean).join('\n')
@@ -4419,13 +4434,27 @@ function App() {
         <div className="settings-group toggle-row phone-group-toggle"><div><strong>允许角色退群</strong><small>关掉后角色不会被告知能退群，写了【退群】也不生效</small></div><button type="button" role="switch" aria-checked={phoneDraft.allowQuit !== false} aria-label="允许角色退群" className={`switch ${phoneDraft.allowQuit !== false ? 'on' : ''}`} onClick={() => setPhoneDraft({ ...phoneDraft, allowQuit: phoneDraft.allowQuit === false })}><span /></button></div>
         <div className="settings-group toggle-row phone-group-toggle"><div><strong>允许投票踢人</strong><small>关掉后不会发起踢人投票，【踢人】标签直接隐藏</small></div><button type="button" role="switch" aria-checked={phoneDraft.allowKick !== false} aria-label="允许投票踢人" className={`switch ${phoneDraft.allowKick !== false ? 'on' : ''}`} onClick={() => setPhoneDraft({ ...phoneDraft, allowKick: phoneDraft.allowKick === false })}><span /></button></div>
         <div className="settings-group toggle-row phone-group-toggle"><div><strong>允许角色转发论坛</strong><small>角色可以把论坛帖子或楼层转进群里当证据，关掉后【转发论坛】标签直接隐藏</small></div><button type="button" role="switch" aria-checked={phoneDraft.allowForumShare !== false} aria-label="允许角色转发论坛" className={`switch ${phoneDraft.allowForumShare !== false ? 'on' : ''}`} onClick={() => setPhoneDraft({ ...phoneDraft, allowForumShare: phoneDraft.allowForumShare === false })}><span /></button></div>
-        <div className="privacy-note">选至少两张角色卡。每张卡可以绑定一段自己演过的对话，他的剧情摘要和记忆会带进群里；所有成员的人设与世界观会自动拼进这个群的综合世界观，之后可在聊天设置里修改。</div>
+        <div className="privacy-note">选至少两张角色卡。每张卡可以绑定最多三段自己演过的对话，他的剧情摘要和记忆会带进群里（绑得越多，每轮发给模型的字越多）；所有成员的人设与世界观会自动拼进这个群的综合世界观，之后可在聊天设置里修改。</div>
         <div className="phone-member-list">{phoneMembersPool.map((character) => {
           const selected = phoneDraft.memberIds.includes(character.id)
           const candidates = phoneBindingCandidates(conversations, character.id)
           return <div key={character.id} className={`phone-member${selected ? ' selected' : ''}`}>
             <button className="phone-member-toggle" aria-pressed={selected} onClick={() => togglePhoneMember(character.id)}><i>{selected ? '✓' : ''}</i>{character.avatar ? <img src={character.avatar} alt="" /> : <span>{character.name.slice(-1)}</span>}<strong>{character.name}</strong><small>{character.libraryGroup || character.tagline}</small></button>
-            {selected && <label className="phone-binding">绑定过往对话<select value={phoneDraft.bindings[character.id] || ''} onChange={(event) => setPhoneDraft({ ...phoneDraft, bindings: { ...phoneDraft.bindings, [character.id]: event.target.value } })}><option value="">不绑定</option>{candidates.map((item) => <option key={item.id} value={item.id}>{item.title}（{item.messages.length} 条）</option>)}</select></label>}
+            {selected && (() => {
+              const extras = phoneDraft.moreBindings?.[character.id] || []
+              const slots = [phoneDraft.bindings[character.id] || '', ...extras]
+              const setSlot = (index: number, value: string) => {
+                if (index === 0) { setPhoneDraft({ ...phoneDraft, bindings: { ...phoneDraft.bindings, [character.id]: value } }); return }
+                const next = [...extras]
+                if (value) next[index - 1] = value; else next.splice(index - 1, 1)
+                setPhoneDraft({ ...phoneDraft, moreBindings: { ...(phoneDraft.moreBindings || {}), [character.id]: next } })
+              }
+              const unused = candidates.filter((item) => !slots.includes(item.id))
+              return <div className="phone-binding-group">
+                {slots.map((value, index) => <label key={index} className="phone-binding">{index === 0 ? '绑定过往对话' : `再绑一段（${index + 1}）`}<select value={value} onChange={(event) => setSlot(index, event.target.value)}><option value="">{index === 0 ? '不绑定' : '移除这段'}</option>{candidates.filter((item) => item.id === value || !slots.includes(item.id)).map((item) => <option key={item.id} value={item.id}>{item.title}（{item.messages.length} 条）</option>)}</select></label>)}
+                {slots[0] && slots.length < PHONE_MAX_BINDINGS && unused.length > 0 && <button type="button" className="phone-binding-add" onClick={() => setPhoneDraft({ ...phoneDraft, moreBindings: { ...(phoneDraft.moreBindings || {}), [character.id]: [...extras, unused[0].id] } })}>＋ 再绑一段剧情</button>}
+              </div>
+            })()}
           </div>
         })}</div>
         <button className="library-sheet-save" onClick={savePhoneGroup}>{phoneDraft.editingId ? '保存' : `建群（${phoneDraft.memberIds.length} 人）`}</button>
@@ -4781,7 +4810,7 @@ function UpdateCard() {
     }
   }
 
-  return <section className="update-card"><strong>应用更新</strong><p>主动检查并拉取最新网页版本，不会删除角色、聊天记录或本地设置。</p><small>当前版本：v196 · 2026.11.09 语义召回（每段剧情只想起自己的旧原话）</small><button onClick={refresh} disabled={state === 'checking'}>{state === 'checking' ? '正在检查更新…' : state === 'error' ? '更新失败，点我重试' : '强制刷新到最新版'}</button></section>
+  return <section className="update-card"><strong>应用更新</strong><p>主动检查并拉取最新网页版本，不会删除角色、聊天记录或本地设置。</p><small>当前版本：v197 · 2026.11.09 语义召回（每段剧情只想起自己的旧原话）</small><button onClick={refresh} disabled={state === 'checking'}>{state === 'checking' ? '正在检查更新…' : state === 'error' ? '更新失败，点我重试' : '强制刷新到最新版'}</button></section>
 }
 
 function PersonaPage({ identities, selectedId, isBound, onSelect, onAdd, onDelete, onUpdate, onBack }: { identities: UserIdentity[]; selectedId: string; isBound: boolean; onSelect: (id: string) => void; onAdd: () => void; onDelete: (id: string) => void; onUpdate: (patch: Partial<UserIdentity>) => void; onBack: () => void }) {

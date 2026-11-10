@@ -665,6 +665,9 @@ button { cursor: pointer; }
 .phone-member-toggle small { color: #9d97a1; font-size: 11px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .phone-binding { display: grid; gap: 6px; padding: 0 12px 12px 46px; color: #7d7583; font-size: 12px; font-weight: 700; }
 .phone-binding select { width: 100%; min-height: 40px; border: 1px solid rgba(71,55,80,.1); border-radius: 12px; padding: 0 10px; font-size: 14px; color: #37313a; background: #fff; }
+.phone-binding-group { display: grid; }
+.phone-binding-group .phone-binding + .phone-binding { margin-top: -4px; }
+.phone-binding-add { margin: 0 12px 12px 46px; min-height: 36px; border: 1px dashed rgba(71,55,80,.22); border-radius: 12px; background: transparent; color: #7d7583; font-size: 13px; font-weight: 700; }
 .phone-chat .message-row .message-bubble, .phone-chat .message-row .message-content { font-size: calc(var(--chat-font-size, 16px) * .94); line-height: 1.55; }
 .phone-chat .message-row .message-bubble { padding: 9px 13px; border-radius: 16px; }
 

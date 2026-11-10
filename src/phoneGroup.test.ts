@@ -437,3 +437,25 @@ describe('v132 untitled plan drafts are stripped', () => {
     expect(cleanPhoneOutput('别闹\n四点半了，喝水')).toBe('别闹\n四点半了，喝水')
   })
 })
+
+describe('phone multi bindings', () => {
+  it('merges first + extra bindings, dedupes and caps at three', async () => {
+    const { phoneBoundIds } = await import('./phoneGroup')
+    expect(phoneBoundIds({ bindings: { a: 'x' }, moreBindings: { a: ['y', 'x', 'z', 'w'] } }, 'a')).toEqual(['x', 'y', 'z'])
+    expect(phoneBoundIds({ bindings: {} }, 'a')).toEqual([])
+    expect(phoneBoundIds(undefined, 'a')).toEqual([])
+  })
+  it('writes one archive block per bound story and keeps extras shorter', async () => {
+    const { buildPhoneArchive } = await import('./phoneGroup')
+    const character = { id: 'a', name: '傅承砚' } as never
+    const conv = (id: string, title: string) => ({ id, title, contextSummary: '摘'.repeat(2000), messages: [] }) as never
+    const out = buildPhoneArchive([
+      { character, conversation: conv('c1', '烬川'), characterMemories: [], longMemories: [] },
+      { character, conversation: conv('c2', '虞山行'), characterMemories: [], longMemories: [], extra: true },
+    ], 'b', '惟惟', () => '角色')
+    expect(out).toContain('来自对话「烬川」')
+    expect(out).toContain('来自对话「虞山行」｜他演过的另一场戏')
+    const runs = (out.match(/摘+/g) || []).map((run) => run.length).filter((length) => length > 10)
+    expect(runs).toEqual([2000, 900])
+  })
+})
