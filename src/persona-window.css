@@ -281,3 +281,9 @@ button.persona-settings-row:active { background: var(--theme-accent-soft); }
 .persona-bound-group-list button { display: inline-flex; align-items: center; gap: 6px; padding: 6px 10px; border: 1px solid rgba(125,104,141,.2); border-radius: 999px; background: #fff; color: #6b5a76; font-size: 12px; }
 .persona-bound-group-list button.on { border-color: var(--theme-accent-text); background: var(--theme-accent-soft); color: var(--theme-accent-text); }
 .persona-bound-group-list button i { font-style: normal; font-weight: 700; }
+
+/* v207 他点的歌：小胶囊，主题色，不用 backdrop-filter */
+.persona-song-chip { display: inline-flex; align-items: center; gap: 4px; max-width: 100%; margin: 2px 0 8px; padding: 4px 11px; border: 1px solid var(--theme-accent-soft-strong, rgba(150,120,160,.28)); border-radius: 999px; background: var(--theme-accent-soft, rgba(240,232,244,.82)); color: var(--theme-accent-text, #6f5a7c); font-size: 12px; font-weight: 700; line-height: 1.5; text-align: left; overflow: hidden; white-space: nowrap; text-overflow: ellipsis; }
+.persona-song-chip em { font-style: normal; font-weight: 600; opacity: .78; }
+.persona-song-chip.missing { background: transparent; border-style: dashed; }
+.persona-song-chip.playing { box-shadow: inset 0 0 0 1px var(--theme-accent-soft-strong, rgba(150,120,160,.4)); }

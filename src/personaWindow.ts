@@ -24,6 +24,7 @@ import { normalizePersonaAppearance, type PersonaAppearance } from './personaApp
 import { normalizePersonaTasks, type PersonaTask } from './personaTasks'
 import { isApiChannelComplete, resolveApiChannel, type ApiChannel } from './apiChannels'
 import { buildBackstagePersonaMemory } from './backstageNotes'
+import { stripSongPick } from './personaSongPick'
 
 export const PERSONA_WINDOWS_KEY = 'weijing.personaWindows'
 /** 自动整理记忆：攒够这么多条新消息（用户 + 角色）就后台整理一次。 */
@@ -51,6 +52,8 @@ export type PersonaMessage = {
   taskCompletionId?: string
   /** 引用的消息（人格窗口内引用回复）。 */
   quote?: { messageId: number; author: string; text: string }
+  /** v207：他在这条回复里点的歌（[点歌:X] 解析出来的歌名；正文里已去掉标记）。 */
+  songPick?: string
 }
 
 export type PersonaMemoryEntry = {
@@ -121,6 +124,8 @@ export type PersonaWindow = {
   /** Appearance belongs to this persona; all its threads share it. */
   appearance?: PersonaAppearance
   tasksEnabled?: boolean
+  /** v207：让他自己点歌，默认开（只存 false）。 */
+  songPickEnabled?: boolean
 }
 
 export const PERSONA_STATE_VERSION = 2
@@ -147,7 +152,7 @@ function normalizeMessage(value: unknown): PersonaMessage | null {
   }).filter((item): item is ChatAttachment => Boolean(item)).slice(0, CHAT_ATTACHMENT_LIMIT)
   const recallSources = (Array.isArray(value.recallSources) ? value.recallSources : []).filter(isRecord).filter((source) => text(source.threadId) && Number.isSafeInteger(source.messageId) && (source.role === 'user' || source.role === 'assistant')).slice(0, 20).map((source): PersonaRecallSource => ({ threadId: text(source.threadId), messageId: Number(source.messageId), title: text(source.title), role: source.role === 'user' ? 'user' : 'assistant', createdAt: Number(source.createdAt) || 0 }))
   const quote = isRecord(value.quote) && Number.isFinite(Number(value.quote.messageId)) ? { messageId: Number(value.quote.messageId), author: text(value.quote.author), text: text(value.quote.text) } : undefined
-  return { id, role, text: text(value.text), createdAt: Number(value.createdAt) || 0, ...(images?.length ? { images } : {}), ...(attachments.length ? { attachments } : {}), ...(value.finishReason !== undefined ? { finishReason: (value.finishReason as string | null) } : {}), ...(recallSources.length ? { recallSources } : {}), ...(role === 'assistant' && text(value.taskCompletionId) ? { taskCompletionId: text(value.taskCompletionId) } : {}), ...(quote ? { quote } : {}) }
+  return { id, role, text: text(value.text), createdAt: Number(value.createdAt) || 0, ...(images?.length ? { images } : {}), ...(attachments.length ? { attachments } : {}), ...(value.finishReason !== undefined ? { finishReason: (value.finishReason as string | null) } : {}), ...(recallSources.length ? { recallSources } : {}), ...(role === 'assistant' && text(value.taskCompletionId) ? { taskCompletionId: text(value.taskCompletionId) } : {}), ...(quote ? { quote } : {}), ...(role === 'assistant' && text(value.songPick).trim() ? { songPick: text(value.songPick).trim().slice(0, 80) } : {}) }
 }
 
 function normalizeMemory(value: unknown): PersonaMemoryEntry | null {
@@ -238,6 +243,7 @@ export function normalizePersonaState(value: unknown): PersonaWindowState {
       ...(text(raw.memoryAliases).trim() ? { memoryAliases: text(raw.memoryAliases).slice(0, 4000) } : {}),
       ...(normalizePersonaAppearance(raw.appearance) ? { appearance: normalizePersonaAppearance(raw.appearance) } : {}),
       ...(raw.tasksEnabled === false ? { tasksEnabled: false } : {}),
+      ...(raw.songPickEnabled === false ? { songPickEnabled: false } : {}),
     })
   }
   const activeId = text(value.activeId)
@@ -530,7 +536,7 @@ export function conversationInvolvesCharacter(conversation: Conversation, ids: r
 const conversationKind = (conversation: Conversation) => conversation.phone ? (conversation.phone.dm ? '小手机私聊' : '小手机群聊') : conversation.kind === 'group' ? '长剧情·群戏' : '长剧情'
 
 function messageText(text: string) {
-  return stripUiOnlyStatusBlocks(stripPresentationalHtmlForPrompt(text)).replace(/\n{2,}/g, '\n').trim()
+  return stripSongPick(stripUiOnlyStatusBlocks(stripPresentationalHtmlForPrompt(text)).replace(/\n{2,}/g, '\n').trim())
 }
 
 /** His own lines and hers, newest last — for conversations that have no memory or summary yet. */

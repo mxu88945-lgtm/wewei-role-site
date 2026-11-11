@@ -32,6 +32,8 @@ import {
   type PersonaWindow,
 } from './personaWindow'
 import { getPersonaState, setPersonaState } from './personaWindowStore'
+import { autoPlaySongPick, buildPersonaSongPrompt, parseSongPick } from './personaSongPick'
+import { useMusicStore } from './musicStore'
 
 /**
  * Generation, memory and compression for the 人格窗口. Module-level on purpose:
@@ -53,6 +55,8 @@ export type PersonaRuntimeDeps = {
   globalWorldbook?: string
   /** Story-project world / story cast background for this character (人设补充). */
   setting?: () => string
+  /** v207：歌单里的歌名（点歌用）；不传 = 不点歌。 */
+  songList?: () => string[]
 }
 
 /**
@@ -125,6 +129,7 @@ export function planPersonaRequest(persona: PersonaWindow, history: PersonaMessa
     PERSONA_MEMORY_TOOLS,
     persona.tasksEnabled !== false && PERSONA_TASK_PROMPT,
     personaTaskStatus(thread.tasks),
+    persona.songPickEnabled !== false && buildPersonaSongPrompt(deps.songList?.() || []),
     // Keep the core boundary in the FIRST system too (some relays drop later system messages).
     PERSONA_FINAL_GUARD,
   ].filter(Boolean).join('\n\n')
@@ -256,7 +261,10 @@ export async function generatePersonaReply(personaId: string, deps: PersonaRunti
     const task = !completedTask && findPersona(personaId)?.tasksEnabled !== false ? parsePersonaTask(output, `${threadId}:${replyId}:task`, Date.now(), replyId) : undefined
     const finalText = personaReplyText(output) || (task ? '给你记在任务卡里了。' : '')
     if (!finalText) throw new Error('模型没有返回正文，换个说法再试一次。')
-    writeReply(finalText, { finishReason: result?.finishReason, ...(sources.size ? { recallSources: [...sources.values()] } : {}) }, false)
+    const songPick = findPersona(personaId)?.songPickEnabled !== false ? parseSongPick(output) : null
+    writeReply(finalText, { finishReason: result?.finishReason, ...(sources.size ? { recallSources: [...sources.values()] } : {}), songPick: songPick || undefined }, false)
+    // v207：他点了歌就切过去——每条回复只在生成完这一刻做一次，翻历史不会触发。
+    if (songPick) autoPlaySongPick(`${threadId}:${replyId}:${now}`, songPick, useMusicStore.getState())
     const done = Date.now()
     const sourceIds = [history.filter((message) => message.role === 'user').slice(-1)[0]?.id, replyId].filter((id): id is number => id !== undefined)
     const saves = personaMemorySaves(output, threadId, sourceIds, done)

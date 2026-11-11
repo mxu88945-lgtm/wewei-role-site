@@ -198,6 +198,17 @@ describe('前世记忆', () => {
     // The card's story greeting is not part of the persona window.
     expect(JSON.stringify(on)).not.toContain('顾祁砚的开场白')
   })
+
+  it('v207 adds the song-pick block only with a playlist and the toggle on, and strips old tags from history', () => {
+    const deps = { character: gu, user: { name: '周惟惟', description: '' }, api, memoryApi: api, temperature: 1, topP: 1, maxTokens: 1000, streaming: false, memoryLength: 40, pastLife: () => '', songList: () => ['夜曲.mp3', '晴天'] }
+    const persona = createPersonaWindow('gu')
+    const history = [{ id: 1, role: 'user' as const, text: '嗨', createdAt: 1 }, { id: 2, role: 'assistant' as const, text: '在。\n[点歌:夜曲]', createdAt: 2 }, { id: 3, role: 'user' as const, text: '嗯', createdAt: 3 }]
+    const on = JSON.stringify(buildPersonaRequest(persona, history, deps))
+    expect(on).toContain('《夜曲》《晴天》')
+    expect(on).not.toContain('[点歌:夜曲]')
+    expect(JSON.stringify(buildPersonaRequest({ ...persona, songPickEnabled: false }, history, deps))).not.toContain('一起听歌｜你可以自己点歌')
+    expect(JSON.stringify(buildPersonaRequest(persona, history, { ...deps, songList: () => [] }))).not.toContain('一起听歌｜你可以自己点歌')
+  })
 })
 
 describe('人格窗口 v135：人设与前世记忆真正落地', () => {

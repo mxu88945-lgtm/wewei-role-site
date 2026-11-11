@@ -23,6 +23,9 @@ import { activeThread, addPersonaThread, buildPersonaSetting, characterAliasIds,
 import { hydratePersonaStore, setPersonaState, usePersonaHydrated, usePersonaState } from './personaWindowStore'
 import { buildPersonaRequest, extractPersonaMemory, generatePersonaReply, getPersonaRuntime, setPersonaError, stopPersonaReply, subscribePersonaRuntime, type PersonaRuntimeDeps } from './personaWindowRuntime'
 
+import { findTrackByTitle, useMusicStore } from './musicStore'
+import ArchiveHeading from './ArchiveHeading'
+import { messageThemeLayout } from './chatThemeLayout'
 import './persona-window.css'
 
 type Props = {
@@ -45,6 +48,10 @@ type Props = {
   storyProjects?: StoryProject[]
   onBack: () => void
   appearanceControls: PersonaAppearanceControls
+  /** v207：当前人格生效的主题 mode（画布上的 theme-* 类），消息按主聊天同一规则排。 */
+  themeMode?: string
+  /** v207：「显示与回复」里的气泡 / 平铺，和主聊天一致。 */
+  chatLayout?: 'bubble' | 'flat'
 }
 
 type View = 'chat' | 'manage' | 'memory'
@@ -117,6 +124,21 @@ function PersonaModelPicker({ persona, channels, mainApi, onChange, onFocus }: {
   </div>
 }
 
+/** v207：他点的歌。点一下放；歌单里没有就导入（导入后歌名对得上会直接放）。 */
+function PersonaSongChip({ title, tap }: { title: string; tap: ReturnType<typeof useOneTap> }) {
+  const tracks = useMusicStore((music) => music.tracks)
+  const blockedId = useMusicStore((music) => music.autoplayBlockedId)
+  const playingId = useMusicStore((music) => (music.now?.playing ? music.activeId : ''))
+  const track = findTrackByTitle(tracks, title)
+  const action = () => {
+    const music = useMusicStore.getState()
+    if (track) { if (!(music.activeId === track.id && music.now?.playing)) music.requestPlay(track.id) }
+    else music.requestImport(title, '')
+  }
+  const hint = !track ? '· 点这里导入' : blockedId === track.id ? '· 点一下播放' : playingId === track.id ? '· 正在放' : ''
+  return <button type="button" className={`persona-song-chip${!track ? ' missing' : ''}${track && playingId === track.id ? ' playing' : ''}`} aria-label={track ? `播放《${title}》` : `导入《${title}》`} {...tap(action)}>🎵 他点了《{title}》{hint && <em>{hint}</em>}</button>
+}
+
 const isTouchDevice = () => typeof window !== 'undefined' && window.matchMedia?.('(hover: none)').matches
 
 export default function PersonaWindowPage(props: Props) {
@@ -181,6 +203,8 @@ export default function PersonaWindowPage(props: Props) {
   const stickRef = useRef(true)
   const prependRef = useRef<{ height: number; top: number } | null>(null)
   const tap = useOneTap()
+  const trackCount = useMusicStore((music) => music.tracks.length)
+  const setMusicSheetOpen = useMusicStore((music) => music.setSheetOpen)
 
   const thread = active ? activeThread(active) : undefined
   const threadId = thread?.id || ''
@@ -219,6 +243,7 @@ export default function PersonaWindowPage(props: Props) {
       pastLife: () => collectPastLifeMemory({ character, characters, conversations, memoryEntries, userName: identity.name, boundGroupIds: persona?.boundGroupIds, boundConversationIds: persona?.boundConversationIds }).text,
       globalWorldbook: props.globalWorldbook || '',
       setting: () => buildPersonaSetting({ character, characters, conversations, storyProjects: props.storyProjects || [] }),
+      songList: () => useMusicStore.getState().tracks.map((track) => track.name),
     }
   }
 
@@ -620,16 +645,22 @@ export default function PersonaWindowPage(props: Props) {
         if (!isUser && !streamingNow && !message.text.trim()) return null
         const name = isUser ? identity.name : activeCharacter.name
         const avatar = isUser ? identity.avatar : activeCharacter.avatar
-        return <div key={message.id} data-message-id={message.id} className={`message-row ${message.role} message-layout-flat`}>
-          <div className="message-line message-line-flat">
-            <div className="message-author"><div className="message-avatar">{avatar ? <img src={avatar} alt="" /> : name.slice(-1)}</div><span>{name}</span></div>
-            <div className="message-flat-body">
+        const look = messageThemeLayout(props.themeMode || '', props.chatLayout || 'flat', message.role)
+        const avatarNode = <div className="message-avatar">{avatar ? <img src={avatar} alt="" /> : name.slice(-1)}</div>
+        const content = <>
               {message.quote && <div className="persona-message-quote"><b>{message.quote.author}：</b>{message.quote.text}</div>}
               {message.images?.length ? <div className={`message-images persona-message-images count-${Math.min(message.images.length, 4)}`}>{message.images.map((image) => <button type="button" key={image.id} aria-label="查看图片" {...tap(() => setViewerImage(image))}><img src={image.dataUrl} alt="" width={image.width} height={image.height} loading="lazy" decoding="async" /></button>)}</div> : null}
               {message.attachments?.length ? <div className="persona-attachment-list" aria-label="消息文件">{message.attachments.map((attachment) => <div className="persona-attachment-card" key={attachment.id}><span aria-hidden="true">📄</span><div><strong>{attachment.name}</strong><small>{attachmentSizeLabel(attachment.size)}{attachment.truncated ? ' · 已读取前 24000 字' : ''}</small></div></div>)}</div> : null}
-              {streamingNow && (!message.text || isPendingAssistantText(message.text)) ? <div className="persona-typing">（{activeCharacter.name}正在回应…）</div> : (message.text.trim() ? <MessageContent text={isUser ? message.text : personaReplyText(message.text)} role={message.role} character={activeCharacter} userName={identity.name} layout="flat" streaming={streamingNow} noStatus /> : null)}
-            </div>
-          </div>
+              {streamingNow && (!message.text || isPendingAssistantText(message.text)) ? <div className="persona-typing">（{activeCharacter.name}正在回应…）</div> : (message.text.trim() ? <MessageContent text={isUser ? message.text : personaReplyText(message.text)} role={message.role} character={activeCharacter} userName={identity.name} streaming={streamingNow} noStatus layout={look.layout} paper={look.paper} /> : null)}
+        </>
+        return <div key={message.id} data-message-id={message.id} className={look.rowClass}>
+          {look.archive ? <><ArchiveHeading theme={look.archive} name={name} avatar={avatar} user={isUser} /><div className="archive-body">{content}</div></> : look.layout === 'flat' ? <div className="message-line message-line-flat">
+            <div className="message-author">{avatarNode}<span>{name}</span></div>
+            <div className="message-flat-body">{content}</div>
+          </div> : <div className="message-line message-line-bubble">
+            {avatarNode}
+            <div className="message-bubble-column"><span className="message-bubble-author">{name}</span>{content}</div>
+          </div>}
           {!streamingNow && <div className="message-action-row">
             <button className="message-action-trigger" aria-label="消息操作" {...tap(() => setMenuMessageId(menuMessageId === message.id ? null : message.id))}>•••</button>
             {menuMessageId === message.id && <span className="persona-message-menu">
@@ -642,6 +673,7 @@ export default function PersonaWindowPage(props: Props) {
             {!isUser && message.id === lastMessage?.id && !generating && <button className="continue-turn-button" aria-label="让 TA 继续说" title="继续" {...tap(letThemSpeak)}>▶</button>}
           </div>}
           {!isUser && (message.finishReason === 'length' || message.finishReason === 'max_tokens') && <span className="message-finish-note">回复达到上限，可点 ▶ 让 TA 接着说</span>}
+          {!isUser && message.songPick && !streamingNow ? <PersonaSongChip title={message.songPick} tap={tap} /> : null}
           {!isUser && message.recallSources?.length ? <PersonaRecallReceipt sources={message.recallSources} persona={active} /> : null}
           {!isUser && tasksByMessage.has(message.id) && <PersonaTaskCards tasks={tasksByMessage.get(message.id)!} busy={generating} onAction={taskAction} onReact={taskReact} tap={tap} />}
         </div>
@@ -672,7 +704,7 @@ export default function PersonaWindowPage(props: Props) {
           <button className="persona-settings-close" aria-label="关闭" {...tap(() => { setDrawerOpen(false); setRenaming(null) })}>×</button>
         </header>}
         <div className="right-drawer-scroll">
-          {drawerOpen && settingsPanel === 'home' && <PersonaSettingsHome promptLength={active.systemPrompt?.trim().length || 0} memoryCount={active.memories.length} threadCount={active.threads.length} threadTitle={thread?.title || ''} channelName={resolvePersonaApi(active, props.apiChannels, props.api).name} modelName={resolvePersonaApi(active, props.apiChannels, props.api).modelName || ''} pastLifeEnabled={active.pastLifeEnabled !== false} onNavigate={setSettingsPanel} onThreads={openSidebar} onMemory={() => { setDrawerOpen(false); setViewReturn('settings'); setView('memory') }} onManage={() => { setDrawerOpen(false); setViewReturn('settings'); setView('manage') }} onTogglePastLife={togglePastLife} tap={tap} />}
+          {drawerOpen && settingsPanel === 'home' && <PersonaSettingsHome promptLength={active.systemPrompt?.trim().length || 0} memoryCount={active.memories.length} threadCount={active.threads.length} threadTitle={thread?.title || ''} channelName={resolvePersonaApi(active, props.apiChannels, props.api).name} modelName={resolvePersonaApi(active, props.apiChannels, props.api).modelName || ''} pastLifeEnabled={active.pastLifeEnabled !== false} onNavigate={setSettingsPanel} onThreads={openSidebar} onMemory={() => { setDrawerOpen(false); setViewReturn('settings'); setView('memory') }} onManage={() => { setDrawerOpen(false); setViewReturn('settings'); setView('manage') }} onTogglePastLife={togglePastLife} trackCount={trackCount} songPickEnabled={active.songPickEnabled !== false} onMusic={() => { setDrawerOpen(false); setMusicSheetOpen(true) }} onToggleSongPick={() => setPersonaState((current) => updatePersona(current, active.id, (item) => { const next = { ...item }; if (item.songPickEnabled === false) delete next.songPickEnabled; else next.songPickEnabled = false; return next }))} tap={tap} />}
           {sidebarOpen && <section className="drawer-compact-group persona-threads">
             <h3 className="persona-section-title">最近</h3>
             {active.threads.slice().sort((a, b) => (b.updatedAt || 0) - (a.updatedAt || 0)).map((item) => {

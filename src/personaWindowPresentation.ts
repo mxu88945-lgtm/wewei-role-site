@@ -1,5 +1,6 @@
 import { stripUiOnlyStatusBlocks } from './modelContext'
 import { sanitizeAssistantOutput } from './outputSanitizer'
+import { stripSongPick } from './personaSongPick'
 
 // Only used by 人格窗口. Never change the card or the story/phone renderer.
 export const PERSONA_DISPLAY_LORE = /(<\/?(?:div|span|status|[a-z][\w-]*_status|scene|scenario|psychology|style|section|details|table)\b|状态栏|美化|输出格式|格式要求|html|css|正则)/i
@@ -33,7 +34,8 @@ export function stripPersonaFormatInstructions(value: string) {
  * instead of deleting what he said. HTML/CSS must never become an iframe here.
  */
 export function personaReplyText(value: string) {
-  return stripUiOnlyStatusBlocks(sanitizeAssistantOutput(value))
+  // v207：点歌标记 [点歌:X] 只是给应用看的，任何地方都不显示、不进历史/记忆/摘要。
+  return stripSongPick(stripUiOnlyStatusBlocks(sanitizeAssistantOutput(stripSongPick(value)))
     .replace(/\[\s*(?:记忆|记住|存记忆|memory|搜索|旧文|提醒|提醒任务|定时提醒|任务|reminder)\s*[:：][^\]\n]*(?:\]|$)/gi, '')
     .replace(/\[(?:记(?:忆|住)?|存记忆|memory|搜(?:索)?|旧(?:文)?|提(?:醒(?:任(?:务)?)?)?|定(?:时(?:提(?:醒)?)?)?|任(?:务)?|reminder)?$/gi, '')
     .replace(/<(scene|scenario|details)\b[^>]*>[\s\S]*?(?:<\/\1\s*>|$)/gi, '')
@@ -51,5 +53,5 @@ export function personaReplyText(value: string) {
     .replace(/&amp;/gi, '&')
     .replace(/[ \t]+\n/g, '\n')
     .replace(/\n{3,}/g, '\n\n')
-    .trim()
+    .trim())
 }

@@ -2,11 +2,12 @@ import type { PointerEvent } from 'react'
 
 export type PersonaSettingsPanel = 'home' | 'model' | 'prompts' | 'appearance' | 'tasks'
 type Tap = (action: () => void) => { onPointerUp: (event: PointerEvent) => void; onClick: () => void }
-type IconName = 'prompt' | 'memory' | 'past' | 'windows' | 'model' | 'people' | 'appearance'
+type IconName = 'prompt' | 'memory' | 'past' | 'windows' | 'model' | 'people' | 'appearance' | 'music'
 const ICONS: Record<IconName, string> = {
   prompt: 'M9 4h6M10 4v16m4-16v16M9 4H7a4 4 0 0 0 0 8h3',
   appearance: 'M12 3a9 9 0 1 0 0 18h2a2 2 0 0 0 1-3.7 1.5 1.5 0 0 1 .8-2.8H18a3 3 0 0 0 3-3A9 9 0 0 0 12 3ZM7 10h.01M10 7h.01M15 7h.01M17 11h.01',
   memory: 'm12 3 8 9-8 9-8-9 8-9Z',
+  music: 'M9 18V5l11-2v13M9 18a3 3 0 1 1-6 0 3 3 0 0 1 6 0Zm11-2a3 3 0 1 1-6 0 3 3 0 0 1 6 0Z',
   past: 'M3 11a9 9 0 1 1 3 8M3 5v6h6m3-4v5l3 2',
   windows: 'M4 5h16v14H4V5Zm0 4h16M8 5v4',
   model: 'M8 3v3m8-3v3M8 18v3m8-3v3M3 8h3m-3 8h3m12-8h3m-3 8h3M6 6h12v12H6V6Zm4 4h4v4h-4v-4Z',
@@ -24,9 +25,11 @@ function Row({ icon, title, description, value, onSelect, tap }: { icon: IconNam
   </button>
 }
 
-export default function PersonaSettingsHome({ promptLength, memoryCount, threadCount, threadTitle, channelName, modelName, pastLifeEnabled, onNavigate, onThreads, onMemory, onManage, onTogglePastLife, tap }: {
+export default function PersonaSettingsHome({ promptLength, memoryCount, threadCount, threadTitle, channelName, modelName, pastLifeEnabled, onNavigate, onThreads, onMemory, onManage, onTogglePastLife, trackCount = 0, songPickEnabled = true, onMusic, onToggleSongPick, tap }: {
   promptLength: number; memoryCount: number; threadCount: number; threadTitle: string; channelName: string; modelName: string; pastLifeEnabled: boolean
-  onNavigate: (panel: PersonaSettingsPanel) => void; onThreads: () => void; onMemory: () => void; onManage: () => void; onTogglePastLife: () => void; tap: Tap
+  onNavigate: (panel: PersonaSettingsPanel) => void; onThreads: () => void; onMemory: () => void; onManage: () => void; onTogglePastLife: () => void
+  /** v207 一起听歌 */
+  trackCount?: number; songPickEnabled?: boolean; onMusic?: () => void; onToggleSongPick?: () => void; tap: Tap
 }) {
   return <div className="persona-settings-home">
     <p className="persona-settings-caption">你们的相处</p>
@@ -40,6 +43,14 @@ export default function PersonaSettingsHome({ promptLength, memoryCount, threadC
         <button className={`switch ${pastLifeEnabled ? 'on' : ''}`} aria-label="前世记忆" aria-pressed={pastLifeEnabled} {...tap(onTogglePastLife)}><span /></button>
       </div>
     </section>
+    {onMusic && <><p className="persona-settings-caption">一起听歌</p>
+    <section className="persona-settings-group" aria-label="一起听歌">
+      <Row icon="music" title="🎵 唱片机" description="和主聊天同一份歌单" value={trackCount ? `${trackCount} 首` : '导入歌'} onSelect={onMusic} tap={tap} />
+      {onToggleSongPick && <div className="persona-settings-row persona-settings-toggle">
+        <Icon name="music" /><span className="persona-settings-copy"><strong>让他自己点歌</strong><small>气氛合适时，他偶尔从歌单里挑一首放</small></span>
+        <button className={`switch ${songPickEnabled ? 'on' : ''}`} aria-label="让他自己点歌" aria-pressed={songPickEnabled} {...tap(onToggleSongPick)}><span /></button>
+      </div>}
+    </section></>}
     <p className="persona-settings-caption">窗口与连接</p>
     <section className="persona-settings-group" aria-label="窗口与连接">
       <Row icon="windows" title="聊天窗口" description={threadTitle || '在左侧栏查看、新开与整理窗口'} value={`${threadCount} 个`} onSelect={onThreads} tap={tap} />
