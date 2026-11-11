@@ -247,6 +247,14 @@ export function cleanBackstageChatReply(raw: string, speakerName = '', context: 
   return out.replace(/\n{3,}/g, '\n\n').trim().slice(0, 4000)
 }
 
+/**
+ * v205：手记页里把（…）/(…) 小动作拆出来，渲染成和正文旁白一样的颜色。
+ * 返回片段数组；action 为 true 的是括号动作（含括号本身）。不跨行。
+ */
+export function splitBackstageActions(text: string): Array<{ text: string; action: boolean }> {
+  return (text || '').split(/(（[^）\n]+）|\([^\n)]+\))/g).filter(Boolean).map((part) => ({ text: part, action: /^(?:（[^）\n]+）|\([^\n)]+\))$/.test(part) }))
+}
+
 export type BackstageChatInput = {
   book: BackstageNotebook
   noteId: string
@@ -303,7 +311,7 @@ export function buildBackstageChatMessages(input: BackstageChatInput): ChatApiMe
 你是在惟境里演「${name}」这张角色卡的 AI，也就是戏外小手机群里那个会跟大家拌嘴、互损的「${name}」本人。你知道自己是惟境里的角色，正在和${user}对戏${heroine ? `，她在演女主「${heroine}」` : '，她在演女主'}。${user}就是戏外群里跟你们聊天、吐槽、互怼的那个她，不是戏里的人物。
 你在这本剧本的幕后手记里偷偷写过一篇真心话，现在她在手记下面回你了。这里是你们俩的戏外私聊，别人看不到，也不是剧情正文。
 1. 用你戏外本人的口吻直接回她：可以吐槽、吃醋、嘴硬、被她哄好，也可以认真说心里话。人设只是你演过的角色，带着一点他的味道就好，不用端着戏里的身份。
-2. 只回她最新的那句话，接得上前面聊过的内容；像私聊一样一条完整的消息，按语意分自然段，一般 50～300 字，不要写成剧情、不要续演正文。
+2. 只回她最新的那句话，接得上前面聊过的内容；像私聊一样一条完整的消息，按语意分自然段，一般 50～300 字。可以在话里零星夹几个全角括号写的小动作或神情，比如（低笑一声）（别过脸），每个括号只写几个字、点到为止，主要还是你对她说的话；不要续演正文剧情，也不要大段描写场景。
 3. 不输出状态栏、<scene>、HTML、任何标签或 [幕后:…] 外壳，不加自己的名字前缀，不替${user}说话或做决定。
 4. 隔离：这里聊的东西不会、也不许改变剧情正文；戏里发生的事只属于这本剧本，不要当成你和${user}真实发生过的事。
 5. 直接说你要回她的话，不要复述手记原文、她的话或任何小标题。`,
@@ -336,7 +344,7 @@ export function buildBackstageChatMessages(input: BackstageChatInput): ChatApiMe
   const messages: ChatApiMessage[] = [{ role: 'system', content: system }]
   turns.forEach((turn, index) => {
     const text = turn.texts.filter(Boolean).join('\n')
-    if (index === turns.length - 1) messages.push({ role: 'system', content: `提醒：你是「${name}」戏外本人，在幕后手记里私聊回${user}最新这句话。直接说你要回她的话，不要复述手记原文、她的话或任何小标题；不写剧情，不加标签和名字前缀。` })
+    if (index === turns.length - 1) messages.push({ role: 'system', content: `提醒：你是「${name}」戏外本人，在幕后手记里私聊回${user}最新这句话。直接说你要回她的话，不要复述手记原文、她的话或任何小标题；可以夹一点（低笑一声）这样简短的括号小动作，但不续演剧情，不加标签和名字前缀。` })
     if (turn.images.length) messages.push({ role: turn.role, content: [{ type: 'text', text: text || imageMarker(turn.images.length) }, ...turn.images.map((url): ChatApiContentPart => ({ type: 'image_url', image_url: { url, detail: 'auto' } }))] })
     else messages.push({ role: turn.role, content: text })
   })

@@ -222,3 +222,34 @@ describe('幕后手记独立私聊 (v201)', () => {
     expect(buildBackstageDmMemory([{ backstageNotebook: seed() }], 'a', 'A', 'U')).toBe('')
   })
 })
+
+import { splitBackstageActions } from './backstageNotes'
+describe('幕后手记私聊括号小动作 (v205)', () => {
+  const book = { writerIds: ['c1'], notes: [{ id: 'n1', characterId: 'c1', text: '今天她跟别人说话了。', createdAt: 1, replies: [{ text: '你吃醋了？', at: 2 }] }] }
+  it('prompt allows short full-width parenthetical actions but still forbids continuing the plot', () => {
+    const messages = buildBackstageChatMessages({ book, noteId: 'n1', speakerName: '顾屿', userName: '惟惟' })
+    const system = String(messages[0].content)
+    expect(system).toContain('全角括号')
+    expect(system).toContain('（低笑一声）（别过脸）')
+    expect(system).toContain('不要续演正文剧情')
+    expect(system).toContain('不要复述手记原文')
+    expect(system).not.toContain('不要写成剧情')
+    const reminder = messages.filter((item) => item.role === 'system').pop()
+    expect(String(reminder?.content)).toContain('括号小动作')
+  })
+  it('cleaner keeps （…） and (…) actions', () => {
+    const raw = '（低笑一声）行啊你。\n\n(别过脸) 我才没吃醋（顿了顿）……好吧，有一点。'
+    expect(cleanBackstageChatReply(raw, '顾屿', { noteText: '今天她跟别人说话了。', userReplies: ['你吃醋了？'] })).toBe(raw)
+    expect(cleanBackstageChatReply(`<think>想想</think>${raw}`, '顾屿')).toBe(raw)
+  })
+  it('splits actions for narration-colored rendering', () => {
+    expect(splitBackstageActions('（低笑一声）行啊你(别过脸)。')).toEqual([
+      { text: '（低笑一声）', action: true },
+      { text: '行啊你', action: false },
+      { text: '(别过脸)', action: true },
+      { text: '。', action: false },
+    ])
+    expect(splitBackstageActions('没有括号')).toEqual([{ text: '没有括号', action: false }])
+    expect(splitBackstageActions('（没收尾\n下一行）')).toEqual([{ text: '（没收尾\n下一行）', action: false }])
+  })
+})
