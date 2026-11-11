@@ -32,8 +32,23 @@ describe('FilmCard gallery entry (v200)', () => {
   it('shows the 换图 button when the card knows its character and keeps the avatar when no images exist', () => {
     const card = parseFilmBody('幕：天台')!
     const html = renderToStaticMarkup(<FilmCard card={card} avatar="data:image/png;base64,AA" characterId="c1" speakerName="他" seed="z" />)
-    expect(html).toContain('🎞 换图')
+    expect(html).toContain('aria-label="换图"')
+    expect(html).toContain('film-frame-edit')
+    expect(html).not.toContain('🎞 换图')
     expect(html).toContain('film-frame-bg')
     expect(html).not.toContain('film-dots')
+  })
+})
+
+describe('FilmCard missing song (v202)', () => {
+  it('offers to import the requested song when it is not in the playlist', async () => {
+    const { useMusicStore } = await import('./musicStore')
+    useMusicStore.setState({ tracks: [{ id: 't1', name: '晴天' }], now: null })
+    const card = parseFilmBody('歌：千年之恋 - F.I.R.\n幕：天台')!
+    const html = renderToStaticMarkup(<FilmCard card={card} speakerName="谢聿衡" seed="m" />)
+    expect(html).toContain('film-gramo-import')
+    expect(html).toContain('点这里导入《千年之恋》')
+    // SSR 渲染读的是 store 初始快照（空歌单），歌单里有歌时的「点播放」分支由 filmAutoplay / findTrackByTitle 的测试覆盖。
+    useMusicStore.setState({ tracks: [], autoplayBlockedId: '' })
   })
 })

@@ -121,7 +121,9 @@
 .film-slide-in { animation: film-fade .8s ease both; }
 @keyframes film-fade { from { opacity: 0; } to { opacity: 1; } }
 @media (prefers-reduced-motion: reduce) { .film-slide-in { animation-duration: .01s; } }
-.film-frame-edit { position: absolute; z-index: 2; top: 6px; left: 6px; min-width: 0; min-height: 0; padding: 2px 8px; border: 0; border-radius: 999px; color: var(--film-ink); font-size: 10.5px; line-height: 1.6; background: rgba(252,247,238,.86); box-shadow: 0 1px 3px rgba(110,75,55,.12); touch-action: manipulation; -webkit-tap-highlight-color: transparent; }
+.film-frame-edit { position: absolute; z-index: 2; top: 6px; left: 6px; display: grid; place-items: center; width: 28px; height: 28px; min-width: 0; min-height: 0; padding: 0; border: 1px solid rgba(155,58,50,.18); border-radius: 50%; color: var(--film-red); background: rgba(252,247,238,.9); box-shadow: 0 1px 3px rgba(110,75,55,.14); touch-action: manipulation; -webkit-tap-highlight-color: transparent; }
+.film-frame-edit svg { width: 15px; height: 15px; fill: none; stroke: currentColor; stroke-width: 1.7; stroke-linecap: round; stroke-linejoin: round; pointer-events: none; }
+.film-frame-edit svg circle { fill: currentColor; stroke: none; }
 .film-frame-title { z-index: 2; }
 .film-dots { position: absolute; z-index: 2; right: 8px; bottom: 10px; display: flex; gap: 4px; padding: 3px 5px; border-radius: 999px; background: rgba(252,247,238,.72); }
 .film-dots i { display: block; width: 5px; height: 5px; border-radius: 50%; background: rgba(110,75,55,.3); }
@@ -147,3 +149,9 @@
 .film-gallery-add b { font-size: 24px; font-weight: 400; line-height: 1; }
 .film-gallery-add small { color: #9c836e; font-size: 11px; }
 .film-gallery-msg { margin: 10px 0 0; color: #9b3a32; font-size: 12px; }
+
+/* v202：点的歌不在歌单 → 小灰字可点，直接导入；自动切歌被拦 → 提示点播放 */
+.film-gramo-import { display: block; max-width: 100%; min-width: 0; min-height: 0; margin: 2px 0 0; padding: 0; border: 0; background: none; color: var(--film-muted); font: inherit; font-size: 10px; letter-spacing: .04em; line-height: 1.45; text-align: left; white-space: normal; cursor: pointer; touch-action: manipulation; -webkit-tap-highlight-color: transparent; }
+.film-gramo-import b { font-weight: 600; color: var(--film-red); text-decoration: underline; text-underline-offset: 2px; text-decoration-color: rgba(155,58,50,.35); }
+.film-gramo-tap { color: var(--film-red); }
+.film-gramo-actions button.film-gramo-nudge { box-shadow: 0 0 0 2px rgba(155,58,50,.28); }

@@ -33,12 +33,19 @@ interface MusicState extends Persisted {
   setLyricIndex: (i: number) => void
   /** v198 剧情美化卡的唱片机：外部发播放指令，由 MusicPlayer 执行（音频元素只在那里）。 */
   command: MusicCommand | null
-  requestPlay: (id: string) => void
+  /** auto：不是她亲手点的（新剧情卡自动切歌 / 导入后自动放），iOS 可能拒绝出声。 */
+  requestPlay: (id: string, auto?: boolean) => void
   requestToggle: () => void
   requestStep: (dir: 1 | -1) => void
+  /** v202：自动播放被浏览器拦下的那首（卡片上显示「点播放」）；没有为空串。 */
+  autoplayBlockedId: string
+  setAutoplayBlocked: (id: string) => void
+  /** v202：剧情卡上「点这里导入《X》」：让 MusicPlayer 打开文件选择，导入后歌名对得上就直接放。 */
+  importRequest: { title: string; artist: string; nonce: number } | null
+  requestImport: (title: string, artist?: string) => void
 }
 
-export type MusicCommand = { kind: 'play'; id: string; nonce: number } | { kind: 'toggle'; nonce: number } | { kind: 'step'; dir: 1 | -1; nonce: number }
+export type MusicCommand = { kind: 'play'; id: string; auto?: boolean; nonce: number } | { kind: 'toggle'; nonce: number } | { kind: 'step'; dir: 1 | -1; nonce: number }
 let commandNonce = 0
 
 export const useMusicStore = create<MusicState>((set, get) => {
@@ -66,9 +73,13 @@ export const useMusicStore = create<MusicState>((set, get) => {
     lyricIndex: -1,
     setLyricIndex: (i) => { if (get().lyricIndex !== i) set({ lyricIndex: i }) },
     command: null,
-    requestPlay: (id) => set({ command: { kind: 'play', id, nonce: ++commandNonce } }),
+    requestPlay: (id, auto = false) => set({ command: { kind: 'play', id, ...(auto ? { auto: true } : {}), nonce: ++commandNonce } }),
     requestToggle: () => set({ command: { kind: 'toggle', nonce: ++commandNonce } }),
     requestStep: (dir) => set({ command: { kind: 'step', dir, nonce: ++commandNonce } }),
+    autoplayBlockedId: '',
+    setAutoplayBlocked: (id) => { if (get().autoplayBlockedId !== id) set({ autoplayBlockedId: id }) },
+    importRequest: null,
+    requestImport: (title, artist = '') => set({ importRequest: { title, artist, nonce: ++commandNonce } }),
   }
 })
 
@@ -76,32 +87,92 @@ export function musicTrackId(): string {
   return typeof crypto !== 'undefined' && 'randomUUID' in crypto ? crypto.randomUUID() : `mu-${Date.now()}-${Math.random().toString(36).slice(2)}`
 }
 
-function normTitle(value: string) {
-  return value.toLowerCase().replace(new RegExp('[\\s《》「」“”"\'()（）\\[\\]【】._\\-–—·・/／|｜,，!！?？]+', 'g'), '')
+// v202：常见繁体 → 简体（歌名里常见的字，够用就行，不引整套字库）。
+const T2S: Record<string, string> = Object.fromEntries(Array.from(
+  '戀恋兒儿團团愛爱聽听個个們们這这說说時时間间來来過过還还對对開开關关邊边裡里裏里後后會会經经與与為为無无見见樣样給给讓让誰谁發发夢梦憶忆淚泪憂忧傷伤歲岁風风雲云電电飛飞鳥鸟馬马魚鱼龍龙鳳凤華华國国東东門门長长遠远邊边紅红藍蓝綠绿黃黄靜静聲声樂乐歡欢戲戏劇剧話话語语詞词譜谱調调錯错對对壞坏憐怜難难離离鍾钟鐘钟記记憶忆漢汉場场燈灯塵尘輕轻舊旧親亲顏颜誓誓溫温濃浓淺浅緣缘終终結结斷断線线紙纸書书畫画筆笔煙烟織织輪轮轉转燒烧點点愛爱單单雙双萬万億亿實实壓压獨独憑凭歸归種种隨随悵怅懷怀從从幾几廣广陽阳陰阴雖虽戰战嗎吗嘆叹飄飘蕩荡漫漫謝谢塊块殘残擁拥擊击態态雪雪寫写滿满飯饭貓猫'
+).reduce<Array<[string, string]>>((out, ch, i, all) => (i % 2 === 0 ? [...out, [ch, all[i + 1]]] : out), []))
+
+const AUDIO_EXT = /\.(?:mp3|m4a|aac|flac|wav|ogg|oga|opus|wma|ape|alac|aiff?|caf|mp4|webm)$/i
+const BRACKETS = /\([^()]*\)|（[^（）]*）|\[[^[\]]*\]|【[^【】]*】|《[^《》]*》|「[^「」]*」|『[^『』]*』|〔[^〔〕]*〕/g
+const VERSION_SUFFIX = /(?:live|伴奏|纯音乐|remix|remaster(?:ed)?|instrumental|karaoke|inst|cover|demo|ver(?:sion)?|现场|现场版|完整版|女声版|男声版|dj版|dj|铃声版|高音质|无损|hq|sq)+$/
+
+function toSimplified(value: string) {
+  return Array.from(value).map((ch) => T2S[ch] || ch).join('')
+}
+
+/** 只留字母、数字和汉字，全角转半角，繁转简，小写，去掉 live/伴奏/remix 这类尾巴。 */
+function squashTitle(value: string) {
+  let out = toSimplified(value.normalize('NFKC').toLowerCase()).replace(/[^\p{L}\p{N}]+/gu, '')
+  for (let i = 0; i < 3; i += 1) { const next = out.replace(VERSION_SUFFIX, ''); if (next === out || !next) break; out = next }
+  return out
 }
 
 /**
- * 按歌名模糊匹配导入的歌：完全相同 > 互相包含 > 去掉歌手后包含 > 字符重合度。
- * 匹配不到返回 null。
+ * v202：一个歌名的几种比较用写法：[整串, 第一段, 其余各段]。
+ * 去扩展名；《》里写的是歌名本身，先拆掉书名号保留内容；其余括号连内容一起去掉（(Live)、[伴奏]、（翻唱）…）；
+ * 按「 - 」「-」「–」「—」拆出歌手段。
  */
-export function findTrackByTitle<T extends { id: string; name: string }>(tracks: T[], title: string, artist = ''): T | null {
-  const want = normTitle(title)
-  if (!want || !tracks.length) return null
-  const wantArtist = normTitle(artist)
+export function songTitleKeys(raw: string): { whole: string; parts: string[] } {
+  let text = (raw || '').normalize('NFKC').trim().replace(AUDIO_EXT, '')
+  text = text.replace(/[《「『]([^《》「」『』]{1,60})[》」』]/g, ' $1 ')
+  text = text.replace(BRACKETS, ' ')
+  const parts = text.split(/\s+-+\s+|\s*[–—]+\s*|(?<=[\p{Script=Han}\p{L}\p{N}.)])-(?=[\p{Script=Han}\p{L}\p{N}])|\s*[/／|｜_]\s*/u).map(squashTitle).filter(Boolean)
+  // 去掉开头的曲目编号段（"07 夜曲" → "07夜曲" 里的数字前缀）。
+  const clean = parts.map((part) => part.replace(/^\d{1,3}(?=\D)/, '')).filter(Boolean)
+  return { whole: squashTitle(text).replace(/^\d{1,3}(?=\D)/, ''), parts: clean }
+}
+
+/** v202：短的一方至少 2 个字，且占长的一方至少 minShare（防止只靠歌手名那一小截就算匹配）。 */
+function contains(long: string, short: string, minShare: number) {
+  return short.length >= 2 && long.includes(short) && short.length >= Math.ceil(long.length * minShare)
+}
+
+/**
+ * 按歌名模糊匹配导入的歌（v202 重写）：两边都先规范化（去扩展名、括号、歌手段、标点、全角、版本尾巴，繁转简），
+ * 卡里的歌名（整串和第一段=歌名）与歌单里每首的整串和各段比，相同 > 歌单包含歌名 > 歌名包含歌单段；
+ * 卡里写了歌手且歌单那首也带这个歌手时加分。匹配不到返回 null。
+ */
+export function findTrackByTitle<T extends { id: string; name: string; title?: string; artist?: string }>(tracks: T[], title: string, artist = ''): T | null {
+  const wantKeys = songTitleKeys(title)
+  // 「千年之恋F.I.R.」这类歌名和歌手粘在一起的：按汉字/字母交界再切一刀，取第一截当歌名。
+  const head = (wantKeys.parts[0] || '').match(/^(?:\p{Script=Han}+|[^\p{Script=Han}]+)/u)?.[0] || ''
+  const wants = Array.from(new Set([wantKeys.parts[0], wantKeys.whole, head.length >= 2 ? head : ''].filter((key): key is string => Boolean(key && key.length >= 1))))
+  if (!wants.length || !tracks.length) return null
+  const wantArtist = squashTitle(artist)
   let best: { track: T; score: number } | null = null
   for (const track of tracks) {
-    const name = normTitle(track.name)
-    if (!name) continue
-    let score = 0
-    if (name === want) score = 100
-    else if (name.includes(want)) score = 80 + (wantArtist && name.includes(wantArtist) ? 10 : 0)
-    else if (want.includes(name) && name.length >= 2) score = 60
-    else {
-      const chars = new Set(Array.from(name))
-      const hit = Array.from(want).filter((ch) => chars.has(ch)).length
-      const ratio = hit / Math.max(want.length, 1)
-      if (want.length >= 2 && ratio >= 0.75) score = Math.round(40 * ratio)
+    const fields = [track.title, track.name, track.artist && track.title ? `${track.title} - ${track.artist}` : ''].filter((value): value is string => Boolean(value))
+    const keys = new Set<string>()
+    let haystack = ''
+    for (const field of fields) {
+      const k = songTitleKeys(field)
+      if (k.whole) keys.add(k.whole)
+      k.parts.forEach((part) => keys.add(part))
+      haystack += k.whole
     }
+    if (track.artist) haystack += squashTitle(track.artist)
+    let score = 0
+    for (const want of wants) {
+      for (const key of keys) {
+        let s = 0
+        if (key === want) s = 100
+        else if (contains(key, want, want.length >= 3 ? 0 : 0.4)) s = 80
+        else if (contains(want, key, 0.6)) s = 60
+        if (s) s += Math.min(want.length, key.length)
+        if (s > score) score = s
+      }
+    }
+    if (!score) {
+      // 兜底：字符重合度很高（错一两个字、少个字）。
+      const want = wants[0]
+      for (const key of keys) {
+        const chars = new Set(Array.from(key))
+        const hit = Array.from(want).filter((ch) => chars.has(ch)).length
+        const ratio = hit / Math.max(want.length, 1)
+        if (want.length >= 3 && ratio >= 0.75 && Math.abs(key.length - want.length) <= 2) score = Math.max(score, Math.round(40 * ratio))
+      }
+    }
+    if (score && wantArtist && wantArtist.length >= 2 && haystack.includes(wantArtist)) score += 10
     if (score && (!best || score > best.score)) best = { track, score }
   }
   return best?.track ?? null

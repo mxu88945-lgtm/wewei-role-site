@@ -191,14 +191,59 @@ export function backstageNoteAwaitsCharacter(note: BackstageNote | undefined) {
   return Boolean(last && backstageReplyFrom(last) === 'user')
 }
 
-/** 清理他在手记私聊里的回复：去掉思考、状态栏、各种标签、[幕后:…] 外壳和名字前缀。 */
-export function cleanBackstageChatReply(raw: string, speakerName = '') {
+export type BackstageEchoContext = {
+  /** 这篇手记的原文：模型有时把它整段复述在回复开头。 */
+  noteText?: string
+  /** 她最近说的几句（旧→新）：模型有时先复述她的话再回。 */
+  userReplies?: string[]
+}
+
+const HEADING_LINE = /^\s*【[^【】\n]{1,40}】\s*$/
+const squash = (text: string) => text.replace(/\s+/g, '')
+
+/**
+ * v202：去掉模型模仿 system 里的分节、自己编出来的「【…】小标题 + 内容」脚手架，
+ * 以及开头对手记原文和她刚说的话的复述。只看开头，正文中间的内容不动；剥完为空就保留原文。
+ */
+export function stripBackstageEcho(text: string, context: BackstageEchoContext = {}) {
+  let out = (text || '').replace(/\r\n?/g, '\n')
+  const lines = out.split('\n')
+  const firstLine = lines.findIndex((line) => line.trim())
+  let lastHeading = -1
+  lines.forEach((line, index) => { if (HEADING_LINE.test(line)) lastHeading = index })
+  if (lastHeading >= 0) {
+    const before = lines.slice(0, lastHeading).join('\n').length
+    const after = lines.slice(lastHeading + 1).join('\n').trim()
+    const leading = HEADING_LINE.test(lines[firstLine] || '')
+    if (after && (leading || before < out.length / 2)) out = after
+  }
+  const sources = [...(context.userReplies || []).slice(-3), context.noteText || ''].map(squash).filter((item) => item.length >= 2)
+  if (!sources.length) return out.trim()
+  const rest = out.split('\n')
+  let cut = 0
+  for (let index = 0; index < rest.length; index += 1) {
+    const line = squash(rest[index])
+    if (!line) { if (cut === index) cut = index + 1; continue }
+    const trimmed = line.replace(/(?:……|…|\.{3,})$/, '')
+    const echoed = sources.some((source) => line.length >= 4 ? source.includes(line) : source === line)
+      || (trimmed !== line && trimmed.length >= 6 && sources.some((source) => source.includes(trimmed)))
+    if (!echoed) break
+    cut = index + 1
+  }
+  const remaining = rest.slice(cut).join('\n').trim()
+  return (remaining || out).trim()
+}
+
+/** 清理他在手记私聊里的回复：去掉思考、状态栏、各种标签、[幕后:…] 外壳、名字前缀，以及 v202 的小标题脚手架和复述。 */
+export function cleanBackstageChatReply(raw: string, speakerName = '', context: BackstageEchoContext = {}) {
   let out = cleanPhoneOutput(sanitizeAssistantOutput(raw || ''))
   out = out.replace(/[[［【]\s*幕后\s*[:：]\s*([\s\S]*?)\s*[\]］】]/g, '$1').replace(/[[［【]\s*幕后\s*[:：]\s*/g, '')
-  if (speakerName) {
+  const dropName = (text: string) => {
+    if (!speakerName) return text
     const escaped = speakerName.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
-    out = out.replace(new RegExp(`^\\s*[「【]?${escaped}[」】]?\\s*[:：]\\s*`), '')
+    return text.replace(new RegExp(`^\\s*[「【]?${escaped}[」】]?\\s*[:：]\\s*`), '')
   }
+  out = dropName(stripBackstageEcho(dropName(out), context))
   return out.replace(/\n{3,}/g, '\n\n').trim().slice(0, 4000)
 }
 
@@ -254,20 +299,21 @@ export function buildBackstageChatMessages(input: BackstageChatInput): ChatApiMe
   while (tail.join('\n').length > L.story && tail.length > 1) tail.shift()
   const others = book.notes.filter((item) => item.characterId === note.characterId && item.id !== note.id && item.createdAt <= (note.replies?.[note.replies.length - 1]?.at || Infinity)).slice(-L.otherNotes)
   const sections = [
-    `【幕后手记｜戏外私聊｜最高优先级】
+    `— 幕后手记 · 戏外私聊 · 最高优先级 —
 你是在惟境里演「${name}」这张角色卡的 AI，也就是戏外小手机群里那个会跟大家拌嘴、互损的「${name}」本人。你知道自己是惟境里的角色，正在和${user}对戏${heroine ? `，她在演女主「${heroine}」` : '，她在演女主'}。${user}就是戏外群里跟你们聊天、吐槽、互怼的那个她，不是戏里的人物。
 你在这本剧本的幕后手记里偷偷写过一篇真心话，现在她在手记下面回你了。这里是你们俩的戏外私聊，别人看不到，也不是剧情正文。
 1. 用你戏外本人的口吻直接回她：可以吐槽、吃醋、嘴硬、被她哄好，也可以认真说心里话。人设只是你演过的角色，带着一点他的味道就好，不用端着戏里的身份。
 2. 只回她最新的那句话，接得上前面聊过的内容；像私聊一样一条完整的消息，按语意分自然段，一般 50～300 字，不要写成剧情、不要续演正文。
 3. 不输出状态栏、<scene>、HTML、任何标签或 [幕后:…] 外壳，不加自己的名字前缀，不替${user}说话或做决定。
-4. 隔离：这里聊的东西不会、也不许改变剧情正文；戏里发生的事只属于这本剧本，不要当成你和${user}真实发生过的事。`,
-    persona && `【你演的角色卡｜「${name}」${card.tagline ? `｜${card.tagline}` : ''}】\n${clip(persona, L.card)}`,
-    input.contextSummary?.trim() && `【这本剧本到目前的剧情摘要】\n${clip(input.contextSummary.trim(), L.summary)}`,
-    memories.length && `【这本剧本的长期记忆】\n${memories.map((item) => `- ${item}`).join('\n')}`,
-    charMemories.length && `【你在这本剧本里的核心记忆】\n${charMemories.map((item) => `- ${item}`).join('\n')}`,
-    tail.length && `【主线正文最近几段｜戏演到这里了，仅供你知道现在的场面】\n${tail.join('\n')}`,
-    others.length && `【你最近写过的其他手记（背景，不用回）】\n${others.map((item) => `- ${clip(item.text.replace(/\s+/g, ' '), L.otherNote)}`).join('\n')}`,
-    `【这一篇手记｜你写的】\n${clip(note.text.trim(), 1200)}`,
+4. 隔离：这里聊的东西不会、也不许改变剧情正文；戏里发生的事只属于这本剧本，不要当成你和${user}真实发生过的事。
+5. 直接说你要回她的话，不要复述手记原文、她的话或任何小标题。`,
+    persona && `— 你演的角色卡：「${name}」${card.tagline ? ` · ${card.tagline}` : ''} —\n${clip(persona, L.card)}`,
+    input.contextSummary?.trim() && `— 这本剧本到目前的剧情摘要 —\n${clip(input.contextSummary.trim(), L.summary)}`,
+    memories.length && `— 这本剧本的长期记忆 —\n${memories.map((item) => `- ${item}`).join('\n')}`,
+    charMemories.length && `— 你在这本剧本里的核心记忆 —\n${charMemories.map((item) => `- ${item}`).join('\n')}`,
+    tail.length && `— 主线正文最近几段（戏演到这里了，仅供你知道现在的场面） —\n${tail.join('\n')}`,
+    others.length && `— 你最近写过的其他手记（背景，不用回） —\n${others.map((item) => `- ${clip(item.text.replace(/\s+/g, ' '), L.otherNote)}`).join('\n')}`,
+    `— 这一篇手记（你写的） —\n${clip(note.text.trim(), 1200)}`,
   ].filter(Boolean) as string[]
   let system = sections.join('\n\n')
   if (system.length > L.system) system = `${system.slice(0, L.system)}…`
@@ -280,7 +326,8 @@ export function buildBackstageChatMessages(input: BackstageChatInput): ChatApiMe
     const role = backstageReplyFrom(reply) === 'character' ? 'assistant' : 'user'
     const pictures = role === 'user' && index === lastUser && index === replies.length - 1 ? (reply.images || []).filter(isImageUrl).slice(0, BACKSTAGE_REPLY_IMAGE_LIMIT) : []
     const count = reply.images?.length || 0
-    const text = [clip(reply.text.trim(), L.turn), count && !pictures.length ? imageMarker(count) : '', pictures.length ? `（她发了 ${pictures.length} 张图，图在下面）` : ''].filter(Boolean).join(' ')
+    const body = role === 'assistant' ? stripBackstageEcho(reply.text, { noteText: note.text, userReplies: replies.slice(0, index).filter((item) => backstageReplyFrom(item) === 'user').map((item) => item.text) }) : reply.text
+    const text = [clip(body.trim(), L.turn), count && !pictures.length ? imageMarker(count) : '', pictures.length ? `（她发了 ${pictures.length} 张图，图在下面）` : ''].filter(Boolean).join(' ')
     const previous = turns[turns.length - 1]
     if (previous && previous.role === role) { previous.texts.push(text); previous.images.push(...pictures) }
     else turns.push({ role, texts: [text], images: [...pictures] })
@@ -289,7 +336,7 @@ export function buildBackstageChatMessages(input: BackstageChatInput): ChatApiMe
   const messages: ChatApiMessage[] = [{ role: 'system', content: system }]
   turns.forEach((turn, index) => {
     const text = turn.texts.filter(Boolean).join('\n')
-    if (index === turns.length - 1) messages.push({ role: 'system', content: `【提醒】你是「${name}」戏外本人，在幕后手记里私聊回${user}最新这句话。不写剧情，不加标签和名字前缀。` })
+    if (index === turns.length - 1) messages.push({ role: 'system', content: `提醒：你是「${name}」戏外本人，在幕后手记里私聊回${user}最新这句话。直接说你要回她的话，不要复述手记原文、她的话或任何小标题；不写剧情，不加标签和名字前缀。` })
     if (turn.images.length) messages.push({ role: turn.role, content: [{ type: 'text', text: text || imageMarker(turn.images.length) }, ...turn.images.map((url): ChatApiContentPart => ({ type: 'image_url', image_url: { url, detail: 'auto' } }))] })
     else messages.push({ role: turn.role, content: text })
   })
@@ -307,7 +354,12 @@ export function buildBackstageDmMemory(sources: Array<{ title?: string; backstag
   const blocks: string[] = []
   let used = 0
   for (const { title, note } of threads) {
-    const lines = (note.replies || []).slice(-4).map((reply) => `${backstageReplyFrom(reply) === 'character' ? '你' : '她'}：${clip(replyPlain(reply), 70)}`)
+    const all = note.replies || []
+    const lines = all.slice(-4).map((reply) => {
+      const mine = backstageReplyFrom(reply) === 'character'
+      const plain = mine ? stripBackstageEcho(reply.text, { noteText: note.text, userReplies: all.slice(0, all.indexOf(reply)).filter(isUserReply).map((item) => item.text) }).replace(/\s+/g, ' ').trim() : replyPlain(reply)
+      return `${mine ? '你' : '她'}：${clip(plain, 70)}`
+    })
     const block = `${title ? `《${clip(title, 16)}》` : ''}你的手记「${clip(note.text.replace(/\s+/g, ' '), 40)}」\n${lines.join('\n')}`
     if (used + block.length > maxChars) {
       if (!blocks.length) blocks.push(clip(block, maxChars))

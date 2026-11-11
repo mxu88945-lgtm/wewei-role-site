@@ -142,6 +142,21 @@ describe('findTrackByTitle', () => {
     expect(findTrackByTitle(tracks, 'fly me to the moon')?.id).toBe('2')
     expect(findTrackByTitle(tracks, '《夜曲》', '周杰伦')?.id).toBe('3')
   })
+  it('v202: normalizes extensions, artists, brackets, versions and traditional characters', () => {
+    for (const name of ['千年之恋', 'F.I.R. - 千年之恋.mp3', '千年之戀 (Live)', '千年之恋-F.I.R.飞儿乐团', 'F.I.R.飛兒樂團 – 千年之戀【伴奏】.flac']) {
+      const list = [{ id: 'x', name: '晴天' }, { id: 'y', name: 'F.I.R. - 我们的爱' }, { id: 'hit', name }]
+      expect(findTrackByTitle(list, '千年之恋')?.id, name).toBe('hit')
+      expect(findTrackByTitle(list, '千年之恋', 'F.I.R.')?.id, name).toBe('hit')
+      expect(findTrackByTitle(list, '《千年之恋》F.I.R.')?.id, name).toBe('hit')
+      expect(findTrackByTitle(list, '千年之恋-F.I.R.飞儿乐团')?.id, name).toBe('hit')
+      expect(findTrackByTitle(list, '千年之戀 (Live)')?.id, name).toBe('hit')
+    }
+    // 只有同一个歌手的别的歌：不算匹配。
+    expect(findTrackByTitle([{ id: 'y', name: 'F.I.R. - 我们的爱' }], '千年之恋-F.I.R.飞儿乐团')).toBeNull()
+    expect(findTrackByTitle([{ id: 'y', name: 'F.I.R. - 我们的爱' }], '千年之恋', 'F.I.R.')).toBeNull()
+    // 也看歌名 / 歌手字段。
+    expect(findTrackByTitle([{ id: 'z', name: 'track01', title: '千年之戀', artist: 'F.I.R.' }], '千年之恋')?.id).toBe('z')
+  })
   it('returns null when nothing is close', () => {
     expect(findTrackByTitle(tracks, '稻香')).toBeNull()
     expect(findTrackByTitle([], '晴天')).toBeNull()
@@ -167,5 +182,23 @@ describe('filmGramoText (v200)', () => {
     expect(filmGramoText({ song: null, nowName: '晴天', nowPlaying: true, lyricLine: '', speakerName: '他' }))
       .toEqual({ title: '晴天', sub: '你的歌单', requested: '', playingHere: true })
     expect(filmGramoText({ song: null, speakerName: '他' }).title).toBe('一起听歌')
+  })
+})
+
+describe('autoPlayFilmSong (v202)', () => {
+  it('switches to the requested song once per message, skips if already playing or missing', async () => {
+    const { useMusicStore } = await import('./musicStore')
+    const { autoPlayFilmSong, resetFilmAutoplayForTests } = await import('./filmAutoplay')
+    resetFilmAutoplayForTests()
+    useMusicStore.setState({ tracks: [{ id: 'a', name: '晴天' }, { id: 'b', name: 'F.I.R. - 千年之戀' }], now: { name: '晴天', playing: true, pos: 1, dur: 200 }, command: null })
+    const text = '正文。\n<film>\n歌：千年之恋 - F.I.R.\n幕：天台\n</film>'
+    expect(autoPlayFilmSong('m1', text)).toBe('requested')
+    expect(useMusicStore.getState().command).toMatchObject({ kind: 'play', id: 'b', auto: true })
+    expect(autoPlayFilmSong('m1', text)).toBe('done-before')
+    useMusicStore.setState({ now: { name: 'F.I.R. - 千年之戀', playing: true, pos: 1, dur: 200 } })
+    expect(autoPlayFilmSong('m2', text)).toBe('already-playing')
+    expect(autoPlayFilmSong('m3', '正文。\n<film>\n歌：稻香 - 周杰伦\n</film>')).toBe('no-match')
+    expect(autoPlayFilmSong('m4', '正文。\n<film>\n歌：千年之恋\n幕：没写完')).toBe('no-card')
+    useMusicStore.setState({ tracks: [], now: null, command: null })
   })
 })

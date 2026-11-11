@@ -9,7 +9,7 @@
 import { useEffect, useRef, useState } from 'react'
 import { createPortal } from 'react-dom'
 import { fetchLyricCandidates, isTimed, lyricIndexAt, parseLyrics, shiftLyrics, type LyricLine } from './lyrics'
-import { musicDel, musicGet, musicSet, musicTrackId, useMusicStore, type MusicCommand, type MusicTrack } from './musicStore'
+import { findTrackByTitle, musicDel, musicGet, musicSet, musicTrackId, useMusicStore, type MusicCommand, type MusicTrack } from './musicStore'
 import './music.css'
 
 function fmt(sec: number): string {
@@ -37,6 +37,7 @@ export default function MusicPlayer({ hideFloat = false }: { hideFloat?: boolean
   const urlRef = useRef('')
   const loadedRef = useRef('')
   const fileRef = useRef<HTMLInputElement>(null)
+  const importWantRef = useRef<{ title: string; artist: string } | null>(null)
   const lyricFileRef = useRef<HTMLInputElement>(null)
   const lyricForRef = useRef('')
   const triedRef = useRef(new Set<string>())
@@ -61,7 +62,7 @@ export default function MusicPlayer({ hideFloat = false }: { hideFloat?: boolean
       const n = Date.now()
       if (n - last > 1000) { last = n; publish() }
     })
-    el.addEventListener('play', () => { setPlaying(true); publish() })
+    el.addEventListener('play', () => { setPlaying(true); publish(); useMusicStore.getState().setAutoplayBlocked('') })
     el.addEventListener('pause', () => { setPlaying(false); publish() })
     el.addEventListener('ended', () => { void step(1, true) })
     el.addEventListener('error', () => { if (el.src) setErr('这首歌读不出来，可能格式不支持') })
@@ -145,16 +146,20 @@ export default function MusicPlayer({ hideFloat = false }: { hideFloat?: boolean
     return a
   }
 
-  async function playTrack(id: string) {
+  async function playTrack(id: string, auto = false) {
     setErr('')
     const a = await loadTrack(id)
     if (!a) return
     if (stateRef.current.activeId !== id) setActive(id)
-    try { await a.play() } catch (e) { setErr(`播放失败：${(e as Error).message}`) }
+    try { await a.play(); useMusicStore.getState().setAutoplayBlocked('') } catch (e) {
+      // v202：自动切歌被 iOS 拦下（没有手势）：不报错，剧情卡上显示「点播放」，她点一下就出声。
+      if (auto) useMusicStore.getState().setAutoplayBlocked(id)
+      else setErr(`播放失败：${(e as Error).message}`)
+    }
   }
 
   async function toggle() {
-    if (!active) { fileRef.current?.click(); return }
+    if (!active) { importWantRef.current = null; fileRef.current?.click(); return }
     const a = ensureAudio()
     if (loadedRef.current === active.id && a.src) {
       if (a.paused) void a.play().catch((e) => setErr(`播放失败：${(e as Error).message}`))
@@ -201,6 +206,11 @@ export default function MusicPlayer({ hideFloat = false }: { hideFloat?: boolean
       if (!metas.length && lrcs.length && active) { await attachLyrics(active.id, lrcs[0]); return }
       if (!metas.length) { setErr('没有选到音乐文件'); return }
       addTracks(metas)
+      // v202：从剧情卡「点这里导入《X》」来的：导入的歌名对得上就直接放。
+      const want = importWantRef.current
+      importWantRef.current = null
+      const hit = want ? findTrackByTitle(metas, want.title, want.artist) : null
+      if (hit) await playTrack(hit.id, true)
     } catch (e) { setErr(`保存失败：${(e as Error).message}`) }
   }
 
@@ -220,12 +230,17 @@ export default function MusicPlayer({ hideFloat = false }: { hideFloat?: boolean
   // v198 剧情美化卡的唱片机：订阅外部指令，在点击的同一调用栈里执行（iOS 才肯出声）。
   const commandRef = useRef<(command: MusicCommand) => void>(() => {})
   commandRef.current = (command) => {
-    if (command.kind === 'play') void playTrack(command.id)
+    if (command.kind === 'play') void playTrack(command.id, Boolean(command.auto))
     else if (command.kind === 'toggle') void toggle()
     else void step(command.dir)
   }
   useEffect(() => useMusicStore.subscribe((state, prev) => {
     if (state.command && state.command !== prev.command) commandRef.current(state.command)
+    // v202：剧情卡上点「导入《X》」——同一调用栈里点文件框，iOS 才肯弹出选择器。
+    if (state.importRequest && state.importRequest !== prev.importRequest) {
+      importWantRef.current = { title: state.importRequest.title, artist: state.importRequest.artist }
+      fileRef.current?.click()
+    }
   }), [])
 
   const loaded = Boolean(active && loadedRef.current === active.id)
@@ -274,7 +289,7 @@ export default function MusicPlayer({ hideFloat = false }: { hideFloat?: boolean
         </div>)}
         {!tracks.length && <p className="wj-music-empty">歌只存在这台手机里 ♡ 原唱的歌词最准。</p>}
       </div>
-      <button type="button" className="wj-music-add" onClick={() => fileRef.current?.click()}>＋ 导入音乐（可连同同名 .lrc 一起选）</button>
+      <button type="button" className="wj-music-add" onClick={() => { importWantRef.current = null; fileRef.current?.click() }}>＋ 导入音乐（可连同同名 .lrc 一起选）</button>
     </section>
   </div>, document.body)
 

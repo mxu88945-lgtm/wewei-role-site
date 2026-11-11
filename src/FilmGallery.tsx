@@ -2,7 +2,7 @@
  * v200 剧情美化卡·胶片轮播：
  * - FilmFrame：胶片框。有自己上传的图就每 4 秒淡入换下一张（只有屏幕上的卡走表），点一下立刻换；
  *   右下角小圆点标当前第几张；没上传图时保持 v199 的完整头像 + 模糊底图。
- *   长按约 500ms 或点左上角「🎞 换图」打开管理面板。
+ *   长按约 500ms 或点左上角的小圆图标（aria-label「换图」，v202 起只剩图标）打开管理面板。
  * - FilmGalleryManager：全局只挂一个的管理面板（缩略图、添加、删除、左右移动）。
  * 不用 backdrop-filter；文件选择不设 accept（iOS 会把文件置灰）。
  */
@@ -14,6 +14,8 @@ import {
 } from './filmGallery'
 
 const LONG_PRESS_MS = 500
+// v202：「换图」只剩一个小圆按钮里的图片图标。
+const PictureIcon = () => <svg viewBox="0 0 24 24" aria-hidden="true"><rect x="3.5" y="5" width="17" height="14" rx="2.5" /><circle cx="9" cy="10" r="1.7" /><path d="M4.5 17.5l5-4.6 3.4 3 2.6-2.2 4 3.8" /></svg>
 const cssUrl = (src: string) => `url("${src.replace(/"/g, '%22')}")`
 
 function Slide({ src, fade }: { src: string; fade?: boolean }) {
@@ -89,7 +91,7 @@ export function FilmFrame({ characterId, characterName, avatar, sceneTitle }: { 
       ? <>{prev && <Slide key={`p-${prev.id}`} src={prev.src} />}<Slide key={`c-${current.id}`} src={current.src} fade={Boolean(prev)} /></>
       : avatar ? <><i className="film-frame-bg" style={{ backgroundImage: cssUrl(avatar) }} aria-hidden="true" /><img src={avatar} alt="" loading="lazy" decoding="async" draggable={false} /></> : <span>SCENE</span>}
     {sceneTitle && <span className="film-frame-title">{sceneTitle}</span>}
-    {characterId && <button type="button" className="film-frame-edit" aria-label="换胶片图" onPointerDown={(event) => event.stopPropagation()} onClick={(event) => { event.stopPropagation(); openManager() }}>🎞 换图</button>}
+    {characterId && <button type="button" className="film-frame-edit" aria-label="换图" title="换图" onPointerDown={(event) => event.stopPropagation()} onClick={(event) => { event.stopPropagation(); openManager() }}><PictureIcon /></button>}
     {count > 1 && <span className="film-dots" aria-label={`第 ${index + 1} / ${count} 张`}>
       {images.map((image, i) => <i key={image.id} className={i === index ? 'on' : ''} />)}
     </span>}

@@ -80,7 +80,7 @@ describe('幕后手记附图 (v196)', () => {
   })
 })
 
-import { appendBackstageCharacterReply, BACKSTAGE_CHAT_LIMITS, backstageNoteAwaitsCharacter, backstageReplyFrom, buildBackstageChatMessages, buildBackstageDmMemory, cleanBackstageChatReply } from './backstageNotes'
+import { appendBackstageCharacterReply, BACKSTAGE_CHAT_LIMITS, backstageNoteAwaitsCharacter, backstageReplyFrom, buildBackstageChatMessages, buildBackstageDmMemory, cleanBackstageChatReply, stripBackstageEcho } from './backstageNotes'
 import type { ChatApiContentPart } from './chatApi'
 describe('幕后手记独立私聊 (v201)', () => {
   const img = (n: number) => `data:image/jpeg;base64,BBB${n}`
@@ -176,6 +176,30 @@ describe('幕后手记独立私聊 (v201)', () => {
   it('cleans status bars, tags, the [幕后:] shell and his name prefix', () => {
     expect(cleanBackstageChatReply('顾祁砚：[幕后:哼，谁吃醋了。]\n<status>地点：家</status>', '顾祁砚')).toBe('哼，谁吃醋了。')
     expect(cleanBackstageChatReply('<think>想想</think>好吧，就一点点。', '顾祁砚')).toBe('好吧，就一点点。')
+  })
+
+  it('v202: strips an invented 【…】 scaffold and echoes of the note and her words', () => {
+    const note = '她今天又护着谢聿衡。\n我写完那段就后悔了，想把他写走。'
+    const hers = '啥啊？这剧情不是你自己写出来的吗。……\n恐妻离场型编剧综合征？？'
+    const raw = `【你刚才看到的这篇手记原文】\n${note}\n\n【手记下的评论区历史】\n（暂无评论，这是她的第一条回复）\n\n【周惟惟刚刚回复你】\n${hers}\n周惟惟你讲点道理行不行？！是你先让他出场的。`
+    const clean = cleanBackstageChatReply(raw, '顾祁砚', { noteText: note, userReplies: [hers] })
+    expect(clean).toBe('周惟惟你讲点道理行不行？！是你先让他出场的。')
+    // 没给上下文也至少剥掉小标题脚手架。
+    expect(cleanBackstageChatReply(raw, '顾祁砚')).not.toContain('【')
+    // 正常回复不受影响；剥完为空就保留原文。
+    expect(cleanBackstageChatReply('哼。\n谁让你先护着他的。', '顾祁砚', { noteText: note, userReplies: [hers] })).toBe('哼。\n谁让你先护着他的。')
+    expect(stripBackstageEcho('恐妻离场型编剧综合征？？', { userReplies: [hers] })).toBe('恐妻离场型编剧综合征？？')
+    // 已经存下来的坏回复在下一次请求里也按干净的发。
+    let book = seed()
+    const id = book.notes[0].id
+    book = replyToBackstageNote(book, id, hers, 3)
+    book = appendBackstageCharacterReply(book, id, raw, 4)
+    book = replyToBackstageNote(book, id, '那你说怎么办', 5)
+    const messages = buildBackstageChatMessages({ book, noteId: id, speakerName: '顾祁砚', userName: '周惟惟' })
+    expect(textOf(messages[0].content)).not.toContain('【')
+    expect(textOf(messages[0].content)).toContain('不要复述手记原文、她的话或任何小标题')
+    const assistant = messages.find((message) => message.role === 'assistant')!
+    expect(textOf(assistant.content)).toBe('周惟惟你讲点道理行不行？！是你先让他出场的。')
   })
 
   it('builds a capped DM memory block from recent exchanges across stories', () => {

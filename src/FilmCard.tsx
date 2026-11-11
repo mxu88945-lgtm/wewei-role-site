@@ -43,12 +43,17 @@ function FilmCard({ card, avatar, speakerName, seed, characterId }: { card: Film
   const nowPlaying = useMusicStore((state) => Boolean(state.now?.playing))
   const lyricLine = useMusicStore((state) => state.lyricIndex >= 0 ? state.lyrics[state.lyricIndex]?.text ?? '' : '')
   const tracks = useMusicStore((state) => state.tracks)
+  const blockedId = useMusicStore((state) => state.autoplayBlockedId)
   const matched = card.song ? findTrackByTitle(tracks, card.song.title, card.song.artist) : null
   // v200：放的不是卡里的歌时显示真正在放的歌名和歌词，卡里的歌名退成小灰字。
   const gramo = filmGramoText({ song: card.song, matchedName: matched?.name, nowName, nowPlaying, lyricLine, speakerName })
   const playingHere = gramo.playingHere
   const npc = card.npcs[Math.min(npcIndex, card.npcs.length - 1)]
   const no = archiveNo(seed)
+  // v202：卡里点的歌不在歌单 → 那行小灰字可以点，直接打开导入；自动切歌被 iOS 拦下 → 显示「点播放」。
+  const missing = Boolean(card.song?.title && !matched)
+  const tapToPlay = Boolean(matched && blockedId === matched.id && !playingHere)
+  const importSong = () => { if (card.song) useMusicStore.getState().requestImport(card.song.title, card.song.artist) }
 
   const play = () => {
     const state = useMusicStore.getState()
@@ -75,10 +80,13 @@ function FilmCard({ card, avatar, speakerName, seed, characterId }: { card: Film
         <small>GRAMOPHONE · SIDE A</small>
         <strong>{gramo.title}</strong>
         {gramo.sub && <em className={gramo.sub === lyricLine && lyricLine ? 'film-gramo-lyric' : undefined}>{gramo.sub}</em>}
-        {gramo.requested && <small className="film-gramo-requested">{gramo.requested}</small>}
+        {missing
+          ? <button type="button" className="film-gramo-requested film-gramo-import" onClick={importSong}>{gramo.requested ? `${gramo.requested} · ` : ''}<b>点这里导入《{card.song!.title}》</b></button>
+          : tapToPlay ? <small className="film-gramo-requested film-gramo-tap">点播放 ▶ 听《{card.song!.title}》</small>
+          : gramo.requested && <small className="film-gramo-requested">{gramo.requested}</small>}
       </div>
       <div className="film-gramo-actions">
-        <button type="button" aria-label={playingHere ? '暂停' : '播放'} onClick={play}>{playingHere ? <PauseIcon /> : <PlayIcon />}</button>
+        <button type="button" className={tapToPlay ? 'film-gramo-nudge' : undefined} aria-label={playingHere ? '暂停' : '播放'} onClick={play}>{playingHere ? <PauseIcon /> : <PlayIcon />}</button>
         <button type="button" aria-label="下一首" onClick={next}><NextIcon /></button>
       </div>
     </div>
