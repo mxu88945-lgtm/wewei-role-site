@@ -87,7 +87,7 @@ function FilmCard({ card, avatar, speakerName, seed }: { card: FilmCardData; ava
 
     <div className="film-strip">
       <div className={`film-frame${avatar ? '' : ' film-frame-empty'}`}>
-        {avatar ? <img src={avatar} alt="" loading="lazy" decoding="async" /> : <span>SCENE</span>}
+        {avatar ? <><i className="film-frame-bg" style={{ backgroundImage: `url("${avatar.replace(/"/g, '%22')}")` }} aria-hidden="true" /><img src={avatar} alt="" loading="lazy" decoding="async" /></> : <span>SCENE</span>}
         {card.sceneTitle && <span className="film-frame-title">{card.sceneTitle}</span>}
       </div>
       <Dial />
