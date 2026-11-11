@@ -317,6 +317,10 @@ button { cursor: pointer; }
 .message-editor-sheet header strong { margin-top: 3px; font-size: 19px; }
 .message-editor-sheet header button { width: 38px; height: 38px; border: 0; border-radius: 14px; color: #77707b; background: #eeeaf0; font-size: 22px; }
 .message-editor-sheet textarea { width: 100%; height: clamp(210px,42dvh,420px); min-height: 180px; padding: 15px 16px; border: 1px solid rgba(91,68,104,.10); outline: 0; border-radius: 20px; resize: none; overflow-y: auto; color: #3e3842; background: #f2eef4; line-height: 1.65; }
+/* v204：消息编辑窗口做大——高度由 App 按 visualViewport 内联写入，输入框填满中间，头和按钮固定。 */
+.message-editor-sheet.message-editor-tall { max-height: none; min-height: 0; }
+.message-editor-sheet.message-editor-tall header, .message-editor-sheet.message-editor-tall footer { flex: 0 0 auto; }
+.message-editor-sheet.message-editor-tall textarea { flex: 1 1 auto; height: auto; min-height: 0; font-size: 16px; }
 .message-editor-sheet textarea:focus { border-color: rgba(139,87,199,.55); box-shadow: 0 0 0 4px rgba(139,87,199,.10); }
 .message-editor-sheet footer { display: grid; grid-template-columns: 1fr 1.35fr; gap: 9px; }
 .message-editor-sheet footer button { min-height: 48px; border: 0; border-radius: 16px; color: #756e79; background: #eeebf0; font-weight: 800; }

@@ -102,6 +102,7 @@ import { FilmGalleryManager } from './FilmGallery'
 import { useMusicStore, currentMusicNote } from './musicStore'
 import { filmCardInstruction, stripFilmBlocks } from './filmBlock'
 import { autoPlayFilmSong } from './filmAutoplay'
+import { messageEditorSheetHeight } from './messageEditorSize'
 import { buildMusicNote } from './lyrics'
 import { isChatScoped, legacyDefaultThemeId, pickGlobalIdentity, pickIdentity, pickThemeId, repairLeakedGlobalPersona } from './chatScope'
 
@@ -495,6 +496,30 @@ function App() {
   const [messageMenuId, setMessageMenuId] = useState<number | null>(null)
   const [phoneModesOpen, setPhoneModesOpen] = useState(false)
   const [messageEditor, setMessageEditor] = useState<MessageEditor | null>(null)
+  // v204：编辑窗口按 visualViewport 算高度（键盘开着也占满可见区域）。
+  const [messageEditorHeight, setMessageEditorHeight] = useState<number | undefined>(undefined)
+  const messageEditorOpen = Boolean(messageEditor)
+  useEffect(() => {
+    if (!messageEditorOpen) return
+    const vv = window.visualViewport
+    let frame = 0
+    const measure = () => {
+      frame = 0
+      const { height } = messageEditorSheetHeight(vv?.height ?? window.innerHeight, Math.max(window.innerHeight, document.documentElement.clientHeight, window.screen?.height || 0))
+      setMessageEditorHeight((current) => current === height ? current : height)
+    }
+    const schedule = () => { if (!frame) frame = window.requestAnimationFrame(measure) }
+    measure()
+    vv?.addEventListener('resize', schedule)
+    vv?.addEventListener('scroll', schedule)
+    window.addEventListener('resize', schedule)
+    return () => {
+      if (frame) window.cancelAnimationFrame(frame)
+      vv?.removeEventListener('resize', schedule)
+      vv?.removeEventListener('scroll', schedule)
+      window.removeEventListener('resize', schedule)
+    }
+  }, [messageEditorOpen])
   const [phoneLock, setPhoneLockState] = useState<PhoneLockState | null>(() => { try { const value = JSON.parse(localStorage.getItem('weijing.phoneLock') || 'null') as PhoneLockState | null; return value && value.until > Date.now() ? value : null } catch { return null } })
   const setPhoneLock = (value: PhoneLockState | null) => { setPhoneLockState(value); try { if (value) localStorage.setItem('weijing.phoneLock', JSON.stringify(value)); else localStorage.removeItem('weijing.phoneLock') } catch { /* 存不下也不影响本次锁屏 */ } }
   const breakPhoneLock = () => {
@@ -4835,7 +4860,7 @@ function App() {
         <p className="export-range-count">将导出第 {Math.min(startNo, endNo)} ～ {Math.max(startNo, endNo)} 条，共 {Math.abs(endNo - startNo) + 1} 条</p>
         <footer><button type="button" onClick={() => exportConversationTxt()}>导出整份</button><button type="submit" className="primary" disabled={!total}>导出第 {Math.min(startNo, endNo)}–{Math.max(startNo, endNo)} 条</button></footer></form></div>
     })()}
-    {messageEditor && <div className="message-editor-layer" role="dialog" aria-modal="true" aria-label={messageEditor.mode === 'assistant' ? '编辑模型消息' : '编辑后重新发送'}><button className="drawer-backdrop" aria-label="取消编辑" onClick={() => setMessageEditor(null)} /><form className="message-editor-sheet" onSubmit={(event) => { event.preventDefault(); void saveMessageEditor() }}><header><div><small>{messageEditor.mode === 'assistant' ? '模型消息' : '用户消息'}</small><strong>{messageEditor.mode === 'assistant' ? '编辑改写' : '编辑后重新发送'}</strong></div><button type="button" aria-label="关闭编辑框" onClick={() => setMessageEditor(null)}>×</button></header><textarea autoFocus value={messageEditor.text} onChange={(event) => setMessageEditor({ ...messageEditor, text: event.target.value })} /><footer><button type="button" onClick={() => setMessageEditor(null)}>取消</button><button type="submit" className="primary" disabled={!messageEditor.text.trim() || (messageEditor.mode === 'resend' && isGenerating)}>{messageEditor.mode === 'assistant' ? '保存修改' : '重新发送'}</button></footer></form></div>}
+    {messageEditor && <div className="message-editor-layer" role="dialog" aria-modal="true" aria-label={messageEditor.mode === 'assistant' ? '编辑模型消息' : '编辑后重新发送'}><button className="drawer-backdrop" aria-label="取消编辑" onClick={() => setMessageEditor(null)} /><form className="message-editor-sheet message-editor-tall" style={{ height: messageEditorHeight }} onSubmit={(event) => { event.preventDefault(); void saveMessageEditor() }}><header><div><small>{messageEditor.mode === 'assistant' ? '模型消息' : '用户消息'}</small><strong>{messageEditor.mode === 'assistant' ? '编辑改写' : '编辑后重新发送'}</strong></div><button type="button" aria-label="关闭编辑框" onClick={() => setMessageEditor(null)}>×</button></header><textarea autoFocus value={messageEditor.text} onChange={(event) => setMessageEditor({ ...messageEditor, text: event.target.value })} /><footer><button type="button" onClick={() => setMessageEditor(null)}>取消</button><button type="submit" className="primary" disabled={!messageEditor.text.trim() || (messageEditor.mode === 'resend' && isGenerating)}>{messageEditor.mode === 'assistant' ? '保存修改' : '重新发送'}</button></footer></form></div>}
     <Pet enabled={petEnabled} variant={petVariant} position={petPosition} onPositionChange={setPetPosition} containerRef={phoneCanvasRef} messageCount={messages.length} />
     {phoneLock && (page === 'phone' || (page === 'chat' && activeConversation?.phone)) && <PhoneLockScreen lock={phoneLock} avatar={characters.find((item) => item.id === phoneLock.byId)?.avatar} userName={identity.name} onExpire={() => setPhoneLock(null)} onBreak={breakPhoneLock} onLeave={goHome} />}
   </main></div>
