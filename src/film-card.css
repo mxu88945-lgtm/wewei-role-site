@@ -109,3 +109,41 @@
 .film-card-setting > span b { font-weight: 600; }
 .film-card-setting > span small { color: #98919c; font-size: 11px; line-height: 1.45; }
 .film-card-setting > .switch { flex: 0 0 58px; }
+
+/* v200 唱片机条：真正在放的歌 + 当前歌词（一行省略）；模型点的歌退成小灰字 */
+.film-gramo-text em.film-gramo-lyric { color: var(--film-brown); }
+.film-gramo-text small.film-gramo-requested { margin-top: 1px; overflow: hidden; color: var(--film-muted); font-size: 10px; letter-spacing: .04em; text-transform: none; white-space: nowrap; text-overflow: ellipsis; }
+
+/* v200 胶片轮播：每张一层，新的一层淡入盖住旧的；不用 backdrop-filter */
+.film-frame-editable { cursor: pointer; -webkit-touch-callout: none; -webkit-user-select: none; user-select: none; touch-action: manipulation; -webkit-tap-highlight-color: transparent; }
+.film-frame-editable img { pointer-events: none; -webkit-touch-callout: none; }
+.film-slide { position: absolute; inset: 0; overflow: hidden; background: var(--film-paper-2); }
+.film-slide-in { animation: film-fade .8s ease both; }
+@keyframes film-fade { from { opacity: 0; } to { opacity: 1; } }
+@media (prefers-reduced-motion: reduce) { .film-slide-in { animation-duration: .01s; } }
+.film-frame-edit { position: absolute; z-index: 2; top: 6px; left: 6px; min-width: 0; min-height: 0; padding: 2px 8px; border: 0; border-radius: 999px; color: var(--film-ink); font-size: 10.5px; line-height: 1.6; background: rgba(252,247,238,.86); box-shadow: 0 1px 3px rgba(110,75,55,.12); touch-action: manipulation; -webkit-tap-highlight-color: transparent; }
+.film-frame-title { z-index: 2; }
+.film-dots { position: absolute; z-index: 2; right: 8px; bottom: 10px; display: flex; gap: 4px; padding: 3px 5px; border-radius: 999px; background: rgba(252,247,238,.72); }
+.film-dots i { display: block; width: 5px; height: 5px; border-radius: 50%; background: rgba(110,75,55,.3); }
+.film-dots i.on { background: var(--film-red); }
+
+/* v200 胶片图管理面板（底部弹出） */
+.film-gallery-layer { position: fixed; inset: 0; z-index: 96; display: flex; align-items: flex-end; }
+.film-gallery-backdrop { position: absolute; inset: 0; border: 0; padding: 0; background: rgba(22,22,22,.24); }
+.film-gallery-sheet { position: relative; width: 100%; max-height: 82vh; overflow-y: auto; padding: 16px 16px calc(18px + env(safe-area-inset-bottom)); border-radius: 22px 22px 0 0; color: #4a3426; background: #fcf7ee; box-shadow: 0 -8px 30px rgba(60,40,30,.16); }
+.film-gallery-head { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
+.film-gallery-head strong { min-width: 0; overflow: hidden; font-size: 15px; white-space: nowrap; text-overflow: ellipsis; }
+.film-gallery-head button { min-width: 0; min-height: 0; border: 0; padding: 0 4px; color: #9c836e; font-size: 22px; background: none; }
+.film-gallery-note { margin: 6px 0 12px; color: #9c836e; font-size: 11.5px; line-height: 1.55; }
+.film-gallery-grid { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 8px; }
+.film-gallery-item { position: relative; overflow: hidden; aspect-ratio: 3 / 4; border-radius: 10px; background: #f5ebdb; }
+.film-gallery-item img { display: block; width: 100%; height: 100%; object-fit: cover; }
+.film-gallery-no { position: absolute; top: 5px; left: 5px; min-width: 18px; padding: 0 5px; border-radius: 999px; color: #fff; font-size: 10.5px; line-height: 18px; text-align: center; background: rgba(74,52,38,.62); }
+.film-gallery-actions { position: absolute; left: 4px; right: 4px; bottom: 4px; display: flex; justify-content: space-between; gap: 4px; }
+.film-gallery-actions button { flex: 1; min-width: 0; min-height: 0; height: 26px; padding: 0; border: 0; border-radius: 8px; color: #4a3426; font-size: 16px; line-height: 1; background: rgba(252,247,238,.92); touch-action: manipulation; }
+.film-gallery-actions button:disabled { opacity: .35; }
+.film-gallery-actions button.danger { color: #9b3a32; }
+.film-gallery-add { display: grid; place-content: center; gap: 2px; aspect-ratio: 3 / 4; min-height: 0; border: 1px dashed #d9c3a8; border-radius: 10px; color: #9b3a32; background: #fffaf3; touch-action: manipulation; }
+.film-gallery-add b { font-size: 24px; font-weight: 400; line-height: 1; }
+.film-gallery-add small { color: #9c836e; font-size: 11px; }
+.film-gallery-msg { margin: 10px 0 0; color: #9b3a32; font-size: 12px; }

@@ -28,6 +28,9 @@ interface MusicState extends Persisted {
   setNow: (n: NowPlaying | null) => void
   lyrics: LyricLine[]
   setLyrics: (l: LyricLine[]) => void
+  /** v200：当前唱到第几句（带时间轴的歌词；没有为 -1）。只在换句时更新，给剧情美化卡显示歌词用。 */
+  lyricIndex: number
+  setLyricIndex: (i: number) => void
   /** v198 剧情美化卡的唱片机：外部发播放指令，由 MusicPlayer 执行（音频元素只在那里）。 */
   command: MusicCommand | null
   requestPlay: (id: string) => void
@@ -59,7 +62,9 @@ export const useMusicStore = create<MusicState>((set, get) => {
     now: null,
     setNow: (n) => set({ now: n }),
     lyrics: [],
-    setLyrics: (l) => set({ lyrics: l }),
+    setLyrics: (l) => set({ lyrics: l, lyricIndex: -1 }),
+    lyricIndex: -1,
+    setLyricIndex: (i) => { if (get().lyricIndex !== i) set({ lyricIndex: i }) },
     command: null,
     requestPlay: (id) => set({ command: { kind: 'play', id, nonce: ++commandNonce } }),
     requestToggle: () => set({ command: { kind: 'toggle', nonce: ++commandNonce } }),

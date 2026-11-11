@@ -27,3 +27,13 @@ describe('FilmCard', () => {
     expect(html).not.toContain('film-heart')
   })
 })
+
+describe('FilmCard gallery entry (v200)', () => {
+  it('shows the 换图 button when the card knows its character and keeps the avatar when no images exist', () => {
+    const card = parseFilmBody('幕：天台')!
+    const html = renderToStaticMarkup(<FilmCard card={card} avatar="data:image/png;base64,AA" characterId="c1" speakerName="他" seed="z" />)
+    expect(html).toContain('🎞 换图')
+    expect(html).toContain('film-frame-bg')
+    expect(html).not.toContain('film-dots')
+  })
+})

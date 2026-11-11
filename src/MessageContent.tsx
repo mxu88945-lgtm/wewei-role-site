@@ -381,7 +381,7 @@ function MessageContent({ text, role, character, userName, layout = 'bubble', st
       : applyMacros(visibleText, character, userName)
   }, [bodyText, role, character, userName, streaming, noStatus])
 
-  const filmCard = film?.card ? <FilmCard card={film.card} avatar={character.avatar} speakerName={character.name} seed={`${character.id}|${film.card.sceneTitle}|${film.card.heart}|${film.card.zh}`} /> : null
+  const filmCard = film?.card ? <FilmCard card={film.card} avatar={character.avatar} characterId={character.id} speakerName={character.name} seed={`${character.id}|${film.card.sceneTitle}|${film.card.heart}|${film.card.zh}`} /> : null
   const content = renderMessageBody(rendered, role, layout, paper, streaming, greetings, onSelectGreeting)
   return filmCard ? <>{content}{filmCard}</> : content
 }

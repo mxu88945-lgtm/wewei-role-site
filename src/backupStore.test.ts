@@ -116,3 +116,19 @@ describe('backup API key handling', () => {
     expect(() => parseBackupText('not json')).toThrow('不是惟境备份')
   })
 })
+
+describe('film gallery in backups (v200)', () => {
+  it('exports film images and restores them into their own database, not localStorage', async () => {
+    const { filmGallerySet, filmGalleryGet } = await import('./filmGallery')
+    const image = { id: 'f1', src: 'data:image/jpeg;base64,AA' }
+    await filmGallerySet('char-1', [image])
+    storage.setItem('weijing.theme', '"x"')
+    const data = await collectBackupData({}, storage)
+    expect(JSON.parse(data['weijing.filmGallery'])).toEqual({ 'char-1': [image] })
+    await filmGallerySet('char-1', [])
+    await restoreBackupData(file(data), storage)
+    expect(storage.getItem('weijing.filmGallery')).toBeNull()
+    expect(await filmGalleryGet('char-1')).toEqual([image])
+    await filmGallerySet('char-1', [])
+  })
+})

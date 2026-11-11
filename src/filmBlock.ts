@@ -181,3 +181,32 @@ export function filmCardInstruction(speakerName: string, userName: string, hasSt
 - 「心声」是${speakerName}此刻心里想却没有说出口的话，一句，第一人称，不要旁白腔。
 - <film> 块只能放在全文最末尾，必须写出 </film> 闭合；绝不能写进正文中间，正文里也不要提到这个块或复述其中内容。不要加代码围栏、不要加其他标签。`
 }
+
+/**
+ * v200 唱片机条显示什么：
+ * - 正在放的不是卡里的歌（歌单里没匹配到 / 卡里没写歌）→ 显示真正在放的歌名，下面是当前歌词；
+ *   卡里的歌名变成一行小灰字「X点的：歌名」。
+ * - 卡里的歌匹配到了且正在放 → 卡里的歌名，下面是当前歌词（没歌词显示歌手）。
+ * - 都没在放 → 卡里的歌名 + 歌手（或你上次放的歌 / 一起听歌）。
+ */
+export function filmGramoText(input: {
+  song?: { title: string; artist: string } | null
+  matchedName?: string | null
+  nowName?: string
+  nowPlaying?: boolean
+  lyricLine?: string
+  speakerName: string
+}): { title: string; sub: string; requested: string; playingHere: boolean } {
+  const { song, matchedName, nowName, nowPlaying, speakerName } = input
+  const lyric = (input.lyricLine || '').trim()
+  const playingOther = Boolean(nowPlaying && nowName && (!matchedName || nowName !== matchedName))
+  if (playingOther) {
+    return { title: nowName!, sub: lyric || '你的歌单', requested: song?.title ? `${speakerName}点的：${song.title}` : '', playingHere: true }
+  }
+  if (song?.title) {
+    const playingHere = Boolean(nowPlaying && matchedName && nowName === matchedName)
+    return { title: song.title, sub: (playingHere && lyric) || song.artist, requested: '', playingHere }
+  }
+  if (nowName) return { title: nowName, sub: '你的歌单', requested: '', playingHere: false }
+  return { title: '一起听歌', sub: '点播放导入歌', requested: '', playingHere: false }
+}

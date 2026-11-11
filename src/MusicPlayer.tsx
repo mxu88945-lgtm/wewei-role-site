@@ -24,7 +24,7 @@ const Pause = () => <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M9 5.5v
 const offsetKey = (id: string) => `weijing-lyric-offset:${id}`
 const getOffset = (id: string) => Number(localStorage.getItem(offsetKey(id)) || 0) || 0
 
-export default function MusicPlayer() {
+export default function MusicPlayer({ hideFloat = false }: { hideFloat?: boolean } = {}) {
   const { tracks, activeId, mini, sheetOpen, lyrics } = useMusicStore()
   const { setSheetOpen, setMini, addTracks, removeTrack, setActive, setHasLyrics, setNow, setLyrics } = useMusicStore.getState()
   const [playing, setPlaying] = useState(false)
@@ -233,6 +233,9 @@ export default function MusicPlayer() {
   const li = loaded ? lyricIndexAt(lyrics, pos) : -1
   const curLine: LyricLine | undefined = timed && li >= 0 ? lyrics[li] : undefined
   const nextLine: LyricLine | undefined = timed ? lyrics[li + 1] : undefined
+  // v200：只在换句时写进 store，剧情美化卡的唱片机条据此显示当前这句歌词。
+  const publishedLine = timed ? li : -1
+  useEffect(() => { useMusicStore.getState().setLyricIndex(publishedLine) }, [publishedLine])
   const inputs = <>
     {/* 不设 accept：iOS 上混入 .lrc 会把 mp3 全部置灰 */}
     <input ref={fileRef} type="file" multiple hidden onChange={(e) => { void onFiles(e.target.files); e.target.value = '' }} />
@@ -275,7 +278,9 @@ export default function MusicPlayer() {
     </section>
   </div>, document.body)
 
-  if (!active || !loaded || (!playing && pos <= 0)) return inputs
+  // v200：剧情美化卡开着时聊天页不显示小浮窗（卡上有自己的唱片机）。只是不渲染按钮，
+  // 组件和 audio 元素（ensureAudio 里 new Audio()，不在 DOM 里）都还在，歌不会停。
+  if (hideFloat || !active || !loaded || (!playing && pos <= 0)) return inputs
   return createPortal(<div className={`wj-music-float${mini ? ' collapsed' : ''}`} role="group" aria-label="音乐小浮窗">
     {inputs}
     <button type="button" className="disc-btn" aria-label={mini ? '展开' : '收起'} onClick={() => setMini(!mini)}>{disc}</button>

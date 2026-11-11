@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { extractFilmCard, filmCardInstruction, parseFilmBody, stripFilmBlocks } from './filmBlock'
+import { extractFilmCard, filmCardInstruction, filmGramoText, parseFilmBody, stripFilmBlocks } from './filmBlock'
 import { findTrackByTitle } from './musicStore'
 import { modelVisibleMessageText, stripUiOnlyStatusBlocks } from './modelContext'
 import { hasVisibleStoryBody } from './outputSanitizer'
@@ -145,5 +145,27 @@ describe('findTrackByTitle', () => {
   it('returns null when nothing is close', () => {
     expect(findTrackByTitle(tracks, '稻香')).toBeNull()
     expect(findTrackByTitle([], '晴天')).toBeNull()
+  })
+})
+
+describe('filmGramoText (v200)', () => {
+  const song = { title: 'Exile', artist: 'Taylor Swift' }
+  it('shows the track actually playing with its lyric when the card song is not in the playlist', () => {
+    expect(filmGramoText({ song, matchedName: null, nowName: '晴天', nowPlaying: true, lyricLine: '故事的小黄花', speakerName: '顾祁砚' }))
+      .toEqual({ title: '晴天', sub: '故事的小黄花', requested: '顾祁砚点的：Exile', playingHere: true })
+  })
+  it('shows the card song with the current lyric when it is matched and playing', () => {
+    expect(filmGramoText({ song, matchedName: 'Exile', nowName: 'Exile', nowPlaying: true, lyricLine: 'I can see you standing', speakerName: '他' }))
+      .toEqual({ title: 'Exile', sub: 'I can see you standing', requested: '', playingHere: true })
+  })
+  it('falls back to the artist without lyrics, and shows the card song when nothing plays', () => {
+    expect(filmGramoText({ song, matchedName: 'Exile', nowName: 'Exile', nowPlaying: true, lyricLine: '', speakerName: '他' }).sub).toBe('Taylor Swift')
+    expect(filmGramoText({ song, matchedName: null, nowName: '晴天', nowPlaying: false, lyricLine: 'x', speakerName: '他' }))
+      .toEqual({ title: 'Exile', sub: 'Taylor Swift', requested: '', playingHere: false })
+  })
+  it('shows what plays when the card has no song', () => {
+    expect(filmGramoText({ song: null, nowName: '晴天', nowPlaying: true, lyricLine: '', speakerName: '他' }))
+      .toEqual({ title: '晴天', sub: '你的歌单', requested: '', playingHere: true })
+    expect(filmGramoText({ song: null, speakerName: '他' }).title).toBe('一起听歌')
   })
 })

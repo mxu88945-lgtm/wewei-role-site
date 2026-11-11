@@ -3,7 +3,8 @@
  * 唱片机条 → 胶片框（角色头像或纸纹占位）+ 表盘 → ARCHIVE 编号与英中两行 → NPC 2x2 档案 → 心声气泡。
  */
 import { memo, useState } from 'react'
-import type { FilmCardData, FilmDanger } from './filmBlock'
+import { filmGramoText, type FilmCardData, type FilmDanger } from './filmBlock'
+import { FilmFrame } from './FilmGallery'
 import { findTrackByTitle, useMusicStore } from './musicStore'
 import './film-card.css'
 
@@ -35,14 +36,17 @@ function DangerMeter({ level }: { level: FilmDanger }) {
   </span>
 }
 
-function FilmCard({ card, avatar, speakerName, seed }: { card: FilmCardData; avatar?: string; speakerName: string; seed: string }) {
+function FilmCard({ card, avatar, speakerName, seed, characterId }: { card: FilmCardData; avatar?: string; speakerName: string; seed: string; characterId?: string }) {
   const [npcIndex, setNpcIndex] = useState(0)
-  const [note, setNote] = useState('')
-  const now = useMusicStore((state) => state.now)
+  // 只订阅基本类型：now 每秒换一个新对象，订阅整个对象会让每张卡每秒重渲染。
+  const nowName = useMusicStore((state) => state.now?.name ?? '')
+  const nowPlaying = useMusicStore((state) => Boolean(state.now?.playing))
+  const lyricLine = useMusicStore((state) => state.lyricIndex >= 0 ? state.lyrics[state.lyricIndex]?.text ?? '' : '')
   const tracks = useMusicStore((state) => state.tracks)
   const matched = card.song ? findTrackByTitle(tracks, card.song.title, card.song.artist) : null
-  // 匹配不到时唱片机放的就是你当前的歌，所以那时也算「在放」。
-  const playingHere = Boolean(now?.playing && (!matched || now.name === matched.name))
+  // v200：放的不是卡里的歌时显示真正在放的歌名和歌词，卡里的歌名退成小灰字。
+  const gramo = filmGramoText({ song: card.song, matchedName: matched?.name, nowName, nowPlaying, lyricLine, speakerName })
+  const playingHere = gramo.playingHere
   const npc = card.npcs[Math.min(npcIndex, card.npcs.length - 1)]
   const no = archiveNo(seed)
 
@@ -51,45 +55,36 @@ function FilmCard({ card, avatar, speakerName, seed }: { card: FilmCardData; ava
     if (!state.tracks.length) { state.setSheetOpen(true); return }
     const match = card.song ? findTrackByTitle(state.tracks, card.song.title, card.song.artist) : null
     if (match) {
-      setNote('')
       if (state.now?.name === match.name) state.requestToggle()
       else state.requestPlay(match.id)
       return
     }
     // 没匹配到：放你正在听的（或歌单第一首）。
-    setNote(card.song && !state.now?.playing ? `歌单里没有《${card.song.title}》，先放你歌单里的` : '')
     state.requestToggle()
   }
   const next = () => {
     const state = useMusicStore.getState()
     if (!state.tracks.length) { state.setSheetOpen(true); return }
-    setNote('')
     state.requestStep(1)
   }
-
-  const songTitle = card.song?.title || (now?.name ? now.name : '一起听歌')
-  const songArtist = card.song ? card.song.artist : now?.name ? '你的歌单' : '点播放导入歌'
 
   return <section className="film-card" aria-label="剧情美化卡">
     <div className="film-gramo">
       <span className={`film-gramo-disc${playingHere ? ' spinning' : ''}`} aria-hidden="true" />
       <div className="film-gramo-text">
         <small>GRAMOPHONE · SIDE A</small>
-        <strong>{songTitle}</strong>
-        {songArtist && <em>{songArtist}</em>}
+        <strong>{gramo.title}</strong>
+        {gramo.sub && <em className={gramo.sub === lyricLine && lyricLine ? 'film-gramo-lyric' : undefined}>{gramo.sub}</em>}
+        {gramo.requested && <small className="film-gramo-requested">{gramo.requested}</small>}
       </div>
       <div className="film-gramo-actions">
         <button type="button" aria-label={playingHere ? '暂停' : '播放'} onClick={play}>{playingHere ? <PauseIcon /> : <PlayIcon />}</button>
         <button type="button" aria-label="下一首" onClick={next}><NextIcon /></button>
       </div>
     </div>
-    {note && <div className="film-gramo-note" role="status">{note}</div>}
 
     <div className="film-strip">
-      <div className={`film-frame${avatar ? '' : ' film-frame-empty'}`}>
-        {avatar ? <><i className="film-frame-bg" style={{ backgroundImage: `url("${avatar.replace(/"/g, '%22')}")` }} aria-hidden="true" /><img src={avatar} alt="" loading="lazy" decoding="async" /></> : <span>SCENE</span>}
-        {card.sceneTitle && <span className="film-frame-title">{card.sceneTitle}</span>}
-      </div>
+      <FilmFrame characterId={characterId} characterName={speakerName} avatar={avatar} sceneTitle={card.sceneTitle} />
       <Dial />
     </div>
 

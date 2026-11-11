@@ -1,4 +1,5 @@
 import { durableSnapshot, replaceDurableSnapshot } from './persistentStore'
+import { FILM_BACKUP_KEY, exportFilmGalleries, importFilmGalleries } from './filmGallery'
 
 export const DURABLE_KEYS = new Set(['weijing.characters', 'weijing.conversations', 'weijing.identities', 'weijing.identity', 'weijing.memoryConfigs', 'weijing.memoryEntries', 'weijing.chatBackground', 'weijing.chatWallpapers', 'weijing.globalMemoryApi', 'weijing.storyProjects', 'weijing.plotTemplates', 'weijing.personaWindows', 'weijing.phoneDiary'])
 export type BackupFile = { format: 'weijing-backup'; version: 1; createdAt: string; data: Record<string, string> }
@@ -23,6 +24,9 @@ export async function collectBackupData(live: Record<string, unknown> = {}, stor
     if (DURABLE_KEYS.has(key) || !(key in data)) data[key] = JSON.stringify(value)
   }
   for (const [key, value] of Object.entries(live)) if (key.startsWith('weijing.')) data[key] = JSON.stringify(value)
+  // v200 剧情美化卡胶片图（独立 IndexedDB 库）；没有图就不写这个键。
+  const film = await exportFilmGalleries()
+  if (Object.keys(film).length) data[FILM_BACKUP_KEY] = JSON.stringify(film)
   return data
 }
 
@@ -102,6 +106,9 @@ export async function restoreBackupData(file: BackupFile, storage: Storage = loc
   const current: Record<string, unknown> = { ...currentDurable }
   for (const [key, text] of Object.entries(previous)) { try { current[key] = JSON.parse(text) } catch { /* not JSON */ } }
   validated.data = mergeExistingSecrets(validated.data, current)
+  // 胶片图体积大，不能进 localStorage：单独拿出来，主数据恢复成功后写回它自己的库。
+  const filmText = validated.data[FILM_BACKUP_KEY]
+  delete validated.data[FILM_BACKUP_KEY]
   const durable = Object.fromEntries(Object.entries(validated.data).filter(([key]) => DURABLE_KEYS.has(key)).map(([key, text]) => [key, JSON.parse(text)]))
   try {
     Object.keys(previous).forEach((key) => storage.removeItem(key))
@@ -111,5 +118,8 @@ export async function restoreBackupData(file: BackupFile, storage: Storage = loc
     Object.keys(collectLocalData(storage)).forEach((key) => storage.removeItem(key))
     Object.entries(previous).forEach(([key, value]) => storage.setItem(key, value))
     throw error
+  }
+  if (filmText) {
+    try { await importFilmGalleries(JSON.parse(filmText)) } catch { /* 胶片图恢复失败不影响主数据 */ }
   }
 }
