@@ -37,3 +37,11 @@
 .backstage-reply-box .backstage-reply-pending button { position: absolute; top: 2px; right: 2px; width: 20px; height: 20px; padding: 0; border-radius: 50%; background: rgba(20,14,24,.65); color: #fff; font-size: 13px; line-height: 20px; }
 .backstage-reply-pending em { align-self: center; font-style: normal; font-size: 12px; opacity: .6; }
 .backstage-reply-box button.backstage-image-button { margin-right: auto; padding: 9px 14px; }
+/* v201 手记独立私聊：她右他左的气泡，保持素净 */
+.backstage-reply { max-width: 86%; width: fit-content; box-sizing: border-box; }
+.backstage-reply.from-user { justify-self: end; background: #3f3843; color: #fff; border-bottom-right-radius: 6px; }
+.backstage-reply.from-character { justify-self: start; background: rgba(84,63,95,.07); border-bottom-left-radius: 6px; }
+.backstage-reply.typing em { font-style: normal; opacity: .55; }
+.backstage-chat-error { display: flex; align-items: center; gap: 10px; font-size: 12px; color: #b4435a; }
+.backstage-chat-error.quiet { color: inherit; opacity: .6; }
+.backstage-chat-error button { margin-left: auto; border: 1px solid currentColor; border-radius: 999px; padding: 4px 12px; background: transparent; color: inherit; font: inherit; font-size: 12px; font-weight: 700; }

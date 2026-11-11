@@ -96,7 +96,7 @@ import { enforceRelationshipStageFloor, extractRelationshipStage, highestRelatio
 import { buildStatusFallback, getStatusProtocol, latestStatusContent } from './statusProtocol'
 import { dismissComposerKeyboard } from './composerKeyboard'
 import { createKeyboardScrollPin, VIEWPORT_CHANGE_EVENT, VIEWPORT_WILL_CHANGE_EVENT } from './keyboardScrollPin'
-import { addBackstageNote, BACKSTAGE_REPLY_IMAGE_LIMIT, buildBackstageImageMessage, buildBackstagePrompt, deleteBackstageNote, normalizeBackstageNotebook, extractBackstageNote, replyToBackstageNote, stripBackstageForStreaming, toggleBackstageWriter, unreadBackstageCount, type BackstageNote } from './backstageNotes'
+import { addBackstageNote, appendBackstageCharacterReply, BACKSTAGE_REPLY_IMAGE_LIMIT, backstageNoteAwaitsCharacter, backstageReplyFrom, buildBackstageChatMessages, buildBackstageDmMemory, buildBackstagePrompt, cleanBackstageChatReply, deleteBackstageNote, normalizeBackstageNotebook, extractBackstageNote, replyToBackstageNote, stripBackstageForStreaming, toggleBackstageWriter, unreadBackstageCount, type BackstageNote } from './backstageNotes'
 import MusicPlayer from './MusicPlayer'
 import { FilmGalleryManager } from './FilmGallery'
 import { useMusicStore, currentMusicNote } from './musicStore'
@@ -462,6 +462,10 @@ function App() {
   const [backstageReplying, setBackstageReplying] = useState('')
   const [backstageImages, setBackstageImages] = useState<Record<string, string[]>>({})
   const [backstageImageBusy, setBackstageImageBusy] = useState(false)
+  // v201：手记独立私聊——按手记 id 记录「正在输入」的流式文字和失败原因。
+  const [backstageTyping, setBackstageTyping] = useState<Record<string, string>>({})
+  const [backstageChatErrors, setBackstageChatErrors] = useState<Record<string, string>>({})
+  const backstageChatRunsRef = useRef(new Set<string>())
   const backstageImageInputRef = useRef<HTMLInputElement>(null)
   const backstageImageTargetRef = useRef('')
   const [backstageSeenSnapshot, setBackstageSeenSnapshot] = useState(0)
@@ -2723,12 +2727,14 @@ function App() {
       const dmBackground = dmMates.length ? `【群友们的人设与世界观】（大家互相透明，你都知道）\n${buildPhoneGroupBackground(dmMates).split('\n\n').slice(1).join('\n\n')}` : ''
       const dmPeek = conversation.phone?.dm ? buildDmGroupPeek(conversations, speaker.id, (message) => message.role === 'user' ? identity.name : characters.find((item) => item.id === message.characterId)?.name || '群友') : ''
       const privateDmMemory = conversation.phone?.dm ? '' : buildGroupDmPeek(conversations, speaker.id, speaker.name, identity.name)
+      // v201：私聊里他也记得幕后手记里和她聊过的话（跨剧本，最近几段，约 700 字封顶）。
+      const backstageDmMemory = conversation.phone?.dm ? buildBackstageDmMemory(conversations.filter((item) => !item.phone && item.backstageNotebook), speaker.id, speaker.name, identity.name) : ''
       const funNote = conversation.phone?.dm ? `【拍一拍】看到「👋 ${identity.name} 拍了拍 …」就是她拍了你一下，接住它；你也可以单独一行写【拍一拍：${identity.name}】拍她。偶尔用。\n${buildRedPacketNote(readRedPackets(), conversation.id, speaker.id, Date.now(), true)}`.trim() : `【拍一拍】看到「👋 某人 拍了拍 @你」就是有人拍了你，要接话；你也可以在消息最后单独一行写【拍一拍：名字】拍一个群友（他会马上出来回你）或拍${identity.name}。偶尔用，别每条都拍。\n${(() => { const top = todayTopPoints(readPoints(), (conversation.participantIds || []).map((id) => ({ id, name: characters.find((item) => item.id === id)?.name || '' })), Date.now()); return top.length ? `【今日积分榜·群顶上挂着】${top.map((item, index) => `${['第一', '第二', '第三'][index]} ${item.name} +${item.points}`).join('，')}。上榜的可以得意，没上榜的可以酸。\n` : '' })()}${buildRedPacketNote(readRedPackets(), conversation.id, speaker.id, Date.now())}`
       const noticeNote = conversation.phone?.dm ? funNote : [funNote, buildNoticeNote(activeNotice(conversation.phone?.notice), identity.name), (() => { const story = phoneStoryNoteRef.current; return story && story.conversationId === conversation.id ? story.note : '' })()].filter(Boolean).join('\n\n')
       const pointsNote = buildPointsNote(readPoints(), [...members, ...dmMates].map((member) => ({ id: member.id, name: member.name })), identity.name)
       const giftNote = buildPhoneGiftMemoryNote(readPhoneGifts(), speaker.id, identity.name)
       const shopNote = buildShopNote(readShop(), readPoints(), { id: speaker.id, name: speaker.name }, [...members, ...dmMates].map((member) => ({ id: member.id, name: member.name })), identity.name, Date.now()) + '\n' + wishPoolNote(speaker, identity.name) + '\n' + TRANSFER_NOTE(identity.name) + phoneStageNameNote(identities.map((item) => item.name), identity.name)
-      return [conversation.phone?.dm ? phoneDmRules(speaker.name, identity.name) : phoneModeRules(speaker.name, members.map((member) => member.name), identity.name, { allowQuit: conversation.phone?.allowQuit, allowKick: conversation.phone?.allowKick, allowForumShare: conversation.phone?.allowForumShare }), realWorld, noticeNote, pointsNote, shopNote, giftNote, mateBackground, dmBackground, dmPeek, privateDmMemory, buildPhoneArchive(sources, speaker.id, identity.name, (message) => message.characterId ? nameOf(message) : sources.find((source) => source.conversation?.messages.includes(message))?.character.name || '角色'),
+      return [conversation.phone?.dm ? phoneDmRules(speaker.name, identity.name) : phoneModeRules(speaker.name, members.map((member) => member.name), identity.name, { allowQuit: conversation.phone?.allowQuit, allowKick: conversation.phone?.allowKick, allowForumShare: conversation.phone?.allowForumShare }), realWorld, noticeNote, pointsNote, shopNote, giftNote, mateBackground, dmBackground, dmPeek, privateDmMemory, backstageDmMemory, buildPhoneArchive(sources, speaker.id, identity.name, (message) => message.characterId ? nameOf(message) : sources.find((source) => source.conversation?.messages.includes(message))?.character.name || '角色'),
         // 人格窗口 → 小手机：只给正在说话的这个角色，群里其他人看不到。自动按角色 id 匹配，外加手动绑定的（只取跟说话人对应的）。
         (() => {
           if (!isPersonaStoreHydrated()) return ''
@@ -2798,12 +2804,8 @@ function App() {
       const backstage = buildBackstageNote(conversations, speaker.id, speaker.name, identity.name, (id) => characters.find((item) => item.id === id)?.name || '角色', conversation.backstageGroupIds)
       if (backstage) promptMessages.push({ role: 'system', content: backstage })
       const notebookPrompt = buildBackstagePrompt({ notebook: conversation.backstageNotebook, speakerId: speaker.id, speakerName: speaker.name, userName: globalIdentity.name, heroineName: identity.name !== globalIdentity.name ? identity.name : '', statusTag: requiresCharacterStatus ? statusTag : '' })
-      if (notebookPrompt) {
-        promptMessages.push({ role: 'system', content: notebookPrompt })
-        // v196：她回手记时附的图（只发最新一条带图回复，最多 6 张）作为 user 图片消息紧跟其后。
-        const notebookImages = buildBackstageImageMessage(conversation.backstageNotebook, speaker.id, globalIdentity.name)
-        if (notebookImages) promptMessages.push(notebookImages)
-      }
+      // v201：她在手记里的回复由他在手记里当场回，主线不再附图、不再要求正文末尾回她。
+      if (notebookPrompt) promptMessages.push({ role: 'system', content: notebookPrompt })
     }
     // v186 一起听歌：只在有歌正在放时注入，导演不注入
     if (!isDirector) { const musicNote = currentMusicNote(buildMusicNote); if (musicNote) promptMessages.push({ role: 'system', content: musicNote }) }
@@ -3582,6 +3584,73 @@ function App() {
     const speaker = characters.find((item) => item.id === activeConversation.characterId) || activeCharacter
     const channel = conversationApiFor(activeConversation, speaker.id, api)
     await generateAssistant(activeConversation, messages, speaker, channel, { continueWithoutUser: true })
+  }
+
+  /**
+   * v201：幕后手记独立私聊。她回了某篇手记就马上用这个角色在长剧情里的渠道和模型单独请求一次，
+   * 他的回复接在同一篇下面。只读这本剧本的记忆和主线尾巴，不改正文、不进主线历史。
+   */
+  const runBackstageChat = async (conversationId: string, noteId: string, bookOverride?: NonNullable<Conversation['backstageNotebook']>) => {
+    if (backstageChatRunsRef.current.has(noteId)) return
+    const conversation = conversations.find((item) => item.id === conversationId)
+    const book = bookOverride || conversation?.backstageNotebook
+    const note = book?.notes.find((item) => item.id === noteId)
+    if (!conversation || !book || !note || !backstageNoteAwaitsCharacter(note)) return
+    const speaker = characters.find((item) => item.id === note.characterId)
+    const setError = (message: string) => setBackstageChatErrors((current) => message ? { ...current, [noteId]: message } : (() => { const { [noteId]: _gone, ...rest } = current; void _gone; return rest })())
+    if (!speaker) { setError('这个角色已经不在角色库里了，没法回你。'); return }
+    const channel = conversationApiFor(conversation, speaker.id, api)
+    if (!isApiChannelComplete(channel)) { setError(`请先为 ${speaker.name} 配置完整的 API 渠道。`); return }
+    const identity = identityFor(conversation)
+    const hasValidContextSummary = Boolean(conversation.contextSummary && (conversation.contextSummaryRevision || 0) === (conversation.historyRevision || 0))
+    const storyTail = conversation.messages.filter((message) => message.role === 'user' || message.role === 'assistant').slice(-14).flatMap((message) => {
+      const text = cleanPhoneOutput(sanitizeAssistantOutput(extractBackstageNote(message.text || '').text)).replace(/\s+/g, ' ').trim()
+      if (!text) return []
+      const who = message.role === 'user' ? identity.name : messageCharacterName(message, conversation)
+      return [`${who}：${text}`]
+    })
+    const messagesForModel = buildBackstageChatMessages({
+      book,
+      noteId,
+      speakerName: speaker.name,
+      userName: globalIdentity.name,
+      heroineName: identity.name !== globalIdentity.name ? identity.name : '',
+      card: { description: speaker.description, personality: speaker.personality, scenario: speaker.scenario, tagline: speaker.tagline },
+      contextSummary: hasValidContextSummary ? conversation.contextSummary : '',
+      memories: (memoriesForConversation(memoryEntries, conversation.id, speaker.id, conversation.historyRevision || 0) as MemoryEntry[]).filter((entry) => entry.content?.trim()).sort((left, right) => Number(Boolean(right.pinned)) - Number(Boolean(left.pinned))).map((entry) => `${entry.pinned ? '★' : ''}${entry.title ? `${entry.title}：` : ''}${entry.content}`),
+      characterMemories: memoriesForConversationCharacter(conversation, speaker).filter((entry) => entry.enabled !== false && entry.content?.trim()).map((entry) => `${entry.title ? `${entry.title}：` : ''}${entry.content}`),
+      storyTail,
+    })
+    if (!messagesForModel.length) return
+    backstageChatRunsRef.current.add(noteId)
+    setError('')
+    setBackstageTyping((current) => ({ ...current, [noteId]: '' }))
+    let output = ''
+    try {
+      await completeChat({
+        api: channel,
+        messages: messagesForModel,
+        temperature,
+        topP,
+        maxTokens: Math.min(maxTokens, 4000),
+        streaming,
+        timeoutMs: 150_000,
+        signal: new AbortController().signal,
+        onDelta: (delta) => {
+          output += delta
+          const preview = cleanBackstageChatReply(stripBackstageForStreaming(output), speaker.name)
+          setBackstageTyping((current) => noteId in current ? { ...current, [noteId]: preview } : current)
+        },
+      })
+      const reply = cleanBackstageChatReply(output, speaker.name)
+      if (!reply) throw new Error('模型没有回出能显示的内容')
+      setConversations((current) => current.map((item) => item.id === conversationId && item.backstageNotebook ? { ...item, backstageNotebook: appendBackstageCharacterReply(item.backstageNotebook, noteId, reply, Date.now()) } : item))
+    } catch (error) {
+      setError(`${speaker.name}没回成：${error instanceof Error ? error.message : '请求失败'}`)
+    } finally {
+      backstageChatRunsRef.current.delete(noteId)
+      setBackstageTyping((current) => { const { [noteId]: _done, ...rest } = current; void _done; return rest })
+    }
   }
 
   /** v196：幕后手记回复附图，复用主聊天的压缩（prepareChatImage），每条回复最多 6 张。 */
@@ -4551,7 +4620,7 @@ function App() {
       const notes = book.notes.filter((note) => note.characterId === tab).slice().reverse()
       const conversationId = activeConversation.id
       const updateBook = (change: (current: NonNullable<typeof activeConversation.backstageNotebook>) => NonNullable<typeof activeConversation.backstageNotebook>) => setConversations((current) => current.map((item) => item.id === conversationId ? { ...item, backstageNotebook: change(item.backstageNotebook || { writerIds: [], notes: [] }) } : item))
-      return <><BackHeader title="📓 幕后手记" onBack={goBack} /><section className="content-stack backstage-notes-page"><div className="privacy-note">他们演戏时，以戏外群里的自己偷偷写的真心话。每人一本，互相看不到；你回某一篇，下一轮只有他会接你的话。</div>{authorIds.length > 1 && <div className="backstage-tabs" role="tablist">{authorIds.map((id) => <button key={id} role="tab" aria-selected={id === tab} onClick={() => setBackstageTab(id)}>{avatarOf(id) ? <img src={avatarOf(id)} alt="" /> : <span>{nameOf(id).slice(-1)}</span>}<small>{nameOf(id)}</small><b>{book.notes.filter((note) => note.characterId === id).length}</b></button>)}</div>}{!authorIds.length ? <div className="empty-memory"><span>📓</span><strong>还没人能写</strong><p>回到聊天，在右侧菜单「幕后手记」里勾选谁可以写。</p></div> : !notes.length ? <div className="empty-memory"><span>📓</span><strong>{nameOf(tab)}还没写过</strong><p>{book.writerIds.includes(tab) ? '等哪一轮真戳到他，他就会偷偷写一篇。' : '他现在没被勾选，不会再写。'}</p></div> : notes.map((note: BackstageNote) => <article className={`backstage-note${note.createdAt > backstageSeenSnapshot ? ' unread' : ''}`} key={note.id}><header><strong>{nameOf(note.characterId)}</strong><small>{new Date(note.createdAt).toLocaleString()}</small></header><p>{note.text}</p>{(note.replies || []).map((reply, index) => <div className="backstage-reply" key={index}><small>你回：</small>{reply.text}{reply.images?.length ? <div className={`backstage-reply-images count-${Math.min(reply.images.length, 3)}`}>{reply.images.map((url, imageIndex) => <button type="button" key={imageIndex} aria-label="查看图片" onClick={() => setViewerImage({ id: `${note.id}-${index}-${imageIndex}`, dataUrl: url, width: 0, height: 0 })}><img src={url} alt="" loading="lazy" decoding="async" /></button>)}</div> : null}</div>)}{note.replies?.length ? <small className="backstage-reply-state">{note.answered ? '他已经接了你的话' : '下一轮他会回你'}</small> : null}{backstageReplying === note.id ? <div className="backstage-reply-box"><textarea autoFocus rows={5} value={backstageDrafts[note.id] || ''} placeholder={`回${nameOf(note.characterId)}一句…`} onChange={(event) => { const value = event.target.value; setBackstageDrafts((current) => ({ ...current, [note.id]: value })) }} />{((backstageImages[note.id] || []).length > 0 || backstageImageBusy) && <div className="backstage-reply-pending" aria-label="待发送图片">{(backstageImages[note.id] || []).map((url, imageIndex) => <span key={imageIndex}><img src={url} alt="" role="button" aria-label="查看大图" onClick={() => setViewerImage({ id: `pending-${imageIndex}`, dataUrl: url, width: 0, height: 0 })} /><button type="button" aria-label="移除图片" onClick={() => setBackstageImages((current) => ({ ...current, [note.id]: (current[note.id] || []).filter((_, i) => i !== imageIndex) }))}>×</button></span>)}{backstageImageBusy && <em>处理中…</em>}</div>}<div><button type="button" className="backstage-image-button" aria-label="添加图片" disabled={backstageImageBusy || (backstageImages[note.id] || []).length >= BACKSTAGE_REPLY_IMAGE_LIMIT} onClick={() => { backstageImageTargetRef.current = note.id; backstageImageInputRef.current?.click() }}>🖼 图片{(backstageImages[note.id] || []).length ? ` ${(backstageImages[note.id] || []).length}/${BACKSTAGE_REPLY_IMAGE_LIMIT}` : ''}</button><button type="button" onClick={() => setBackstageReplying('')}>取消</button><button type="button" className="send" disabled={backstageImageBusy || (!(backstageDrafts[note.id] || '').trim() && !(backstageImages[note.id] || []).length)} onClick={() => { const text = backstageDrafts[note.id] || ''; const images = backstageImages[note.id] || []; updateBook((current) => replyToBackstageNote(current, note.id, text, Date.now(), images)); setBackstageDrafts((current) => ({ ...current, [note.id]: '' })); setBackstageImages((current) => { const { [note.id]: _sent, ...rest } = current; void _sent; return rest }); setBackstageReplying('') }}>发送</button></div></div> : <div className="backstage-note-actions"><button type="button" className="backstage-reply-open" onClick={() => setBackstageReplying(note.id)}>💬 回复</button><button type="button" className="danger-link" onClick={() => updateBook((current) => deleteBackstageNote(current, note.id))}>删除</button></div>}</article>)}<input ref={backstageImageInputRef} type="file" accept="image/*" multiple hidden onChange={(event) => { const files = Array.from(event.currentTarget.files || []); event.currentTarget.value = ''; void addBackstageImages(backstageImageTargetRef.current, files) }} /></section></>
+      return <><BackHeader title="📓 幕后手记" onBack={goBack} /><section className="content-stack backstage-notes-page"><div className="privacy-note">他们演戏时，以戏外群里的自己偷偷写的真心话。每人一本，互相看不到；你回某一篇，他会马上在下面回你，像私聊一样，不影响正文。</div>{authorIds.length > 1 && <div className="backstage-tabs" role="tablist">{authorIds.map((id) => <button key={id} role="tab" aria-selected={id === tab} onClick={() => setBackstageTab(id)}>{avatarOf(id) ? <img src={avatarOf(id)} alt="" /> : <span>{nameOf(id).slice(-1)}</span>}<small>{nameOf(id)}</small><b>{book.notes.filter((note) => note.characterId === id).length}</b></button>)}</div>}{!authorIds.length ? <div className="empty-memory"><span>📓</span><strong>还没人能写</strong><p>回到聊天，在右侧菜单「幕后手记」里勾选谁可以写。</p></div> : !notes.length ? <div className="empty-memory"><span>📓</span><strong>{nameOf(tab)}还没写过</strong><p>{book.writerIds.includes(tab) ? '等哪一轮真戳到他，他就会偷偷写一篇。' : '他现在没被勾选，不会再写。'}</p></div> : notes.map((note: BackstageNote) => <article className={`backstage-note${note.createdAt > backstageSeenSnapshot ? ' unread' : ''}`} key={note.id}><header><strong>{nameOf(note.characterId)}</strong><small>{new Date(note.createdAt).toLocaleString()}</small></header><p>{note.text}</p>{(note.replies || []).map((reply, index) => { const mine = backstageReplyFrom(reply) === 'user'; return <div className={`backstage-reply ${mine ? 'from-user' : 'from-character'}`} key={index}>{reply.text}{reply.images?.length ? <div className={`backstage-reply-images count-${Math.min(reply.images.length, 3)}`}>{reply.images.map((url, imageIndex) => <button type="button" key={imageIndex} aria-label="查看图片" onClick={() => setViewerImage({ id: `${note.id}-${index}-${imageIndex}`, dataUrl: url, width: 0, height: 0 })}><img src={url} alt="" loading="lazy" decoding="async" /></button>)}</div> : null}</div> })}{note.id in backstageTyping ? <div className="backstage-reply from-character typing" aria-live="polite">{backstageTyping[note.id] || <em>正在输入…</em>}</div> : backstageChatErrors[note.id] ? <div className="backstage-chat-error" role="alert"><span>{backstageChatErrors[note.id]}</span>{backstageNoteAwaitsCharacter(note) && <button type="button" onClick={() => void runBackstageChat(conversationId, note.id)}>重试</button>}</div> : backstageNoteAwaitsCharacter(note) && !note.answered && !backstageChatRunsRef.current.has(note.id) ? <div className="backstage-chat-error quiet"><span>他还没回这句</span><button type="button" onClick={() => void runBackstageChat(conversationId, note.id)}>让他回</button></div> : null}{backstageReplying === note.id ? <div className="backstage-reply-box"><textarea autoFocus rows={5} value={backstageDrafts[note.id] || ''} placeholder={`回${nameOf(note.characterId)}一句…`} onChange={(event) => { const value = event.target.value; setBackstageDrafts((current) => ({ ...current, [note.id]: value })) }} />{((backstageImages[note.id] || []).length > 0 || backstageImageBusy) && <div className="backstage-reply-pending" aria-label="待发送图片">{(backstageImages[note.id] || []).map((url, imageIndex) => <span key={imageIndex}><img src={url} alt="" role="button" aria-label="查看大图" onClick={() => setViewerImage({ id: `pending-${imageIndex}`, dataUrl: url, width: 0, height: 0 })} /><button type="button" aria-label="移除图片" onClick={() => setBackstageImages((current) => ({ ...current, [note.id]: (current[note.id] || []).filter((_, i) => i !== imageIndex) }))}>×</button></span>)}{backstageImageBusy && <em>处理中…</em>}</div>}<div><button type="button" className="backstage-image-button" aria-label="添加图片" disabled={backstageImageBusy || (backstageImages[note.id] || []).length >= BACKSTAGE_REPLY_IMAGE_LIMIT} onClick={() => { backstageImageTargetRef.current = note.id; backstageImageInputRef.current?.click() }}>🖼 图片{(backstageImages[note.id] || []).length ? ` ${(backstageImages[note.id] || []).length}/${BACKSTAGE_REPLY_IMAGE_LIMIT}` : ''}</button><button type="button" onClick={() => setBackstageReplying('')}>取消</button><button type="button" className="send" disabled={backstageImageBusy || note.id in backstageTyping || (!(backstageDrafts[note.id] || '').trim() && !(backstageImages[note.id] || []).length)} onClick={() => { const text = backstageDrafts[note.id] || ''; const images = backstageImages[note.id] || []; const sentAt = Date.now(); const nextBook = replyToBackstageNote(activeConversation.backstageNotebook || { writerIds: [], notes: [] }, note.id, text, sentAt, images); updateBook((current) => replyToBackstageNote(current, note.id, text, sentAt, images)); void runBackstageChat(conversationId, note.id, nextBook); if (window.matchMedia?.('(pointer: coarse)').matches) (document.activeElement as HTMLElement | null)?.blur(); setBackstageDrafts((current) => ({ ...current, [note.id]: '' })); setBackstageImages((current) => { const { [note.id]: _sent, ...rest } = current; void _sent; return rest }); setBackstageReplying('') }}>发送</button></div></div> : <div className="backstage-note-actions"><button type="button" className="backstage-reply-open" onClick={() => setBackstageReplying(note.id)}>💬 回复</button><button type="button" className="danger-link" onClick={() => updateBook((current) => deleteBackstageNote(current, note.id))}>删除</button></div>}</article>)}<input ref={backstageImageInputRef} type="file" multiple hidden onChange={(event) => { const files = Array.from(event.currentTarget.files || []); event.currentTarget.value = ''; void addBackstageImages(backstageImageTargetRef.current, files) }} /></section></>
     })()}
     {page === 'memory-list' && <><BackHeader title={`${activeConversation?.title || activeCharacter.name} · 记忆库`} onBack={goBack} /><section className="content-stack"><div className="privacy-note">这份记忆只属于当前对话。历史改写后，旧分支记忆会保留但不再注入新分支。</div>{currentMemories.length === 0 ? <div className="empty-memory"><span>✦</span><strong>{archivedMemories.length ? '当前分支还没有已启用记忆' : '还没有长期记忆'}</strong><p>{archivedMemories.length ? '旧分支记忆仍在下方，确认后可逐条复制回来。' : '返回上一页，配置总结 API 后可立即总结当前对话。'}</p></div> : currentMemories.slice().reverse().map((entry) => <article className={`memory-entry ${entry.pinned ? 'pinned' : ''}`} key={entry.id}><div><strong>{entry.pinned ? '★ 核心 · ' : entry.consolidated ? '阶段整理 · ' : ''}{entry.title}</strong><small>{new Date(entry.createdAt).toLocaleString()} · 来源 {entry.sourceCount} 条消息</small></div><textarea rows={8} value={entry.content} onChange={(e) => updateCurrentMemories((entries) => entries.map((item) => item.id === entry.id ? { ...item, content: e.target.value } : item))} /><div className="memory-entry-actions"><button className="soft-button" disabled={isMemoryFixedToCharacter(entry)} onClick={() => promoteMemoryToCharacter(entry)}>{isMemoryFixedToCharacter(entry) ? '已固定到角色卡' : '固定到角色卡'}</button><button className="soft-button" onClick={() => updateCurrentMemories((entries) => entries.map((item) => item.id === entry.id ? { ...item, pinned: !item.pinned } : item))}>{entry.pinned ? '取消核心' : '设为核心记忆'}</button><button className="danger-link" onClick={() => updateCurrentMemories((entries) => entries.filter((item) => item.id !== entry.id))}>删除</button></div></article>)}{archivedMemories.length > 0 && <div className="memory-archive-section"><div className="privacy-note"><strong>历史分支记忆（{archivedMemories.length}）</strong><br />这些内容没有被删除，只因对话改写而停止注入。确认仍适用于当前剧情后，可以复制回当前分支，也可以直接固定到角色卡。</div>{archivedMemories.slice().reverse().map((entry) => { const restored = Boolean(entry.id && currentMemories.some((item) => item.restoredFromId === entry.id)); return <article className="memory-entry archived" key={`archived-${entry.historyRevision || 0}-${entry.id}`}><div><strong>历史分支 · {entry.title}</strong><small>{new Date(entry.createdAt).toLocaleString()} · 来源 {entry.sourceCount} 条消息 · 分支版本 {entry.historyRevision || 0}</small></div><textarea rows={8} value={entry.content} readOnly /><div className="memory-entry-actions"><button className="soft-button" disabled={isMemoryFixedToCharacter(entry)} onClick={() => promoteMemoryToCharacter(entry)}>{isMemoryFixedToCharacter(entry) ? '已固定到角色卡' : '固定到角色卡'}</button><button className="soft-button" disabled={restored} onClick={() => restoreArchivedMemory(entry)}>{restored ? '已复制到当前分支' : '复制到当前分支'}</button></div></article> })}</div>}</section></>}
 
@@ -4819,7 +4888,7 @@ function UpdateCard() {
     }
   }
 
-  return <section className="update-card"><strong>应用更新</strong><p>主动检查并拉取最新网页版本，不会删除角色、聊天记录或本地设置。</p><small>当前版本：v200 · 2026.11.09 语义召回（每段剧情只想起自己的旧原话）</small><button onClick={refresh} disabled={state === 'checking'}>{state === 'checking' ? '正在检查更新…' : state === 'error' ? '更新失败，点我重试' : '强制刷新到最新版'}</button></section>
+  return <section className="update-card"><strong>应用更新</strong><p>主动检查并拉取最新网页版本，不会删除角色、聊天记录或本地设置。</p><small>当前版本：v201 · 2026.11.09 语义召回（每段剧情只想起自己的旧原话）</small><button onClick={refresh} disabled={state === 'checking'}>{state === 'checking' ? '正在检查更新…' : state === 'error' ? '更新失败，点我重试' : '强制刷新到最新版'}</button></section>
 }
 
 function PersonaPage({ identities, selectedId, isBound, onSelect, onAdd, onDelete, onUpdate, onBack }: { identities: UserIdentity[]; selectedId: string; isBound: boolean; onSelect: (id: string) => void; onAdd: () => void; onDelete: (id: string) => void; onUpdate: (patch: Partial<UserIdentity>) => void; onBack: () => void }) {
