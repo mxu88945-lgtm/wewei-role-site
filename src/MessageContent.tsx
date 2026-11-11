@@ -4,6 +4,8 @@ import type { Character } from './characterCard'
 import { applyMacros, applyRegexScripts } from './regexEngine'
 import { completeStatusBlock, containsHiddenReasoning, detectStatusTag, moveStatusBlockToEnd, normalizeDirectorStatusOutput, sanitizeAssistantOutput, stripStatusBlocksForStreaming } from './outputSanitizer'
 import { buildStatusFallback, getStatusProtocol } from './statusProtocol'
+import { extractFilmCard } from './filmBlock'
+import FilmCard from './FilmCard'
 
 function unwrapCodeFence(value: string) {
   return value
@@ -343,8 +345,12 @@ function SandboxHtml({ html, raw = false, paper = false, greetings, onSelectGree
 }
 
 function MessageContent({ text, role, character, userName, layout = 'bubble', streaming = false, greetings, onSelectGreeting, noStatus = false, paper = false }: { text: string; role: 'user' | 'assistant'; character: Character; userName: string; layout?: 'bubble' | 'flat'; streaming?: boolean; noStatus?: boolean; paper?: MessageTheme } & SceneHooks) {
+  // v198 剧情美化卡：先把 <film> 块从正文拿出来（流式时没闭合的部分直接藏起来）。
+  const film = useMemo(() => role === 'assistant' ? extractFilmCard(text, { streaming }) : null, [text, role, streaming])
+  const bodyText = film ? film.body : text
   const rendered = useMemo(() => {
     const director = character.tags.includes('共演导演') || character.tags.includes('旁白导演')
+    const text = bodyText
     const cleanText = role === 'assistant' ? sanitizeAssistantOutput(text, { director }) : text
     const sanitizedText = role === 'assistant' && streaming
       ? stripStatusBlocksForStreaming(cleanText)
@@ -373,8 +379,14 @@ function MessageContent({ text, role, character, userName, layout = 'bubble', st
     return role === 'assistant'
       ? applyRegexScripts(orderedText, noStatus ? [] : character.regexScripts, character, userName, 2, 'display')
       : applyMacros(visibleText, character, userName)
-  }, [text, role, character, userName, streaming, noStatus])
+  }, [bodyText, role, character, userName, streaming, noStatus])
 
+  const filmCard = film?.card ? <FilmCard card={film.card} avatar={character.avatar} speakerName={character.name} seed={`${character.id}|${film.card.sceneTitle}|${film.card.heart}|${film.card.zh}`} /> : null
+  const content = renderMessageBody(rendered, role, layout, paper, streaming, greetings, onSelectGreeting)
+  return filmCard ? <>{content}{filmCard}</> : content
+}
+
+function renderMessageBody(rendered: string, role: 'user' | 'assistant', layout: 'bubble' | 'flat', paper: MessageTheme, streaming: boolean, greetings: SceneHooks['greetings'], onSelectGreeting: SceneHooks['onSelectGreeting']) {
   const segments = streaming ? null : splitHtmlFences(rendered)
   if (segments) {
     return <div className="message-content message-content-rich message-content-segments">{segments.map((segment, index) => segment.kind === 'html'

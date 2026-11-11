@@ -1,3 +1,5 @@
+import { stripFilmBlocks } from './filmBlock'
+
 type ModelContextMessage = {
   role: 'user' | 'assistant'
   text: string
@@ -16,7 +18,8 @@ const danglingBracketStatus = new RegExp(`\\[${STATUS_TAG}\\b[^\\]]*\\][\\s\\S]*
  * card-specific forms such as lu_status / pei_status.
  */
 export function stripUiOnlyStatusBlocks(value: string) {
-  return value
+  // v198 剧情美化卡 <film> 块也是纯界面用的：不进模型历史、摘要、记忆。
+  return stripFilmBlocks(value)
     .replace(pairedAngleStatus, '')
     .replace(pairedBracketStatus, '')
     .replace(danglingAngleStatus, '')

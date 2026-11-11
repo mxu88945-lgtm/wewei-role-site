@@ -9,7 +9,7 @@
 import { useEffect, useRef, useState } from 'react'
 import { createPortal } from 'react-dom'
 import { fetchLyricCandidates, isTimed, lyricIndexAt, parseLyrics, shiftLyrics, type LyricLine } from './lyrics'
-import { musicDel, musicGet, musicSet, musicTrackId, useMusicStore, type MusicTrack } from './musicStore'
+import { musicDel, musicGet, musicSet, musicTrackId, useMusicStore, type MusicCommand, type MusicTrack } from './musicStore'
 import './music.css'
 
 function fmt(sec: number): string {
@@ -216,6 +216,17 @@ export default function MusicPlayer() {
   }
 
   useEffect(() => () => { audioRef.current?.pause(); if (urlRef.current) URL.revokeObjectURL(urlRef.current) }, [])
+
+  // v198 剧情美化卡的唱片机：订阅外部指令，在点击的同一调用栈里执行（iOS 才肯出声）。
+  const commandRef = useRef<(command: MusicCommand) => void>(() => {})
+  commandRef.current = (command) => {
+    if (command.kind === 'play') void playTrack(command.id)
+    else if (command.kind === 'toggle') void toggle()
+    else void step(command.dir)
+  }
+  useEffect(() => useMusicStore.subscribe((state, prev) => {
+    if (state.command && state.command !== prev.command) commandRef.current(state.command)
+  }), [])
 
   const loaded = Boolean(active && loadedRef.current === active.id)
   const timed = isTimed(lyrics)

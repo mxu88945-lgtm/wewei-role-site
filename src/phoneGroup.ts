@@ -24,6 +24,7 @@ import type { Character } from './characterCard'
 import type { Conversation, Message } from './conversationLifecycle'
 import type { LongMemoryEntry } from './memoryEngine'
 import { sanitizeAssistantOutput } from './outputSanitizer'
+import { stripFilmBlocks } from './filmBlock'
 
 /**
  * 小手机：戏外日常群。角色卡们知道自己是惟境里的角色，用户是现实中陪他们
@@ -113,7 +114,7 @@ export type PhoneArchiveSource = {
 const tail = (messages: Message[], names: (message: Message) => string, count: number) => messages
   .filter((message) => message.text?.trim())
   .slice(-count)
-  .map((message) => `${names(message)}：${clip(cleanPhoneOutput(message.text).replace(/<[^>]+>/g, ' ').replace(/\s+/g, ' '), 160)}`)
+  .map((message) => `${names(message)}：${clip(cleanPhoneOutput(stripFilmBlocks(message.text)).replace(/<[^>]+>/g, ' ').replace(/\s+/g, ' '), 160)}`)
   .join('\n')
 
 /** 每位成员绑定的“过往戏份档案”：对话摘要、长期记忆、角色记忆和最近几句。 */

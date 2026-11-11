@@ -28,7 +28,15 @@ interface MusicState extends Persisted {
   setNow: (n: NowPlaying | null) => void
   lyrics: LyricLine[]
   setLyrics: (l: LyricLine[]) => void
+  /** v198 剧情美化卡的唱片机：外部发播放指令，由 MusicPlayer 执行（音频元素只在那里）。 */
+  command: MusicCommand | null
+  requestPlay: (id: string) => void
+  requestToggle: () => void
+  requestStep: (dir: 1 | -1) => void
 }
+
+export type MusicCommand = { kind: 'play'; id: string; nonce: number } | { kind: 'toggle'; nonce: number } | { kind: 'step'; dir: 1 | -1; nonce: number }
+let commandNonce = 0
 
 export const useMusicStore = create<MusicState>((set, get) => {
   const persist = (patch: Partial<Persisted>) => {
@@ -52,11 +60,46 @@ export const useMusicStore = create<MusicState>((set, get) => {
     setNow: (n) => set({ now: n }),
     lyrics: [],
     setLyrics: (l) => set({ lyrics: l }),
+    command: null,
+    requestPlay: (id) => set({ command: { kind: 'play', id, nonce: ++commandNonce } }),
+    requestToggle: () => set({ command: { kind: 'toggle', nonce: ++commandNonce } }),
+    requestStep: (dir) => set({ command: { kind: 'step', dir, nonce: ++commandNonce } }),
   }
 })
 
 export function musicTrackId(): string {
   return typeof crypto !== 'undefined' && 'randomUUID' in crypto ? crypto.randomUUID() : `mu-${Date.now()}-${Math.random().toString(36).slice(2)}`
+}
+
+function normTitle(value: string) {
+  return value.toLowerCase().replace(new RegExp('[\\s《》「」“”"\'()（）\\[\\]【】._\\-–—·・/／|｜,，!！?？]+', 'g'), '')
+}
+
+/**
+ * 按歌名模糊匹配导入的歌：完全相同 > 互相包含 > 去掉歌手后包含 > 字符重合度。
+ * 匹配不到返回 null。
+ */
+export function findTrackByTitle<T extends { id: string; name: string }>(tracks: T[], title: string, artist = ''): T | null {
+  const want = normTitle(title)
+  if (!want || !tracks.length) return null
+  const wantArtist = normTitle(artist)
+  let best: { track: T; score: number } | null = null
+  for (const track of tracks) {
+    const name = normTitle(track.name)
+    if (!name) continue
+    let score = 0
+    if (name === want) score = 100
+    else if (name.includes(want)) score = 80 + (wantArtist && name.includes(wantArtist) ? 10 : 0)
+    else if (want.includes(name) && name.length >= 2) score = 60
+    else {
+      const chars = new Set(Array.from(name))
+      const hit = Array.from(want).filter((ch) => chars.has(ch)).length
+      const ratio = hit / Math.max(want.length, 1)
+      if (want.length >= 2 && ratio >= 0.75) score = Math.round(40 * ratio)
+    }
+    if (score && (!best || score > best.score)) best = { track, score }
+  }
+  return best?.track ?? null
 }
 
 /** 发请求时用：没在放就返回空串 */

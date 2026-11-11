@@ -1,3 +1,5 @@
+import { stripFilmBlocks } from './filmBlock'
+
 const STATUS_INSTRUCTION_MARKER = /(?:#\s*)?注意[:：]?\s*(?:非常重要[！!]?|请严格按照以上格式输出)|必须在每次输出后回复的末尾|参考状态栏输出状态栏|状态栏格式要求如上|请严格遵守以上格式|禁止缺少任何符号\s*[（(]包括空格与换行|(?:获得|倒扣)\s*\d+w?\s*美元.*赛博小费/i
 const STORY_START = /(?:<plot>\s*)?(?:```\s*)?(?:⏰|🕰️)\s*时间/i
 const STRONG_DIRECTOR_REASONING_MARKER = /controlled by the user|narrator\s*\/\s*director|side characters? and (?:the )?environment|(?:current|character|situation) analysis|internal (?:analysis|reasoning)|chain of thought|(?:we need|let(?:'s| us)) (?:to )?(?:analy[sz]e|reason|plan)/i
@@ -115,7 +117,7 @@ export function sanitizeAssistantOutput(value: string, options: { director?: boo
  * an empty body can no longer be persisted as a finished message.
  */
 export function hasVisibleStoryBody(value: string) {
-  const body = value
+  const body = stripFilmBlocks(value)
     .replace(OPEN_OR_PARTIAL_STATUS_BLOCK, '')
     .replace(/<(?:scene|plot)\b[^>]*>[\s\S]*?<\/(?:scene|plot)\s*>/gi, '')
     .replace(/<\/?[A-Za-z][^>]*>/g, '')
