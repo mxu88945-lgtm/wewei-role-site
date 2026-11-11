@@ -52,7 +52,7 @@ import { buildChatPrompt } from './promptBuilder'
 import { CHAT_IMAGE_LIMIT, CHAT_VIDEO_MAX_FRAMES, prepareChatImage, prepareChatVideo, type ChatImage } from './chatImages'
 import { captureTemporaryPlot, consumeTemporaryPlot, withAssistantRetryInstruction, withFinalTemporaryPlotInstruction } from './temporaryPlot'
 import { checkAndRepairTemporaryPlot, reviewTemporaryPlotReply } from './temporaryPlotReview'
-import { resolveChatScrollTarget, type ChatScrollSnapshot } from './chatScroll'
+import { resolveChatScrollTarget, resolveRelayoutScrollTop, type ChatScrollSnapshot } from './chatScroll'
 import { createApiChannel, isApiChannelComplete, normalizeApiChannels, resolveApiChannel, withApiModel, type ApiChannel } from './apiChannels'
 import { enabledPresetText, normalizePresetSections } from './presetConfig'
 import { durableGet, durableSet } from './persistentStore'
@@ -1242,6 +1242,7 @@ function App() {
     let settleTimer: number | null = null
     const restore = () => {
       if (pendingChatScrollRestoreRef.current !== conversationKey) return
+      const touchMarkAtRestore = chatTouchUntilRef.current
       const target = returnToLatest ? scrollChatToLatest(list) : applyChatScrollSnapshot(list, conversationKey)
       pendingChatScrollRestoreRef.current = null
       const distanceToBottom = Math.max(0, list.scrollHeight - target - list.clientHeight)
@@ -1260,6 +1261,15 @@ function App() {
           if (!generationControllers.current.has(conversationKey)) pendingChatLatestScrollRef.current = null
           setChatJump({ up: latestTarget > 240, down: false, visible: false })
         }, 180)
+      } else if (target > 0) {
+        // v203：回到正在读的位置后，图片/卡片晚到的布局可能把列表弹回 0；
+        // 她没碰过屏幕就再放回去一次（不加载更早的消息）。
+        settleTimer = window.setTimeout(() => {
+          if (chatTouchUntilRef.current !== touchMarkAtRestore || list.scrollTop > 8) return
+          const maximum = Math.max(0, list.scrollHeight - list.clientHeight)
+          list.scrollTop = Math.min(target, maximum)
+          rememberChatScroll(conversationKey)
+        }, 240)
       }
     }
     firstFrame = window.requestAnimationFrame(() => {
@@ -1299,7 +1309,6 @@ function App() {
     let markerHeight = 1
     const refreshScrollGeometry = () => {
       if (layoutFrame !== null) window.cancelAnimationFrame(layoutFrame)
-      const previousScrollTop = list.scrollTop
       layoutFrame = window.requestAnimationFrame(() => {
         layoutFrame = window.requestAnimationFrame(() => {
           // Safari can keep the pre-toggle scroll extent for a native <details>
@@ -1307,6 +1316,9 @@ function App() {
           // cached extent without replacing the character card's HTML or open state.
           // Her finger is on the list: forcing a relayout now cancels the iOS drag.
           if (Date.now() < chatTouchUntilRef.current) return
+          // v203：在这一刻读位置。以前在排队时就读，回到聊天时新列表还是 0，
+          // 等位置恢复完再把 0 写回去 → 一回来就跳到最顶端（加载更早 60 条）。
+          const liveScrollTop = list.scrollTop
           markerHeight = markerHeight === 1 ? 2 : 1
           marker.style.flexBasis = `${markerHeight}px`
           marker.style.height = `${markerHeight}px`
@@ -1314,10 +1326,13 @@ function App() {
           const snapshot = chatScrollSnapshotsRef.current.get(conversationKey)
           if (pendingChatLatestScrollRef.current === conversationKey) {
             scrollChatToLatest(list)
-          } else if (pendingChatScrollRestoreRef.current === conversationKey || snapshot?.stickToBottom) {
-            applyChatScrollSnapshot(list, conversationKey)
           } else {
-            list.scrollTop = Math.min(previousScrollTop, Math.max(0, list.scrollHeight - list.clientHeight))
+            list.scrollTop = resolveRelayoutScrollTop({
+              restorePending: pendingChatScrollRestoreRef.current === conversationKey,
+              snapshot,
+              liveTop: liveScrollTop,
+              maxScrollTop: list.scrollHeight - list.clientHeight,
+            })
           }
         })
       })
@@ -1471,6 +1486,8 @@ function App() {
     navigate('backstage-notes')
   }
   const navigate = (target: Page, reopenDrawer?: Drawer) => {
+    // v203：从聊天进任何子页面（幕后手记、小手机、设置页…）都先记住她看到哪儿
+    if (page === 'chat') rememberChatScroll()
     if (page === 'chat' && reopenDrawer === 'right') pendingChatLatestScrollRef.current = chatScrollKey
     setHistory((current) => [...current, { page, reopenDrawer }])
     setDrawer(null)
@@ -4892,7 +4909,7 @@ function UpdateCard() {
     }
   }
 
-  return <section className="update-card"><strong>应用更新</strong><p>主动检查并拉取最新网页版本，不会删除角色、聊天记录或本地设置。</p><small>当前版本：v202 · 2026.11.09 语义召回（每段剧情只想起自己的旧原话）</small><button onClick={refresh} disabled={state === 'checking'}>{state === 'checking' ? '正在检查更新…' : state === 'error' ? '更新失败，点我重试' : '强制刷新到最新版'}</button></section>
+  return <section className="update-card"><strong>应用更新</strong><p>主动检查并拉取最新网页版本，不会删除角色、聊天记录或本地设置。</p><small>当前版本：v203 · 2026.11.09 语义召回（每段剧情只想起自己的旧原话）</small><button onClick={refresh} disabled={state === 'checking'}>{state === 'checking' ? '正在检查更新…' : state === 'error' ? '更新失败，点我重试' : '强制刷新到最新版'}</button></section>
 }
 
 function PersonaPage({ identities, selectedId, isBound, onSelect, onAdd, onDelete, onUpdate, onBack }: { identities: UserIdentity[]; selectedId: string; isBound: boolean; onSelect: (id: string) => void; onAdd: () => void; onDelete: (id: string) => void; onUpdate: (patch: Partial<UserIdentity>) => void; onBack: () => void }) {
