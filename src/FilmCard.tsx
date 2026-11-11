@@ -2,8 +2,8 @@
  * v198 剧情美化卡：奶白纸底 + 深红/棕点缀（暖茶笺调性），不用 iframe、不用 backdrop-filter。
  * 唱片机条 → 胶片框（角色头像或纸纹占位）+ 表盘 → ARCHIVE 编号与英中两行 → NPC 2x2 档案 → 心声气泡。
  */
-import { memo, useState } from 'react'
-import { filmGramoText, type FilmCardData, type FilmDanger } from './filmBlock'
+import { memo, useEffect, useReducer, useState } from 'react'
+import { filmGramoText, filmPlayNudge, type FilmCardData, type FilmDanger } from './filmBlock'
 import { FilmFrame } from './FilmGallery'
 import { findTrackByTitle, useMusicStore } from './musicStore'
 import './film-card.css'
@@ -36,7 +36,12 @@ function DangerMeter({ level }: { level: FilmDanger }) {
   </span>
 }
 
-function FilmCard({ card, avatar, speakerName, seed, characterId }: { card: FilmCardData; avatar?: string; speakerName: string; seed: string; characterId?: string }) {
+/** v204：哪些卡里点的歌「已经放过 / 她点过播放」，之后不再催「点播放」（跨重新挂载保留）。 */
+const settledCards = new Set<string>()
+/** 最新卡出现后等自动切歌多久再提示「点播放」（毫秒）。 */
+const NUDGE_DELAY_MS = 3500
+
+function FilmCard({ card, avatar, speakerName, seed, characterId, cardKey, isLatest = false }: { card: FilmCardData; avatar?: string; speakerName: string; seed: string; characterId?: string; cardKey?: string; isLatest?: boolean }) {
   const [npcIndex, setNpcIndex] = useState(0)
   // 只订阅基本类型：now 每秒换一个新对象，订阅整个对象会让每张卡每秒重渲染。
   const nowName = useMusicStore((state) => state.now?.name ?? '')
@@ -52,10 +57,24 @@ function FilmCard({ card, avatar, speakerName, seed, characterId }: { card: Film
   const no = archiveNo(seed)
   // v202：卡里点的歌不在歌单 → 那行小灰字可以点，直接打开导入；自动切歌被 iOS 拦下 → 显示「点播放」。
   const missing = Boolean(card.song?.title && !matched)
-  const tapToPlay = Boolean(matched && blockedId === matched.id && !playingHere)
+  // v204：最新一条的卡，点的歌匹配到了却没在放（自动切歌没成功、又没被判成拦下）→ 也显示「点播放」。
+  const settleKey = `${cardKey ?? seed}|${card.song?.title ?? ''}`
+  const [, bump] = useReducer((n: number) => n + 1, 0)
+  const [ripe, setRipe] = useState(false)
+  useEffect(() => {
+    if (!isLatest) return
+    const timer = window.setTimeout(() => setRipe(true), NUDGE_DELAY_MS)
+    return () => window.clearTimeout(timer)
+  }, [isLatest, settleKey])
+  const settled = settledCards.has(settleKey)
+  useEffect(() => {
+    if (matched && playingHere && !settledCards.has(settleKey)) { settledCards.add(settleKey); bump() }
+  }, [matched, playingHere, settleKey])
+  const tapToPlay = filmPlayNudge({ matchedId: matched?.id, playingHere, blockedId, isLatest, settled, ripe })
   const importSong = () => { if (card.song) useMusicStore.getState().requestImport(card.song.title, card.song.artist) }
 
   const play = () => {
+    if (!settledCards.has(settleKey)) { settledCards.add(settleKey); bump() }
     const state = useMusicStore.getState()
     if (!state.tracks.length) { state.setSheetOpen(true); return }
     const match = card.song ? findTrackByTitle(state.tracks, card.song.title, card.song.artist) : null

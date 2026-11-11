@@ -1,5 +1,5 @@
-import { describe, expect, it } from 'vitest'
-import { extractFilmCard, filmCardInstruction, filmGramoText, parseFilmBody, stripFilmBlocks } from './filmBlock'
+import { describe, expect, it, vi } from 'vitest'
+import { extractFilmCard, filmCardInstruction, filmGramoText, filmPlayNudge, parseFilmBody, playlistForPrompt, stripFilmBlocks } from './filmBlock'
 import { findTrackByTitle } from './musicStore'
 import { modelVisibleMessageText, stripUiOnlyStatusBlocks } from './modelContext'
 import { hasVisibleStoryBody } from './outputSanitizer'
@@ -198,7 +198,91 @@ describe('autoPlayFilmSong (v202)', () => {
     useMusicStore.setState({ now: { name: 'F.I.R. - 千年之戀', playing: true, pos: 1, dur: 200 } })
     expect(autoPlayFilmSong('m2', text)).toBe('already-playing')
     expect(autoPlayFilmSong('m3', '正文。\n<film>\n歌：稻香 - 周杰伦\n</film>')).toBe('no-match')
-    expect(autoPlayFilmSong('m4', '正文。\n<film>\n歌：千年之恋\n幕：没写完')).toBe('no-card')
+    expect(autoPlayFilmSong('m4', '正文。\n<film>\n幕：没写歌\n</film>')).toBe('no-card')
     useMusicStore.setState({ tracks: [], now: null, command: null })
+  })
+
+  it('v204: plays from a final reply whose <film> was never closed, and marks blocked if nothing plays in 3s', async () => {
+    vi.useFakeTimers()
+    try {
+      const { useMusicStore } = await import('./musicStore')
+      const { autoPlayFilmSong, resetFilmAutoplayForTests } = await import('./filmAutoplay')
+      resetFilmAutoplayForTests()
+      useMusicStore.setState({ tracks: [{ id: 'g', name: '古巨基-谁愿放手.mp3' }, { id: 's', name: 'S.H.E-恋人未满.mp3' }], now: { name: '古巨基-谁愿放手.mp3', playing: true, pos: 1, dur: 200 }, command: null, autoplayBlockedId: '' })
+      const text = '正文。\n<film>\n歌：恋人未满 - S.H.E\n幕：雨夜｜路灯下\n心声：别走'
+      expect(autoPlayFilmSong(7, text)).toBe('requested')
+      expect(useMusicStore.getState().command).toMatchObject({ kind: 'play', id: 's', auto: true })
+      expect(autoPlayFilmSong(7, text + '\n')).toBe('done-before')
+      vi.advanceTimersByTime(3100)
+      expect(useMusicStore.getState().autoplayBlockedId).toBe('s')
+
+      // 3 秒内放上了 → 不标记。
+      useMusicStore.setState({ autoplayBlockedId: '', command: null, now: { name: '古巨基-谁愿放手.mp3', playing: true, pos: 1, dur: 200 } })
+      expect(autoPlayFilmSong(8, text)).toBe('requested')
+      useMusicStore.setState({ now: { name: 'S.H.E-恋人未满.mp3', playing: true, pos: 0, dur: 200 } })
+      vi.advanceTimersByTime(3100)
+      expect(useMusicStore.getState().autoplayBlockedId).toBe('')
+
+      // 这期间她自己点了别的 → 不标记。
+      useMusicStore.setState({ autoplayBlockedId: '', command: null, now: { name: '古巨基-谁愿放手.mp3', playing: true, pos: 1, dur: 200 } })
+      expect(autoPlayFilmSong(9, text)).toBe('requested')
+      useMusicStore.getState().requestPlay('g')
+      vi.advanceTimersByTime(3100)
+      expect(useMusicStore.getState().autoplayBlockedId).toBe('')
+      useMusicStore.setState({ tracks: [], now: null, command: null, autoplayBlockedId: '' })
+    } finally {
+      vi.useRealTimers()
+    }
+  })
+})
+
+describe('filmCardInstruction playlist (v204)', () => {
+  it('lists her playlist names without extensions and prefers them', () => {
+    const text = filmCardInstruction('谢聿衡', '惟惟', false, ['S.H.E-恋人未满.mp3', '古巨基-谁愿放手.m4a', 'S.H.E-恋人未满.mp3'])
+    expect(text).toContain('《S.H.E-恋人未满》')
+    expect(text).toContain('《古巨基-谁愿放手》')
+    expect(text).not.toContain('.mp3')
+    expect(text.match(/恋人未满/g)).toHaveLength(1)
+    expect(text).toContain('优先从这份歌单里挑')
+    expect(text).toContain('照歌单里的写法原样写')
+  })
+
+  it('keeps the old wording with an empty playlist', () => {
+    expect(filmCardInstruction('他', '惟惟', false, [])).toContain('「歌」可选：有适合这一幕氛围的真实歌曲就写')
+    expect(filmCardInstruction('他', '惟惟')).not.toContain('歌单')
+  })
+
+  it('caps at 40 names and about 800 characters', () => {
+    const many = Array.from({ length: 80 }, (_, i) => `歌手${i}-第${i}首歌.mp3`)
+    const list = playlistForPrompt(many)
+    expect(list.length).toBeLessThanOrEqual(40)
+    expect(list.reduce((sum, name) => sum + name.length + 3, 0)).toBeLessThanOrEqual(800)
+    const long = Array.from({ length: 40 }, (_, i) => `${'很长的歌名'.repeat(8)}${i}`)
+    const capped = playlistForPrompt(long)
+    expect(capped.reduce((sum, name) => sum + name.length + 3, 0)).toBeLessThanOrEqual(800)
+    expect(capped.length).toBeLessThan(40)
+    const text = filmCardInstruction('他', '惟惟', false, many)
+    expect(text).toContain('《歌手0-第0首歌》')
+    expect(text).not.toContain('歌手45')
+  })
+})
+
+describe('filmPlayNudge (v204)', () => {
+  const base = { matchedId: 's', playingHere: false, blockedId: '', isLatest: true, settled: false, ripe: true }
+  it('nudges on the newest card when the matched song is not playing and never played', () => {
+    expect(filmPlayNudge(base)).toBe(true)
+  })
+  it('does not nudge older cards, unmatched songs, playing songs, or before ripe', () => {
+    expect(filmPlayNudge({ ...base, isLatest: false })).toBe(false)
+    expect(filmPlayNudge({ ...base, matchedId: null })).toBe(false)
+    expect(filmPlayNudge({ ...base, playingHere: true })).toBe(false)
+    expect(filmPlayNudge({ ...base, ripe: false })).toBe(false)
+  })
+  it('stops nagging once tapped or played', () => {
+    expect(filmPlayNudge({ ...base, settled: true })).toBe(false)
+  })
+  it('still nudges any card whose autoplay was blocked', () => {
+    expect(filmPlayNudge({ ...base, isLatest: false, settled: true, blockedId: 's' })).toBe(true)
+    expect(filmPlayNudge({ ...base, isLatest: false, blockedId: 's', playingHere: true })).toBe(false)
   })
 })

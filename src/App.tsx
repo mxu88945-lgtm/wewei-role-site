@@ -2850,7 +2850,7 @@ function App() {
     }
     if (isPhone && !requestOptions.continueWithoutUser && (conversation.phone?.dm || requestOptions.phoneNudge)) promptMessages.push({ role: 'system', content: phoneDeliveryInstruction(speaker.name, identity.name, Boolean(conversation.phone?.dm), false, requestOptions.phoneNudge) })
     // v198 剧情美化卡：只给单人剧情和普通群聊（不含小手机群/私聊、不含导演）。
-    if (filmCardEnabled && !isPhone && !isDirector) promptMessages.push({ role: 'system', content: filmCardInstruction(speaker.name, identity.name, requiresCharacterStatus) })
+    if (filmCardEnabled && !isPhone && !isDirector) promptMessages.push({ role: 'system', content: filmCardInstruction(speaker.name, identity.name, requiresCharacterStatus, useMusicStore.getState().tracks.map((track) => track.name)) })
     const variablesPrompt = buildStoryVariablesPrompt(requestOptions.contextOverride ? requestOptions.contextOverride.storyVariables : conversation.storyVariables, speaker.id)
     if (variablesPrompt) promptMessages.push({ role: 'system', content: variablesPrompt })
     // This must be the final outbound instruction.  In particular, director
@@ -4344,6 +4344,7 @@ function App() {
     void sendMessage(`${conversation.phone.dm ? '' : `@${target.name} `}${transferText(fromName, target.name, amount, note)}`)
   }
   void pointsTick // 积分变了就重算今日榜
+  const latestAssistantId = (() => { for (let i = messages.length - 1; i >= 0; i -= 1) if (messages[i].role === 'assistant') return messages[i].id; return undefined })()
   const renderChatMessage = (message: Message) => {
     if (activeConversation?.phone && !activeConversation.phone.dm && message.phoneGame) {
       const round = message.phoneGame
@@ -4378,6 +4379,9 @@ function App() {
     if (isUser && !displayText && !message.images?.length && !packetInfo && !transferInfo) return null
     if (!isUser && !isGenerating && isPendingAssistantText(message.text || '')) return null
     const streaming = message.role === 'assistant' && isGenerating && message.id === messages[messages.length - 1]?.id
+    // v204：剧情卡点歌——流式结束那一刻再补一次自动切歌；只有最新一条助手消息的卡会提示「点播放」。
+    const filmAutoplay = !isUser && filmCardEnabled && !activeConversation?.phone && !(activeConversation?.directorCharacterId && messageCharacter.id === activeConversation.directorCharacterId)
+    const filmLatest = filmAutoplay && message.id === latestAssistantId
     const imageGrid = message.images?.length ? <div className={`message-images count-${Math.min(message.images.length, 4)}`}>{message.images.map((image) => <button type="button" key={image.id} aria-label="查看图片" onClick={() => setViewerImage(image)}><img src={image.dataUrl} alt="" loading="lazy" decoding="async" style={message.images!.length === 1 ? { aspectRatio: `${image.width} / ${image.height}` } : undefined} /></button>)}</div> : null
     // Opening message of a solo chat: card home pages (Tavo / SillyTavern style) can
     // jump to another opening, which replaces this message's text in place.
@@ -4387,7 +4391,7 @@ function App() {
     const selectOpening = isOpening ? (_index: number, text: string) => setConversations((current) => current.map((item) => item.id === openingConversationId ? { ...item, messages: item.messages.map((entry) => entry.id === message.id ? { ...entry, text } : entry), updatedAt: Date.now() } : item)) : undefined
     const phaseStartedAt = streaming && activeConversation ? phaseStartedAtRef.current.get(`${activeConversation.id}|${message.id}`) : undefined
     const archiveTheme = !activeConversation?.phone && (chatTheme === 'academy' || chatTheme === 'vinyl' || chatTheme === 'mobile' || chatTheme === 'letter' || chatTheme === 'mistnote' || chatTheme === 'nightglow') ? chatTheme : null
-    const textContent = phaseStartedAt !== undefined ? <PhaseElapsed label={displayText} startedAt={phaseStartedAt} /> : displayText ? <MessageContent text={displayText} role={message.role} character={messageCharacter} noStatus={Boolean(activeConversation?.phone)} paper={archiveTheme || (activeConversation?.phone ? false : chatTheme === 'scrapbook' ? 'scrapbook' : chatTheme === 'paper')} userName={identity.name} layout={archiveTheme ? 'flat' : chatLayout} streaming={streaming} greetings={openingGreetings} onSelectGreeting={selectOpening} /> : null
+    const textContent = phaseStartedAt !== undefined ? <PhaseElapsed label={displayText} startedAt={phaseStartedAt} /> : displayText ? <MessageContent text={displayText} role={message.role} character={messageCharacter} noStatus={Boolean(activeConversation?.phone)} paper={archiveTheme || (activeConversation?.phone ? false : chatTheme === 'scrapbook' ? 'scrapbook' : chatTheme === 'paper')} userName={identity.name} layout={archiveTheme ? 'flat' : chatLayout} streaming={streaming} greetings={openingGreetings} onSelectGreeting={selectOpening} messageId={message.id} filmAutoplay={filmAutoplay} filmLatest={filmLatest} /> : null
     const quoteExists = Boolean(message.quote && messages.some((item) => String(item.id) === message.quote!.messageId))
     const quoteBlock = isUser && message.quote && activeConversation?.phone ? <button type="button" className={`phone-message-quote${quoteExists ? '' : ' missing'}`} aria-label={quoteExists ? `跳到被引用的消息：${message.quote.author}` : '被引用的消息已不在'} disabled={!quoteExists} onClick={() => jumpToQuoted(message.quote!.messageId)}><b>{message.quote.author}：</b>{message.quote.text}</button> : null
     const body = imageGrid ? <>{imageGrid}{textContent}</> : textContent
@@ -4909,7 +4913,7 @@ function UpdateCard() {
     }
   }
 
-  return <section className="update-card"><strong>应用更新</strong><p>主动检查并拉取最新网页版本，不会删除角色、聊天记录或本地设置。</p><small>当前版本：v203 · 2026.11.09 语义召回（每段剧情只想起自己的旧原话）</small><button onClick={refresh} disabled={state === 'checking'}>{state === 'checking' ? '正在检查更新…' : state === 'error' ? '更新失败，点我重试' : '强制刷新到最新版'}</button></section>
+  return <section className="update-card"><strong>应用更新</strong><p>主动检查并拉取最新网页版本，不会删除角色、聊天记录或本地设置。</p><small>当前版本：v204 · 2026.11.09 语义召回（每段剧情只想起自己的旧原话）</small><button onClick={refresh} disabled={state === 'checking'}>{state === 'checking' ? '正在检查更新…' : state === 'error' ? '更新失败，点我重试' : '强制刷新到最新版'}</button></section>
 }
 
 function PersonaPage({ identities, selectedId, isBound, onSelect, onAdd, onDelete, onUpdate, onBack }: { identities: UserIdentity[]; selectedId: string; isBound: boolean; onSelect: (id: string) => void; onAdd: () => void; onDelete: (id: string) => void; onUpdate: (patch: Partial<UserIdentity>) => void; onBack: () => void }) {

@@ -148,13 +148,21 @@ export default function MusicPlayer({ hideFloat = false }: { hideFloat?: boolean
 
   async function playTrack(id: string, auto = false) {
     setErr('')
-    const a = await loadTrack(id)
-    if (!a) return
-    if (stateRef.current.activeId !== id) setActive(id)
-    try { await a.play(); useMusicStore.getState().setAutoplayBlocked('') } catch (e) {
-      // v202：自动切歌被 iOS 拦下（没有手势）：不报错，剧情卡上显示「点播放」，她点一下就出声。
-      if (auto) useMusicStore.getState().setAutoplayBlocked(id)
-      else setErr(`播放失败：${(e as Error).message}`)
+    // v204：自动切歌时 play()（或读文件）3 秒都没落地，也当被拦下，卡片显示「点播放」。
+    let settled = false
+    const guard = auto ? window.setTimeout(() => { if (!settled) useMusicStore.getState().setAutoplayBlocked(id) }, 3000) : 0
+    try {
+      const a = await loadTrack(id)
+      if (!a) return
+      if (stateRef.current.activeId !== id) setActive(id)
+      try { await a.play(); useMusicStore.getState().setAutoplayBlocked('') } catch (e) {
+        // v202：自动切歌被 iOS 拦下（没有手势）：不报错，剧情卡上显示「点播放」，她点一下就出声。
+        if (auto) useMusicStore.getState().setAutoplayBlocked(id)
+        else setErr(`播放失败：${(e as Error).message}`)
+      }
+    } finally {
+      settled = true
+      if (guard) window.clearTimeout(guard)
     }
   }
 

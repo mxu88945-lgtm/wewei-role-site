@@ -164,8 +164,30 @@ export function extractFilmCard(text: string, options: { streaming?: boolean } =
   return { body, card: pending ? null : card, pending }
 }
 
-/** 系统提示末尾的输出要求（开关开着时，单人剧情和普通群聊都加）。 */
-export function filmCardInstruction(speakerName: string, userName: string, hasStatusBlock = false) {
+/**
+ * v204：给模型看的歌单（「他是可以看到歌单名字的」）：去扩展名、去重，最多 40 首、总长约 800 字以内。
+ */
+export function playlistForPrompt(names: readonly string[] | undefined, maxCount = 40, maxChars = 800): string[] {
+  const out: string[] = []
+  const seen = new Set<string>()
+  let total = 0
+  for (const raw of names || []) {
+    const name = String(raw || '').replace(/\.(mp3|m4a|aac|flac|wav|ogg|opus|alac|aiff?|wma|webm|mp4)$/i, '').replace(/\s+/g, ' ').trim()
+    if (!name || seen.has(name)) continue
+    if (out.length >= maxCount || total + name.length + 3 > maxChars) break
+    seen.add(name)
+    out.push(name)
+    total += name.length + 3
+  }
+  return out
+}
+
+/** 系统提示末尾的输出要求（开关开着时，单人剧情和普通群聊都加）。playlist：她歌单里的歌名（v204）。 */
+export function filmCardInstruction(speakerName: string, userName: string, hasStatusBlock = false, playlist?: readonly string[]) {
+  const songs = playlistForPrompt(playlist)
+  const songRule = songs.length
+    ? `- 「歌」：${userName}的歌单里有这些歌：${songs.map((name) => `《${name}》`).join('')}。优先从这份歌单里挑一首最贴这一幕氛围的，歌名照歌单里的写法原样写；只有歌单里实在没有合适的，才可以写别的真实歌曲，或者整行省略。不要编造不存在的歌。`
+    : '- 「歌」可选：有适合这一幕氛围的真实歌曲就写，没有就整行省略，不要编造不存在的歌。'
   return `【剧情美化卡｜每次回复都要输出】
 写完本轮正文${hasStatusBlock ? '和状态栏' : ''}之后，在整条回复的最后另起一行，输出且只输出一个 <film> 块，格式固定如下（每行一个字段，字段内用全角竖线｜分隔）：
 <film>
@@ -176,7 +198,7 @@ export function filmCardInstruction(speakerName: string, userName: string, hasSt
 心声：${speakerName}没说出口的一句话
 </film>
 规则：
-- 「歌」可选：有适合这一幕氛围的真实歌曲就写，没有就整行省略，不要编造不存在的歌。
+${songRule}
 - 「人」写 0—4 行，只写这一幕在场或与这一幕直接相关的人物；可以不写${userName}，也可以写${speakerName}本人。一行一个人。
 - 「心声」是${speakerName}此刻心里想却没有说出口的话，一句，第一人称，不要旁白腔。
 - <film> 块只能放在全文最末尾，必须写出 </film> 闭合；绝不能写进正文中间，正文里也不要提到这个块或复述其中内容。不要加代码围栏、不要加其他标签。`
@@ -209,4 +231,25 @@ export function filmGramoText(input: {
   }
   if (nowName) return { title: nowName, sub: '你的歌单', requested: '', playingHere: false }
   return { title: '一起听歌', sub: '点播放导入歌', requested: '', playingHere: false }
+}
+
+/**
+ * v204：剧情卡上要不要显示「点播放 ▶ 听《X》」。
+ * - 自动切歌被拦下（blockedId 就是这首）且没在放 → 显示（原 v202 行为）。
+ * - 最新一条助手消息的卡：点的歌匹配到了、没在放、这张卡出现后既没放过也没被她点过 → 显示
+ *   （ripe：卡出现后等自动切歌那几秒，免得一闪）。
+ * 她点过播放或这首放过之后不再催；之后她自己换歌，卡上只显示小字「X点的：…」。
+ */
+export function filmPlayNudge(input: {
+  matchedId?: string | null
+  playingHere: boolean
+  blockedId?: string
+  isLatest?: boolean
+  settled?: boolean
+  ripe?: boolean
+}): boolean {
+  const { matchedId, playingHere, blockedId, isLatest, settled, ripe } = input
+  if (!matchedId || playingHere) return false
+  if (blockedId && blockedId === matchedId) return true
+  return Boolean(isLatest && ripe && !settled)
 }

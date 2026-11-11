@@ -1,4 +1,4 @@
-import { memo, useLayoutEffect, useMemo, useRef, useState } from 'react'
+import { memo, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
 import DOMPurify from 'dompurify'
 import type { Character } from './characterCard'
 import { applyMacros, applyRegexScripts } from './regexEngine'
@@ -6,6 +6,7 @@ import { completeStatusBlock, containsHiddenReasoning, detectStatusTag, moveStat
 import { buildStatusFallback, getStatusProtocol } from './statusProtocol'
 import { extractFilmCard } from './filmBlock'
 import FilmCard from './FilmCard'
+import { autoPlayFilmSong } from './filmAutoplay'
 
 function unwrapCodeFence(value: string) {
   return value
@@ -344,7 +345,15 @@ function SandboxHtml({ html, raw = false, paper = false, greetings, onSelectGree
   </div>
 }
 
-function MessageContent({ text, role, character, userName, layout = 'bubble', streaming = false, greetings, onSelectGreeting, noStatus = false, paper = false }: { text: string; role: 'user' | 'assistant'; character: Character; userName: string; layout?: 'bubble' | 'flat'; streaming?: boolean; noStatus?: boolean; paper?: MessageTheme } & SceneHooks) {
+function MessageContent({ text, role, character, userName, layout = 'bubble', streaming = false, greetings, onSelectGreeting, noStatus = false, paper = false, messageId, filmAutoplay = false, filmLatest = false }: { text: string; role: 'user' | 'assistant'; character: Character; userName: string; layout?: 'bubble' | 'flat'; streaming?: boolean; noStatus?: boolean; paper?: MessageTheme; messageId?: string | number; filmAutoplay?: boolean; filmLatest?: boolean } & SceneHooks) {
+  // v204：同一个挂着的消息从「流式中」变成「流式结束」那一刻，补一次剧情卡自动切歌（autoPlayFilmSong 自己去重）。
+  // 一开始就不是流式的历史消息永远不会触发。
+  const wasStreamingRef = useRef(streaming)
+  useEffect(() => {
+    const was = wasStreamingRef.current
+    wasStreamingRef.current = streaming
+    if (was && !streaming && filmAutoplay && role === 'assistant' && messageId !== undefined) autoPlayFilmSong(messageId, text)
+  }, [streaming, text, filmAutoplay, role, messageId])
   // v198 剧情美化卡：先把 <film> 块从正文拿出来（流式时没闭合的部分直接藏起来）。
   const film = useMemo(() => role === 'assistant' ? extractFilmCard(text, { streaming }) : null, [text, role, streaming])
   const bodyText = film ? film.body : text
@@ -381,7 +390,7 @@ function MessageContent({ text, role, character, userName, layout = 'bubble', st
       : applyMacros(visibleText, character, userName)
   }, [bodyText, role, character, userName, streaming, noStatus])
 
-  const filmCard = film?.card ? <FilmCard card={film.card} avatar={character.avatar} characterId={character.id} speakerName={character.name} seed={`${character.id}|${film.card.sceneTitle}|${film.card.heart}|${film.card.zh}`} /> : null
+  const filmCard = film?.card ? <FilmCard card={film.card} avatar={character.avatar} characterId={character.id} speakerName={character.name} seed={`${character.id}|${film.card.sceneTitle}|${film.card.heart}|${film.card.zh}`} cardKey={messageId !== undefined ? `${character.id}|${messageId}` : undefined} isLatest={filmLatest} /> : null
   const content = renderMessageBody(rendered, role, layout, paper, streaming, greetings, onSelectGreeting)
   return filmCard ? <>{content}{filmCard}</> : content
 }
