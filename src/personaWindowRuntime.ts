@@ -57,6 +57,8 @@ export type PersonaRuntimeDeps = {
   setting?: () => string
   /** v207：歌单里的歌名（点歌用）；不传 = 不点歌。 */
   songList?: () => string[]
+  /** v208：唱片机「现在她正在听」短注，发送时读取；没在放/没暂停在某首返回空串。 */
+  nowPlaying?: () => string
 }
 
 /**
@@ -130,6 +132,7 @@ export function planPersonaRequest(persona: PersonaWindow, history: PersonaMessa
     persona.tasksEnabled !== false && PERSONA_TASK_PROMPT,
     personaTaskStatus(thread.tasks),
     persona.songPickEnabled !== false && buildPersonaSongPrompt(deps.songList?.() || []),
+    deps.nowPlaying?.().trim(),
     // Keep the core boundary in the FIRST system too (some relays drop later system messages).
     PERSONA_FINAL_GUARD,
   ].filter(Boolean).join('\n\n')

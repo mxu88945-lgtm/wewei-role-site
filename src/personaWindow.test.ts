@@ -209,6 +209,18 @@ describe('前世记忆', () => {
     expect(JSON.stringify(buildPersonaRequest({ ...persona, songPickEnabled: false }, history, deps))).not.toContain('一起听歌｜你可以自己点歌')
     expect(JSON.stringify(buildPersonaRequest(persona, history, { ...deps, songList: () => [] }))).not.toContain('一起听歌｜你可以自己点歌')
   })
+
+  it('v208 injects the now-playing note into the first system message, read at send time', () => {
+    let note = ''
+    const deps = { character: gu, user: { name: '周惟惟', description: '' }, api, memoryApi: api, temperature: 1, topP: 1, maxTokens: 1000, streaming: false, memoryLength: 40, pastLife: () => '', nowPlaying: () => note }
+    const persona = createPersonaWindow('gu')
+    const history = [{ id: 1, role: 'user' as const, text: '嗨', createdAt: 1 }]
+    expect(JSON.stringify(buildPersonaRequest(persona, history, deps))).not.toContain('现在她正在听')
+    note = '【现在她正在听】《晴天》（正在放）\n▶ 从出生那年就飘着'
+    const request = buildPersonaRequest(persona, history, deps)
+    expect(request[0].role).toBe('system')
+    expect(String(request[0].content)).toContain('【现在她正在听】《晴天》（正在放）')
+  })
 })
 
 describe('人格窗口 v135：人设与前世记忆真正落地', () => {

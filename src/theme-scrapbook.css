@@ -216,6 +216,14 @@
   text-shadow: 2px 2px 0 #fff7ed;
   pointer-events: none;
 }
+/* v208：莓红剪贴簿里她自己的消息靠右、略窄（主聊天和人格窗口都一样），角色的仍居中整宽。 */
+.theme-scrapbook .chat-page:not(.phone-chat) .message-row.user { width: min(88%, 720px); align-self: flex-end; align-items: flex-end; margin-left: auto; margin-right: 0; }
+.theme-scrapbook .chat-page:not(.phone-chat) .message-row.user :is(.message-line-flat, .message-line-bubble, .message-bubble-column) { align-items: flex-end; }
+.theme-scrapbook .chat-page:not(.phone-chat) .message-row.user .message-flat-body { width: 100%; max-width: 100%; margin-left: auto; margin-right: 0; }
+.theme-scrapbook .chat-page:not(.phone-chat) .message-row.user .message-author { align-items: flex-end; }
+.theme-scrapbook .chat-page:not(.phone-chat) .message-row.user .message-author::before { left: auto; right: 0; transform: rotate(2deg); }
+.theme-scrapbook .chat-page:not(.phone-chat) .message-row.user .message-author::after { left: auto; right: 23px; }
+.theme-scrapbook .chat-page:not(.phone-chat) .message-row.user .message-action-row { align-self: flex-end; }
 @media (max-width: 480px) {
   .theme-scrapbook .chat-page:not(.phone-chat) .message-list { padding-left: 12px; padding-right: 12px; }
   .theme-scrapbook .chat-page:not(.phone-chat) .message-flat-body,

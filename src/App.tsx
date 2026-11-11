@@ -105,6 +105,8 @@ import { autoPlayFilmSong } from './filmAutoplay'
 import { messageEditorSheetHeight } from './messageEditorSize'
 import { buildMusicNote } from './lyrics'
 import { isChatScoped, legacyDefaultThemeId, pickGlobalIdentity, pickIdentity, pickThemeId, repairLeakedGlobalPersona } from './chatScope'
+import { readPhoneIdentity, resolvePhoneIdentity, writePhoneIdentity, type PhoneIdentity } from './phoneIdentity'
+import PhoneIdentitySettings from './PhoneIdentitySettings'
 
 /** v205：手记页的（…）小动作用正文旁白色（.message-narration 读 --chat-narration-color）。 */
 const renderBackstageText = (text: string) => splitBackstageActions(text).map((part, index) => part.action ? <span className="message-narration" key={index}>{part.text}</span> : part.text)
@@ -632,6 +634,9 @@ function App() {
   const legacyIdentity = read<{ name: string; description: string; avatar?: string }>('weijing.identity', { name: '周惟惟', description: '由用户亲自决定言行、心理与关键选择。' })
   const [identities, setIdentities] = useState<UserIdentity[]>(() => read<UserIdentity[]>('weijing.identities', [{ id: 'persona-default', ...legacyIdentity }]))
   const [activePersonaId, setActivePersonaId] = useState(() => read('weijing.activePersona', 'persona-default'))
+  // v208 小手机自己的用户身份：不跟着当前剧情选的身份走。
+  const [phoneIdentitySetting, setPhoneIdentitySetting] = useState<PhoneIdentity>(() => readPhoneIdentity())
+  const changePhoneIdentity = (next: PhoneIdentity) => { setPhoneIdentitySetting(next); if (!writePhoneIdentity(next)) window.alert('本机轻量储存满了，小手机身份这次没存上；换一张小一点的头像试试。') }
   const [worldbook, setWorldbook] = useState(() => read('weijing.worldbook', 'A 国旧世家与现代都市并存。剧情缓慢推进，不替用户角色做决定。'))
   const [presetSections, setPresetSections] = useState(() => normalizePresetSections(read('weijing.presetSections', []), read('weijing.preset', '克制、细腻、慢热；每轮携带微量剧情进展。')))
   const [apiChannels, setApiChannels] = useState<ApiChannel[]>(() => normalizeApiChannels(read('weijing.apiChannels', []), read('weijing.api', { baseUrl: 'https://api.openai.com/v1', apiKey: '', modelName: 'gpt-4.1-mini' })))
@@ -771,8 +776,10 @@ function App() {
   // inside one conversation (its bound persona, else global). identity: whatever the
   // current page is about — the open chat's persona on chat pages, global elsewhere.
   const globalIdentity = pickGlobalIdentity(identities, activePersonaId)
-  // 小手机（群聊和私聊）永远用全局身份：那是现实里的你，不跟着某段剧情绑定的女主身份走。
-  const identityFor = (conversation: Conversation | undefined) => conversation?.phone ? globalIdentity : pickIdentity(conversation, identities, activePersonaId)
+  // 小手机（群聊、私聊、论坛、商店、礼物、戏外手记）用小手机自己的身份（v208）：没填就用身份库的基础身份，
+  // 不再跟着当前剧情/全局选中的女主身份走。
+  const phoneIdentity = resolvePhoneIdentity(phoneIdentitySetting, identities)
+  const identityFor = (conversation: Conversation | undefined) => conversation?.phone ? phoneIdentity : pickIdentity(conversation, identities, activePersonaId)
   const identity = chatScoped ? identityFor(activeConversation) : globalIdentity
   const sourceGroupConversation = conversations.find((item) => item.id === newConversationSourceId && item.kind === 'group')
   const groupGreetingCharacters = (sourceGroupConversation?.participantIds || groupDraft.participantIds).map((id) => characters.find((item) => item.id === id)).filter(Boolean) as Character[]
@@ -2849,7 +2856,7 @@ function App() {
       // 长剧情里的他私底下知道小手机上的戏外日常，但戏里不提。
       const backstage = buildBackstageNote(conversations, speaker.id, speaker.name, identity.name, (id) => characters.find((item) => item.id === id)?.name || '角色', conversation.backstageGroupIds)
       if (backstage) promptMessages.push({ role: 'system', content: backstage })
-      const notebookPrompt = buildBackstagePrompt({ notebook: conversation.backstageNotebook, speakerId: speaker.id, speakerName: speaker.name, userName: globalIdentity.name, heroineName: identity.name !== globalIdentity.name ? identity.name : '', statusTag: requiresCharacterStatus ? statusTag : '' })
+      const notebookPrompt = buildBackstagePrompt({ notebook: conversation.backstageNotebook, speakerId: speaker.id, speakerName: speaker.name, userName: phoneIdentity.name, heroineName: identity.name !== phoneIdentity.name ? identity.name : '', statusTag: requiresCharacterStatus ? statusTag : '' })
       // v201：她在手记里的回复由他在手记里当场回，主线不再附图、不再要求正文末尾回她。
       if (notebookPrompt) promptMessages.push({ role: 'system', content: notebookPrompt })
     }
@@ -3367,7 +3374,7 @@ function App() {
     const giftMessage: Message = {
       id: nextMessageId(conversation.messages),
       role: 'user',
-      text: phoneGiftMessage(globalIdentity.name, character.name, item, note),
+      text: phoneGiftMessage(phoneIdentity.name, character.name, item, note),
     }
     const nextMessages = [...conversation.messages, giftMessage]
     setConversations((current) => current.some((entry) => entry.id === conversation.id)
@@ -3381,7 +3388,7 @@ function App() {
       nextMessages,
       character,
       conversationApiFor(conversation, character.id, api),
-      { explicitlyMentioned: Boolean(group), phoneNudge: phoneGiftReactionPrompt(globalIdentity.name, item, note, Boolean(group)) },
+      { explicitlyMentioned: Boolean(group), phoneNudge: phoneGiftReactionPrompt(phoneIdentity.name, item, note, Boolean(group)) },
     )
     const reply = [...completed].reverse().find((message) => message.role === 'assistant' && message.characterId === character.id && !message.phoneNotice && !isPendingAssistantText(message.text))
     if (reply) writePhoneGifts(setPhoneGiftReaction(readPhoneGifts(), added.record.id, cleanPhoneOutput(reply.text)))
@@ -3519,7 +3526,7 @@ function App() {
             const [stored, moments] = await Promise.all([durableGet<ForumThread[]>('weijing.forum'), durableGet<Moment[]>('weijing.moments')])
             current = stored || (moments?.length ? threadsFromMoments(moments) : [])
           }
-          const threads = await forumAutoTick({ threads: current, characters, conversations, api, userName: globalIdentity.name, at })
+          const threads = await forumAutoTick({ threads: current, characters, conversations, api, userName: phoneIdentity.name, at })
           forumThreadsRef.current = threads
           await durableSet('weijing.forum', threads.slice(0, 300))
           window.dispatchEvent(new CustomEvent(FORUM_UPDATED_EVENT, { detail: threads }))
@@ -3614,7 +3621,7 @@ function App() {
         for (const id of pending.ids) {
           const newcomer = characters.find((item) => item.id === id)
           if (!newcomer || pending.returning?.[id] !== undefined || threads.some((thread) => thread.board === '新人报到' && thread.authorId === id)) continue
-          try { threads = await forumWelcomeThread({ threads, newcomer, characters, conversations, api, userName: globalIdentity.name, at: Date.now() }) } catch { /* 报到帖失败不影响群聊 */ }
+          try { threads = await forumWelcomeThread({ threads, newcomer, characters, conversations, api, userName: phoneIdentity.name, at: Date.now() }) } catch { /* 报到帖失败不影响群聊 */ }
         }
         forumThreadsRef.current = threads
         await durableSet('weijing.forum', threads.slice(0, 300))
@@ -3661,15 +3668,15 @@ function App() {
       book,
       noteId,
       speakerName: speaker.name,
-      userName: globalIdentity.name,
-      heroineName: identity.name !== globalIdentity.name ? identity.name : '',
+      userName: phoneIdentity.name,
+      heroineName: identity.name !== phoneIdentity.name ? identity.name : '',
       card: { description: speaker.description, personality: speaker.personality, scenario: speaker.scenario, tagline: speaker.tagline },
       contextSummary: hasValidContextSummary ? conversation.contextSummary : '',
       memories: (memoriesForConversation(memoryEntries, conversation.id, speaker.id, conversation.historyRevision || 0) as MemoryEntry[]).filter((entry) => entry.content?.trim()).sort((left, right) => Number(Boolean(right.pinned)) - Number(Boolean(left.pinned))).map((entry) => `${entry.pinned ? '★' : ''}${entry.title ? `${entry.title}：` : ''}${entry.content}`),
       characterMemories: memoriesForConversationCharacter(conversation, speaker).filter((entry) => entry.enabled !== false && entry.content?.trim()).map((entry) => `${entry.title ? `${entry.title}：` : ''}${entry.content}`),
       storyTail,
       // v206：同一角色的人格窗口（另一扇窗）。只在那个人格已加入、没被移出时带上；本人那张卡优先，其次同名卡。
-      personaWindow: isPersonaStoreHydrated() ? personaWindowForBackstage(getPersonaState(), [speaker.id, ...characterAliasIds(speaker, characters).filter((id) => id !== speaker.id)], globalIdentity.name) : undefined,
+      personaWindow: isPersonaStoreHydrated() ? personaWindowForBackstage(getPersonaState(), [speaker.id, ...characterAliasIds(speaker, characters).filter((id) => id !== speaker.id)], phoneIdentity.name) : undefined,
     })
     if (!messagesForModel.length) return
     const echoContext = { noteText: note.text, userReplies: (note.replies || []).filter((item) => backstageReplyFrom(item) === 'user').map((item) => item.text) }
@@ -4515,13 +4522,14 @@ function App() {
 
     {page === 'phone' && <><BackHeader title={phoneDraft?.editingId ? '小手机群设置' : '小手机'} onBack={leavePhonePage} action={phoneDraft?.editingId ? <button className="text-button" onClick={savePhoneGroup}>保存</button> : undefined} /><section className="content-stack phone-page">
       {!phoneDraft && <PhoneStatusWidget />}
+      {!phoneDraft && <PhoneIdentitySettings value={phoneIdentitySetting} resolved={phoneIdentity} onChange={changePhoneIdentity} onAvatarFile={(file) => imageThumbnail(file, 192)} />}
       {!phoneDraft && <PhoneWebSettings />}
       {!phoneDraft && <PhoneAutoSettingsCard status={phoneAutoStatus} />}
       {!phoneDraft && <PhonePointsCard members={[...new Set(conversations.filter((item) => item.phone && !item.phone.dm).flatMap((item) => item.participantIds || []))].map((id) => characters.find((item) => item.id === id)).filter((item): item is Character => Boolean(item))} />}
       {!phoneDraft && <div className="phone-tabs" role="tablist"><button role="tab" aria-selected={phoneTab === 'groups'} className={phoneTab === 'groups' ? 'active' : ''} onClick={() => setPhoneTab('groups')}>群聊{phoneUnread.groups > 0 && <b className="phone-unread inline">{unreadLabel(phoneUnread.groups)}</b>}</button><button role="tab" aria-selected={phoneTab === 'dms'} className={phoneTab === 'dms' ? 'active' : ''} onClick={() => setPhoneTab('dms')}>私聊{phoneUnread.dms > 0 && <b className="phone-unread inline">{unreadLabel(phoneUnread.dms)}</b>}</button><button role="tab" aria-selected={phoneTab === 'moments'} className={phoneTab === 'moments' ? 'active' : ''} onClick={() => setPhoneTab('moments')}>论坛</button><button role="tab" aria-selected={phoneTab === 'gifts'} className={phoneTab === 'gifts' ? 'active' : ''} onClick={() => setPhoneTab('gifts')}>🎁 礼物</button><button role="tab" aria-selected={phoneTab === 'shop'} className={phoneTab === 'shop' ? 'active' : ''} onClick={() => setPhoneTab('shop')}>🏪 商店</button></div>}
       {!phoneDraft && phoneTab === 'gifts' && <PhoneGifts groups={conversations.filter((item) => item.phone && !item.phone.dm).map((item) => ({ id: item.id, title: phoneGroupDisplayTitle(item.title, item.participantIds?.length || 0), memberIds: item.participantIds || [], updatedAt: item.updatedAt }))} members={[...new Set(conversations.filter((item) => item.phone && !item.phone.dm).flatMap((item) => item.participantIds || []))].map((id) => characters.find((item) => item.id === id)).filter((item): item is Character => Boolean(item))} onSend={sendPhoneGift} />}
-      {!phoneDraft && phoneTab === 'shop' && <PhoneShop userName={globalIdentity.name} onGranted={(order) => setCharacters((current) => current.map((item) => item.id === order.buyerId ? addWishPoolLine(item, grantedWishLine(order, globalIdentity.name), globalIdentity.name) : item))} members={[...new Set(conversations.filter((item) => item.phone && !item.phone.dm).flatMap((item) => item.participantIds || []))].map((id) => characters.find((item) => item.id === id)).filter((item): item is Character => Boolean(item))} />}
-      {!phoneDraft && phoneTab === 'moments' && <Forum characters={characters} conversations={conversations} userName={globalIdentity.name} userAvatar={globalIdentity.avatar} api={api} seed={momentSeed} onSeedUsed={clearMomentSeed} onSaveToMemory={saveMomentToMemory} onThreadsChange={handleForumChange} onShare={shareForumToChat} />}
+      {!phoneDraft && phoneTab === 'shop' && <PhoneShop userName={phoneIdentity.name} onGranted={(order) => setCharacters((current) => current.map((item) => item.id === order.buyerId ? addWishPoolLine(item, grantedWishLine(order, phoneIdentity.name), phoneIdentity.name) : item))} members={[...new Set(conversations.filter((item) => item.phone && !item.phone.dm).flatMap((item) => item.participantIds || []))].map((id) => characters.find((item) => item.id === id)).filter((item): item is Character => Boolean(item))} />}
+      {!phoneDraft && phoneTab === 'moments' && <Forum characters={characters} conversations={conversations} userName={phoneIdentity.name} userAvatar={phoneIdentity.avatar} api={api} seed={momentSeed} onSeedUsed={clearMomentSeed} onSaveToMemory={saveMomentToMemory} onThreadsChange={handleForumChange} onShare={shareForumToChat} />}
       {!phoneDraft && phoneTab === 'dms' && <>
         <div className="privacy-note">一对一私聊：TA 看得到自己所在群最近的聊天和论坛，可以私下跟你吐槽；群里的人看不到私聊。</div>
         {(() => {
@@ -4629,7 +4637,8 @@ function App() {
     {page === 'semantic-recall' && <SemanticRecallPage channels={apiChannels} onBack={goBack} />}
     {page === 'reply-helper-api' && <ReplyHelperSettingsPage channels={apiChannels} channelId={(apiChannels.find((item) => item.id === replyHelperApiId) || api).id} modelName={replyHelperModelName || (apiChannels.find((item) => item.id === replyHelperApiId) || api).modelName} onChannelChange={setReplyHelperApiId} onModelChange={setReplyHelperModelName} onBack={goBack} />}
 
-    {page === 'identity' && <PersonaPage identities={identities} selectedId={identity.id} isBound={Boolean(scopedConversation?.personaId && !scopedConversation.phone)} onSelect={selectIdentity} onAdd={addIdentity} onDelete={deleteIdentity} onUpdate={updateIdentity} onBack={goBack} />}
+    {page === 'identity' && scopedConversation?.phone && <><BackHeader title="小手机里的我" onBack={goBack} action={<span className="saved-label">自动保存</span>} /><section className="content-stack"><PhoneIdentitySettings value={phoneIdentitySetting} resolved={phoneIdentity} onChange={changePhoneIdentity} onAvatarFile={(file) => imageThumbnail(file, 192)} defaultOpen /></section></>}
+    {page === 'identity' && !scopedConversation?.phone && <PersonaPage identities={identities} selectedId={identity.id} isBound={Boolean(scopedConversation?.personaId && !scopedConversation.phone)} onSelect={selectIdentity} onAdd={addIdentity} onDelete={deleteIdentity} onUpdate={updateIdentity} onBack={goBack} />}
     {page === 'worldbook' && <EditablePage title="世界书" value={worldbook} onChange={setWorldbook} onBack={goBack} />}
     {page === 'chat-search' && activeConversation && <ChatSearchPage key={activeConversation.id} conversation={activeConversation} onBack={goBack} onJump={jumpToMessage} onBookmark={updateBookmark} authorName={(message) => message.role === 'user' ? identity.name : messageCharacterName(message, activeConversation)} />}
     {page === 'request-preview' && activeConversation && <RequestPreviewPage key={activeConversation.id} previews={requestPreviews} lastRequests={[...(lastRequestsRef.current.get(activeConversation.id)?.values() || [])]} onBack={goBack} />}
@@ -4867,7 +4876,7 @@ function App() {
     })()}
     {messageEditor && <div className="message-editor-layer" role="dialog" aria-modal="true" aria-label={messageEditor.mode === 'assistant' ? '编辑模型消息' : '编辑后重新发送'}><button className="drawer-backdrop" aria-label="取消编辑" onClick={() => setMessageEditor(null)} /><form className="message-editor-sheet message-editor-tall" style={{ height: messageEditorHeight }} onSubmit={(event) => { event.preventDefault(); void saveMessageEditor() }}><header><div><small>{messageEditor.mode === 'assistant' ? '模型消息' : '用户消息'}</small><strong>{messageEditor.mode === 'assistant' ? '编辑改写' : '编辑后重新发送'}</strong></div><button type="button" aria-label="关闭编辑框" onClick={() => setMessageEditor(null)}>×</button></header><textarea autoFocus value={messageEditor.text} onChange={(event) => setMessageEditor({ ...messageEditor, text: event.target.value })} /><footer><button type="button" onClick={() => setMessageEditor(null)}>取消</button><button type="submit" className="primary" disabled={!messageEditor.text.trim() || (messageEditor.mode === 'resend' && isGenerating)}>{messageEditor.mode === 'assistant' ? '保存修改' : '重新发送'}</button></footer></form></div>}
     <Pet enabled={petEnabled} variant={petVariant} position={petPosition} onPositionChange={setPetPosition} containerRef={phoneCanvasRef} messageCount={messages.length} />
-    {phoneLock && (page === 'phone' || (page === 'chat' && activeConversation?.phone)) && <PhoneLockScreen lock={phoneLock} avatar={characters.find((item) => item.id === phoneLock.byId)?.avatar} userName={identity.name} onExpire={() => setPhoneLock(null)} onBreak={breakPhoneLock} onLeave={goHome} />}
+    {phoneLock && (page === 'phone' || (page === 'chat' && activeConversation?.phone)) && <PhoneLockScreen lock={phoneLock} avatar={characters.find((item) => item.id === phoneLock.byId)?.avatar} userName={phoneIdentity.name} onExpire={() => setPhoneLock(null)} onBreak={breakPhoneLock} onLeave={goHome} />}
   </main></div>
 }
 
@@ -4943,7 +4952,7 @@ function UpdateCard() {
     }
   }
 
-  return <section className="update-card"><strong>应用更新</strong><p>主动检查并拉取最新网页版本，不会删除角色、聊天记录或本地设置。</p><small>当前版本：v207 · 2026.11.11 人格窗口、幕后手记和剧本记忆互相打通</small><button onClick={refresh} disabled={state === 'checking'}>{state === 'checking' ? '正在检查更新…' : state === 'error' ? '更新失败，点我重试' : '强制刷新到最新版'}</button></section>
+  return <section className="update-card"><strong>应用更新</strong><p>主动检查并拉取最新网页版本，不会删除角色、聊天记录或本地设置。</p><small>当前版本：v208 · 2026.11.12 小手机独立身份、人格窗口听见正在放的歌</small><button onClick={refresh} disabled={state === 'checking'}>{state === 'checking' ? '正在检查更新…' : state === 'error' ? '更新失败，点我重试' : '强制刷新到最新版'}</button></section>
 }
 
 function PersonaPage({ identities, selectedId, isBound, onSelect, onAdd, onDelete, onUpdate, onBack }: { identities: UserIdentity[]; selectedId: string; isBound: boolean; onSelect: (id: string) => void; onAdd: () => void; onDelete: (id: string) => void; onUpdate: (patch: Partial<UserIdentity>) => void; onBack: () => void }) {

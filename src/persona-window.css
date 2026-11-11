@@ -287,3 +287,6 @@ button.persona-settings-row:active { background: var(--theme-accent-soft); }
 .persona-song-chip em { font-style: normal; font-weight: 600; opacity: .78; }
 .persona-song-chip.missing { background: transparent; border-style: dashed; }
 .persona-song-chip.playing { box-shadow: inset 0 0 0 1px var(--theme-accent-soft-strong, rgba(150,120,160,.4)); }
+
+/* v208：输入框随内容长高（JS 写 height），16px 防 iOS 聚焦放大；约 6 行封顶后内部滚动。 */
+.composer.persona-composer textarea { font-size: 16px; line-height: 1.4; min-height: 34px; max-height: 147px; overflow-y: auto; }

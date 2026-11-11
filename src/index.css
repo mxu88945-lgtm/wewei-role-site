@@ -796,6 +796,9 @@ button { cursor: pointer; }
 .phone-web-form { display: flex; flex-direction: column; gap: 10px; padding: 0 16px 16px; }
 .phone-web-form p { margin: 0; color: #8f8894; font-size: 12px; line-height: 1.6; }
 .phone-web-form input { min-height: 46px; padding: 0 14px; border: 1px solid rgba(91,68,104,.12); border-radius: 14px; background: #fff; font-size: 16px; }
+.phone-identity-settings .phone-web-form textarea { padding: 12px 14px; border: 1px solid rgba(91,68,104,.12); border-radius: 14px; background: #fff; font: inherit; font-size: 16px; line-height: 1.55; resize: vertical; }
+.phone-identity-settings .identity-avatar-editor { padding: 10px; border-radius: 16px; background: #fff; }
+.phone-identity-settings .identity-avatar-editor > div { flex-basis: 52px; width: 52px; height: 52px; border-radius: 16px; }
 .phone-web-actions { display: flex; justify-content: flex-end; gap: 8px; }
 .phone-web-actions button { min-height: 40px; padding: 0 18px; border: 0; border-radius: 13px; background: #eeebf0; color: #756e79; font-weight: 800; }
 .phone-web-actions button.primary { background: linear-gradient(135deg,#8150e7,#ce7fc4); color: #fff; }

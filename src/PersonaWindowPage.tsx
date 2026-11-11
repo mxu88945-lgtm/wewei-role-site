@@ -24,6 +24,7 @@ import { hydratePersonaStore, setPersonaState, usePersonaHydrated, usePersonaSta
 import { buildPersonaRequest, extractPersonaMemory, generatePersonaReply, getPersonaRuntime, setPersonaError, stopPersonaReply, subscribePersonaRuntime, type PersonaRuntimeDeps } from './personaWindowRuntime'
 
 import { findTrackByTitle, useMusicStore } from './musicStore'
+import { buildNowPlayingNote } from './nowPlayingNote'
 import ArchiveHeading from './ArchiveHeading'
 import { messageThemeLayout } from './chatThemeLayout'
 import './persona-window.css'
@@ -61,6 +62,10 @@ const EMPTY_MESSAGES: PersonaMessage[] = []
  * iPhone sometimes swallows the first tap on a button while the keyboard is up.
  * Fire on pointerup for touch and ignore the click that follows it.
  */
+/** v208 输入框高度：16px × 1.4 行高 + 上下 12px 内边距；1 行 ≈ 34px，6 行 ≈ 147px。 */
+const PERSONA_COMPOSER_MIN = 34
+const PERSONA_COMPOSER_MAX = 147
+
 function useOneTap() {
   const suppressUntil = useRef(0)
   return (action: () => void) => ({
@@ -244,8 +249,17 @@ export default function PersonaWindowPage(props: Props) {
       globalWorldbook: props.globalWorldbook || '',
       setting: () => buildPersonaSetting({ character, characters, conversations, storyProjects: props.storyProjects || [] }),
       songList: () => useMusicStore.getState().tracks.map((track) => track.name),
+      nowPlaying: () => { const music = useMusicStore.getState(); return buildNowPlayingNote(music.now, music.lyrics, music.lyricIndex) },
     }
   }
+
+  // v208：输入框随内容长高（同主聊天 composer）：1 行起，约 6 行封顶后内部滚动；发送清空后缩回。
+  useLayoutEffect(() => {
+    const textarea = textareaRef.current
+    if (!textarea) return
+    textarea.style.height = 'auto'
+    textarea.style.height = `${Math.min(Math.max(textarea.scrollHeight, PERSONA_COMPOSER_MIN), PERSONA_COMPOSER_MAX)}px`
+  }, [draft, view, threadId])
 
   // Keep the newest message in view while she is at the bottom (new replies, streaming).
   useLayoutEffect(() => {
