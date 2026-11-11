@@ -71,7 +71,7 @@ import PersonaWindowPage from './PersonaWindowPage'
 import { getPersonaState, hydratePersonaStore, isPersonaStoreHydrated, setPersonaState, usePersonaAppearanceScope } from './personaWindowStore'
 import { personaWallpaper, personaWallpaperKey, resolvePersonaAppearance } from './personaAppearance'
 import { startPersonaTaskClock, type PersonaTaskDue } from './personaTaskClock'
-import { buildPersonaWindowNoteForPhone, PERSONA_WINDOWS_KEY, switchPersona, switchPersonaThread } from './personaWindow'
+import { buildPersonaWindowNoteForPhone, characterAliasIds, PERSONA_WINDOWS_KEY, personaWindowForBackstage, switchPersona, switchPersonaThread } from './personaWindow'
 import { normalizeStoryProjects, type StoryProject } from './storyProject'
 import { buildStoryProjectPrompt, selectConversationStoryProject } from './storyProjectPrompt'
 import { buildAutomaticContinuityInput, captureAssistantMessageIds, hasUnprocessedAssistantMessages, mergeAutomaticContinuity, parseAutomaticContinuityResponse } from './storyContinuity'
@@ -3668,6 +3668,8 @@ function App() {
       memories: (memoriesForConversation(memoryEntries, conversation.id, speaker.id, conversation.historyRevision || 0) as MemoryEntry[]).filter((entry) => entry.content?.trim()).sort((left, right) => Number(Boolean(right.pinned)) - Number(Boolean(left.pinned))).map((entry) => `${entry.pinned ? '★' : ''}${entry.title ? `${entry.title}：` : ''}${entry.content}`),
       characterMemories: memoriesForConversationCharacter(conversation, speaker).filter((entry) => entry.enabled !== false && entry.content?.trim()).map((entry) => `${entry.title ? `${entry.title}：` : ''}${entry.content}`),
       storyTail,
+      // v206：同一角色的人格窗口（另一扇窗）。只在那个人格已加入、没被移出时带上；本人那张卡优先，其次同名卡。
+      personaWindow: isPersonaStoreHydrated() ? personaWindowForBackstage(getPersonaState(), [speaker.id, ...characterAliasIds(speaker, characters).filter((id) => id !== speaker.id)], globalIdentity.name) : undefined,
     })
     if (!messagesForModel.length) return
     const echoContext = { noteText: note.text, userReplies: (note.replies || []).filter((item) => backstageReplyFrom(item) === 'user').map((item) => item.text) }
@@ -4941,7 +4943,7 @@ function UpdateCard() {
     }
   }
 
-  return <section className="update-card"><strong>应用更新</strong><p>主动检查并拉取最新网页版本，不会删除角色、聊天记录或本地设置。</p><small>当前版本：v205 · 2026.11.11 幕后手记私聊可以写（括号小动作）</small><button onClick={refresh} disabled={state === 'checking'}>{state === 'checking' ? '正在检查更新…' : state === 'error' ? '更新失败，点我重试' : '强制刷新到最新版'}</button></section>
+  return <section className="update-card"><strong>应用更新</strong><p>主动检查并拉取最新网页版本，不会删除角色、聊天记录或本地设置。</p><small>当前版本：v206 · 2026.11.11 人格窗口、幕后手记和剧本记忆互相打通</small><button onClick={refresh} disabled={state === 'checking'}>{state === 'checking' ? '正在检查更新…' : state === 'error' ? '更新失败，点我重试' : '强制刷新到最新版'}</button></section>
 }
 
 function PersonaPage({ identities, selectedId, isBound, onSelect, onAdd, onDelete, onUpdate, onBack }: { identities: UserIdentity[]; selectedId: string; isBound: boolean; onSelect: (id: string) => void; onAdd: () => void; onDelete: (id: string) => void; onUpdate: (patch: Partial<UserIdentity>) => void; onBack: () => void }) {

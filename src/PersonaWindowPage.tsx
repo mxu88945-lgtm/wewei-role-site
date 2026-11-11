@@ -19,7 +19,7 @@ import { PersonaTaskCards, PersonaTaskPanel, PersonaTaskPin } from './PersonaTas
 import { createPersonaTask, taskIsActive, updatePersonaTask } from './personaTasks'
 import { PersonaMemoryInspection, PersonaRecallReceipt } from './PersonaMemoryInspection'
 import { canLockPersonaMemory, PERSONA_LOCKED_BUDGET } from './personaWindowMemory'
-import { activeThread, addPersonaThread, buildPersonaSetting, collectPastLifeMemory, deletePersona, deletePersonaThread, deletePersonaMessage, disablePersona, enablePersona, PERSONA_MEMORY_EVERY, PERSONA_WINDOW_PRESET, pendingPersonaMemoryCount, personaMemoryApi, renamePersonaThread, resolvePersonaApi, switchPersona, switchPersonaThread, updatePersona, updatePersonaThread, type PersonaMemoryEntry, type PersonaMessage, type PersonaWindow } from './personaWindow'
+import { activeThread, addPersonaThread, buildPersonaSetting, characterAliasIds, collectPastLifeMemory, conversationInvolvesCharacter, deletePersona, deletePersonaThread, deletePersonaMessage, disablePersona, enablePersona, PERSONA_MEMORY_EVERY, PERSONA_WINDOW_PRESET, pendingPersonaMemoryCount, personaMemoryApi, renamePersonaThread, resolvePersonaApi, switchPersona, switchPersonaThread, updatePersona, updatePersonaThread, type PersonaMemoryEntry, type PersonaMessage, type PersonaWindow } from './personaWindow'
 import { hydratePersonaStore, setPersonaState, usePersonaHydrated, usePersonaState } from './personaWindowStore'
 import { buildPersonaRequest, extractPersonaMemory, generatePersonaReply, getPersonaRuntime, setPersonaError, stopPersonaReply, subscribePersonaRuntime, type PersonaRuntimeDeps } from './personaWindowRuntime'
 
@@ -216,7 +216,7 @@ export default function PersonaWindowPage(props: Props) {
       streaming: props.streaming,
       memoryLength: props.memoryLength,
       // Read-only snapshot of this character's phone/story life, built per request.
-      pastLife: () => collectPastLifeMemory({ character, characters, conversations, memoryEntries, userName: identity.name, boundGroupIds: persona?.boundGroupIds }).text,
+      pastLife: () => collectPastLifeMemory({ character, characters, conversations, memoryEntries, userName: identity.name, boundGroupIds: persona?.boundGroupIds, boundConversationIds: persona?.boundConversationIds }).text,
       globalWorldbook: props.globalWorldbook || '',
       setting: () => buildPersonaSetting({ character, characters, conversations, storyProjects: props.storyProjects || [] }),
     }
@@ -553,8 +553,23 @@ export default function PersonaWindowPage(props: Props) {
         }
         return <div className="persona-bound-groups"><div><strong>绑定小手机群聊</strong><small>{bound.length ? `已绑定 ${bound.length} 个群，优先抓这些群的最新消息。` : '点选要绑定的群，优先抓这些群的最新消息。不选则自动按相关度抓。'}</small></div><div className="persona-bound-group-list">{groups.map((group) => <button key={group.id} aria-pressed={bound.includes(group.id)} className={bound.includes(group.id) ? 'on' : ''} {...tap(() => toggle(group.id))}><span>{group.title || '未命名群'}</span><i>{bound.includes(group.id) ? '✓' : '＋'}</i></button>)}</div></div>
       })()}
+      {active.pastLifeEnabled !== false && (() => {
+        // v206：绑定剧本（长剧情）。只列有 TA（含同名卡）的剧本会话。
+        const aliasIds = characterAliasIds(activeCharacter, characters)
+        const stories = conversations.filter((c) => !c.phone && conversationInvolvesCharacter(c, aliasIds)).slice().sort((a, b) => (b.updatedAt || 0) - (a.updatedAt || 0))
+        if (!stories.length) return null
+        const bound = (active.boundConversationIds || []).filter((id) => stories.some((story) => story.id === id))
+        const toggle = (id: string) => {
+          setPersonaState((current) => updatePersona(current, active.id, (item) => {
+            const current = item.boundConversationIds || []
+            const next = current.includes(id) ? current.filter((x) => x !== id) : [...current, id]
+            return { ...item, boundConversationIds: next.length ? next : undefined }
+          }))
+        }
+        return <div className="persona-bound-groups"><div><strong>绑定剧本</strong><small>{bound.length ? `已绑定 ${bound.length} 本，优先带上它们的记忆、摘要和最近写到的地方。` : '点选要绑定的剧本，优先带上它们的记忆和摘要。不选则按最近更新自动带。'}</small></div><div className="persona-bound-group-list">{stories.map((story) => <button key={story.id} aria-pressed={bound.includes(story.id)} className={bound.includes(story.id) ? 'on' : ''} {...tap(() => toggle(story.id))}><span>{story.title || '未命名剧本'}</span><i>{bound.includes(story.id) ? '✓' : '＋'}</i></button>)}</div></div>
+      })()}
       {(() => {
-        const past = collectPastLifeMemory({ character: activeCharacter, characters, conversations, memoryEntries, userName: identity.name, boundGroupIds: active.boundGroupIds })
+        const past = collectPastLifeMemory({ character: activeCharacter, characters, conversations, memoryEntries, userName: identity.name, boundGroupIds: active.boundGroupIds, boundConversationIds: active.boundConversationIds })
         const pastText = applyMacros(past.text, activeCharacter, identity.name)
         const deps = requestOpen ? depsFor(active.characterId) : null
         const request: ChatApiMessage[] = deps && thread ? buildPersonaRequest(active, thread.messages.filter((item) => item.text.trim() || item.images?.length || item.attachments?.length), deps, thread) : []
@@ -562,7 +577,7 @@ export default function PersonaWindowPage(props: Props) {
         return <div className="persona-source-card">
           <strong>前世记忆来源</strong>
           <small>{active.pastLifeEnabled === false ? '（前世记忆已关闭，下面只是预览，不会发送）' : ''}找到 {past.relatedConversationCount} 段有 TA 的小手机/长剧情对话，带入 {past.sources.length} 段 · 约 {pastText.length.toLocaleString()} 字{past.characterIds.length > 1 ? ` · 合并了 ${past.characterIds.length} 张同名角色卡` : ''}</small>
-          {past.sources.length > 0 && <ul>{past.sources.map((item, index) => <li key={`${item.conversationId}-${index}`}>{item.kind}｜{item.title} · {item.source === 'memory' ? '记忆' : item.source === 'summary' ? '摘要' : item.source === 'card' ? '角色卡记忆' : '最近对话节选'} · {item.chars} 字</li>)}</ul>}
+          {past.sources.length > 0 && <ul>{past.sources.map((item, index) => <li key={`${item.conversationId}-${index}`}>{item.source === 'backstage' ? '' : `${item.kind}｜${item.title} · `}{item.source === 'memory' ? '记忆' : item.source === 'summary' ? '摘要' : item.source === 'card' ? '角色卡记忆' : item.source === 'backstage' ? '幕后手记与戏外私聊' : '最近对话节选'} · {item.chars} 字</li>)}</ul>}
           {!past.sources.length && <small>还没有可带入的前世经历：TA 在小手机和长剧情里还没有对话或记忆。</small>}
           {pastText && <details open={pastLifeOpen} onToggle={(event) => setPastLifeOpen((event.currentTarget as HTMLDetailsElement).open)}><summary>查看注入的前世记忆原文</summary>{pastLifeOpen && <pre>{pastText}</pre>}</details>}
           <details open={requestOpen} onToggle={(event) => setRequestOpen((event.currentTarget as HTMLDetailsElement).open)}><summary>请求预览 · 下一次发送给模型的完整内容</summary>{requestOpen && <div className="persona-request-preview"><small>共 {request.length} 段 · {request.reduce((sum, message) => sum + contentText(message).length, 0).toLocaleString()} 字符（只查看，不发送）</small>{request.map((message, index) => <details key={index}><summary>{index + 1}. {message.role === 'system' ? '幕后设定 / 记忆' : message.role === 'user' ? '用户消息' : '角色回复'}</summary><pre>{contentText(message)}</pre></details>)}</div>}</details>

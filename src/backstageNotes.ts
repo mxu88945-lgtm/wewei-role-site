@@ -267,9 +267,14 @@ export type BackstageChatInput = {
   characterMemories?: string[]
   /** 主线最后几段（已清理），每行「名字：内容」。 */
   storyTail?: string[]
+  /**
+   * v206：同一角色的人格窗口（另一扇窗，戏外一对一）。只在那个人格已加入、没被移出时由 App 传进来。
+   * memories 是长期记忆（每条一句），recent 是最近一扇窗口的最后几轮，每行「她：…」/「你：…」。
+   */
+  personaWindow?: { memories?: string[]; recent?: string[] }
 }
 
-export const BACKSTAGE_CHAT_LIMITS = { card: 2400, summary: 1600, memories: 1600, characterMemories: 900, storyLine: 220, storyLines: 14, story: 2400, otherNotes: 3, otherNote: 160, threadTurns: 24, turn: 700, system: 9000 }
+export const BACKSTAGE_CHAT_LIMITS = { card: 2400, summary: 1600, memories: 1600, characterMemories: 900, storyLine: 220, storyLines: 14, story: 2400, otherNotes: 3, otherNote: 160, threadTurns: 24, turn: 700, personaMemories: 900, personaRecent: 1200, personaTurns: 8, system: 11000 }
 
 const joinCapped = (items: string[], each: number, total: number) => {
   const out: string[] = []
@@ -305,6 +310,15 @@ export function buildBackstageChatMessages(input: BackstageChatInput): ChatApiMe
   const charMemories = joinCapped(input.characterMemories || [], 300, L.characterMemories)
   const tail = (input.storyTail || []).slice(-L.storyLines).map((line) => clip(line.replace(/\s+/g, ' ').trim(), L.storyLine)).filter(Boolean)
   while (tail.join('\n').length > L.story && tail.length > 1) tail.shift()
+  const personaMemories = joinCapped(input.personaWindow?.memories || [], 200, L.personaMemories)
+  const personaRecent = (input.personaWindow?.recent || []).slice(-L.personaTurns).map((line) => clip(line.replace(/\s+/g, ' ').trim(), 300)).filter(Boolean)
+  while (personaRecent.join('\n').length > L.personaRecent && personaRecent.length > 1) personaRecent.shift()
+  const personaSection = personaMemories.length || personaRecent.length ? [
+    `— 你在人格窗口里和她的相处（戏外，另一扇窗） —`,
+    `${user}还给你开了一扇只属于你们俩的人格窗口，在那里你们一对一相处。下面是你在那边记得的事和最近聊到的，是戏外真实聊过的，可以自然带出熟悉感；不用逐条复述，也不要写进剧情。`,
+    personaMemories.length ? `记得的事：\n${personaMemories.map((item) => `- ${item}`).join('\n')}` : '',
+    personaRecent.length ? `最近在窗口里聊到：\n${personaRecent.join('\n')}` : '',
+  ].filter(Boolean).join('\n') : ''
   const others = book.notes.filter((item) => item.characterId === note.characterId && item.id !== note.id && item.createdAt <= (note.replies?.[note.replies.length - 1]?.at || Infinity)).slice(-L.otherNotes)
   const sections = [
     `— 幕后手记 · 戏外私聊 · 最高优先级 —
@@ -319,6 +333,7 @@ export function buildBackstageChatMessages(input: BackstageChatInput): ChatApiMe
     input.contextSummary?.trim() && `— 这本剧本到目前的剧情摘要 —\n${clip(input.contextSummary.trim(), L.summary)}`,
     memories.length && `— 这本剧本的长期记忆 —\n${memories.map((item) => `- ${item}`).join('\n')}`,
     charMemories.length && `— 你在这本剧本里的核心记忆 —\n${charMemories.map((item) => `- ${item}`).join('\n')}`,
+    personaSection,
     tail.length && `— 主线正文最近几段（戏演到这里了，仅供你知道现在的场面） —\n${tail.join('\n')}`,
     others.length && `— 你最近写过的其他手记（背景，不用回） —\n${others.map((item) => `- ${clip(item.text.replace(/\s+/g, ' '), L.otherNote)}`).join('\n')}`,
     `— 这一篇手记（你写的） —\n${clip(note.text.trim(), 1200)}`,
@@ -378,6 +393,35 @@ export function buildBackstageDmMemory(sources: Array<{ title?: string; backstag
   }
   if (!blocks.length) return ''
   return `【幕后手记里的悄悄话｜你和${userName}戏外说过的】\n这些是你（${speakerName}本人）在长剧情的幕后手记里和${userName}私下聊过的话，是你们俩戏外真实聊过的，你都记得；可以自然接着聊，不用逐条复述，也不要当成戏里的剧情。\n${blocks.join('\n\n')}`
+}
+
+/**
+ * v206：人格窗口 ← 幕后。这个角色（含同名卡）在所有剧本里写过的手记和戏外私聊，最新在前，总长有上限。
+ * 每篇带一小段手记原文和最后几句私聊；只读，不改手记本。
+ */
+export function buildBackstagePersonaMemory(sources: Array<{ title?: string; backstageNotebook?: BackstageNotebook }>, characterIds: readonly string[], userName: string, maxChars = 1500): { text: string; count: number } {
+  const threads = sources.flatMap((source) => (normalizeBackstageNotebook(source.backstageNotebook)?.notes || [])
+    .filter((note) => characterIds.includes(note.characterId) && note.text.trim())
+    .map((note) => ({ title: (source.title || '').trim(), note, last: Math.max(note.createdAt, ...(note.replies || []).map((reply) => reply.at)) })))
+    .sort((left, right) => right.last - left.last)
+  const blocks: string[] = []
+  let used = 0
+  for (const { title, note } of threads) {
+    const all = note.replies || []
+    const lines = all.slice(-4).map((reply) => {
+      const mine = backstageReplyFrom(reply) === 'character'
+      const plain = mine ? stripBackstageEcho(reply.text, { noteText: note.text, userReplies: all.slice(0, all.indexOf(reply)).filter(isUserReply).map((item) => item.text) }).replace(/\s+/g, ' ').trim() : replyPlain(reply)
+      return `${mine ? '他' : userName}：${clip(plain, 80)}`
+    })
+    const block = `${title ? `《${clip(title, 16)}》` : ''}手记「${clip(note.text.replace(/\s+/g, ' '), 70)}」${lines.length ? `\n${lines.join('\n')}` : ''}`
+    if (used + block.length > maxChars) {
+      if (!blocks.length) blocks.push(clip(block, Math.max(0, maxChars - 1)))
+      break
+    }
+    blocks.push(block)
+    used += block.length + 1
+  }
+  return { text: blocks.join('\n'), count: blocks.length }
 }
 
 export function deleteBackstageNote(book: BackstageNotebook, noteId: string): BackstageNotebook {
