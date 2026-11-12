@@ -28,13 +28,15 @@
   box-shadow: none !important;
   color: #5b4330 !important;
 }
-.theme-pudding .archive-row.archive-pudding.user { width: min(96%, 740px) !important; margin-left: auto !important; margin-right: 0 !important; align-self: flex-end !important; }
-.theme-pudding .archive-row.archive-pudding.assistant { margin-left: 0 !important; margin-right: auto !important; align-self: flex-start !important; width: min(96%, 740px) !important; }
+/* v220 平铺：胶囊和信封左右各约 8px，user / char 两边对称，长短消息一样宽。
+   主剧情、群聊、小手机共用 .message-list；人格窗口 .persona-message-list 原本右侧多留 42px 给跳转按钮，这里也拉回对称。 */
+.theme-pudding .message-list:has(> .archive-pudding) { padding-left: 8px !important; padding-right: 8px !important; }
+.theme-pudding .archive-row.archive-pudding:is(.user, .assistant) { width: 100% !important; max-width: none !important; min-width: 0; box-sizing: border-box; margin-left: 0 !important; margin-right: 0 !important; align-self: stretch !important; }
 
 /* 防塌：.message-row.user { align-items:flex-end } / .message-row { align-items:flex-start } 会把子块缩成内容最小宽度，
    名字和签名就变成一字一行竖排。这里强制拉满、横排、可收缩。 */
 .theme-pudding .archive-row.archive-pudding { display: flex !important; flex-direction: column !important; align-items: stretch !important; writing-mode: horizontal-tb !important; }
-.theme-pudding .archive-row.archive-pudding > :is(.pudding-capsule, .pudding-letter) { align-self: stretch !important; width: 100% !important; max-width: 100%; min-width: 0; box-sizing: border-box; writing-mode: horizontal-tb !important; }
+.theme-pudding .archive-row.archive-pudding > :is(.pudding-capsule, .pudding-letter) { align-self: stretch !important; width: 100% !important; max-width: none !important; min-width: 0; margin-left: 0 !important; margin-right: 0 !important; box-sizing: border-box; writing-mode: horizontal-tb !important; }
 .theme-pudding .archive-pudding :is(.pudding-capsule, .pudding-letter) * { writing-mode: horizontal-tb; }
 .theme-pudding .archive-pudding .pudding-letter { display: flex; flex-direction: column; }
 .theme-pudding .archive-pudding .pudding-letter > .archive-body { order: 1; width: 100%; min-width: 0; }
