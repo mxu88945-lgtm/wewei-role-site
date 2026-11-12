@@ -7,12 +7,25 @@ export type PersonaAppearanceValues = { theme: PersonaTheme; fontSize: number; u
 const record = (value: unknown): value is Record<string, unknown> => Boolean(value && typeof value === 'object' && !Array.isArray(value))
 const validColor = (value: unknown): value is string => typeof value === 'string' && /^#[\da-f]{6}$/i.test(value)
 
+export const CHAT_FONT_MIN = 13
+export const CHAT_FONT_MAX = 22
+export const CHAT_FONT_STEP = .5
+/** v227：聊天正文字号按 0.5px 一档（14、14.5、15…），超范围夹回 13–22；旧的整数值原样有效。 */
+export function normalizeChatFontSize(value: unknown, fallback = 16): number {
+  const number = typeof value === 'number' ? value : typeof value === 'string' && value.trim() ? Number(value) : NaN
+  if (!Number.isFinite(number)) return fallback
+  return Math.round(Math.max(CHAT_FONT_MIN, Math.min(CHAT_FONT_MAX, number)) / CHAT_FONT_STEP) * CHAT_FONT_STEP
+}
+/** 显示用：14 → 14px，14.5 → 14.5px。 */
+export const formatChatFontSize = (value: number) => `${Number.isInteger(value) ? value : value.toFixed(1)}px`
+
 /** Only presentation data is accepted; legacy personas continue to follow app defaults. */
 export function normalizePersonaAppearance(raw: unknown): PersonaAppearance | undefined {
   if (!record(raw)) return undefined
   const result: PersonaAppearance = {}
   for (const key of ['baseColor', 'textColor', 'narrationColor', 'quoteColor'] as const) if (validColor(raw[key])) result[key] = raw[key]
-  for (const [key, min, max] of [['fontSize', 13, 22], ['uiScale', 80, 115], ['uiWeight', 400, 700]] as const) {
+  if (typeof raw.fontSize === 'number' && Number.isFinite(raw.fontSize)) result.fontSize = normalizeChatFontSize(raw.fontSize)
+  for (const [key, min, max] of [['uiScale', 80, 115], ['uiWeight', 400, 700]] as const) {
     const value = raw[key]
     if (typeof value === 'number' && Number.isFinite(value)) result[key] = Math.round(Math.max(min, Math.min(max, value)))
   }

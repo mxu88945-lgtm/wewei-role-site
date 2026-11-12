@@ -71,7 +71,7 @@ describe('v207 人格窗口主题：每个主题都有实际样式', () => {
     const pudding = file('theme-pudding.css')
     expect(pudding).toMatch(/\.archive-row\.archive-pudding \{[^}]*align-items: stretch !important/)
     expect(pudding).toMatch(/\.pudding-capsule-copy \{[^}]*flex: 1 1 auto; min-width: 0/)
-    expect(pudding).toMatch(/\.pudding-capsule-copy span \{[^}]*-webkit-line-clamp: 2;[^}]*white-space: normal;[^}]*font-size: 14px; line-height: 1.45/)
+    expect(pudding).toMatch(/\.pudding-capsule-copy span \{[^}]*-webkit-line-clamp: 2;[^}]*white-space: normal;[^}]*font-size: calc\(14px \* var\(--ui-font-scale, 1\)\); line-height: 1.45/)
     expect(pudding).not.toContain('pudding-bone')
     expect(pudding).toContain('writing-mode: horizontal-tb')
     expect(pudding).toMatch(/\.message-list:has\(> \.archive-pudding\) \{ padding-left: 8px !important; padding-right: 8px !important; \}/)

@@ -100,7 +100,8 @@
   font-weight: var(--ui-heading-font-weight, 600) !important;
 }
 
-.phone-canvas :where(h3, strong, b):not(.message-content *):not(.chat-font-preview *) {
+/* v227：布丁来信胶囊上的名字是主题自己的大字（theme-pudding.css 里按界面字号缩放），不被这里压成 15px。 */
+.phone-canvas :where(h3, strong, b):not(.message-content *):not(.chat-font-preview *):not(.pudding-capsule-name) {
   font-size: calc(15px * var(--ui-font-scale, 1)) !important;
   font-weight: var(--ui-heading-font-weight, 600) !important;
 }
@@ -129,10 +130,21 @@
   font-size: var(--chat-font-size, 16px) !important;
 }
 
-.chat-font-preview,
+/* v227：预览框本身用聊天正文字号（之前 inherit !important 盖掉了内联字号，预览只跟界面字号走）。
+   字重跟聊天正文一样走界面字重；预览框把两个变量写在自己身上，所以人格窗口的单独设置也能看到。 */
+.chat-font-preview {
+  font-size: var(--chat-font-size, 16px) !important;
+  font-weight: var(--ui-font-weight, 500);
+}
+
 .chat-font-preview p,
 .chat-font-preview span {
   font-size: inherit !important;
+  font-weight: inherit;
+}
+
+.chat-font-preview > small {
+  font-size: calc(11px * var(--ui-font-scale, 1)) !important;
 }
 
 /* Built-in skin for the compact scene/status markers used by imported Weijing cards. */

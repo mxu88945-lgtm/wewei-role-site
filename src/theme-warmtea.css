@@ -34,7 +34,7 @@
 .theme-warmtea .message-avatar img, .theme-warmtea .chat-identity > img { border-radius: 50%; }
 
 /* “双引号” dialogue: caramel highlighter underline */
-.theme-warmtea :is(.message-quote, .message-safe-html .message-quote) { display: inline; width: auto; margin: 0; padding: 0 2px; border: 0; border-radius: 3px; color: #9a4f2e; font-weight: 600; background: linear-gradient(transparent 60%, rgba(232,177,120,.35) 60%); box-shadow: none; line-height: inherit; -webkit-box-decoration-break: clone; box-decoration-break: clone; }
+.theme-warmtea :is(.message-quote, .message-safe-html .message-quote) { display: inline; width: auto; margin: 0; padding: 0 2px; border: 0; border-radius: 3px; color: #9a4f2e; font-weight: calc(var(--ui-font-weight, 500) + 100); background: linear-gradient(transparent 60%, rgba(232,177,120,.35) 60%); box-shadow: none; line-height: inherit; -webkit-box-decoration-break: clone; box-decoration-break: clone; }
 /* 「直角引号」 dialogue: thin caramel rule on the left */
 .theme-warmtea :is(.message-quote, .message-safe-html .message-quote)[data-quote="corner"] { padding: 0 2px 0 6px; border: 0; border-left: 2px solid #c27a45; border-radius: 0 4px 4px 0; color: #7a5a44; font-weight: inherit; background: rgba(194,122,69,.08); -webkit-box-decoration-break: clone; box-decoration-break: clone; }
 
