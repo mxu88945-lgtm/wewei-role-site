@@ -53,4 +53,13 @@ describe('v207 人格窗口主题：每个主题都有实际样式', () => {
     expect(page).not.toContain('message-layout-flat`}>')
     expect(app).toMatch(/<PersonaWindowPage[^\n]*themeMode=\{displayAppearance\.theme\.mode\}[^\n]*chatLayout=\{chatLayout\}/)
   })
+
+  it('renders pudding as the named-avatar archive in story and persona windows', () => {
+    const pudding = messageThemeLayout('pudding', 'bubble', 'user')
+    expect(pudding.archive).toBe('pudding')
+    expect(pudding.rowClass).toContain('archive-pudding')
+    expect(hasRule('.archive-pudding', '.archive-portrait')).toBe(true)
+    expect(hasRule('.archive-pudding.user', '.archive-heading')).toBe(true)
+    expect(hasRule('.archive-pudding', '.message-quote')).toBe(true)
+  })
 })

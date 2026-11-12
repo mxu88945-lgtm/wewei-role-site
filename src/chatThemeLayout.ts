@@ -7,7 +7,7 @@
  */
 import type { ArchiveTheme } from './ArchiveHeading'
 
-export const ARCHIVE_THEMES = ['academy', 'vinyl', 'mobile', 'letter', 'mistnote', 'nightglow'] as const
+export const ARCHIVE_THEMES = ['academy', 'vinyl', 'mobile', 'letter', 'mistnote', 'nightglow', 'pudding'] as const
 export type ChatMessageTheme = boolean | 'scrapbook' | ArchiveTheme
 
 export type MessageThemeLayout = { archive: ArchiveTheme | null; paper: ChatMessageTheme; layout: 'bubble' | 'flat'; rowClass: string }

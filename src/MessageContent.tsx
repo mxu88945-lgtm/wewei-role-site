@@ -209,7 +209,7 @@ export function richRenderFallback(value: string) {
 
 type SceneHooks = { greetings?: string[]; onSelectGreeting?: (index: number, text: string) => void }
 
-type MessageTheme = boolean | 'scrapbook' | 'academy' | 'vinyl' | 'mobile' | 'letter' | 'mistnote' | 'nightglow'
+type MessageTheme = boolean | 'scrapbook' | 'academy' | 'vinyl' | 'mobile' | 'letter' | 'mistnote' | 'nightglow' | 'pudding'
 function SandboxHtml({ html, raw = false, paper = false, greetings, onSelectGreeting }: { html: string; raw?: boolean; paper?: MessageTheme } & SceneHooks) {
   const frameRef = useRef<HTMLIFrameElement>(null)
   const tokenRef = useRef(`render-${crypto.randomUUID()}`)
@@ -261,6 +261,11 @@ function SandboxHtml({ html, raw = false, paper = false, greetings, onSelectGree
     if (paper === 'mistnote' && !raw) {
       const style = document.createElement('style')
       style.textContent = `html,body{background:transparent!important;color:#35424b!important;font-family:-apple-system,'PingFang SC',sans-serif;line-height:2;text-align:left}p,.message-story-paragraph{margin:0 0 1.18em!important;line-height:2!important;text-align:left!important}p:last-child,.message-story-paragraph:last-child{margin-bottom:0!important}.message-quote{display:table!important;width:fit-content;max-width:100%;margin:12px 0!important;padding:9px 14px!important;border:1px solid #ced9df!important;border-radius:17px!important;background:linear-gradient(135deg,#f1f5f7,#e3ebef)!important;color:#486274!important;line-height:1.75!important;text-align:left!important;box-shadow:inset 0 1px 0 rgba(255,255,255,.82),0 4px 12px rgba(70,91,104,.07)!important;box-decoration-break:clone;-webkit-box-decoration-break:clone}section,[class*=status-card],[class*=scene-card],[class*=private]{margin:18px 0!important;padding:16px!important;background:rgba(232,239,243,.9)!important;color:#45545e!important;border:1px solid #cbd7de!important;border-radius:20px!important;box-shadow:none!important}`
+      document.head.append(style)
+    }
+    if (paper === 'pudding' && !raw) {
+      const style = document.createElement('style')
+      style.textContent = `html,body{background:transparent!important;color:#5b4330!important;font-family:-apple-system,'PingFang SC',sans-serif;line-height:2;text-align:left}p,.message-story-paragraph{margin:0 0 1.15em!important;line-height:2!important;text-align:left!important}p:last-child,.message-story-paragraph:last-child{margin-bottom:0!important}.message-quote,.chat-quote{display:inline!important;margin:0 .08em!important;padding:.14em .58em!important;border:1px solid #ead7bf!important;border-radius:12px!important;background:#f4e7da!important;color:#7c5842!important;line-height:1.8!important;box-decoration-break:clone;-webkit-box-decoration-break:clone}section,[class*=status-card],[class*=scene-card],[class*=private],details{margin:18px 0!important;padding:16px!important;background:rgba(255,253,247,.9)!important;color:#5b4330!important;border:1px solid #ead8b7!important;border-radius:20px!important;box-shadow:none!important}`
       document.head.append(style)
     }
     if (paper === 'scrapbook' && !raw) {
