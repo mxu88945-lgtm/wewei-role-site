@@ -320,3 +320,9 @@ button.persona-settings-row:active { background: var(--theme-accent-soft); }
 .persona-selfcard-version strong { display: block; color: #6d5b79; font-size: 12px; font-weight: 600; }
 .persona-selfcard-version small { color: #a99cb1; font-size: 10px; }
 .persona-selfcard-version .soft-button { flex-shrink: 0; font-size: 11px; }
+/* v225 连续性档案状态卡 */
+.persona-compression-card small { overflow-wrap: anywhere; }
+.persona-compression-tag { display: inline-block; margin-left: 6px; padding: 0 7px; border-radius: 999px; background: rgba(176, 120, 60, .14); color: #9a6a35; font-size: 10px; line-height: 18px; vertical-align: 1px; }
+.persona-source-card > small.persona-compression-blocker { color: #a0674a; }
+.persona-source-card > small.persona-compression-blocker.running, .persona-source-card > small.persona-compression-blocker.busy { color: #8a838e; }
+.persona-compression-now { justify-self: start; min-height: 34px; padding: 6px 16px; font-size: 13px; touch-action: manipulation; }

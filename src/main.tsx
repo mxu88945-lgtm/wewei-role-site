@@ -26,7 +26,7 @@ import './story-composer.css'
 import './memoryApiEnhancements'
 
 const APP_SCOPE = '/wewei-role-site/'
-const SERVICE_WORKER_RELEASE = '2026-11-12-expand-icon-v224'
+const SERVICE_WORKER_RELEASE = '2026-11-12-continuity-status-v225'
 
 if ('serviceWorker' in navigator) {
   let reloadingForUpdate = false

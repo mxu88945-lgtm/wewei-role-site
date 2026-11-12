@@ -1,6 +1,6 @@
 import { useEffect, useId, useLayoutEffect, useRef, useState, useSyncExternalStore, type CSSProperties } from 'react'
 import { fetchApiModels, type ApiConfig, type ApiModel } from './chatApi'
-import type { ApiChannel } from './apiChannels'
+import { isApiChannelComplete, type ApiChannel } from './apiChannels'
 import type { Character } from './characterCard'
 import type { Conversation } from './conversationLifecycle'
 import type { LongMemoryMap } from './memoryEngine'
@@ -21,11 +21,11 @@ import PersonaSettingsHome, { type PersonaSettingsPanel } from './PersonaSetting
 import PersonaAppearanceSettings, { type PersonaAppearanceControls } from './PersonaAppearanceSettings'
 import { PersonaTaskCards, PersonaTaskPanel, PersonaTaskPin } from './PersonaTaskCards'
 import { PERSONA_TASK_PIN_LIMIT, createPersonaTask, taskIsActive, updatePersonaTask } from './personaTasks'
-import { PersonaMemoryInspection, PersonaRecallReceipt } from './PersonaMemoryInspection'
+import { PersonaCompressionCard, PersonaMemoryInspection, PersonaRecallReceipt } from './PersonaMemoryInspection'
 import { canLockPersonaMemory, PERSONA_LOCKED_BUDGET } from './personaWindowMemory'
 import { activeThread, addPersonaThread, buildPersonaSetting, characterAliasIds, collectPastLifeMemory, conversationInvolvesCharacter, deletePersona, deletePersonaThread, deletePersonaMessage, disablePersona, enablePersona, PERSONA_MEMORY_EVERY, PERSONA_WINDOW_PRESET, pendingPersonaMemoryCount, personaMemoryApi, renamePersonaThread, resolvePersonaApi, switchPersona, switchPersonaThread, updatePersona, updatePersonaThread, type PersonaMemoryEntry, type PersonaMessage, type PersonaWindow } from './personaWindow'
 import { hydratePersonaStore, setPersonaState, usePersonaHydrated, usePersonaState } from './personaWindowStore'
-import { buildPersonaRequest, extractPersonaMemory, generatePersonaReply, getPersonaRuntime, setPersonaError, stopPersonaReply, subscribePersonaRuntime, type PersonaRuntimeDeps } from './personaWindowRuntime'
+import { buildPersonaRequest, extractPersonaMemory, generatePersonaReply, getPersonaRuntime, maybeCompressPersonaContext, setPersonaError, stopPersonaReply, subscribePersonaRuntime, type PersonaRuntimeDeps } from './personaWindowRuntime'
 
 import { findTrackByTitle, useMusicStore } from './musicStore'
 import { buildNowPlayingNote } from './nowPlayingNote'
@@ -586,6 +586,19 @@ export default function PersonaWindowPage(props: Props) {
       <label className="persona-memory-field"><strong>旧文检索范围</strong><select aria-label="旧文检索范围" value={active.recallScope || 'persona'} onChange={(event) => { const recallScope = event.target.value === 'thread' ? 'thread' as const : 'persona' as const; setPersonaState((current) => updatePersona(current, active.id, (item) => ({ ...item, recallScope }))) }}><option value="persona">这个人格的全部窗口</option><option value="thread">仅当前窗口</option></select><small>自动召回与主动查阅使用同一范围，始终不会读取其他人格。</small></label>
       <label className="persona-memory-field"><strong>关键词与别名</strong><textarea rows={2} maxLength={4000} value={active.memoryAliases || ''} onFocus={scrollFieldIntoView} placeholder="每行一组，例如：小米|米米|小鹦鹉" onChange={(event) => { const memoryAliases = event.target.value; setPersonaState((current) => updatePersona(current, active.id, (item) => ({ ...item, memoryAliases }))) }} /><small>用 | 分隔同一事物的不同叫法，自动保存。</small></label>
       <PersonaMemoryInspection audit={runtime.memoryAudits[threadId]} />
+      {thread && (() => {
+        const deps = depsFor(active.characterId)
+        return <PersonaCompressionCard tap={tap} input={{
+          thread,
+          autoMemory: active.autoMemory !== false,
+          memoryLength: props.memoryLength,
+          memoryApiReady: Boolean(deps && isApiChannelComplete(deps.memoryApi)),
+          chatApiReady: Boolean(deps && isApiChannelComplete(deps.api)),
+          running: Boolean(runtime.compressing[thread.id]),
+          busy: Boolean(runtime.generating[thread.id] || runtime.memoryBusy[active.id]),
+          failure: runtime.compressionFailures[thread.id],
+        }} onCompress={() => { const fresh = depsFor(active.characterId); if (fresh) void maybeCompressPersonaContext(active.id, fresh, thread.id) }} />
+      })()}
       <div className="persona-toggle-row"><div><strong>前世记忆</strong><small>只读参考小手机交流与长剧情故事，不自动续演原卡剧情。</small></div><button className={`switch ${active.pastLifeEnabled !== false ? 'on' : ''}`} aria-label="前世记忆" {...tap(() => setPersonaState((current) => updatePersona(current, active.id, (item) => ({ ...item, pastLifeEnabled: item.pastLifeEnabled === false }))))}><span /></button></div>
       {active.pastLifeEnabled !== false && (() => {
         const groups = conversations.filter((c) => c.phone && !c.phone.dm)

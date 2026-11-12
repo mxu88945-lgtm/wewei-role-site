@@ -11,6 +11,7 @@ import { applyMacros } from './regexEngine'
 import { personaReplyText, stripPersonaFormatInstructions } from './personaWindowPresentation'
 import { parsePersonaTask, personaTaskStatus, PERSONA_TASK_PROMPT, taskIsActive } from './personaTasks'
 import { AUTO_COMPRESSION_FAILURE_COOLDOWN_MS, planAutoContextCompression } from './contextCompression'
+import { isPersonaCompressible, type PersonaCompressionFailure } from './personaCompressionStatus'
 import { buildPersonaMemoryContext, clipPersonaText, commitPersonaRecallLedger, parsePersonaMemoryTool, personaContinuityFallback, personaContinuitySourceUnchanged, personaContinuityTranscript, personaMemorySaves, personaRecentHistory, PERSONA_MEMORY_TOOLS, readPersonaOriginal, searchPersonaHistory, type PersonaMemoryAudit, type PersonaRecallSource } from './personaWindowMemory'
 import {
   nextPersonaMessageId,
@@ -71,18 +72,26 @@ export type PersonaRuntimeDeps = {
  * generating / errors are keyed by window (thread) id, memoryBusy / notices by persona id
  * (memory belongs to the persona and is shared by all its windows).
  */
-type RuntimeSnapshot = { generating: Record<string, boolean>; memoryBusy: Record<string, boolean>; errors: Record<string, string>; notices: Record<string, string>; memoryAudits: Record<string, PersonaMemoryAudit> }
-let runtime: RuntimeSnapshot = { generating: {}, memoryBusy: {}, errors: {}, notices: {}, memoryAudits: {} }
+type RuntimeSnapshot = {
+  generating: Record<string, boolean>
+  memoryBusy: Record<string, boolean>
+  errors: Record<string, string>
+  notices: Record<string, string>
+  memoryAudits: Record<string, PersonaMemoryAudit>
+  /** v225：后台连续性整理，按窗口（thread）id。 */
+  compressing: Record<string, boolean>
+  /** v225：上次整理失败的时间与原因（30 分钟冷却），按窗口 id；成功后清掉。 */
+  compressionFailures: Record<string, PersonaCompressionFailure>
+}
+let runtime: RuntimeSnapshot = { generating: {}, memoryBusy: {}, errors: {}, notices: {}, memoryAudits: {}, compressing: {}, compressionFailures: {} }
 const runtimeListeners = new Set<() => void>()
 const controllers = new Map<string, AbortController>()
-const compressionRunning = new Set<string>()
-const compressionFailures = new Map<string, number>()
 
 function patchRuntime(patch: (current: RuntimeSnapshot) => RuntimeSnapshot) {
   runtime = patch(runtime)
   runtimeListeners.forEach((listener) => listener())
 }
-const setFlag = (field: 'generating' | 'memoryBusy', id: string, on: boolean) => patchRuntime((current) => {
+const setFlag = (field: 'generating' | 'memoryBusy' | 'compressing', id: string, on: boolean) => patchRuntime((current) => {
   const next = { ...current[field] }
   if (on) next[id] = true
   else delete next[id]
@@ -93,6 +102,12 @@ export const setPersonaError = (id: string, message: string) => patchRuntime((cu
   if (message) errors[id] = message
   else delete errors[id]
   return { ...current, errors }
+})
+const setCompressionFailure = (threadId: string, failure: PersonaCompressionFailure | null) => patchRuntime((current) => {
+  const compressionFailures = { ...current.compressionFailures }
+  if (failure) compressionFailures[threadId] = failure
+  else delete compressionFailures[threadId]
+  return { ...current, compressionFailures }
 })
 const setNotice = (id: string, message: string) => patchRuntime((current) => ({ ...current, notices: { ...current.notices, [id]: message } }))
 
@@ -377,17 +392,17 @@ export async function maybeCompressPersonaContext(personaId: string, deps: Perso
   const persona = findPersona(personaId)
   const thread = persona ? activeThread(persona, threadId) : undefined
   const maintenanceApi = isApiChannelComplete(deps.memoryApi) ? deps.memoryApi : deps.api
-  if (!persona || !thread || persona.autoMemory === false || runtime.generating[thread.id] || runtime.memoryBusy[personaId] || compressionRunning.has(thread.id) || !isApiChannelComplete(maintenanceApi)) return
+  if (!persona || !thread || persona.autoMemory === false || runtime.generating[thread.id] || runtime.memoryBusy[personaId] || runtime.compressing[thread.id] || !isApiChannelComplete(maintenanceApi)) return
   const key = thread.id
-  const lastFailure = compressionFailures.get(key)
+  const lastFailure = runtime.compressionFailures[key]?.at
   if (lastFailure && Date.now() - lastFailure < AUTO_COMPRESSION_FAILURE_COOLDOWN_MS) return
   const compressedUntil = personaCompressedUntil(thread)
-  const plan = planAutoContextCompression(thread.messages, { compressedUntil, hasValidSummary: compressedUntil > 0, memoryLength: deps.memoryLength, isCompressible: (item) => Boolean(item.text.trim()) && item.finishReason !== 'error' })
+  const plan = planAutoContextCompression(thread.messages, { compressedUntil, hasValidSummary: compressedUntil > 0, memoryLength: deps.memoryLength, isCompressible: isPersonaCompressible })
   if (!plan) return
   const pending = plan.pendingMessages.slice(0, Math.max(1, 240 - plan.keepRecent))
   const targetThroughId = pending[pending.length - 1]?.id
   if (targetThroughId === undefined) return
-  compressionRunning.add(key)
+  setFlag('compressing', key, true)
   const name = deps.character.name
   let summary = ''
   let fallback = false
@@ -421,11 +436,11 @@ export async function maybeCompressPersonaContext(personaId: string, deps: Perso
       return { ...item, contextSummary: summary.trim(), compressedThroughId: targetThroughId, summaryFallback: fallback, summaryUpdatedAt: Date.now() }
     }))
     setNotice(personaId, applied ? fallback ? '记忆模型没有可用正文，已用本地原文摘录衔接；旧原文完整保留。' : `连续性档案已更新，最近 ${plan.keepRecent} 条保留原样，旧原文仍可搜索。` : '对话在整理时发生了变化，本次结果未覆盖现有内容。')
-    compressionFailures.delete(key)
-  } catch {
-    compressionFailures.set(key, Date.now())
+    setCompressionFailure(key, null)
+  } catch (error) {
+    setCompressionFailure(key, { at: Date.now(), message: clipPersonaText(error instanceof Error ? error.message : String(error || ''), 120) || '请求失败' })
     setNotice(personaId, '连续性档案暂未更新，旧原文仍保留；30 分钟后再尝试。')
   } finally {
-    compressionRunning.delete(key)
+    setFlag('compressing', key, false)
   }
 }
