@@ -40,7 +40,7 @@ describe('message editor above the iOS keyboard', () => {
 
 describe('full-page composer entry', () => {
   it('shows the expand button only after a draft needs the long editor', () => {
-    expect(appSource).toContain('setComposerCanExpand(contentHeight > 72)')
+    expect(appSource).toContain('setComposerCanExpand(fitComposer(textarea))')
     expect(appSource).toMatch(/composerCanExpand\s*&&\s*<button className="composer-expand"/)
   })
 

@@ -10,7 +10,7 @@ describe('v223 main-story composer card', () => {
   it('lays the main-story composer out as one rounded card: full-width input on top, tools / ＋ / send pill below', () => {
     expect(css).toMatch(/\.chat-page:not\(\.phone-chat\) > \.composer:not\(\.persona-composer\) \{[^}]*grid-template-areas: "thumbs thumbs thumbs" "quote quote quote" "input input input" "tools plus send";[^}]*border-radius: 28px !important/)
     expect(css).toMatch(/> \.send-button \{[^}]*grid-area: send;[^}]*border-radius: 999px !important/)
-    expect(css).toMatch(/> \.composer-expand \{[^}]*grid-area: tools;/)
+    expect(css).toMatch(/> \.composer-expand \{[^}]*grid-area: input;[^}]*justify-self: start; align-self: start;[^}]*width: 32px; height: 32px;/)
     expect(css).not.toMatch(/backdrop-filter/)
   })
   it('loads after every theme so equal-weight theme rules cannot undo the layout', () => {
@@ -24,5 +24,11 @@ describe('v223 main-story composer card', () => {
     expect(app).toMatch(/setMentionPickerOpen\(true\)/)
     expect(app).toMatch(/composerCanExpand && <button className="composer-expand"/)
     expect(app).toMatch(/className=\{`send-button \$\{isGenerating \? 'stop' : ''\}`\}/)
+  })
+  it('v224: expand key uses the corner icon (no ⛶), sits top-left and clears the text only while it shows', () => {
+    expect(app).not.toContain('⛶')
+    expect(app).toContain('<ExpandCornersIcon direction="out" size={20} />')
+    expect(css).toMatch(/> \.composer\.can-expand:not\(\.persona-composer\) > textarea \{ padding-left: 40px;/)
+    expect(css).toMatch(/\.theme-pudding [^{]*> \.composer\.can-expand:not\(\.persona-composer\) > textarea \{ padding-left: 44px; \}/)
   })
 })

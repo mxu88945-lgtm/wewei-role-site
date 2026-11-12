@@ -1,5 +1,5 @@
 /* v223：主剧情输入框（长剧情单聊 + 主剧情多角色 @ 群戏，所有主题）改成和人格窗口 v222 一样的大圆角卡：
-   上面整行是输入框（随内容长高），下面一行左侧是 ⛶ 展开长消息（有长内容时才出现），右侧是 ＋（纯图标）和胶囊发送键。
+   上面整行是输入框（随内容长高），下面一行右侧是 ＋（纯图标）和胶囊发送键。
    颜色仍跟各主题走（底色、描边、发送键渐变都不动），这里只改结构和尺寸。小手机（.phone-chat）和人格窗口不受影响。
    放在所有主题 CSS 之后加载，同权重时以这里为准。 */
 .chat-page:not(.phone-chat) > .composer:not(.persona-composer) { grid-template-columns: minmax(0, 1fr) 40px 54px; grid-template-rows: auto auto auto auto; grid-template-areas: "thumbs thumbs thumbs" "quote quote quote" "input input input" "tools plus send"; align-items: center; column-gap: 4px; row-gap: 0; min-height: 0; padding: 12px 10px 10px 14px; border-radius: 28px !important; }
@@ -8,4 +8,13 @@
 .chat-page:not(.phone-chat) > .composer:not(.persona-composer) > textarea { grid-area: input; align-self: stretch; width: 100%; box-sizing: border-box; font-size: 16px; line-height: 1.4; padding: 6px 4px 4px 2px; }
 .chat-page:not(.phone-chat) > .composer:not(.persona-composer) > .composer-plus { grid-area: plus; justify-self: end; width: 38px; height: 36px; margin-top: 6px; padding: 0; border: 0 !important; border-radius: 50% !important; background: transparent !important; box-shadow: none !important; font-size: 26px; font-weight: 300; line-height: 1; opacity: .82; }
 .chat-page:not(.phone-chat) > .composer:not(.persona-composer) > .send-button { grid-area: send; justify-self: end; width: 54px; height: 36px; margin-top: 6px; padding: 0; border-radius: 999px !important; font-size: 19px; line-height: 1; }
-.chat-page:not(.phone-chat) > .composer:not(.persona-composer) > .composer-expand { grid-area: tools; justify-self: start; position: relative; inset: auto; width: 34px; height: 34px; margin-top: 6px; margin-left: -4px; padding: 0; border: 0 !important; border-radius: 50%; color: var(--theme-accent-text, #817786); background: transparent !important; box-shadow: none !important; font-size: 18px; opacity: .72; }
+
+/* v224：展开长消息键换成对角细线图标（ExpandCornersIcon），放在输入框左上角，做成 32px 的柔和小圆键（底色取主题强调色的淡色）。
+   只有文字长到输入框上限、需要滚动时才出现（.can-expand），此时输入框左侧让出 40px，文字不会压在按钮下面；
+   输入框已经长到上限，高度不变，卡片不会跳。布丁来信左侧本来就留了 44px 给小狗，按钮放在小狗下方同一列，小狗和文字都不动。 */
+.chat-page:not(.phone-chat) > .composer:not(.persona-composer) > .composer-expand { grid-area: input; justify-self: start; align-self: start; position: relative; z-index: 2; inset: auto; width: 32px; height: 32px; margin: 2px 0 0 -4px; padding: 0; display: grid; place-items: center; border: 0 !important; border-radius: 50% !important; color: var(--theme-accent-text, #817786); background: color-mix(in srgb, currentColor 11%, transparent) !important; box-shadow: none !important; font-size: 0; line-height: 0; opacity: .9; }
+.chat-page:not(.phone-chat) > .composer:not(.persona-composer) > .composer-expand:active { transform: scale(.94); }
+.chat-page:not(.phone-chat) > .composer.can-expand:not(.persona-composer) > textarea { padding-left: 40px; padding-right: 4px; }
+.theme-pudding .chat-page:not(.phone-chat) > .composer.can-expand:not(.persona-composer) > textarea { padding-left: 44px; }
+.theme-pudding .chat-page:not(.phone-chat) > .composer:not(.persona-composer) > .composer-expand { margin: 38px 0 0 4px; color: #b6782f; }
+.composer-expand .expand-corners-icon, .expanded-collapse .expand-corners-icon { display: block; pointer-events: none; }
