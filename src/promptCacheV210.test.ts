@@ -5,7 +5,7 @@ import { completeChat, resetStreamOptionsMemory } from './chatApi'
 import { buildChatPrompt } from './promptBuilder'
 import { resetPromptCacheMemory, withPromptCache } from './promptCache'
 import { foldPromptForRelay, stripTurnContext, TURN_CONTEXT_CLOSE, TURN_CONTEXT_OPEN } from './promptTail'
-import { formatPromptUsage, readUsage } from './promptUsage'
+import { formatPromptUsage, mergeUsage, readUsage } from './promptUsage'
 import { sanitizeAssistantOutput } from './outputSanitizer'
 import { modelVisibleMessageText } from './modelContext'
 
@@ -93,13 +93,25 @@ describe('v210 用量读数', () => {
   afterEach(() => { vi.unstubAllGlobals(); resetStreamOptionsMemory() })
 
   it('reads OpenAI, Anthropic and Gemini usage shapes', () => {
-    expect(readUsage({ usage: { prompt_tokens: 12340, prompt_tokens_details: { cached_tokens: 9800 } } })).toEqual({ promptTokens: 12340, cachedTokens: 9800 })
-    expect(readUsage({ type: 'message_start', message: { usage: { input_tokens: 40, cache_read_input_tokens: 900, cache_creation_input_tokens: 60 } } })).toEqual({ promptTokens: 1000, cachedTokens: 900, cacheWriteTokens: 60 })
-    expect(readUsage({ usageMetadata: { promptTokenCount: 2000, cachedContentTokenCount: 1500 } })).toEqual({ promptTokens: 2000, cachedTokens: 1500 })
-    expect(readUsage({ usage: { prompt_tokens: 500, cached_content_token_count: 100 } })).toEqual({ promptTokens: 500, cachedTokens: 100 })
+    expect(readUsage({ usage: { prompt_tokens: 12340, prompt_tokens_details: { cached_tokens: 9800 } } })).toEqual({ promptTokens: 12340, cachedTokens: 9800, cacheReported: true })
+    expect(readUsage({ type: 'message_start', message: { usage: { input_tokens: 40, cache_read_input_tokens: 900, cache_creation_input_tokens: 60 } } })).toEqual({ promptTokens: 1000, cachedTokens: 900, cacheWriteTokens: 60, cacheReported: true })
+    expect(readUsage({ usageMetadata: { promptTokenCount: 2000, cachedContentTokenCount: 1500 } })).toEqual({ promptTokens: 2000, cachedTokens: 1500, cacheReported: true })
+    expect(readUsage({ usage: { prompt_tokens: 500, cached_content_token_count: 100 } })).toEqual({ promptTokens: 500, cachedTokens: 100, cacheReported: true })
     expect(readUsage({ choices: [] })).toBeNull()
     expect(formatPromptUsage({ promptTokens: 12340, cached: 9800, at: 1 })).toBe('最近一次：输入 12,340 tokens · 缓存命中 9,800（79%）')
     expect(formatPromptUsage({ none: true, at: 1 })).toBe('这个渠道没有返回用量信息')
+  })
+
+  it('v212: tells "no cache hit" apart from "relay does not report cache"', () => {
+    expect(readUsage({ usage: { prompt_tokens: 44880 } })).toEqual({ promptTokens: 44880, cachedTokens: 0, cacheReported: false })
+    expect(readUsage({ usage: { prompt_tokens: 44880, prompt_tokens_details: { cached_tokens: 0 } } })).toEqual({ promptTokens: 44880, cachedTokens: 0, cacheReported: true })
+    expect(readUsage({ usage: { prompt_tokens: 44880, prompt_cache_miss_tokens: 44880 } })?.cacheReported).toBe(true)
+    expect(readUsage({ usage: { input_tokens: 100, cache_creation_input_tokens: 0 } })?.cacheReported).toBe(true)
+    expect(mergeUsage({ promptTokens: 10, cachedTokens: 0, cacheReported: true }, { promptTokens: 20, cachedTokens: 0, cacheReported: false })?.cacheReported).toBe(true)
+    expect(mergeUsage({ promptTokens: 10, cachedTokens: 0, cacheReported: false }, { promptTokens: 20, cachedTokens: 0, cacheReported: false })?.cacheReported).toBe(false)
+    expect(formatPromptUsage({ promptTokens: 44880, cached: 0, cacheReported: false, at: 1 })).toBe('最近一次：输入 44,880 tokens · 这个渠道不报缓存')
+    expect(formatPromptUsage({ promptTokens: 44880, cached: 0, cacheReported: true, at: 1 })).toBe('最近一次：输入 44,880 tokens · 缓存命中 0（0%）')
+    expect(formatPromptUsage({ promptTokens: 44880, cached: 0, at: 1 })).toBe('最近一次：输入 44,880 tokens · 缓存命中 0（0%）')
   })
 
   const base = { api: { baseUrl: 'https://relay.test/v1', apiKey: 'k', modelName: 'gemini-3.8-flash-lite' }, messages: [{ role: 'user', content: 'hi' }] as ChatApiMessage[], temperature: 1, topP: 1, maxTokens: 100, signal: new AbortController().signal }
@@ -108,7 +120,7 @@ describe('v210 用量读数', () => {
     vi.stubGlobal('fetch', vi.fn(async () => new Response(JSON.stringify({ choices: [{ message: { content: '好' }, finish_reason: 'stop' }], usage: { prompt_tokens: 100, prompt_tokens_details: { cached_tokens: 80 } } }), { headers: { 'content-type': 'application/json' } })))
     const onUsage = vi.fn()
     await completeChat({ ...base, streaming: false, onDelta: () => {}, onUsage })
-    expect(onUsage).toHaveBeenCalledWith({ promptTokens: 100, cachedTokens: 80 })
+    expect(onUsage).toHaveBeenCalledWith({ promptTokens: 100, cachedTokens: 80, cacheReported: true })
   })
 
   it('streaming: asks for include_usage and reads the trailing usage chunk after finish_reason', async () => {
@@ -126,7 +138,7 @@ describe('v210 用量读数', () => {
     }))
     const usage = await new Promise((resolve) => { void completeChat({ ...base, streaming: true, onDelta: () => {}, onUsage: resolve }) })
     expect(bodies[0].stream_options).toEqual({ include_usage: true })
-    expect(usage).toEqual({ promptTokens: 300, cachedTokens: 240 })
+    expect(usage).toEqual({ promptTokens: 300, cachedTokens: 240, cacheReported: true })
   })
 
   it('streaming: a relay that rejects stream_options is retried without it and remembered; no usage → null', async () => {
