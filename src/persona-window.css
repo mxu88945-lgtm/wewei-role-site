@@ -253,14 +253,18 @@ button.persona-settings-row:active { background: var(--theme-accent-soft); }
 .persona-task-card.due { border-color: #d39b8b; }
 .persona-task-card.due .persona-task-count { color: #ad6b59; }
 .persona-task-card.done { opacity: .8; }
-.persona-task-pin { position: absolute; z-index: 36; top: calc(72px + env(safe-area-inset-top)); right: 10px; display: flex; align-items: stretch; gap: 0; max-width: min(68vw, 260px); border-radius: 18px; background: rgba(255,255,255,.96); box-shadow: 0 10px 28px rgba(62,43,75,.16); border: 1px solid var(--theme-accent-soft-strong); overflow: hidden; animation: persona-task-pin-in .25s ease; }
-.persona-task-pin-body { flex: 1; min-width: 0; display: grid; gap: 2px; padding: 9px 10px 9px 12px; border: 0; background: transparent; color: #4e4852; text-align: left; font: inherit; }
+/* v222：未完成的任务卡竖排成一列，最早的在上，互不遮挡；最多露 3 张，其余收成「+N 项」。 */
+.persona-task-pins { position: absolute; z-index: 36; top: calc(72px + env(safe-area-inset-top)); right: 10px; display: flex; flex-direction: column; align-items: stretch; gap: 8px; width: min(68vw, 260px); animation: persona-task-pin-in .25s ease; }
+/* 张数已封顶（3 + 「+N」），平时不需要滚动；横屏矮屏才限高滚动，避免裁掉阴影出现硬边。 */
+@media (max-height: 560px) { .persona-task-pins { max-height: 46dvh; overflow-y: auto; overscroll-behavior-y: contain; scrollbar-width: none; padding: 0 4px 8px; margin-right: -4px; } .persona-task-pins::-webkit-scrollbar { display: none; } }
+.persona-task-pin { flex: 0 0 auto; display: flex; align-items: stretch; gap: 0; min-width: 0; border-radius: 18px; background: rgba(255,255,255,.96); box-shadow: 0 6px 18px rgba(62,43,75,.13); border: 1px solid var(--theme-accent-soft-strong); overflow: hidden; }
+.persona-task-pin-body { flex: 1; min-width: 0; display: grid; gap: 1px; padding: 8px 10px 8px 12px; border: 0; background: transparent; color: #4e4852; text-align: left; font: inherit; }
 .persona-task-pin-body strong { font-size: 12px; font-weight: 700; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-.persona-task-pin-clock { font-size: 20px; font-weight: 800; color: var(--theme-accent-text); font-variant-numeric: tabular-nums; }
-.persona-task-pin-body em { font-style: normal; font-size: 10px; color: #9a919e; }
-.persona-task-pin-done { flex-shrink: 0; align-self: center; margin-right: 8px; padding: 8px 14px; border: 0; border-radius: 12px; background: var(--theme-accent); color: #fff; font: inherit; font-size: 13px; font-weight: 800; }
+.persona-task-pin-clock { font-size: 18px; line-height: 1.25; font-weight: 800; color: var(--theme-accent-text); font-variant-numeric: tabular-nums; white-space: nowrap; }
+.persona-task-pin-done { flex-shrink: 0; align-self: center; margin-right: 8px; padding: 7px 13px; border: 0; border-radius: 12px; background: var(--theme-accent); color: #fff; font: inherit; font-size: 13px; font-weight: 800; }
+.persona-task-pin-more { flex: 0 0 auto; align-self: flex-end; padding: 5px 12px; border: 1px solid var(--theme-accent-soft-strong); border-radius: 999px; background: rgba(255,255,255,.94); color: var(--theme-accent-text); box-shadow: 0 4px 12px rgba(62,43,75,.10); font: inherit; font-size: 12px; font-weight: 700; }
 @keyframes persona-task-pin-in { from { opacity: 0; transform: translateY(-8px) scale(.96); } }
-.has-task-pin .persona-message-list { padding-top: calc(134px + env(safe-area-inset-top)); }
+.has-task-pin .persona-message-list { padding-top: calc(76px + var(--persona-task-pin-rows, 1) * 62px + env(safe-area-inset-top)); }
 .persona-task-toast { position: fixed; z-index: 90; top: calc(70px + env(safe-area-inset-top)); left: 50%; transform: translateX(-50%); width: min(360px, calc(100vw - 32px)); display: flex; align-items: center; gap: 8px; padding: 12px; border: 1px solid var(--theme-accent-soft-strong); border-radius: 18px; background: #fffaf5; color: #695349; box-shadow: 0 8px 28px rgba(75,44,26,.15); }
 .persona-task-toast > div { flex: 1; min-width: 0; }
 .persona-task-toast strong, .persona-task-toast small { display: block; font-size: 12px; line-height: 1.6; overflow-wrap: anywhere; }
@@ -290,6 +294,16 @@ button.persona-settings-row:active { background: var(--theme-accent-soft); }
 
 /* v208：输入框随内容长高（JS 写 height），16px 防 iOS 聚焦放大；约 6 行封顶后内部滚动。 */
 .composer.persona-composer textarea { font-size: 16px; line-height: 1.4; min-height: 34px; max-height: 147px; overflow-y: auto; }
+
+/* v222：人格窗口输入框（所有主题）改成一张大圆角卡：上面整行是输入框，下面一行右侧是 ＋（纯图标）和胶囊发送键。
+   颜色仍跟各主题走（底色、描边、发送键渐变都不动），这里只改结构和尺寸。 */
+.chat-page.persona-window-page > .composer.persona-composer { grid-template-columns: minmax(0, 1fr) 40px 54px; grid-template-rows: auto auto auto auto; grid-template-areas: "thumbs thumbs thumbs" "note note note" "input input input" "tools plus send"; align-items: center; column-gap: 4px; row-gap: 0; min-height: 0; padding: 12px 10px 10px 14px; border-radius: 28px !important; }
+.chat-page.persona-window-page > .composer.persona-composer > .persona-composer-media { margin: 0 0 8px; }
+.chat-page.persona-window-page > .composer.persona-composer > :is(.persona-quote-draft, .persona-editing-hint) { grid-area: note; margin: 0 0 6px; }
+.chat-page.persona-window-page > .composer.persona-composer > textarea { grid-area: input; align-self: stretch; width: 100%; box-sizing: border-box; padding: 6px 4px 4px 2px; }
+.chat-page.persona-window-page > .composer.persona-composer > .composer-plus { grid-area: plus; justify-self: end; width: 38px; height: 36px; margin-top: 6px; padding: 0; border: 0 !important; border-radius: 50%; background: transparent !important; box-shadow: none !important; font-size: 26px; font-weight: 300; line-height: 1; opacity: .82; }
+.chat-page.persona-window-page > .composer.persona-composer > .send-button { grid-area: send; justify-self: end; width: 54px; height: 36px; margin-top: 6px; padding: 0; border-radius: 999px; font-size: 19px; line-height: 1; }
+
 
 /* v211 他自己写的卡 */
 .persona-selfcard-chip { display: inline-flex; align-items: center; max-width: 100%; margin: 0 0 8px; padding: 2px 10px; border: 0; border-radius: 999px; background: rgba(125,104,141,.08); color: #9c8da6; font-size: 11px; font-weight: 500; line-height: 1.6; text-align: left; overflow: hidden; white-space: nowrap; text-overflow: ellipsis; }

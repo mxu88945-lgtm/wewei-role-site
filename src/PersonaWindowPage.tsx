@@ -1,4 +1,4 @@
-import { useEffect, useId, useLayoutEffect, useRef, useState, useSyncExternalStore } from 'react'
+import { useEffect, useId, useLayoutEffect, useRef, useState, useSyncExternalStore, type CSSProperties } from 'react'
 import { fetchApiModels, type ApiConfig, type ApiModel } from './chatApi'
 import type { ApiChannel } from './apiChannels'
 import type { Character } from './characterCard'
@@ -20,7 +20,7 @@ import { restoreSelfCard, selfCardLabel, selfCardLength, setSelfCardSection } fr
 import PersonaSettingsHome, { type PersonaSettingsPanel } from './PersonaSettingsHome'
 import PersonaAppearanceSettings, { type PersonaAppearanceControls } from './PersonaAppearanceSettings'
 import { PersonaTaskCards, PersonaTaskPanel, PersonaTaskPin } from './PersonaTaskCards'
-import { createPersonaTask, taskIsActive, updatePersonaTask } from './personaTasks'
+import { PERSONA_TASK_PIN_LIMIT, createPersonaTask, taskIsActive, updatePersonaTask } from './personaTasks'
 import { PersonaMemoryInspection, PersonaRecallReceipt } from './PersonaMemoryInspection'
 import { canLockPersonaMemory, PERSONA_LOCKED_BUDGET } from './personaWindowMemory'
 import { activeThread, addPersonaThread, buildPersonaSetting, characterAliasIds, collectPastLifeMemory, conversationInvolvesCharacter, deletePersona, deletePersonaThread, deletePersonaMessage, disablePersona, enablePersona, PERSONA_MEMORY_EVERY, PERSONA_WINDOW_PRESET, pendingPersonaMemoryCount, personaMemoryApi, renamePersonaThread, resolvePersonaApi, switchPersona, switchPersonaThread, updatePersona, updatePersonaThread, type PersonaMemoryEntry, type PersonaMessage, type PersonaWindow } from './personaWindow'
@@ -656,7 +656,7 @@ export default function PersonaWindowPage(props: Props) {
   }
 
   const lastMessage = messages[messages.length - 1]
-  return <section className={`chat-page persona-window-page${activeTasks.length ? ' has-task-pin' : ''}`}>{header}{switcher}
+  return <section className={`chat-page persona-window-page${activeTasks.length ? ' has-task-pin' : ''}`} style={activeTasks.length ? { '--persona-task-pin-rows': Math.min(activeTasks.length, PERSONA_TASK_PIN_LIMIT) + (activeTasks.length > PERSONA_TASK_PIN_LIMIT ? 0.5 : 0) } as CSSProperties : undefined}>{header}{switcher}
     {error && <div className="chat-error" role="alert"><button className="chat-error-action" {...tap(() => setPersonaError(threadId, ''))}><span>连接提示</span>{error}</button><button className="chat-error-close" aria-label="关闭提示" {...tap(() => setPersonaError(threadId, ''))}>×</button></div>}
     <div ref={listRef} className="message-list persona-message-list" onScroll={onScroll}>
       {earlierCount > 0 && <button type="button" className="chat-load-earlier" onClick={loadEarlier}>加载更早 {earlierCount} 条</button>}

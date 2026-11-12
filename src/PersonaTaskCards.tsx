@@ -1,5 +1,5 @@
 import { useEffect, useState, type PointerEvent } from 'react'
-import { taskClock, taskIsActive, type PersonaTask } from './personaTasks'
+import { PERSONA_TASK_PIN_LIMIT, taskClock, taskIsActive, type PersonaTask } from './personaTasks'
 
 export type PersonaTap = (action: () => void) => { onPointerUp: (event: PointerEvent) => void; onClick: () => void }
 function useTaskTime(tasks: PersonaTask[]) {
@@ -42,17 +42,24 @@ export function PersonaTaskPanel({ tasks, enabled, busy, onEnabled, onCreate, on
   </section>
 }
 
+// v222：未完成的任务卡竖着排成一列（最早的在上），互不遮挡；超过 3 张时收成「+N 项」，点开任务面板看全部。
 export function PersonaTaskPin({ tasks, onOpen, onDone, tap }: { tasks: PersonaTask[]; onOpen: () => void; onDone: (id: string) => void; tap: PersonaTap }) {
   const now = useTaskTime(tasks)
-  const first = tasks[0]
-  if (!first) return null
-  const overdue = first.dueAt <= now
-  return <div className="persona-task-pin" role="status" aria-label={`任务倒计时：${first.text}`}>
-    <button className="persona-task-pin-body" {...tap(onOpen)} aria-label={`查看任务：${first.text}`}>
-      <strong>{first.text}</strong>
-      <span className="persona-task-pin-clock">{overdue ? '⏰ 时间到了' : taskClock(first.dueAt - now)}</span>
-      {tasks.length > 1 && <em>共 {tasks.length} 项 ›</em>}
-    </button>
-    <button className="persona-task-pin-done" {...tap(() => onDone(first.id))} aria-label={`完成任务：${first.text}`}>完成</button>
+  if (!tasks.length) return null
+  const ordered = [...tasks].sort((a, b) => a.createdAt - b.createdAt || a.dueAt - b.dueAt)
+  const shown = ordered.slice(0, PERSONA_TASK_PIN_LIMIT)
+  const hidden = ordered.length - shown.length
+  return <div className="persona-task-pins" role="status" aria-label={`进行中的任务：共 ${ordered.length} 项`}>
+    {shown.map((task) => {
+      const overdue = task.dueAt <= now
+      return <div key={task.id} className={`persona-task-pin${overdue ? ' due' : ''}`}>
+        <button className="persona-task-pin-body" {...tap(onOpen)} aria-label={`查看任务：${task.text}`}>
+          <strong>{task.text}</strong>
+          <span className="persona-task-pin-clock">{overdue ? '⏰ 时间到了' : taskClock(task.dueAt - now)}</span>
+        </button>
+        <button className="persona-task-pin-done" {...tap(() => onDone(task.id))} aria-label={`完成任务：${task.text}`}>完成</button>
+      </div>
+    })}
+    {hidden > 0 && <button className="persona-task-pin-more" {...tap(onOpen)} aria-label={`还有 ${hidden} 项任务，查看全部`}>+{hidden} 项 ›</button>}
   </div>
 }

@@ -39,3 +39,6 @@ export function personaTaskStatus(tasks: PersonaTask[] = [], now = Date.now()) {
   const current = tasks.filter(taskIsActive).slice(-6), recent = tasks.filter((task) => !taskIsActive(task)).slice(-3)
   return '【当前窗口任务状态｜应用记录，仅供参考】\n' + [...current, ...recent].map((task) => `- ${task.text}：${task.doneAt !== undefined ? `已完成，用时 ${taskClock(task.doneAt - task.createdAt)}，${task.doneAt <= task.dueAt ? '按时' : '超时'}` : task.canceledAt !== undefined ? '用户已取消，不再催促' : task.dueAt <= now ? '时间已到，尚未点完成' : `剩余 ${taskClock(task.dueAt - now)}`}`).join('\n') + '\n到期不代表用户完成；不要把任务当成用户已经做过的事实。'
 }
+
+/** v222：顶部任务卡最多同时露出几张，其余收成「+N 项」。 */
+export const PERSONA_TASK_PIN_LIMIT = 3
