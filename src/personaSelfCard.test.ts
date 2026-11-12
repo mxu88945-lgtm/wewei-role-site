@@ -29,7 +29,7 @@ describe('自我卡标记', () => {
 
 describe('自我卡数据', () => {
   it('normalizes: drops unknown keys, caps each section and the total', () => {
-    const long = 'x'.repeat(900)
+    const long = 'x'.repeat(2500)
     const card = normalizeSelfCard({ personality: long, likes: long, strengths: long, weaknesses: long, kinks: long, flaws: long, habits: long, other: long, identity: '总裁' })
     expect(card.personality).toHaveLength(SELF_CARD_SECTION_MAX)
     expect(Object.values(card).reduce((sum, item) => sum + (item?.length || 0), 0)).toBe(SELF_CARD_TOTAL_MAX)
@@ -53,14 +53,11 @@ describe('自我卡数据', () => {
     persona = setSelfCardSection(persona, 'habits', '', '她改了「习惯」', 99)
     expect(persona.selfCard?.habits).toBeUndefined()
   })
-  it('clips a section edit so the total stays within the cap', () => {
-    let persona = {}
-    for (const key of ['personality', 'likes', 'strengths', 'weaknesses'] as const) persona = setSelfCardSection(persona, key, 'y'.repeat(700), 'x')
-    persona = setSelfCardSection(persona, 'other', 'z'.repeat(700), 'x')
-    persona = setSelfCardSection(persona, 'habits', '还能写吗', 'x')
+  it('clips a section edit to the per-section cap (2000)', () => {
+    const persona = setSelfCardSection({}, 'other', 'z'.repeat(2500), 'x')
     const card = (persona as { selfCard: Record<string, string> }).selfCard
+    expect(SELF_CARD_SECTION_MAX).toBe(2000)
     expect(card.other).toHaveLength(SELF_CARD_SECTION_MAX)
-    expect(card.habits).toBeUndefined()
   })
   it('prompt shows only filled sections under the heading, and the edit rule only when allowed', () => {
     const text = buildSelfCardPrompt({ likes: '雨天' }, true)

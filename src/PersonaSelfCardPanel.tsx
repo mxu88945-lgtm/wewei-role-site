@@ -29,6 +29,7 @@ export default function PersonaSelfCardPanel({ name, card, history, enabled, onS
     const { drafts: last, clean: saved, onSave: save } = pending.current
     SELF_CARD_SECTIONS.forEach(({ key }) => { if (last[key] !== undefined && (last[key] || '').trim() !== (saved[key] || '')) save(key, last[key] || '') })
   }, [])
+  const [open, setOpen] = useState<Partial<Record<SelfCardKey, boolean>>>({})
   const versions = normalizeSelfCardHistory(history)
   const total = selfCardLength(clean)
   return <section className="persona-prompt-panel persona-selfcard-panel">
@@ -37,8 +38,11 @@ export default function PersonaSelfCardPanel({ name, card, history, enabled, onS
       <button className={`switch ${enabled ? 'on' : ''}`} aria-label="让他自己补全" aria-pressed={enabled} {...tap(onToggle)}><span /></button>
     </div>
     {SELF_CARD_SECTIONS.map(({ key, label }) => <div className="persona-selfcard-field" key={key}>
-      <label className="persona-prompt-label" htmlFor={`persona-selfcard-${key}`}>{label}<span>{(drafts[key] || '').length} / {SELF_CARD_SECTION_MAX}</span></label>
-      <textarea id={`persona-selfcard-${key}`} className="persona-selfcard-editor" rows={2} maxLength={SELF_CARD_SECTION_MAX} value={drafts[key] || ''} placeholder="还空着" onFocus={onFocus}
+      <div className="persona-selfcard-head">
+        <label className="persona-prompt-label" htmlFor={`persona-selfcard-${key}`}>{label}<span>{(drafts[key] || '').length} / {SELF_CARD_SECTION_MAX}</span></label>
+        <button type="button" className="persona-selfcard-expand" aria-expanded={!!open[key]} {...tap(() => setOpen((current) => ({ ...current, [key]: !current[key] })))}>{open[key] ? '收起' : '展开'}</button>
+      </div>
+      <textarea id={`persona-selfcard-${key}`} className={`persona-selfcard-editor${open[key] ? ' is-open' : ''}`} rows={2} maxLength={SELF_CARD_SECTION_MAX} value={drafts[key] || ''} placeholder="还空着" onFocus={onFocus}
         onChange={(event) => { const value = event.target.value; setDrafts((current) => ({ ...current, [key]: value })) }}
         onBlur={() => { if ((drafts[key] || '').trim() !== (clean[key] || '')) onSave(key, drafts[key] || '') }} />
     </div>)}

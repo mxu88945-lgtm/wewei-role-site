@@ -20,8 +20,8 @@ export type SelfCardKey = (typeof SELF_CARD_SECTIONS)[number]['key']
 export type SelfCard = Partial<Record<SelfCardKey, string>>
 export type SelfCardVersion = { at: number; reason: string; card: SelfCard }
 
-export const SELF_CARD_SECTION_MAX = 600
-export const SELF_CARD_TOTAL_MAX = 3000
+export const SELF_CARD_SECTION_MAX = 2000
+export const SELF_CARD_TOTAL_MAX = 16000
 export const SELF_CARD_HISTORY_MAX = 20
 
 const ALIASES: Record<string, SelfCardKey> = {
@@ -39,7 +39,7 @@ export function selfCardSection(name: string): SelfCardKey | null {
 
 const isRecord = (value: unknown): value is Record<string, unknown> => Boolean(value) && typeof value === 'object' && !Array.isArray(value)
 
-/** 去空、每栏 ≤600、总计 ≤3000（按栏目顺序，超出的截断）。 */
+/** 去空、每栏 ≤2000、总计 ≤16000（按栏目顺序，超出的截断）。 */
 export function normalizeSelfCard(value: unknown): SelfCard {
   if (!isRecord(value)) return {}
   const out: SelfCard = {}
@@ -78,7 +78,7 @@ export function replaceSelfCard<T extends HasSelfCard>(persona: T, next: SelfCar
   return result
 }
 
-/** 改一栏：每栏 ≤600，总计不超过 3000（超出部分截掉）。空内容 = 清空这一栏。 */
+/** 改一栏：每栏 ≤2000，总计不超过 16000（超出部分截掉）。空内容 = 清空这一栏。 */
 export function setSelfCardSection<T extends HasSelfCard>(persona: T, key: SelfCardKey, content: string, reason: string, now = Date.now()): T {
   const current = normalizeSelfCard(persona.selfCard)
   const othersUsed = selfCardLength(current) - (current[key]?.length || 0)
