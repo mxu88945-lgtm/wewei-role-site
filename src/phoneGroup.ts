@@ -366,7 +366,7 @@ export function shortPlace(place: string) {
 }
 
 /** 小手机成员能看到的“现实此刻”：用户本地时间 + 最近一次定位天气（超过 3 小时的天气不提供，免得说错）。 */
-export function buildPhoneRealWorldNote(now: Date, weather?: PhoneWeatherSnapshot | null) {
+export function buildPhoneRealWorldNote(now: Date, weather?: PhoneWeatherSnapshot | null, closing = '这是群里所有人都看得到的真实时间、地点与天气；聊天时自然地顺着它（比如很晚了会催睡、下雨会提醒带伞），不用每条都提，也不要编造别的时间、地点或天气。') {
   const pad = (value: number) => String(value).padStart(2, '0')
   const weekday = ['日', '一', '二', '三', '四', '五', '六'][now.getDay()]
   const hour = now.getHours()
@@ -376,7 +376,7 @@ export function buildPhoneRealWorldNote(now: Date, weather?: PhoneWeatherSnapsho
     if (weather.place) lines.push(`用户现在在：${simplifyPlace(weather.place)}（手机定位）。`)
     lines.push(`用户所在地天气：${weatherLabel(weather.code).text}，${weather.temp}°C，今天 ${weather.low}～${weather.high}°C。`)
   }
-  lines.push('这是群里所有人都看得到的真实时间、地点与天气；聊天时自然地顺着它（比如很晚了会催睡、下雨会提醒带伞），不用每条都提，也不要编造别的时间、地点或天气。')
+  lines.push(closing)
   return lines.join('\n')
 }
 

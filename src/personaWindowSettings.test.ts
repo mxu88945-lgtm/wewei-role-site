@@ -83,6 +83,14 @@ describe('人格设置：提示词、背景和窗口范围 (v138)', () => {
     expect(String(request[request.length - 1].content)).toContain('只给这个人格看的文件正文')
   })
 
+  it('v215: the real-world note rides in the latest user turn, never in the first system', () => {
+    const persona = normalizePersonaState({ personas: [{ characterId: 'yu', messages: [{ id: 1, role: 'user', text: '几点了', createdAt: 1 }] }] }).personas[0]
+    const request = buildPersonaRequest(persona, activeThread(persona).messages, { ...deps, realWorld: () => '【现实此刻】用户那边现在是 2026年11月12日 星期四 15:05（下午）。' })
+    expect(String(request[0].content)).not.toContain('现实此刻')
+    expect(String(request[request.length - 1].content)).toContain('【现实此刻】')
+    expect(request.filter((item) => item.role === 'system')).toHaveLength(1)
+  })
+
   it('renders grouped navigation with readable descriptions and a switch, not inline cramped controls', () => {
     const noop = () => undefined
     const markup = renderToStaticMarkup(createElement(PersonaSettingsHome, { promptLength: 38, memoryCount: 7, threadCount: 2, threadTitle: '窗口 2', channelName: '很长的渠道名称', modelName: 'long-model-name', pastLifeEnabled: true, onNavigate: noop, onThreads: noop, onMemory: noop, onManage: noop, onTogglePastLife: noop, tap: () => ({ onPointerUp: noop, onClick: noop }) }))

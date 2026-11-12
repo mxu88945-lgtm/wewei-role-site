@@ -63,6 +63,8 @@ export type PersonaRuntimeDeps = {
   songList?: () => string[]
   /** v208：唱片机「现在她正在听」短注，发送时读取；没在放/没暂停在某首返回空串。 */
   nowPlaying?: () => string
+  /** v215：现实此刻（时间、定位、天气），每轮变，放尾巴。 */
+  realWorld?: () => string
 }
 
 /**
@@ -152,6 +154,7 @@ export function planPersonaRequest(persona: PersonaWindow, history: PersonaMessa
   const dynamic = [
     memory.dynamicText,
     triggeredLore && `【本轮触发的世界书背景参考｜只读】\n${stripPersonaFormatInstructions(triggeredLore)}`,
+    deps.realWorld?.().trim(),
     personaTaskStatus(thread.tasks),
     deps.nowPlaying?.().trim(),
     PERSONA_FINAL_GUARD,

@@ -8,6 +8,8 @@ import type { StoryProject } from './storyProject'
 import type { ChatApiMessage } from './chatApi'
 import { applyMacros } from './regexEngine'
 import { CHAT_IMAGE_LIMIT, prepareChatImage, type ChatImage } from './chatImages'
+import { buildPhoneRealWorldNote } from './phoneGroup'
+import { refreshPhoneWeatherIfEnabled } from './phoneWeather'
 import { CHAT_ATTACHMENT_ACCEPT, CHAT_ATTACHMENT_LIMIT, attachmentSizeLabel, isReadableAttachment, prepareChatAttachment, type ChatAttachment } from './chatAttachments'
 import { CHAT_RENDER_WINDOW, earlierChatMessageCount, earlierChatWindowAnchor, resolveChatWindowStart } from './chatWindow'
 import { createKeyboardScrollPin, VIEWPORT_CHANGE_EVENT, VIEWPORT_WILL_CHANGE_EVENT } from './keyboardScrollPin'
@@ -206,6 +208,8 @@ export default function PersonaWindowPage(props: Props) {
   const composerRef = useRef<HTMLDivElement>(null)
   const textareaRef = useRef<HTMLTextAreaElement>(null)
   const attachmentInputRef = useRef<HTMLInputElement>(null)
+  // v215：进人格窗口时顺手刷新定位天气（她在小手机开过才取）。
+  useEffect(() => { void refreshPhoneWeatherIfEnabled() }, [])
   const settingsRef = useRef<HTMLElement>(null)
   const stickRef = useRef(true)
   const prependRef = useRef<{ height: number; top: number } | null>(null)
@@ -252,6 +256,7 @@ export default function PersonaWindowPage(props: Props) {
       setting: () => buildPersonaSetting({ character, characters, conversations, storyProjects: props.storyProjects || [] }),
       songList: () => useMusicStore.getState().tracks.map((track) => track.name),
       nowPlaying: () => { const music = useMusicStore.getState(); return buildNowPlayingNote(music.now, music.lyrics, music.lyricIndex) },
+      realWorld: () => { const closing = '这是你们此刻真实的时间、地点与天气；聊天时自然地顺着它（很晚了可以催睡、下雨会提醒带伞），不用每条都提，也不要编造别的时间、地点或天气。'; try { return buildPhoneRealWorldNote(new Date(), JSON.parse(localStorage.getItem('weijing.phoneWeather') || 'null'), closing) } catch { return buildPhoneRealWorldNote(new Date(), null, closing) } },
     }
   }
 
