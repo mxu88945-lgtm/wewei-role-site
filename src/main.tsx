@@ -22,10 +22,11 @@ import './theme-warmtea.css'
 import './theme-paper.css'
 import './theme-scrapbook.css'
 import './theme-archives.css'
+import './story-composer.css'
 import './memoryApiEnhancements'
 
 const APP_SCOPE = '/wewei-role-site/'
-const SERVICE_WORKER_RELEASE = '2026-11-12-persona-input-v222'
+const SERVICE_WORKER_RELEASE = '2026-11-12-story-input-v223'
 
 if ('serviceWorker' in navigator) {
   let reloadingForUpdate = false

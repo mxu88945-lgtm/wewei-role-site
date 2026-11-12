@@ -142,6 +142,9 @@
 .theme-pudding .composer { border: 2px solid #f8f1d6; background: rgba(253,251,240,.66); box-shadow: 0 5px 0 #f3eac8, 0 12px 26px rgba(176,112,40,.12); }
 .theme-pudding .composer-plus { color: #b6782f; background: #faf4dc; }
 .theme-pudding .composer > textarea { padding-left: 44px; background: url('/pudding-dog.svg') no-repeat 4px center / 36px auto; }
+/* v223 主剧情输入卡同款：小狗留在输入框左侧第一行旁（长高时不跟着跑到中间）；发送键焦糖色实心胶囊。 */
+.theme-pudding .chat-page:not(.phone-chat) > .composer:not(.persona-composer) > textarea { padding-left: 44px; background-position: 2px 0; }
+.theme-pudding .chat-page:not(.phone-chat) > .composer:not(.persona-composer) > .send-button:not(.stop) { color: #fff; border: 0; background: linear-gradient(160deg,#b9772f,#d99a4c); box-shadow: 0 4px 10px rgba(151,104,49,.22); }
 /* v222 人格窗口新输入卡：小狗仍是主题自带的装饰，留在输入框左侧第一行旁（长高时不跟着跑到中间）；发送键改成焦糖色实心胶囊。 */
 .theme-pudding .chat-page.persona-window-page > .composer.persona-composer > textarea { padding-left: 44px; background-position: 2px 0; }
 .theme-pudding .chat-page.persona-window-page > .composer.persona-composer > .send-button:not(.stop) { color: #fff; border: 0; background: linear-gradient(160deg,#b9772f,#d99a4c); box-shadow: 0 4px 10px rgba(151,104,49,.22); }
