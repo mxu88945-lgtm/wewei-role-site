@@ -2,7 +2,7 @@ import type { ApiConfig, ChatApiContentPart, ChatApiMessage } from './chatApi'
 
 /**
  * v209：Claude 提示词缓存（OpenAI 兼容格式，OpenRouter 认的写法）。
- * 第一条 system 打 cache_control；动态尾巴（最后一条 system）之前的那条消息再打一个。
+ * 第一条 system 打 cache_control；最新一条用户消息（v210 起动态尾巴并在它里面）之前的那条消息再打一个。
  * 只对模型名含 claude 的 OpenAI 兼容渠道生效；Gemini 等靠隐式前缀缓存，保持纯字符串。
  * 某个中转站不认数组内容时，chatApi 会去掉标记重试一次，并在本次会话里记住这个渠道。
  */
@@ -40,8 +40,8 @@ function markLastText(content: ChatApiMessage['content']): ChatApiMessage['conte
 }
 
 /**
- * Up to two breakpoints: the stable first system message, and the last conversation turn
- * before the per-turn dynamic system tail. Never mutates the input.
+ * Up to two breakpoints: the stable first system message, and the conversation turn right
+ * before the latest user turn (which carries the per-turn tail since v210). Never mutates the input.
  */
 export function withPromptCache(messages: ChatApiMessage[], api: Pick<ApiConfig, 'baseUrl' | 'modelName' | 'protocol'>): ChatApiMessage[] {
   if (!promptCacheEnabled(api) || messages[0]?.role !== 'system') return messages
@@ -49,9 +49,10 @@ export function withPromptCache(messages: ChatApiMessage[], api: Pick<ApiConfig,
   const first = markLastText(result[0].content)
   if (!first) return messages
   result[0] = { ...result[0], content: first }
-  let tail = -1
-  for (let index = result.length - 1; index > 0; index -= 1) if (result[index].role === 'system') { tail = index; break }
-  const before = tail - 1
+  // v210：动态尾巴已经并进最新一条用户消息；第二个断点打在它前一条（上一轮的最后一条消息）。
+  let latestUser = -1
+  for (let index = result.length - 1; index > 0; index -= 1) if (result[index].role === 'user') { latestUser = index; break }
+  const before = latestUser - 1
   if (before > 0 && result[before].role !== 'system') {
     const marked = markLastText(result[before].content)
     if (marked) result[before] = { ...result[before], content: marked }

@@ -183,6 +183,9 @@ export function playlistForPrompt(names: readonly string[] | undefined, maxCount
 }
 
 /** 系统提示末尾的输出要求（开关开着时，单人剧情和普通群聊都加）。playlist：她歌单里的歌名（v204）。 */
+/** v210：完整规则在开头稳定的 system 里；这句跟着每轮尾巴走，提醒别漏。 */
+export const FILM_CARD_REMINDER = '【剧情美化卡】按开头设定里的「剧情美化卡」格式，在整条回复最末尾输出且只输出一个闭合的 <film>…</film> 块。'
+
 export function filmCardInstruction(speakerName: string, userName: string, hasStatusBlock = false, playlist?: readonly string[]) {
   const songs = playlistForPrompt(playlist)
   const songRule = songs.length

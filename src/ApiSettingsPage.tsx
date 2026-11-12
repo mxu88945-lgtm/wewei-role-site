@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useState } from 'react'
 import { fetchApiModels, type ApiModel } from './chatApi'
+import { formatPromptUsage, readPromptUsage, subscribePromptUsage } from './promptUsage'
 import { API_PLATFORM_PRESETS, applyApiPlatform, getApiPlatformPreset, inferApiPlatform, type ApiChannel, type ApiPlatform } from './apiChannels'
 
 type ConnectionState = 'idle' | 'testing' | 'ok' | 'error'
@@ -130,6 +131,7 @@ export default function ApiSettingsPage({
         <span className="api-feature-binding-copy"><small>专用功能绑定</small><strong>语义召回</strong><em>{semanticRecallLabel}</em></span>
         <i>›</i>
       </button>
+      <PromptCacheReadout />
       <section className="api-channels-panel">
         <div className="api-channels-summary">
           <span><strong>已有渠道 <i>({channels.length})</i></strong><small>当前 · {api.name || '未命名渠道'} · {api.modelName || '未选择模型'}</small></span>
@@ -235,4 +237,14 @@ export default function ApiSettingsPage({
     </div>}
 
   </section>
+}
+
+/** v210：缓存命中读数——每个入口一行，只看最近一次请求。 */
+function PromptCacheReadout() {
+  const [usage, setUsage] = useState(readPromptUsage)
+  useEffect(() => subscribePromptUsage(() => setUsage(readPromptUsage())), [])
+  return <div className="api-cache-readout" aria-label="提示词缓存命中">
+    <small>长剧情 · {formatPromptUsage(usage.main)}</small>
+    <small>人格窗口 · {formatPromptUsage(usage.persona)}</small>
+  </div>
 }

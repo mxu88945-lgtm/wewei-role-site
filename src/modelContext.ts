@@ -1,4 +1,5 @@
 import { stripFilmBlocks } from './filmBlock'
+import { stripTurnContext } from './promptTail'
 
 type ModelContextMessage = {
   role: 'user' | 'assistant'
@@ -36,5 +37,5 @@ export function isFailedTransportAssistantMessage(message: ModelContextMessage) 
 
 export function modelVisibleMessageText(message: ModelContextMessage) {
   if (isFailedTransportAssistantMessage(message)) return ''
-  return message.role === 'assistant' ? stripUiOnlyStatusBlocks(message.text) : message.text
+  return message.role === 'assistant' ? stripUiOnlyStatusBlocks(stripTurnContext(message.text)) : stripTurnContext(message.text)
 }

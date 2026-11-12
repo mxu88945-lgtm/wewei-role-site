@@ -1,4 +1,5 @@
 import { memo, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
+import { stripTurnContext } from './promptTail'
 import DOMPurify from 'dompurify'
 import type { Character } from './characterCard'
 import { applyMacros, applyRegexScripts } from './regexEngine'
@@ -345,7 +346,9 @@ function SandboxHtml({ html, raw = false, paper = false, greetings, onSelectGree
   </div>
 }
 
-function MessageContent({ text, role, character, userName, layout = 'bubble', streaming = false, greetings, onSelectGreeting, noStatus = false, paper = false, messageId, filmAutoplay = false, filmLatest = false }: { text: string; role: 'user' | 'assistant'; character: Character; userName: string; layout?: 'bubble' | 'flat'; streaming?: boolean; noStatus?: boolean; paper?: MessageTheme; messageId?: string | number; filmAutoplay?: boolean; filmLatest?: boolean } & SceneHooks) {
+function MessageContent({ text: storedText, role, character, userName, layout = 'bubble', streaming = false, greetings, onSelectGreeting, noStatus = false, paper = false, messageId, filmAutoplay = false, filmLatest = false }: { text: string; role: 'user' | 'assistant'; character: Character; userName: string; layout?: 'bubble' | 'flat'; streaming?: boolean; noStatus?: boolean; paper?: MessageTheme; messageId?: string | number; filmAutoplay?: boolean; filmLatest?: boolean } & SceneHooks) {
+  // v210：请求专用的【本轮背景】标记永远不显示（只在发出的请求里加，这里兜底）。
+  const text = stripTurnContext(storedText)
   // v204：同一个挂着的消息从「流式中」变成「流式结束」那一刻，补一次剧情卡自动切歌（autoPlayFilmSong 自己去重）。
   // 一开始就不是流式的历史消息永远不会触发。
   const wasStreamingRef = useRef(streaming)

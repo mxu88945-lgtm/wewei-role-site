@@ -4,6 +4,7 @@ import type { Character, CharacterMemoryEntry } from './characterCard'
 import type { Conversation } from './conversationLifecycle'
 import type { LongMemoryMap } from './memoryEngine'
 import { DURABLE_KEYS, parseBackup } from './backupStore'
+import { stripTurnContext } from './promptTail'
 
 const completions: string[] = []
 const requests: { messages: { role: string; content: unknown }[] }[] = []
@@ -210,7 +211,7 @@ describe('前世记忆', () => {
     expect(JSON.stringify(buildPersonaRequest(persona, history, { ...deps, songList: () => [] }))).not.toContain('一起听歌｜你可以自己点歌')
   })
 
-  it('v208/v209 injects the now-playing note into the dynamic tail right before the latest user turn, read at send time', () => {
+  it('v208/v210 carries the now-playing note in the latest user turn tail (not a second system message), read at send time', () => {
     let note = ''
     const deps = { character: gu, user: { name: '周惟惟', description: '' }, api, memoryApi: api, temperature: 1, topP: 1, maxTokens: 1000, streaming: false, memoryLength: 40, pastLife: () => '', nowPlaying: () => note }
     const persona = createPersonaWindow('gu')
@@ -220,10 +221,13 @@ describe('前世记忆', () => {
     const request = buildPersonaRequest(persona, history, deps)
     expect(request[0].role).toBe('system')
     expect(String(request[0].content)).not.toContain('现在她正在听')
-    const tail = request[request.length - 2]
-    expect(tail.role).toBe('system')
-    expect(String(tail.content)).toContain('【现在她正在听】《晴天》（正在放）')
-    expect(request[request.length - 1].role).toBe('user')
+    expect(request.filter((message) => message.role === 'system').length).toBe(1)
+    const last = request[request.length - 1]
+    expect(last.role).toBe('user')
+    expect(String(last.content).startsWith('嗨\n\n【本轮背景（系统提供，非她原话）】')).toBe(true)
+    expect(String(last.content)).toContain('【现在她正在听】《晴天》（正在放）')
+    expect(String(last.content).endsWith('【/本轮背景】')).toBe(true)
+    expect(stripTurnContext(String(last.content))).toBe('嗨')
   })
 
   it('v209 keeps the first system message byte-identical across turns when only per-turn state changes', () => {
@@ -236,12 +240,14 @@ describe('前世记忆', () => {
     const second = buildPersonaRequest(persona, [{ id: 1, role: 'user' as const, text: '嗨', createdAt: 1 }, { id: 2, role: 'assistant' as const, text: '在。', createdAt: 2 }, { id: 3, role: 'user' as const, text: '今天下雨天', createdAt: 3 }], deps, thread)
     expect(second[0]).toEqual(first[0])
     expect(String(first[0].content)).toContain('她每天喝茶')
-    expect(String(second[second.length - 2].content)).toContain('不爱下雨天')
-    expect(String(second[second.length - 2].content)).toContain('《夜曲》（已暂停）')
+    expect(String(second[second.length - 1].content)).toContain('不爱下雨天')
+    expect(String(second[second.length - 1].content)).toContain('《夜曲》（已暂停）')
+    // Earlier turns carry no tail, so the whole history prefix stays byte-stable too.
+    expect(second[1]).toEqual({ role: 'user', content: '嗨' })
     expect(String(second[0].content)).not.toMatch(/剩余|现在她正在听|不爱下雨天/)
   })
 
-  it('v209 adds Claude cache_control breakpoints and leaves Gemini as plain strings', () => {
+  it('v209/v210 adds Claude cache_control breakpoints (first system + turn before the latest user) and leaves Gemini as plain strings', () => {
     const base = { character: gu, user: { name: '周惟惟', description: '' }, memoryApi: api, temperature: 1, topP: 1, maxTokens: 1000, streaming: false, memoryLength: 40, pastLife: () => '' }
     const persona = createPersonaWindow('gu')
     const history = [{ id: 1, role: 'user' as const, text: '嗨', createdAt: 1 }, { id: 2, role: 'assistant' as const, text: '在。', createdAt: 2 }, { id: 3, role: 'user' as const, text: '嗯', createdAt: 3 }]
@@ -249,9 +255,10 @@ describe('前世记忆', () => {
     expect(claude[0].content).toEqual([expect.objectContaining({ type: 'text', cache_control: { type: 'ephemeral' } })])
     const marked = claude.filter((message) => Array.isArray(message.content) && message.content.some((part) => part.type === 'text' && part.cache_control))
     expect(marked.length).toBe(2)
-    expect(claude[claude.length - 3]).toMatchObject({ role: 'assistant' })
-    expect(Array.isArray(claude[claude.length - 3].content)).toBe(true)
-    expect(typeof claude[claude.length - 2].content).toBe('string')
+    expect(claude[claude.length - 2]).toMatchObject({ role: 'assistant' })
+    expect(Array.isArray(claude[claude.length - 2].content)).toBe(true)
+    expect(claude[claude.length - 1].role).toBe('user')
+    expect(typeof claude[claude.length - 1].content).toBe('string')
     const gemini = buildPersonaRequest(persona, history, { ...base, api: { ...api, modelName: 'gemini-2.5-pro' } })
     expect(JSON.stringify(gemini)).not.toContain('cache_control')
     expect(gemini.every((message) => typeof message.content === 'string')).toBe(true)

@@ -167,7 +167,7 @@ describe('人格分层记忆的实际运行流程 (v139)', () => {
     expect(messages[2]).toMatchObject({ role: 'user', text: '看看这张图', images: [image], attachments: [attachment] })
     expect(messages[2].id).toBeGreaterThan(original[1].id)
     const request = mock.calls[1].messages
-    expect(request[request.length - 1]?.content).toEqual([{ type: 'text', text: expect.stringContaining('文件里的关键正文') }, { type: 'image_url', image_url: { url: image.dataUrl, detail: 'auto' } }])
+    expect(request[request.length - 1]?.content).toEqual([{ type: 'text', text: expect.stringContaining('文件里的关键正文') }, { type: 'image_url', image_url: { url: image.dataUrl, detail: 'auto' } }, { type: 'text', text: expect.stringContaining('【本轮背景（系统提供，非她原话）】') }])
   })
 
   it('creates at most one task after successful generation, hides controls, respects the off switch and deduplicates active cards', async () => {
@@ -196,13 +196,16 @@ describe('人格分层记忆的实际运行流程 (v139)', () => {
     expect(current().threads[0].messages).toHaveLength(1)
     expect(current().threads[0].messages[0]).toMatchObject({ role: 'assistant', taskCompletionId: task.id })
     expect(current().threads[1].messages).toEqual([])
-    expect(String(mock.calls[0].messages[0].content)).toContain('应用事件，不是用户打字')
+    // v210：事件是最新一条（请求专用的）用户消息，第一条 system 不变，缓存不断。
+    const sent = mock.calls[0].messages
+    expect(String(sent[sent.length - 1].content)).toContain('应用事件，不是用户打字')
+    expect(String(sent[0].content)).not.toContain('应用事件')
     expect(current().threads[0].tasks?.[0].reactedAt).toBeDefined()
     await generatePersonaReply(persona.id, deps, { threadId, taskCompletionId: task.id })
     expect(mock.calls).toHaveLength(1)
     await generatePersonaReply(persona.id, deps, { threadId, regenerate: true })
     expect(mock.calls).toHaveLength(2)
-    expect(String(mock.calls[1].messages[0].content)).toContain('用户刚刚点击完成')
+    expect(String(mock.calls[1].messages[mock.calls[1].messages.length - 1].content)).toContain('用户刚刚点击完成')
     expect(current().threads[0].messages).toHaveLength(1)
   })
 

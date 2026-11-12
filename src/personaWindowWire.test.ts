@@ -69,14 +69,17 @@ describe('persona window — what actually goes on the wire', () => {
     ])
     const messages = body.messages as WireMessage[]
     const roles = messages.map((item) => item.role)
-    expect(roles.filter((role) => role === 'system').length).toBe(2)
+    expect(roles.filter((role) => role === 'system').length).toBe(1)
     expect(roles[0]).toBe('system')
     const first = String(messages[0].content)
     for (const piece of ['独立人格窗口', '虞山行，市委书记', '外冷内热', '他从不打官腔', '虞书记与周惟惟相识十年', '他答应过雨天去接她', '惟惟的身份']) expect(first).toContain(piece)
-    expect(roles.slice(-2)).toEqual(['system', 'user'])
-    expect(String(messages[messages.length - 1].content)).toContain('你记得我吗？')
-    expect(String(messages[messages.length - 2].content)).toContain('你是名为虞山行的 AI 人格')
-    expect(String(messages[messages.length - 2].content)).toContain('客服腔')
+    // v210：提醒不再是第二条 system（中转站会丢），而是接在她这句话后面的【本轮背景】。
+    expect(roles.slice(-2)).toEqual(['assistant', 'user'])
+    const last = String(messages[messages.length - 1].content)
+    expect(last.startsWith('你记得我吗？\n\n【本轮背景（系统提供，非她原话）】')).toBe(true)
+    expect(last).toContain('你是名为虞山行的 AI 人格')
+    expect(last).toContain('客服腔')
+    expect(last.endsWith('【/本轮背景】')).toBe(true)
     const saved = getPersonaState().personas[0].threads[0].messages
     expect(saved[saved.length - 1].text).toContain("来了")
   })
@@ -92,8 +95,11 @@ describe('persona window — what actually goes on the wire', () => {
     const out = consolidatePersonaMessages([
       { role: 'system', content: 'A' }, { role: 'system', content: 'B' }, { role: 'user', content: 'u' }, { role: 'assistant', content: 'a' }, { role: 'system', content: PERSONA_FINAL_GUARD },
     ])
-    expect(out.map((item) => item.role)).toEqual(['system', 'user', 'assistant', 'system'])
+    // Ends on an assistant turn: a request-only bridge user turn carries the tail.
+    expect(out.map((item) => item.role)).toEqual(['system', 'user', 'assistant', 'user'])
     expect(out[0].content).toBe('A\n\nB')
+    expect(String(out[3].content)).toContain('请根据以上对话继续回应。')
+    expect(String(out[3].content)).toContain(PERSONA_FINAL_GUARD)
   })
 
   it.each(['openai', 'anthropic'] as const)('%s: persona preferences and background boundaries survive the actual transport', async (protocol) => {

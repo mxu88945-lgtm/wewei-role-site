@@ -1,4 +1,5 @@
 import { describe, expect, it } from 'vitest'
+import { stripTurnContext } from './promptTail'
 import { renderToStaticMarkup } from 'react-dom/server'
 import { createElement } from 'react'
 import MessageContent from './MessageContent'
@@ -54,7 +55,8 @@ describe('人格窗口：原卡美化隔离 (v137)', () => {
       { id: 1, role: 'assistant' as const, text: '<scene>旧场景</scene>“来了。”<psychology>他记得她。</psychology><yu_status>旧状态</yu_status>', createdAt: 1 },
     ]]) {
       const request = buildPersonaRequest(createPersonaWindow('yu'), [...history, { id: 2, role: 'user', text: '老公，<psychology>是什么意思？', createdAt: 2 }], deps)
-      const systems = request.filter((message) => message.role === 'system').map((message) => String(message.content)).join('\n')
+      // v210：每轮提醒在最新用户消息的【本轮背景】里，一起算作幕后设定。
+      const systems = [...request.filter((message) => message.role === 'system').map((message) => String(message.content)), String(request[request.length - 1].content)].join('\n')
       for (const piece of ['旧栏模板', '示例心理模板', '旧卡开场', '每次都套用模板']) expect(systems).not.toContain(piece)
       for (const piece of ['市委书记', '相识十年', '外冷内热', '他记得她喜欢晴天', '“过来。”', '不输出场景栏']) expect(systems).toContain(piece)
       const assistant = request.find((message) => message.role === 'assistant')
@@ -62,7 +64,8 @@ describe('人格窗口：原卡美化隔离 (v137)', () => {
         expect(assistant.content).toContain('他记得她。')
         expect(String(assistant.content)).not.toMatch(/<|旧场景|旧状态/)
       }
-      expect(request[request.length - 1].content).toBe('老公，<psychology>是什么意思？')
+      expect(stripTurnContext(String(request[request.length - 1].content))).toBe('老公，<psychology>是什么意思？')
+      expect(String(request[request.length - 1].content).startsWith('老公，<psychology>是什么意思？\n\n【本轮背景')).toBe(true)
     }
   })
 

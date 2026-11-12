@@ -1,4 +1,5 @@
 import { hasPromptCache, markPromptCacheUnsupported, promptCacheUnsupported, stripPromptCache } from './promptCache'
+import { mergeUsage, readUsage, type PromptUsage } from './promptUsage'
 export type ApiConfig = { baseUrl: string; apiKey: string; modelName: string; protocol?: 'openai' | 'anthropic'; maxTokenField?: 'auto' | 'max_tokens' | 'max_completion_tokens' }
 export type ChatApiContentPart =
   | { type: 'text'; text: string; cache_control?: { type: 'ephemeral' } }
@@ -36,7 +37,20 @@ type CompletionOptions = {
   onActivity?: (activity: CompletionActivity) => void
   /** Bound the entire completion, including reconnects and JSON bodies. */
   timeoutMs?: number
+  /**
+   * v210：读到的用量（输入 / 缓存命中 token）；渠道没返回时给 null。流式时可能在回复结束后稍晚一点才调用。
+   * Only the caller that wants a cache readout passes it; nothing else changes when it is absent.
+   */
+  onUsage?: (usage: PromptUsage | null) => void
 }
+
+// v210：stream_options.include_usage 被某个中转站拒绝后，本次会话不再给这个渠道带。
+const streamOptionsRejected = new Set<string>()
+const streamOptionsKey = (api: Pick<ApiConfig, 'baseUrl' | 'modelName'>) => `${api.baseUrl.trim().replace(/\/+$/, '')}|${api.modelName.trim()}`
+/** Test helper. */
+export function resetStreamOptionsMemory() { streamOptionsRejected.clear() }
+/** After finish_reason, how long a stream may keep going just to deliver its trailing usage chunk. */
+const USAGE_DRAIN_MS = 2_500
 
 const CONNECT_TIMEOUT_MS = 45_000
 const NON_STREAM_RESPONSE_TIMEOUT_MS = 180_000
@@ -266,7 +280,7 @@ function streamDelta(data: any) {
   return typeof data?.response?.output_text === 'string' ? data.response.output_text : ''
 }
 
-async function consumeJson(response: Response, onDelta: (delta: string) => void, onActivity?: (activity: CompletionActivity) => void): Promise<CompletionResult> {
+async function consumeJson(response: Response, onDelta: (delta: string) => void, onActivity?: (activity: CompletionActivity) => void, onUsage?: (usage: PromptUsage | null) => void): Promise<CompletionResult> {
   let data: any
   try {
     data = await response.json()
@@ -278,6 +292,7 @@ async function consumeJson(response: Response, onDelta: (delta: string) => void,
   if (!content) throw new ChatApiError(reasoningActivity(data) ? '模型只返回了思考数据，没有返回可显示的正文。' : '接口返回成功，但没有回复内容。', 'response', true)
   onActivity?.('content')
   onDelta(content)
+  onUsage?.(readUsage(data))
   const finishReason = choice?.finish_reason ?? data?.stop_reason
   return { finishReason: typeof finishReason === 'string' ? finishReason : null }
 }
@@ -308,8 +323,9 @@ async function consumeEventStream(
   onDelta: (delta: string) => void,
   signal: AbortSignal,
   onActivity?: (activity: CompletionActivity) => void,
+  onUsage?: (usage: PromptUsage | null) => void,
 ): Promise<CompletionResult> {
-  if (!response.body) return consumeJson(response, onDelta, onActivity)
+  if (!response.body) return consumeJson(response, onDelta, onActivity, onUsage)
   const reader = response.body.getReader()
   const decoder = new TextDecoder()
   let buffer = ''
@@ -318,6 +334,10 @@ async function consumeEventStream(
   let contentReceived = false
   let meaningfulActivity = false
   const firstActivityDeadline = Date.now() + FIRST_STREAM_ACTIVITY_TIMEOUT_MS
+  let usage: PromptUsage | null = null
+  let sawDone = false
+  let leftover: string[] = []
+  let draining = false
 
   const consumeEvent = (event: string) => {
     for (const line of event.split(/\r?\n/)) {
@@ -329,10 +349,12 @@ async function consumeEventStream(
       // boundary instead of waiting forever for reader.read() to return done.
       if (payload === '[DONE]') {
         streamEnded = true
+        sawDone = true
         return
       }
       try {
         const data = JSON.parse(payload)
+        usage = mergeUsage(usage, readUsage(data))
         const choice = data?.choices?.[0]
         if (reasoningActivity(data)) {
           meaningfulActivity = true
@@ -364,9 +386,9 @@ async function consumeEventStream(
       buffer += decoder.decode(value || new Uint8Array(), { stream: !done })
       const events = buffer.split(/\r?\n\r?\n/)
       buffer = events.pop() || ''
-      for (const event of events) {
-        consumeEvent(event)
-        if (streamEnded) break
+      for (let index = 0; index < events.length; index += 1) {
+        consumeEvent(events[index])
+        if (streamEnded) { leftover = events.slice(index + 1); break }
       }
       if (!meaningfulActivity && Date.now() >= firstActivityDeadline) {
         throw new ChatApiError('接口已连接，但 45 秒内没有返回正文或思考活动。', 'stream', true)
@@ -376,6 +398,12 @@ async function consumeEventStream(
     if (!streamEnded && buffer.trim()) consumeEvent(buffer)
     if (!contentReceived) {
       throw new ChatApiError(meaningfulActivity ? '模型结束了思考流，但没有返回可显示的正文。' : '接口数据流已结束，但没有回复内容。', 'stream', true)
+    }
+    if (onUsage) {
+      // OpenAI-style relays send usage in one extra chunk AFTER finish_reason. Don't hold the reply for it:
+      // return now and keep reading briefly in the background, then report what we found.
+      if (usage || sawDone || !streamEnded) onUsage(usage)
+      else { draining = true; void drainUsage(reader, decoder, [...leftover, buffer], signal, usage, onUsage) }
     }
     return { finishReason }
   } catch (error) {
@@ -391,7 +419,38 @@ async function consumeEventStream(
     // A few relay/browser combinations leave cancel() pending even after [DONE].
     // The response is already complete (or failed); never keep the UI waiting
     // for transport cleanup.
+    if (!draining) void reader.cancel().catch(() => {})
+  }
+}
+
+async function drainUsage(reader: ReadableStreamDefaultReader<Uint8Array>, decoder: TextDecoder, pending: string[], signal: AbortSignal, initial: PromptUsage | null, onUsage: (usage: PromptUsage | null) => void) {
+  let usage = initial
+  let done = false
+  const scan = (event: string) => {
+    for (const line of event.split(/\r?\n/)) {
+      if (!line.startsWith('data:')) continue
+      const payload = line.slice(5).trim()
+      if (payload === '[DONE]') { done = true; return }
+      try { usage = mergeUsage(usage, readUsage(JSON.parse(payload))) } catch { /* keep-alive */ }
+    }
+  }
+  let buffer = pending.pop() || ''
+  pending.forEach(scan)
+  const deadline = Date.now() + USAGE_DRAIN_MS
+  try {
+    while (!usage && !done && Date.now() < deadline) {
+      const chunk = await readStreamChunk(reader, signal, Math.max(1, deadline - Date.now()))
+      buffer += decoder.decode(chunk.value || new Uint8Array(), { stream: !chunk.done })
+      const events = buffer.split(/\r?\n\r?\n/)
+      buffer = events.pop() || ''
+      events.forEach(scan)
+      if (chunk.done) { if (buffer.trim()) scan(buffer); break }
+    }
+  } catch {
+    // Timed out or aborted: report whatever we have.
+  } finally {
     void reader.cancel().catch(() => {})
+    onUsage(usage)
   }
 }
 
@@ -414,6 +473,8 @@ type RequestCompatibility = {
   tokenField: 'max_tokens' | 'max_completion_tokens'
   omitTemperature: boolean
   omitTopP: boolean
+  /** v210：流式时请中转站在最后带上 usage（缓存命中读数）；被拒就去掉。 */
+  streamOptions: boolean
 }
 
 function unsupportedParameter(message: string, parameter: string) {
@@ -494,7 +555,7 @@ export async function completeChat(options: CompletionOptions): Promise<Completi
 }
 
 async function completeChatRequest(options: CompletionOptions) {
-  const { api, temperature, topP, maxTokens, streaming, signal, onDelta, onActivity } = options
+  const { api, temperature, topP, maxTokens, streaming, signal, onDelta, onActivity, onUsage } = options
   const anthropic = api.protocol === 'anthropic'
   // v209：Claude cache_control 只走 OpenAI 兼容格式；原生 Anthropic 或已知不认的渠道一律去掉标记。
   let messages = anthropic || promptCacheUnsupported(api) ? stripPromptCache(options.messages) : options.messages
@@ -502,6 +563,8 @@ async function completeChatRequest(options: CompletionOptions) {
     tokenField: tokenField(api),
     omitTemperature: false,
     omitTopP: false,
+    // Only when someone reads usage, only for OpenAI-compatible streams, and never for a channel that refused it.
+    streamOptions: Boolean(onUsage) && streaming && !anthropic && !streamOptionsRejected.has(streamOptionsKey(api)),
   }
 
   const request = async (effectiveMaxTokens: number) => {
@@ -519,6 +582,7 @@ async function completeChatRequest(options: CompletionOptions) {
             ...(!compatibility.omitTopP ? { top_p: topP } : {}),
             [compatibility.tokenField]: effectiveMaxTokens,
             stream: streaming,
+            ...(compatibility.streamOptions ? { stream_options: { include_usage: true } } : {}),
           }),
           signal,
         }, streaming ? CONNECT_TIMEOUT_MS : NON_STREAM_RESPONSE_TIMEOUT_MS, Boolean(options.timeoutMs))
@@ -573,6 +637,12 @@ async function completeChatRequest(options: CompletionOptions) {
         compatibility.omitTopP = true
         continue
       }
+      // v210：中转站不认 stream_options：去掉重试，本次会话记住这个渠道（只是少了用量读数）。
+      if (compatibility.streamOptions && (/stream_options|include_usage/i.test(message) || status === 400 || status === 422)) {
+        compatibility.streamOptions = false
+        streamOptionsRejected.add(streamOptionsKey(api))
+        continue
+      }
       // 中转站不认数组内容/cache_control：去掉标记重试一次，本次会话记住这个渠道。
       if (hasPromptCache(messages) && ![401, 402, 403, 429].includes(status)) {
         markPromptCacheUnsupported(api)
@@ -592,9 +662,9 @@ async function completeChatRequest(options: CompletionOptions) {
       // Some OpenAI-compatible relays ignore `stream: false` and still answer
       // with SSE. Trust the actual response format before the requested mode.
       if (contentType.includes('text/event-stream') || (streaming && !contentType.includes('application/json'))) {
-        return await consumeEventStream(response, onDelta, signal, onActivity)
+        return await consumeEventStream(response, onDelta, signal, onActivity, onUsage)
       }
-      return await consumeJson(response, onDelta, onActivity)
+      return await consumeJson(response, onDelta, onActivity, onUsage)
     } catch (error) {
       if (!(error instanceof ChatApiError) || !error.retryable || streamAttempt === 2 || signal.aborted) throw error
       onActivity?.('retrying')

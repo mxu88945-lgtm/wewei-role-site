@@ -46,7 +46,9 @@ describe('人格设置：提示词、背景和窗口范围 (v138)', () => {
       expect(first).toContain('少写场景，多说自己的想法。')
       expect(first).toContain('不要自动套用原卡身份、关系或场景')
       expect(first).not.toMatch(/【用户主角控制权|【角色消息美化连续性|你不是 AI/)
-      expect(request.map((item) => item.role)).toEqual(['system', 'system', 'user'])
+      // v210：只有一条 system；每轮提醒并进最新用户消息末尾。
+      expect(request.map((item) => item.role)).toEqual(['system', 'user'])
+      expect(String(request[1].content)).toContain('【本轮背景（系统提供，非她原话）】')
     }
     expect(JSON.stringify(card)).toBe(snapshot)
   })
@@ -64,7 +66,10 @@ describe('人格设置：提示词、背景和窗口范围 (v138)', () => {
     expect(String(request[0].content)).toContain('每天聊聊新鲜事')
     expect(String(request[0].content)).toContain('更早聊过工作')
     expect(request.find((message) => message.role === 'assistant')?.content).toBe('“我在。”')
-    expect(request[request.length - 1].content).toEqual([{ type: 'text', text: '看这张图' }, { type: 'image_url', image_url: { url: 'data:image/png;base64,aGVsbG8=', detail: 'auto' } }])
+    const last = request[request.length - 1].content as unknown[]
+    expect(last.slice(0, 2)).toEqual([{ type: 'text', text: '看这张图' }, { type: 'image_url', image_url: { url: 'data:image/png;base64,aGVsbG8=', detail: 'auto' } }])
+    expect(last[2]).toMatchObject({ type: 'text', text: expect.stringMatching(/^【本轮背景（系统提供，非她原话）】[\s\S]*【\/本轮背景】$/) })
+    expect(last).toHaveLength(3)
   })
 
   it('keeps a text attachment inside its persona window and sends the extracted body to the model', () => {

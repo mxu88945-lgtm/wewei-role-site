@@ -371,3 +371,7 @@
 
   .api-add-channel-sheet { margin-bottom: 28px; border-radius: 30px; }
 }
+
+/* v210 提示词缓存读数：两行小字，不抢眼 */
+.api-cache-readout { display: grid; gap: 3px; padding: 2px 6px; }
+.api-cache-readout small { font-size: 12px; line-height: 1.45; color: inherit; opacity: .6; overflow-wrap: anywhere; }

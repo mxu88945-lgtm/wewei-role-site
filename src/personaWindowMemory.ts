@@ -4,6 +4,7 @@
  * No model calls, transcript mutation, or cross-persona lookup in this module.
  */
 import type { PersonaMemoryEntry, PersonaMessage, PersonaThread, PersonaWindow } from './personaWindow'
+import { stripTurnContext } from './promptTail'
 import { personaReplyText } from './personaWindowPresentation'
 
 export const PERSONA_MEMORY_BUDGET = 6400
@@ -29,7 +30,7 @@ export function personaMemoryEntryAvailable(persona: PersonaWindow, entry: Perso
   const thread = persona.threads.find((item) => item.id === entry.sourceThreadId)
   return Boolean(thread && entry.sourceMessageIds.every((id) => thread.messages.some((message) => message.id === id && usable(message))))
 }
-const rawText = (message: PersonaMessage) => message.role === 'assistant' ? personaReplyText(message.text) : message.text
+const rawText = (message: PersonaMessage) => message.role === 'assistant' ? personaReplyText(message.text) : stripTurnContext(message.text)
 const keyOf = (threadId: string, messageId: number) => `${threadId}|${messageId}`
 const sourceOf = (hit: Hit): PersonaRecallSource => ({ threadId: hit.thread.id, messageId: hit.message.id, title: hit.thread.title, role: hit.message.role, createdAt: hit.message.createdAt })
 export function personaMemoryNearDuplicate(value: string, prior: Iterable<string>) {

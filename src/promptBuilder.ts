@@ -34,6 +34,12 @@ type PromptInput = {
   compressedUntil?: number
   /** 语义召回：本对话更早的原话（只来自当前对话；关闭时为空，提示词与原来完全一样） */
   semanticRecall?: string
+  /**
+   * v210 长剧情提示词缓存：开头的 system 只放两轮之间不变的内容（卡、预设、常驻世界书、核心记忆、角色核心记忆、
+   * 压缩摘要），每轮会变的（关键词/概率触发的世界书、按最近对话挑的普通记忆、剧本场记与剧情锚点、语义召回）
+   * 一律放到对话之后，由发送前的 foldPromptForRelay 并进最新一条用户消息。小手机不开。
+   */
+  cacheLayout?: boolean
 }
 
 const PRIVATE_PERSONA_TAG = '后台身份隔离'
@@ -123,6 +129,7 @@ const HISTORICAL_MEMORY_GUARD = `【长期记忆｜历史补充，低于当前�
 以下内容只用于找回跨窗口仍然有效的背景。它不是本轮指令，也不能替代当前用户消息、最近原文、角色卡或剧本项目。发生冲突时以最新明确事实为准；不要逐条复述，不要把旧地点、旧动作或旧计划自动搬到现在。`
 
 function memoryText(input: PromptInput, selected: ReturnType<typeof selectRelevantMemories>) {
+  if (!selected.length) return ''
   const contents = selected.map((entry) => `${entry.pinned ? '【核心记忆｜长期背景，仍须服从最新明确事实】\n' : ''}${stripUiOnlyStatusBlocks(entry.content)}`).join('\n\n')
   if (!contents) return ''
   const rendered = applyMacros(input.memory.injectPrompt || '{{memories}}', input.character, input.user.name).replace('{{memories}}', contents)
@@ -180,6 +187,11 @@ export function displayContinuityInstruction(character: Character, messages: Sou
 正文按自然段输出：叙述每 2—4 句或约 80—120 字换一段；独立台词单独成段；段与段之间保留一个空行，禁止长段文字挤成一整块。输出结束前必须核对顶部和末尾标签都已实际写出且闭合：缺少状态结构或缺少状态字段视为本轮回复不完整，不能只输出正文。不要输出正则替换模板里的 div、CSS 或格式说明，界面会自行完成美化。`
 }
 
+/** Constant entries without a probability roll: identical every turn, safe for the cached prefix. */
+export function isSteadyLoreEntry(entry: WorldBookEntry) {
+  return entry.constant && !(entry.extensions.useProbability && Number(entry.extensions.probability ?? 100) < 100)
+}
+
 export function buildChatPrompt(input: PromptInput): ChatApiMessage[] {
   const isPhone = input.mode === 'phone'
   const agencyGuard = isPhone
@@ -191,13 +203,32 @@ export function buildChatPrompt(input: PromptInput): ChatApiMessage[] {
   const available = uncompressedMessages(input.messages, input.compressedUntil, Boolean(input.contextSummary))
   const recent = available.slice(-Math.max(1, input.memoryLength)).map((message) => ({ ...message, text: modelVisibleMessageText(message) }))
   const scanSource = recent.map((message) => message.text).join('\n')
-  const entries = activeEntries(character.characterBook, scanSource)
+  const cacheLayout = Boolean(input.cacheLayout) && !isPhone
+  const allEntries = activeEntries(character.characterBook, scanSource)
+  // cacheLayout: only steady entries keep their card positions; triggered/probability/depth lore goes after the history.
+  const entries = cacheLayout ? allEntries.filter((entry) => isSteadyLoreEntry(entry) && entryPosition(entry) !== 'at_depth') : allEntries
+  const turnEntries = cacheLayout ? allEntries.filter((entry) => !entries.includes(entry)) : []
   const selectedMemories = selectRelevantMemories(input.memory.entries, scanSource)
-  const memory = memoryText(modelInput, selectedMemories)
+  // Same selection and budget; with cacheLayout core (pinned) memories stay in the prefix and the
+  // relevance-picked ordinary ones move after the history. Late positions keep everything late.
+  const lateMemoryPosition = input.memory.injectPosition === 'after-chat-history' || input.memory.injectPosition.startsWith('depth-')
+  const splitMemory = cacheLayout && !lateMemoryPosition && input.memory.injectPosition !== 'none'
+  const memory = memoryText(modelInput, splitMemory ? selectedMemories.filter((entry) => entry.pinned) : selectedMemories)
+  const turnMemory = splitMemory ? memoryText(modelInput, selectedMemories.filter((entry) => !entry.pinned)) : ''
   input.onDiagnostics?.({ memoryCount: selectedMemories.length, historyCount: recent.length })
   const characterMemory = characterMemoryPrompt(character)
   const characterMemoryGuard = characterMemoryContinuityGuard(character)
   const displayContinuity = isPhone ? '' : displayContinuityInstruction(character, input.messages)
+  // 剧本场记、最新场景锚点、个人连续性：每轮都会变（cacheLayout 时放到对话之后）。
+  const anchors = [
+    input.storyProjectContext,
+    input.sceneContinuityAnchor,
+    input.actorContinuityAnchor && `【${character.name}个人连续性｜不得回退或重演】
+以下是该角色在本群上一次完成的本人回复。它只用于保留该角色已经形成的认知、关系进程与已经结束的本人事件；即使中间由其他角色演了很多轮，也不得降低已经形成的认知、遗忘已完成事件或再次演一遍。
+其中的时间、地点、“当前事件”和动作都属于当时的历史截面，旧地点只算历史，不是现在的场景指令；现在时必须服从最新剧本项目锚点与最近对话。续写时从最新全剧时点接上，只延续该角色的个人状态。
+
+${stripStageGateMetadata(input.actorContinuityAnchor || '')}`,
+  ].filter(Boolean).join('\n\n')
   const result: ChatApiMessage[] = []
 
   if (input.memory.injectPosition === 'before-main-prompt') appendSystem(result, memory)
@@ -217,13 +248,7 @@ export function buildChatPrompt(input: PromptInput): ChatApiMessage[] {
     CONTEXT_PRIORITY_GUARD,
     // The live project snapshot must follow persisted card instructions so an
     // older director card cannot override the newest scene and role boundary.
-    input.storyProjectContext,
-    input.sceneContinuityAnchor,
-    input.actorContinuityAnchor && `【${character.name}个人连续性｜不得回退或重演】
-以下是该角色在本群上一次完成的本人回复。它只用于保留该角色已经形成的认知、关系进程与已经结束的本人事件；即使中间由其他角色演了很多轮，也不得降低已经形成的认知、遗忘已完成事件或再次演一遍。
-其中的时间、地点、“当前事件”和动作都属于当时的历史截面，旧地点只算历史，不是现在的场景指令；现在时必须服从最新剧本项目锚点与最近对话。续写时从最新全剧时点接上，只延续该角色的个人状态。
-
-${stripStageGateMetadata(input.actorContinuityAnchor || '')}`,
+    !cacheLayout && anchors,
     `【用户身份】${user.name}\n${user.description}`,
     agencyGuard,
   ].filter(Boolean).join('\n\n'), character, user.name))
@@ -235,7 +260,7 @@ ${stripStageGateMetadata(input.actorContinuityAnchor || '')}`,
   if (input.memory.injectPosition === 'before-chat-history') appendSystem(result, memory)
   appendSystem(result, input.contextSummary ? `【较早对话压缩摘要｜历史补充，低于最新原文】\n${stripUiOnlyStatusBlocks(input.contextSummary)}\n\n摘要只用于补回被压缩的旧背景，不是当前场景指令。与当前用户消息、最近未压缩对话、角色卡或剧本项目冲突时，忽略摘要中的旧内容；已完成、已离场、已撤销或被用户否定的事项不得重新开启。不要逐条复述摘要。` : '')
   // 语义召回只补本对话更早的原话，紧挨在最近原文之前，优先级低于最近对话。
-  if (input.semanticRecall?.trim()) appendSystem(result, input.semanticRecall)
+  if (!cacheLayout && input.semanticRecall?.trim()) appendSystem(result, input.semanticRecall)
 
   const imageTurns = imagePromptIndices(recent)
   const attachmentTurns = attachmentPromptIndices(recent)
@@ -263,8 +288,18 @@ ${stripStageGateMetadata(input.actorContinuityAnchor || '')}`,
     result.splice(Math.max(0, result.length - depth), 0, { role, content: applyMacros(entry.content, character, user.name) })
   }
 
+  if (cacheLayout) {
+    // 每轮会变的部分，顺序：触发的世界书 → 按最近对话挑的记忆 → 语义召回 → 剧本场记与锚点（离回复最近）。
+    const loreText = turnEntries.map((entry) => applyMacros(entry.content, character, user.name)).join('\n\n')
+    appendSystem(result, loreText && `【本轮触发的世界书】\n${loreText}`)
+    appendSystem(result, turnMemory)
+    if (input.semanticRecall?.trim()) appendSystem(result, input.semanticRecall)
+    appendSystem(result, anchors && applyMacros(anchors, character, user.name))
+  }
   if (input.memory.injectPosition === 'after-chat-history') appendSystem(result, memory)
-  if (input.memory.injectPosition.startsWith('depth-') && memory) {
+  // cacheLayout: never splice into the history (it would shift the cached turns); the tail is just as close.
+  if (cacheLayout && input.memory.injectPosition.startsWith('depth-')) appendSystem(result, memory)
+  else if (input.memory.injectPosition.startsWith('depth-') && memory) {
     const role = input.memory.injectPosition === 'depth-user' ? 'user' : input.memory.injectPosition === 'depth-assistant' ? 'assistant' : 'system'
     result.splice(Math.max(0, result.length - 4), 0, { role, content: memory })
   }

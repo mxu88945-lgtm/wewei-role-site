@@ -49,6 +49,9 @@ import { assignLibraryGroup, libraryPlacementDraft, preserveLibraryPlacement, au
 import { activeCharacterMemory, characterMemoryEntryFromConversation, characterMemoryExtractionPrompt, characterMemorySummaryProtocol, parseCharacterMemoryCandidates, splitCharacterMemorySummary } from './characterMemory'
 import { ChatApiError, completeChat, fetchApiModels, testApiConnection, type ApiConfig, type ApiModel } from './chatApi'
 import { buildChatPrompt } from './promptBuilder'
+import { foldPromptForRelay } from './promptTail'
+import { withPromptCache } from './promptCache'
+import { recordPromptUsage } from './promptUsage'
 import { CHAT_IMAGE_LIMIT, CHAT_VIDEO_MAX_FRAMES, prepareChatImage, prepareChatVideo, type ChatImage } from './chatImages'
 import { captureTemporaryPlot, consumeTemporaryPlot, withAssistantRetryInstruction, withFinalTemporaryPlotInstruction } from './temporaryPlot'
 import { checkAndRepairTemporaryPlot, reviewTemporaryPlotReply } from './temporaryPlotReview'
@@ -100,7 +103,7 @@ import { addBackstageNote, appendBackstageCharacterReply, BACKSTAGE_REPLY_IMAGE_
 import MusicPlayer from './MusicPlayer'
 import { FilmGalleryManager } from './FilmGallery'
 import { useMusicStore, currentMusicNote } from './musicStore'
-import { filmCardInstruction, stripFilmBlocks } from './filmBlock'
+import { FILM_CARD_REMINDER, filmCardInstruction, stripFilmBlocks } from './filmBlock'
 import { autoPlayFilmSong } from './filmAutoplay'
 import { messageEditorSheetHeight } from './messageEditorSize'
 import { buildMusicNote } from './lyrics'
@@ -2848,6 +2851,8 @@ function App() {
       semanticRecall: isPhone || isDirector ? undefined : requestOptions.semanticRecall,
       // Phone history is already a tail slice: its indices no longer match the saved transcript.
       compressedUntil: !isPhone && hasValidContextSummary ? conversation.compressedUntil : undefined,
+      // v210：长剧情（含普通群聊）走提示词缓存布局；小手机不动。
+      cacheLayout: !isPhone,
     })
     const storedRelationshipStage: RelationshipStage | 0 = capturedCharacter.name === '顾霆深' && !isPhone
       ? Math.max(conversation.relationshipStages?.[capturedCharacter.id] || 0, highestRelationshipStage(nextMessages, capturedCharacter.id) || 0) as RelationshipStage
@@ -2885,7 +2890,12 @@ function App() {
     }
     if (isPhone && !requestOptions.continueWithoutUser && (conversation.phone?.dm || requestOptions.phoneNudge)) promptMessages.push({ role: 'system', content: phoneDeliveryInstruction(speaker.name, identity.name, Boolean(conversation.phone?.dm), false, requestOptions.phoneNudge) })
     // v198 剧情美化卡：只给单人剧情和普通群聊（不含小手机群/私聊、不含导演）。
-    if (filmCardEnabled && !isPhone && !isDirector) promptMessages.push({ role: 'system', content: filmCardInstruction(speaker.name, identity.name, requiresCharacterStatus, useMusicStore.getState().tracks.map((track) => track.name)) })
+    // v210：完整规则（含歌单）进开头稳定的 system，尾巴里只留一句提醒，免得每轮重发、也不打断缓存。
+    if (filmCardEnabled && !isPhone && !isDirector) {
+      const firstTurn = promptMessages.findIndex((message) => message.role !== 'system')
+      promptMessages.splice(firstTurn < 0 ? promptMessages.length : firstTurn, 0, { role: 'system', content: filmCardInstruction(speaker.name, identity.name, requiresCharacterStatus, useMusicStore.getState().tracks.map((track) => track.name)) })
+      promptMessages.push({ role: 'system', content: FILM_CARD_REMINDER })
+    }
     const variablesPrompt = buildStoryVariablesPrompt(requestOptions.contextOverride ? requestOptions.contextOverride.storyVariables : conversation.storyVariables, speaker.id)
     if (variablesPrompt) promptMessages.push({ role: 'system', content: variablesPrompt })
     // This must be the final outbound instruction.  In particular, director
@@ -2904,7 +2914,7 @@ function App() {
 
   const previewFor = (conversation: Conversation, nextMessages: Message[], speaker: Character, requestOptions: AssistantRequestOptions = {}): RequestPreview => {
     const prepared = prepareAssistantRequest(conversation, nextMessages, speaker, requestOptions)
-    return { speaker: speaker.name, model: conversationApiFor(conversation, speaker.id, api).modelName, messages: prepared.promptMessages, ...prepared.promptStats, hasTemporaryPlot: Boolean(prepared.capturedTemporaryPlot) }
+    return { speaker: speaker.name, model: conversationApiFor(conversation, speaker.id, api).modelName, messages: conversation.phone ? prepared.promptMessages : foldPromptForRelay(prepared.promptMessages), ...prepared.promptStats, hasTemporaryPlot: Boolean(prepared.capturedTemporaryPlot) }
   }
 
   const openRequestPreview = () => {
@@ -3051,11 +3061,14 @@ function App() {
       let promptMessages = prepared.promptMessages
       const runCompletion = async () => {
         const requests = lastRequestsRef.current.get(conversationId) || new Map<string, RequestPreview>()
-        requests.set(speaker.id, { speaker: speaker.name, model: resolvedSpeakerApi.modelName, sentAt: Date.now(), ...promptStats, hasTemporaryPlot: Boolean(capturedTemporaryPlot), messages: promptMessages.map((message) => ({ ...message })) })
+        // v210：长剧情发出前折叠——一条稳定的开头 system，每轮会变的并进最新用户消息末尾（只在请求里）；Claude 加 cache_control。
+        const wireMessages = conversation.phone ? promptMessages : foldPromptForRelay(promptMessages)
+        requests.set(speaker.id, { speaker: speaker.name, model: resolvedSpeakerApi.modelName, sentAt: Date.now(), ...promptStats, hasTemporaryPlot: Boolean(capturedTemporaryPlot), messages: wireMessages.map((message) => ({ ...message })) })
         lastRequestsRef.current.set(conversationId, requests)
         return completeChat({
         api: resolvedSpeakerApi,
-        messages: promptMessages,
+        messages: conversation.phone ? wireMessages : withPromptCache(wireMessages, resolvedSpeakerApi),
+        onUsage: conversation.phone ? undefined : (usage) => recordPromptUsage('main', usage),
         temperature,
         topP,
         maxTokens,
@@ -4952,7 +4965,7 @@ function UpdateCard() {
     }
   }
 
-  return <section className="update-card"><strong>应用更新</strong><p>主动检查并拉取最新网页版本，不会删除角色、聊天记录或本地设置。</p><small>当前版本：v209 · 2026.11.12 人格窗口提示词缓存</small><button onClick={refresh} disabled={state === 'checking'}>{state === 'checking' ? '正在检查更新…' : state === 'error' ? '更新失败，点我重试' : '强制刷新到最新版'}</button></section>
+  return <section className="update-card"><strong>应用更新</strong><p>主动检查并拉取最新网页版本，不会删除角色、聊天记录或本地设置。</p><small>当前版本：v210 · 2026.11.12 长剧情与人格窗口提示词缓存</small><button onClick={refresh} disabled={state === 'checking'}>{state === 'checking' ? '正在检查更新…' : state === 'error' ? '更新失败，点我重试' : '强制刷新到最新版'}</button></section>
 }
 
 function PersonaPage({ identities, selectedId, isBound, onSelect, onAdd, onDelete, onUpdate, onBack }: { identities: UserIdentity[]; selectedId: string; isBound: boolean; onSelect: (id: string) => void; onAdd: () => void; onDelete: (id: string) => void; onUpdate: (patch: Partial<UserIdentity>) => void; onBack: () => void }) {

@@ -35,6 +35,8 @@ import { getPersonaState, setPersonaState } from './personaWindowStore'
 import { autoPlaySongPick, buildPersonaSongPrompt, parseSongPick } from './personaSongPick'
 import { useMusicStore } from './musicStore'
 import { withPromptCache } from './promptCache'
+import { foldPromptForRelay } from './promptTail'
+import { recordPromptUsage } from './promptUsage'
 
 /**
  * Generation, memory and compression for the 人格窗口. Module-level on purpose:
@@ -102,7 +104,8 @@ export function buildPersonaRequest(persona: PersonaWindow, history: PersonaMess
   return planPersonaRequest(persona, history, deps, thread).messages
 }
 
-export function planPersonaRequest(persona: PersonaWindow, history: PersonaMessage[], deps: PersonaRuntimeDeps, thread: PersonaThread = activeThread(persona)) {
+/** event：应用事件（如任务完成），v210 起作为最新一条用户消息发出，动态尾巴跟在它后面。 */
+export function planPersonaRequest(persona: PersonaWindow, history: PersonaMessage[], deps: PersonaRuntimeDeps, thread: PersonaThread = activeThread(persona), options: { event?: string } = {}) {
   const character = personaCharacter(deps.character)
   const setting = deps.setting?.().trim() || ''
   const pastLife = persona.pastLifeEnabled !== false ? deps.pastLife().trim() : ''
@@ -141,7 +144,8 @@ export function planPersonaRequest(persona: PersonaWindow, history: PersonaMessa
     // Keep the core boundary in the FIRST system too (some relays drop later system messages).
     PERSONA_FINAL_GUARD,
   ].filter(Boolean).join('\n\n')
-  // 每轮会变的：按最新消息召回的记忆、触发的世界书、任务倒计时、正在听的歌——合成一条短 system，紧贴最新用户消息之前。
+  // 每轮会变的：按最新消息召回的记忆、触发的世界书、任务倒计时、正在听的歌——
+  // v210：不再是第二条 system（中转站常把它丢掉），而是接在最新一条用户消息正文后面（只在请求里）。
   const dynamic = [
     memory.dynamicText,
     triggeredLore && `【本轮触发的世界书背景参考｜只读】\n${stripPersonaFormatInstructions(triggeredLore)}`,
@@ -161,37 +165,24 @@ export function planPersonaRequest(persona: PersonaWindow, history: PersonaMessa
     })
       .filter((item) => Array.isArray(item.content) || String(item.content).trim()),
   ]
-  messages.push({ role: 'system', content: applyMacros(dynamic, character, deps.user.name) })
-  if (!history.some((item) => item.role === 'user')) {
+  if (options.event) messages.push({ role: 'user', content: options.event })
+  else if (!history.some((item) => item.role === 'user')) {
     messages.push({ role: 'user', content: '和我打个招呼吧。' })
   }
-  // v209：Claude 加 cache_control（第一条 system + 动态尾巴前一条）；其它模型保持纯字符串。
+  messages.push({ role: 'system', content: applyMacros(dynamic, character, deps.user.name) })
+  // v209/v210：Claude 加 cache_control（第一条 system + 最新用户消息前一条）；其它模型保持纯字符串。
   return { messages: withPromptCache(consolidatePersonaMessages(messages), deps.api), memory }
 }
-
-const systemText = (message: ChatApiMessage) => typeof message.content === 'string' ? message.content : message.content.map((part) => part.type === 'text' ? part.text : '').join('\n')
 
 /**
  * Many OpenAI-compatible relays (one-api/new-api → Claude/Gemini, some Gemini bridges) keep only the
  * FIRST system message as the real system prompt and drop or demote the rest. buildChatPrompt emits the
  * card's before_char lore first, so the 人设 / 预设 / 前世记忆 in the second system message never arrived.
- * Send exactly one leading system message with everything, and one reminder right before her last turn.
+ * Send exactly one leading system message with everything. v210: the per-turn reminder is no longer a
+ * second system message either — it rides inside her latest user turn, wrapped in 【本轮背景】 markers.
  */
 export function consolidatePersonaMessages(messages: ChatApiMessage[]): ChatApiMessage[] {
-  const firstTurn = messages.findIndex((item) => item.role !== 'system')
-  const leadEnd = firstTurn < 0 ? messages.length : firstTurn
-  const lead = messages.slice(0, leadEnd).map(systemText).filter((item) => item.trim())
-  let rest = messages.slice(leadEnd)
-  let tailStart = rest.length
-  while (tailStart > 0 && rest[tailStart - 1].role === 'system') tailStart -= 1
-  const tail = rest.slice(tailStart).map(systemText).filter((item) => item.trim())
-  rest = rest.slice(0, tailStart)
-  const result: ChatApiMessage[] = lead.length ? [{ role: 'system', content: lead.join('\n\n') }] : []
-  const reminder: ChatApiMessage[] = tail.length ? [{ role: 'system', content: tail.join('\n\n') }] : []
-  const last = rest[rest.length - 1]
-  if (last?.role === 'user') result.push(...rest.slice(0, -1), ...reminder, last)
-  else result.push(...rest, ...reminder)
-  return result
+  return foldPromptForRelay(messages)
 }
 
 /** Visible history for a request: no empty placeholders, no failed turns. */
@@ -237,16 +228,10 @@ export async function generatePersonaReply(personaId: string, deps: PersonaRunti
   })), busy)
   const removeReply = () => setPersonaState((state) => updatePersonaThread(state, personaId, threadId, (item) => ({ ...item, messages: item.messages.filter((message) => message.id !== replyId) })))
   try {
-    const plan = planPersonaRequest(persona, history, deps, input.regenerate ? { ...promptThread, recallLedger: {} } : promptThread)
+    const event = completedTask ? `【应用事件，不是用户打字】用户刚刚点击完成当前窗口的任务「${completedTask.text}」。用时由应用记录：${personaTaskStatus([completedTask], now)}。请简短自然地回应这次完成，不复述系统说明，不新增任务。` : undefined
+    // v210：事件作为最新一条用户消息，动态尾巴并在它后面；第一条 system 不动，提示词缓存不断。
+    const plan = planPersonaRequest(persona, history, deps, input.regenerate ? { ...promptThread, recallLedger: {} } : promptThread, { event })
     const request = plan.messages.slice()
-    if (completedTask) {
-      const event = `【应用事件，不是用户打字】用户刚刚点击完成当前窗口的任务「${completedTask.text}」。用时由应用记录：${personaTaskStatus([completedTask], now)}。请简短自然地回应这次完成，不复述系统说明，不新增任务。`
-      // v209：事件放进末尾动态提醒，不改第一条 system，免得打断提示词缓存。
-      const tailAt = request.reduce((at, message, index) => index > 0 && message.role === 'system' ? index : at, -1)
-      if (tailAt > 0) request[tailAt] = { role: 'system', content: `${systemText(request[tailAt])}\n\n${event}` }
-      else request[0] = { role: 'system', content: `${systemText(request[0])}\n\n${event}` }
-      request.push({ role: 'user', content: event })
-    }
     const sources = new Map<string, PersonaRecallSource>(plan.memory.audit.sources.map((source) => [`${source.threadId}|${source.messageId}`, source]))
     const rememberAudit = () => patchRuntime((current) => ({ ...current, memoryAudits: { ...current.memoryAudits, [threadId]: { ...plan.memory.audit, sources: [...sources.values()] } } }))
     rememberAudit()
@@ -257,6 +242,7 @@ export async function generatePersonaReply(personaId: string, deps: PersonaRunti
       output = ''
       result = await completeChat({
         api: deps.api, messages: request, temperature: deps.temperature, topP: deps.topP, maxTokens: deps.maxTokens, streaming: deps.streaming, signal: controller.signal,
+        onUsage: (usage) => recordPromptUsage('persona', usage),
         onDelta: (delta) => {
           output += delta
           if (flushTimer !== null) return
