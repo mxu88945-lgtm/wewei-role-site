@@ -14,7 +14,8 @@ describe('v218 布丁来信 markup', () => {
   it('puts the footer after the body and the actions last', () => {
     const html = renderToStaticMarkup(<PuddingLetter user actions={<div className="message-action-row" />}><p>正文</p></PuddingLetter>)
     expect(html).toContain('FROM ME')
-    expect(html).toContain('pudding-bone.svg')
+    expect(html).not.toContain('pudding-bone')
+    expect(html).not.toContain('<img')
     expect(html.indexOf('archive-body')).toBeLessThan(html.indexOf('pudding-letter-foot'))
     expect(html.indexOf('pudding-letter-foot')).toBeLessThan(html.indexOf('message-action-row'))
   })

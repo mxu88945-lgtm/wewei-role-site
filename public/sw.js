@@ -1,7 +1,7 @@
-const CACHE_NAME = 'weijing-shell-v218'
+const CACHE_NAME = 'weijing-shell-v219'
 const APP_ROOT = '/wewei-role-site/'
 // v218：布丁来信的两张布丁狗图，安装时先放进缓存，离线也能显示。
-const PRECACHE = ['pudding-dog.svg', 'pudding-bone.svg'].map((name) => `${APP_ROOT}${name}`)
+const PRECACHE = ['pudding-dog.svg'].map((name) => `${APP_ROOT}${name}`)
 
 async function rememberResponse(key, response) {
   if (!response.ok) return

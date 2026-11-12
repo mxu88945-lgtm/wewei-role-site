@@ -16,7 +16,7 @@
 
 /*
  * v218 布丁来信（主剧情 / 小手机 / 人格窗口共用，markup 在 PuddingLetter.tsx）：
- * 每条消息 = 上方名字胶囊（真实头像 + 名字 + 签名 + 布丁狗）+ 下方小信封（骨头布丁狗、POMPOM LETTER 抬头、落款）。
+ * 每条消息 = 上方名字胶囊（真实头像 + 名字 + 签名 + 布丁狗）+ 下方小信封（POMPOM LETTER 抬头、落款；v219 去掉信纸里的骨头狗，签名最多两行不省略）。
  * 消息区不用 backdrop-filter。
  */
 .theme-pudding .archive-row.archive-pudding {
@@ -68,7 +68,7 @@
   word-break: keep-all;
 }
 .theme-pudding .archive-pudding .pudding-capsule-copy { flex: 1 1 auto; min-width: 0; width: auto; padding-top: 6px; text-align: start; }
-.theme-pudding .archive-pudding .pudding-capsule-copy span { display: block; overflow: hidden; white-space: nowrap; text-overflow: ellipsis; max-width: 100%; color: #6b5240; font-size: 15px; line-height: 1.5; font-weight: 500; word-break: keep-all; }
+.theme-pudding .archive-pudding .pudding-capsule-copy span { display: -webkit-box; -webkit-box-orient: vertical; -webkit-line-clamp: 2; line-clamp: 2; overflow: hidden; white-space: normal; text-overflow: clip; max-width: 100%; color: #6b5240; font-size: 14px; line-height: 1.45; font-weight: 500; word-break: normal; overflow-wrap: anywhere; }
 .theme-pudding .archive-pudding .pudding-capsule-copy i { display: block; height: 1px; margin-top: 9px; background: linear-gradient(90deg, #c99a4a 0 18%, #ead9b3 18% 100%); }
 .theme-pudding .archive-pudding .pudding-capsule-dog { flex: 0 0 64px; width: 64px; height: auto; margin: -8px 0; pointer-events: none; }
 /* FROM ME：头像在右，名字在头像左边，布丁狗在左 */
@@ -85,10 +85,9 @@
   box-shadow: 0 10px 26px rgba(151,104,49,.10), inset 0 1px 0 rgba(255,255,255,.9);
   color: #5b4330;
 }
-.theme-pudding .archive-pudding .pudding-letter-head { display: flex; align-items: flex-end; justify-content: space-between; gap: 10px; min-height: 40px; margin: 0 0 16px; padding-bottom: 7px; border-bottom: 1.5px solid #d9b77a; }
-.theme-pudding .archive-pudding .pudding-letter-head img { flex: 0 0 56px; width: 56px; height: auto; margin: -8px 0 -14px; pointer-events: none; }
+.theme-pudding .archive-pudding .pudding-letter-head { display: flex; align-items: flex-end; justify-content: flex-end; gap: 10px; min-height: 0; margin: 0 0 16px; padding-bottom: 7px; border-bottom: 1.5px solid #d9b77a; }
 .theme-pudding .archive-pudding .pudding-letter-head span { flex: 0 1 auto; min-width: 0; overflow: hidden; white-space: nowrap; text-overflow: ellipsis; color: #a9783f; font: 700 13px/1.4 -apple-system, BlinkMacSystemFont, 'PingFang SC', sans-serif; letter-spacing: .14em; }
-.theme-pudding .archive-pudding .pudding-letter.for-you .pudding-letter-head { flex-direction: row-reverse; }
+.theme-pudding .archive-pudding .pudding-letter.for-you .pudding-letter-head { justify-content: flex-start; }
 .theme-pudding .archive-pudding .pudding-letter-foot { margin: 18px 0 0; padding-top: 10px; border-top: 1px dashed #e3cfa3; color: #b99a72; font: 600 10px/1.5 -apple-system, BlinkMacSystemFont, sans-serif; letter-spacing: .16em; text-align: center; }
 .theme-pudding .archive-pudding .pudding-letter .message-action-row { display: flex; justify-content: flex-end; align-self: flex-end !important; margin: 6px -6px -4px 0; padding: 0; }
 
@@ -110,10 +109,9 @@
 .theme-pudding .phone-chat .archive-pudding .pudding-capsule-avatar { top: -20px; width: 68px; height: 68px; }
 .theme-pudding .phone-chat .archive-pudding .pudding-capsule-name { top: -27px; left: 84px; font-size: 21px; max-width: calc(100% - 150px); }
 .theme-pudding .phone-chat .archive-pudding .pudding-capsule.from-me .pudding-capsule-name { left: auto; right: 84px; }
-.theme-pudding .phone-chat .archive-pudding .pudding-capsule-copy span { font-size: 13px; }
+.theme-pudding .phone-chat .archive-pudding .pudding-capsule-copy span { font-size: 13px; line-height: 1.45; }
 .theme-pudding .phone-chat .archive-pudding .pudding-capsule-dog { flex-basis: 50px; width: 50px; }
 .theme-pudding .phone-chat .archive-pudding .pudding-letter { padding: 14px 18px 12px; border-radius: 24px; }
-.theme-pudding .phone-chat .archive-pudding .pudding-letter-head img { flex-basis: 44px; width: 44px; }
 .theme-pudding .phone-chat .archive-pudding .pudding-letter-head span { font-size: 11px; }
 .theme-pudding .phone-chat .archive-pudding .pudding-letter-foot { margin-top: 12px; padding-top: 8px; font-size: 9px; }
 .theme-pudding .phone-chat .archive-pudding .archive-body { line-height: 1.75; }
@@ -141,7 +139,7 @@
 .theme-pudding .message-bubble-author { color: #b48b5d; }
 .theme-pudding .composer { border: 2px solid #fbe3b3; background: rgba(255,248,228,.66); box-shadow: 0 5px 0 #f4d59a, 0 12px 26px rgba(176,112,40,.12); }
 .theme-pudding .composer-plus { color: #b6782f; background: #fde9bf; }
-.theme-pudding .composer > textarea { padding-left: 46px; background: url('/pudding-bone.svg') no-repeat 2px center / 40px auto; }
+.theme-pudding .composer > textarea { padding-left: 44px; background: url('/pudding-dog.svg') no-repeat 4px center / 36px auto; }
 .theme-pudding .send-button:not(.stop) { color: #8a5a2b; border: 2px solid #c99a4a; background: #fffaf0; box-shadow: 0 3px 8px rgba(151,104,49,.16); }
 .theme-pudding .send-button.stop { background: linear-gradient(160deg,#c9636f,#e98f93); box-shadow: 0 4px 0 #a14b57; }
 .theme-pudding .chat-jump-controls button { color: #b0702c; background: rgba(255,247,226,.95); box-shadow: 0 6px 18px rgba(176,112,40,.16); }
