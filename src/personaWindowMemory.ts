@@ -13,7 +13,9 @@ export const PERSONA_RECALL_COOLDOWN = 4
 const RECENT_STATE_MS = 36 * 60 * 60 * 1000
 export type PersonaRecallSource = { threadId: string; messageId: number; title: string; role: 'user' | 'assistant'; createdAt: number }
 export type PersonaMemoryLane = { key: string; label: string; chars: number; selected: number; candidates: number; suppressed: number; preview: string }
-export type PersonaMemoryAudit = { query: string; budget: number; used: number; lanes: PersonaMemoryLane[]; sources: PersonaRecallSource[] }
+/** v226：前世记忆按需召回的本轮记录（不占自动记忆层预算）。 */
+export type PersonaPastLifeAudit = { enabled: boolean; poolChunks: number; poolChars: number; recalled: { label: string; chars: number }[]; chars: number }
+export type PersonaMemoryAudit = { query: string; budget: number; used: number; lanes: PersonaMemoryLane[]; sources: PersonaRecallSource[]; pastLife?: PersonaPastLifeAudit }
 export type PersonaMemoryContext = { text: string; /** v209：不随本轮消息变化的层（锁定/核心/本窗连续性档案），放稳定前缀。 */ stableText: string; /** 随最新消息/时间变化的层，放末尾动态提醒。 */ dynamicText: string; audit: PersonaMemoryAudit; keys: string[]; turn: number }
 type Names = { char: string; user: string }
 type Hit = { thread: PersonaThread; message: PersonaMessage; index: number; key: string; score: number }
@@ -80,7 +82,7 @@ export function personaRecallTokens(query: string, aliases = '') {
   return new Set([...tokens].slice(0, 240))
 }
 
-function semanticScore(query: string, candidate: string) {
+export function semanticScore(query: string, candidate: string) {
   const topics = [
     /爱|喜欢|想念|关系|恋人|伴侣|在一起|分开|离婚/,
     /承诺|约定|答应|说好|誓言|暗号|纪念/,

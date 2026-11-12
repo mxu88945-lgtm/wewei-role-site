@@ -186,16 +186,22 @@ describe('前世记忆', () => {
     expect(buildPastLifeMemory({ character: character('nobody', '路人'), conversations, memoryEntries })).toBe('')
   })
 
-  it('is injected only when the persona switch is on', () => {
-    const deps = { character: gu, user: { name: '周惟惟', description: '' }, api, memoryApi: api, temperature: 1, topP: 1, maxTokens: 1000, streaming: false, memoryLength: 40, pastLife: () => '【前世记忆｜测试】旧缘' }
+  it('v226 is recalled on demand into the per-turn tail, only when the persona switch is on', () => {
+    const deps = { character: gu, user: { name: '周惟惟', description: '' }, api, memoryApi: api, temperature: 1, topP: 1, maxTokens: 1000, streaming: false, memoryLength: 40, pastLife: () => '【前世记忆｜测试】旧缘：他在雨夜书房等她回来。' }
     const persona = createPersonaWindow('gu')
     const history = [{ id: 1, role: 'user' as const, text: '嗨', createdAt: 1 }]
     const on = buildPersonaRequest(persona, history, deps)
-    const at = on.findIndex((item) => String(item.content).includes('【前世记忆｜测试】'))
-    expect(at).toBeGreaterThan(-1)
-    expect(on[at].role).toBe('system')
-    expect(at).toBeLessThan(on.findIndex((item) => item.role === 'user'))
-    expect(JSON.stringify(buildPersonaRequest({ ...persona, pastLifeEnabled: false }, history, deps))).not.toContain('【前世记忆｜测试】')
+    // Not mentioned → nothing of the past life goes out, only the one-line pointer in the stable prefix.
+    expect(JSON.stringify(on)).not.toContain('雨夜书房')
+    expect(String(on[0].content)).toContain('前世记忆｜按需召回')
+    const asked = buildPersonaRequest(persona, [{ id: 1, role: 'user' as const, text: '还记得以前你在雨夜书房等我吗', createdAt: 1 }], deps)
+    expect(String(asked[0].content)).not.toContain('雨夜书房等她')
+    expect(String(asked[asked.length - 1].content)).toContain('【前世记忆·按需召回｜只读】')
+    expect(String(asked[asked.length - 1].content)).toContain('雨夜书房等她')
+    expect(asked[0]).toEqual(on[0])
+    const off = JSON.stringify(buildPersonaRequest({ ...persona, pastLifeEnabled: false }, [{ id: 1, role: 'user' as const, text: '还记得以前你在雨夜书房等我吗', createdAt: 1 }], deps))
+    expect(off).not.toContain('雨夜书房等她')
+    expect(off).not.toContain('前世记忆｜按需召回')
     // The card's story greeting is not part of the persona window.
     expect(JSON.stringify(on)).not.toContain('顾祁砚的开场白')
   })

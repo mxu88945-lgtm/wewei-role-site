@@ -8,9 +8,9 @@ export function PersonaMemoryInspection({ audit }: { audit?: PersonaMemoryAudit 
   return <section className="persona-source-card persona-memory-inspection">
     <strong>本轮记忆使用记录</strong>
     {!audit ? <small>发送一条消息后，这里会显示实际带入的记忆。查看请求预览不会消耗召回冷却。</small> : <>
-      <small>自动记忆层 {audit.used.toLocaleString()} / {audit.budget.toLocaleString()} 字 · 旧原文 {audit.sources.length} 个来源</small>
+      <small>自动记忆层 {audit.used.toLocaleString()} / {audit.budget.toLocaleString()} 字 · 旧原文 {audit.sources.length} 个来源{audit.pastLife ? ` · 前世记忆 · 按需召回 · ${audit.pastLife.chars ? `${audit.pastLife.chars.toLocaleString()} 字` : '未带入'}` : ''}</small>
       {audit.query && <small>检索依据：{audit.query}</small>}
-      {audit.lanes.map((lane) => <details key={lane.key}><summary>{lane.label} · {lane.chars ? `${lane.chars} 字` : '未带入'}{lane.key === 'original' ? ` · 命中 ${lane.selected} / 候选 ${lane.candidates}${lane.suppressed ? ` · 冷却 ${lane.suppressed}` : ''}` : ''}</summary><pre>{lane.preview || '这一层本轮没有相关内容。'}</pre></details>)}
+      {audit.lanes.map((lane) => <details key={lane.key}><summary>{lane.label} · {lane.chars ? `${lane.chars} 字` : '未带入'}{lane.key === 'original' || lane.key === 'past-life' ? ` · 命中 ${lane.selected} / 候选 ${lane.candidates}${lane.suppressed ? ` · 冷却 ${lane.suppressed}` : ''}` : ''}</summary><pre>{lane.preview || '这一层本轮没有相关内容。'}</pre></details>)}
     </>}
   </section>
 }

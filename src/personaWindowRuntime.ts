@@ -31,7 +31,9 @@ import {
   type PersonaMessage,
   type PersonaThread,
   type PersonaWindow,
+  type PastLifeResult,
 } from './personaWindow'
+import { PAST_LIFE_POINTER, pastLifeChunksFrom, recallPastLife, withPastLifeRecall } from './personaPastLifeRecall'
 import { getPersonaState, setPersonaState } from './personaWindowStore'
 import { autoPlaySongPick, buildPersonaSongPrompt, parseSongPick } from './personaSongPick'
 import { buildSelfCardPrompt, parseSelfCardTag, selfCardLabel, setSelfCardSection } from './personaSelfCard'
@@ -54,8 +56,9 @@ export type PersonaRuntimeDeps = {
   maxTokens: number
   streaming: boolean
   memoryLength: number
-  /** Built lazily, read-only, only when the persona's 前世记忆 switch is on. */
-  pastLife: () => string
+  /** Built lazily, read-only, only when the persona's 前世记忆 switch is on.
+   * v226：不再整段进稳定前缀，切小段后按最新消息按需召回；给 PastLifeResult 时用它的分段与来源标签。 */
+  pastLife: () => string | PastLifeResult
   /** The same global worldbook the main story chat uses. */
   globalWorldbook?: string
   /** Story-project world / story cast background for this character (人设补充). */
@@ -126,7 +129,8 @@ export function buildPersonaRequest(persona: PersonaWindow, history: PersonaMess
 export function planPersonaRequest(persona: PersonaWindow, history: PersonaMessage[], deps: PersonaRuntimeDeps, thread: PersonaThread = activeThread(persona), options: { event?: string } = {}) {
   const character = personaCharacter(deps.character)
   const setting = deps.setting?.().trim() || ''
-  const pastLife = persona.pastLifeEnabled !== false ? deps.pastLife().trim() : ''
+  // v226：前世记忆只在开关开着时收集；切小段后按最新消息召回，命中的才接到动态尾巴。
+  const pastLifeChunks = persona.pastLifeEnabled !== false ? pastLifeChunksFrom(deps.pastLife()) : null
   // Reuse selection/image helpers, never the story prompt's roleplay / scene directives.
   const recent = personaRecentHistory(history, thread, deps.memoryLength)
   const scan = recent.map((item) => item.text).join('\n')
@@ -145,10 +149,11 @@ export function planPersonaRequest(persona: PersonaWindow, history: PersonaMessa
     character.mesExample && `【说话风格示例｜不续写示例场景】\n${character.mesExample}`,
     deps.globalWorldbook && `【全局世界书背景参考】\n${deps.globalWorldbook}`,
     setting,
-    pastLife,
   ].filter((value): value is string => Boolean(value)).map(stripPersonaFormatInstructions).join('\n\n')
-  const memory = buildPersonaMemoryContext(persona, thread, history, recent, { char: character.name, user: deps.user.name })
-  // v209 稳定前缀：只放两轮之间不变的内容（人设、规则、前世记忆、长期/锁定记忆、本窗连续性档案、歌单），
+  const baseMemory = buildPersonaMemoryContext(persona, thread, history, recent, { char: character.name, user: deps.user.name })
+  const pastRecall = pastLifeChunks ? recallPastLife(pastLifeChunks, { history, aliases: persona.memoryAliases, charName: character.name, userName: deps.user.name, ledger: thread.recallLedger, turn: baseMemory.turn }) : null
+  const memory = withPastLifeRecall(baseMemory, pastRecall && { ...pastRecall, text: pastRecall.text && stripPersonaFormatInstructions(pastRecall.text) })
+  // v209 稳定前缀：只放两轮之间不变的内容（人设、规则、长期/锁定记忆、本窗连续性档案、歌单），
   // 这样 Gemini 的隐式缓存和 Claude 的 cache_control 都能命中。
   const system = [
     PERSONA_WINDOW_PRESET,
@@ -158,6 +163,8 @@ export function planPersonaRequest(persona: PersonaWindow, history: PersonaMessa
     buildSelfCardPrompt(persona.selfCard, persona.selfCardEnabled !== false),
     `【用户资料参考｜不自动认作故事女主】${deps.user.name}\n${deps.user.description}`,
     memory.stableText,
+    // v226：前世记忆只留一句指路（不随话题变，缓存照样命中），片段按需进尾巴。
+    pastLifeChunks?.length ? PAST_LIFE_POINTER : '',
     PERSONA_MEMORY_TOOLS,
     persona.tasksEnabled !== false && PERSONA_TASK_PROMPT,
     persona.songPickEnabled !== false && buildPersonaSongPrompt(deps.songList?.() || []),
@@ -300,7 +307,7 @@ export async function generatePersonaReply(personaId: string, deps: PersonaRunti
     const saves = personaMemorySaves(output, threadId, sourceIds, done)
     setPersonaState((state) => {
       const withMemory = updatePersona(state, personaId, (item) => ({ ...item, memories: mergePersonaMemories(item.memories, saves) }))
-      return touch(updatePersonaThread(withMemory, personaId, threadId, (item) => ({ ...commitPersonaRecallLedger(item, [...sources.keys()], plan.memory.turn), ...(completedTask ? { tasks: item.tasks?.map((entry) => entry.id === completedTask.id ? { ...entry, reactedAt: done } : entry) } : task && !item.tasks?.some((existing) => taskIsActive(existing) && existing.text === task.text) ? { tasks: [...(item.tasks || []), task] } : {}), updatedAt: done })), done)
+      return touch(updatePersonaThread(withMemory, personaId, threadId, (item) => ({ ...commitPersonaRecallLedger(item, [...sources.keys(), ...plan.memory.pastLifeKeys], plan.memory.turn), ...(completedTask ? { tasks: item.tasks?.map((entry) => entry.id === completedTask.id ? { ...entry, reactedAt: done } : entry) } : task && !item.tasks?.some((existing) => taskIsActive(existing) && existing.text === task.text) ? { tasks: [...(item.tasks || []), task] } : {}), updatedAt: done })), done)
     })
     setTimeout(() => {
       void maybeCompressPersonaContext(personaId, deps, threadId)

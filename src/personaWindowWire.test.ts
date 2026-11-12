@@ -29,7 +29,7 @@ function mockFetch(reply: string) {
 }
 afterEach(() => { vi.unstubAllGlobals() })
 
-async function send(protocol: 'openai' | 'anthropic', history: { id: number; role: 'user' | 'assistant'; text: string; createdAt: number }[] = [], options: { character?: Character; reply?: string; systemPrompt?: string } = {}) {
+async function send(protocol: 'openai' | 'anthropic', history: { id: number; role: 'user' | 'assistant'; text: string; createdAt: number }[] = [], options: { character?: Character; reply?: string; systemPrompt?: string; text?: string } = {}) {
   setPersonaState(() => enablePersona(emptyPersonaState(), 'yu'))
   setPersonaState((state) => ({ ...state, personas: state.personas.map((item) => ({ ...item, systemPrompt: options.systemPrompt, threads: [{ ...item.threads[0], messages: history }] })) }))
   const bodies = mockFetch(options.reply ?? '（他抬眼。）“来了。”')
@@ -37,7 +37,7 @@ async function send(protocol: 'openai' | 'anthropic', history: { id: number; rol
     character: options.character ?? yu, user: { name: '周惟惟', description: '惟惟的身份' }, api: { baseUrl: 'https://relay.test/v1', apiKey: 'k', modelName: 'm', protocol }, memoryApi: { baseUrl: '', apiKey: '', modelName: '' },
     temperature: 1, topP: 1, maxTokens: 800, streaming: false, memoryLength: 40,
     pastLife: () => '【虞山行的前世记忆】小手机私聊：他答应过雨天去接她。',
-  }, { text: '你记得我吗？' })
+  }, { text: options.text ?? '你记得我吗？' })
   return bodies[0]
 }
 
@@ -55,7 +55,9 @@ describe('persona window — what actually goes on the wire', () => {
     const body = await send(protocol, [], { character, reply: '（他抬眼。）“来了。”\n<psychology>他心里一暖。</psychology><yu_status>好感：90</yu_status>' })
     const wire = JSON.stringify(body)
     for (const piece of ['始终套用原卡蓝色美化栏', '原卡心理模板', '触发旧卡套壳']) expect(wire).not.toContain(piece)
-    for (const piece of ['虞山行，市委书记', '他从不打官腔', '他答应过雨天去接她']) expect(wire).toContain(piece)
+    for (const piece of ['虞山行，市委书记', '他从不打官腔', '前世记忆｜按需召回']) expect(wire).toContain(piece)
+    // v226：没聊到前世，前世片段不上线。
+    expect(wire).not.toContain('他答应过雨天去接她')
     const savedMessages = getPersonaState().personas[0].threads[0].messages
     const saved = savedMessages[savedMessages.length - 1].text
     expect(saved).toContain('他心里一暖。')
@@ -72,7 +74,8 @@ describe('persona window — what actually goes on the wire', () => {
     expect(roles.filter((role) => role === 'system').length).toBe(1)
     expect(roles[0]).toBe('system')
     const first = String(messages[0].content)
-    for (const piece of ['独立人格窗口', '虞山行，市委书记', '外冷内热', '他从不打官腔', '虞书记与周惟惟相识十年', '他答应过雨天去接她', '惟惟的身份']) expect(first).toContain(piece)
+    for (const piece of ['独立人格窗口', '虞山行，市委书记', '外冷内热', '他从不打官腔', '虞书记与周惟惟相识十年', '前世记忆｜按需召回', '惟惟的身份']) expect(first).toContain(piece)
+    expect(first).not.toContain('他答应过雨天去接她')
     // v210：提醒不再是第二条 system（中转站会丢），而是接在她这句话后面的【本轮背景】。
     expect(roles.slice(-2)).toEqual(['assistant', 'user'])
     const last = String(messages[messages.length - 1].content)
@@ -87,8 +90,17 @@ describe('persona window — what actually goes on the wire', () => {
   it('Anthropic native: everything lands in the system field', async () => {
     const body = await send('anthropic')
     const system = JSON.stringify(body.system)
-    for (const piece of ['虞山行，市委书记', '虞书记与周惟惟相识十年', '他答应过雨天去接她', '你是名为虞山行的 AI 人格']) expect(system).toContain(piece)
+    for (const piece of ['虞山行，市委书记', '虞书记与周惟惟相识十年', '前世记忆｜按需召回', '你是名为虞山行的 AI 人格']) expect(system).toContain(piece)
     expect((body.messages as WireMessage[]).every((item) => item.role !== 'system')).toBe(true)
+  })
+
+  it('v226: 前世记忆 is recalled into the tail only when she brings it up, never into the system prefix', async () => {
+    const body = await send('openai', [], { text: '还记得你答应过雨天去接我吗？' })
+    const messages = body.messages as WireMessage[]
+    expect(String(messages[0].content)).not.toContain('他答应过雨天去接她')
+    const last = String(messages[messages.length - 1].content)
+    expect(last).toContain('【前世记忆·按需召回｜只读】')
+    expect(last).toContain('他答应过雨天去接她')
   })
 
   it('consolidation keeps continuation turns valid and drops nothing', () => {

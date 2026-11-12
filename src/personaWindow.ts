@@ -521,7 +521,9 @@ type PastLifeInput = {
 }
 
 export type PastLifeSource = { conversationId: string; title: string; kind: string; chars: number; source: 'memory' | 'summary' | 'excerpt' | 'card' | 'backstage' }
-export type PastLifeResult = { text: string; sources: PastLifeSource[]; characterIds: string[]; relatedConversationCount: number }
+/** v226：每段素材单独留一份（含来源标签），按需召回时切成小段打分。 */
+export type PastLifeBlock = { conversationId: string; title: string; kind: string; source: PastLifeSource['source']; bound: boolean; text: string; /** 这段故事里其他角色的名字（召回时用户点名就加分）。 */ names?: string[] }
+export type PastLifeResult = { text: string; sources: PastLifeSource[]; characterIds: string[]; relatedConversationCount: number; blocks?: PastLifeBlock[]; preamble?: string }
 
 const clip = (value: string, max: number) => value.length > max ? `${value.slice(0, Math.max(0, max - 1))}…` : value
 const PAST_LIFE_EXCERPT_LINES = 16
@@ -575,6 +577,12 @@ function conversationExcerpt(conversation: Conversation, ids: readonly string[],
   return lines.join('\n')
 }
 
+/** v226：这段会话里除他以外的角色名（按需召回时，用户点到这些名字就想起这段）。 */
+function castNames(conversation: Conversation, ids: readonly string[], characters: readonly { id: string; name: string }[]) {
+  const cast = new Set<string>([conversation.characterId || '', ...(conversation.participantIds || []), ...conversation.messages.map((message) => message.characterId || '')].filter((id) => id && !ids.includes(id)))
+  return [...new Set(characters.filter((item) => cast.has(item.id)).map((item) => item.name.trim()).filter((name) => name.length >= 2))].slice(0, 12)
+}
+
 /**
  * 前世记忆：这个角色在小手机与长剧情里真实经历过的事 —— 他自己的过去。
  * Newest conversations first, capped. Pure and read-only: never mutates its inputs and only
@@ -597,6 +605,7 @@ export function collectPastLifeMemory({ character, conversations, memoryEntries,
   const relatedIds = new Set(related.map((conversation) => conversation.id))
   const blocks: string[] = []
   const sources: PastLifeSource[] = []
+  const pieces: PastLifeBlock[] = []
   let used = 0
   // 幕后手记与戏外私聊：先算好、预留位置，免得被前面的会话挤掉。
   const backstage = includeBackstage
@@ -604,7 +613,7 @@ export function collectPastLifeMemory({ character, conversations, memoryEntries,
     : { text: '', count: 0 }
   const backstageBlock = backstage.text ? `〔幕后手记与戏外私聊〕\n这是他在长剧情幕后手记里写的真心话和你们戏外的私聊（不是戏里的剧情），最新在前：\n${backstage.text}` : ''
   let reserve = backstageBlock.length ? backstageBlock.length + 2 : 0
-  const push = (block: string, source: Omit<PastLifeSource, 'chars'>) => {
+  const push = (block: string, source: Omit<PastLifeSource, 'chars'>, bound = false, names: string[] = []) => {
     if (used + reserve >= maxChars) return false
     const room = maxChars - used - reserve
     const piece = block.length > room ? (room > 200 ? clip(block, room) : '') : block
@@ -612,6 +621,7 @@ export function collectPastLifeMemory({ character, conversations, memoryEntries,
     blocks.push(piece)
     used += piece.length + 2
     sources.push({ ...source, chars: piece.length })
+    pieces.push({ conversationId: source.conversationId, title: source.title, kind: source.kind, source: source.source, bound, text: piece, ...(names.length ? { names } : {}) })
     return true
   }
   const memoryLine = (entry: CharacterMemoryEntry) => `· ${entry.title ? `${entry.title}：` : ''}${stripUiOnlyStatusBlocks(entry.content).trim()}`
@@ -666,19 +676,18 @@ export function collectPastLifeMemory({ character, conversations, memoryEntries,
     const kind = conversationKind(conversation)
     const isBound = boundSet.has(conversation.id)
     const block = clip(`〔${isBoundStory ? '绑定的剧本｜' : isBound ? '绑定的群｜' : ''}${kind}｜${conversation.title || '未命名'}〕\n${parts.join('\n')}`, isBoundStory ? PAST_LIFE_PER_BOUND_STORY : PAST_LIFE_PER_CONVERSATION)
-    push(block, { conversationId: conversation.id, title: conversation.title || '未命名', kind, source: remembered ? 'memory' : summary ? 'summary' : 'excerpt' })
+    push(block, { conversationId: conversation.id, title: conversation.title || '未命名', kind, source: remembered ? 'memory' : summary ? 'summary' : 'excerpt' }, isBound, castNames(conversation, ids, characters))
   }
   pushBackstage()
-  if (!blocks.length) return { text: '', sources, characterIds: ids, relatedConversationCount: related.length }
-  const text = `【${character.name}的前世记忆｜过往交流与故事参考，只读】
+  if (!blocks.length) return { text: '', sources, characterIds: ids, relatedConversationCount: related.length, blocks: [], preamble: '' }
+  const preamble = `【${character.name}的前世记忆｜过往交流与故事参考，只读】
 下面是 ${character.name} 在小手机交流与长剧情故事里和{{user}}留下的记录，用来延续熟悉感和情感线索。小手机对话是过往线上交流；长剧情是双方曾经写过的虚构故事，不是现实中的亲身经历，也不是这扇窗口的当前场景。
 - 可以自然记得有记录的称呼、偏好与交流；谈起长剧情时理解为共同故事。旧卡里的职业、婚姻和人物关系不自动成为当前关系。
 - 那些故事里的地点、身份和未完的事件属于过去的篇章，不要当成此刻正在发生；不要逐条复述。
 - 与这扇窗口自己的记忆或最新对话冲突时，以这扇窗口为准。
-${backstagePushed && sources.some((item) => item.source === 'backstage') ? '- 〔幕后手记与戏外私聊〕是他戏外本人和{{user}}私下说过的话，可以自然记得、接着聊；那不是戏里的剧情。\n' : ''}${boundStorySet.size ? '- 标有〔绑定的剧本〕的长剧情是{{user}}特意让你记着的，优先参考它的记忆、经过和最后写到的地方。\n' : ''}${boundGroupIds.length ? '- 上面标有〔绑定的群〕的小手机群聊，其"最后聊到的"是最新的实时消息，你确实知道群里刚才发生了什么。' + '{{user}}问起时可以直接说记得、自然接话，不用装作不知道，也不用说什么"后台没有同步"。' : ''}
-
-${blocks.join('\n\n')}`
-  return { text, sources, characterIds: ids, relatedConversationCount: related.length }
+${backstagePushed && sources.some((item) => item.source === 'backstage') ? '- 〔幕后手记与戏外私聊〕是他戏外本人和{{user}}私下说过的话，可以自然记得、接着聊；那不是戏里的剧情。\n' : ''}${boundStorySet.size ? '- 标有〔绑定的剧本〕的长剧情是{{user}}特意让你记着的，优先参考它的记忆、经过和最后写到的地方。\n' : ''}${boundGroupIds.length ? '- 上面标有〔绑定的群〕的小手机群聊，其"最后聊到的"是最新的实时消息，你确实知道群里刚才发生了什么。' + '{{user}}问起时可以直接说记得、自然接话，不用装作不知道，也不用说什么"后台没有同步"。' : ''}`
+  const text = `${preamble}\n\n${blocks.join('\n\n')}`
+  return { text, sources, characterIds: ids, relatedConversationCount: related.length, blocks: pieces, preamble }
 }
 
 export function buildPastLifeMemory(input: PastLifeInput) {

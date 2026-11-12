@@ -4997,7 +4997,7 @@ function UpdateCard() {
     }
   }
 
-  return <section className="update-card"><strong>应用更新</strong><p>主动检查并拉取最新网页版本，不会删除角色、聊天记录或本地设置。</p><small>当前版本：v225 · 2026.11.12 人格窗口记忆页新增「连续性档案」状态卡：本窗待整理条数、上次整理、失败冷却原因，满 240 条可现在整理</small><button onClick={refresh} disabled={state === 'checking'}>{state === 'checking' ? '正在检查更新…' : state === 'error' ? '更新失败，点我重试' : '强制刷新到最新版'}</button></section>
+  return <section className="update-card"><strong>应用更新</strong><p>主动检查并拉取最新网页版本，不会删除角色、聊天记录或本地设置。</p><small>当前版本：v226 · 2026.11.12 人格窗口前世记忆改为按需召回：不再每轮整段发送，聊到相关的人、群、剧本或往事才带入命中的小段（每轮最多约 1800 字），记忆页显示本轮召回</small><button onClick={refresh} disabled={state === 'checking'}>{state === 'checking' ? '正在检查更新…' : state === 'error' ? '更新失败，点我重试' : '强制刷新到最新版'}</button></section>
 }
 
 function PersonaPage({ identities, selectedId, isBound, onSelect, onAdd, onDelete, onUpdate, onBack }: { identities: UserIdentity[]; selectedId: string; isBound: boolean; onSelect: (id: string) => void; onAdd: () => void; onDelete: (id: string) => void; onUpdate: (patch: Partial<UserIdentity>) => void; onBack: () => void }) {
