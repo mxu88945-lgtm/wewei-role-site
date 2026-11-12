@@ -5,13 +5,13 @@
  */
 .phone-canvas.theme-pudding {
   --theme-accent: #d0893b; --theme-accent-strong: #d38634; --theme-accent-end: #f2b866;
-  --theme-accent-soft: #fdf0d2; --theme-accent-soft-strong: #fae4b5; --theme-accent-text: #a8692a;
-  --theme-accent-shadow: rgba(176,112,40,.16); --composer-dock-rgb: 255,246,222;
+  --theme-accent-soft: #fbf7e7; --theme-accent-soft-strong: #f8f1d7; --theme-accent-text: #a8692a;
+  --theme-accent-shadow: rgba(176,112,40,.16); --composer-dock-rgb: 254,252,243;
   color: #5b4330;
-  background-color: #fff9e9;
-  background-image: radial-gradient(rgba(232,170,84,.20) 2.2px, transparent 2.6px), radial-gradient(rgba(255,255,255,.9) 2.2px, transparent 2.6px);
-  background-size: 26px 26px, 26px 26px;
-  background-position: 0 0, 13px 13px;
+  background-color: #fefcf3;
+  background-image: radial-gradient(ellipse 60% 32% at 20% 30%,rgba(246,239,200,.85),transparent 70%),radial-gradient(ellipse 55% 30% at 72% 80%,rgba(246,240,206,.8),transparent 70%),linear-gradient(180deg,#fefdf8,#fdfcf4);
+  background-size: 100% 100%;
+  background-position: 0 0;
 }
 
 /*
@@ -48,8 +48,8 @@
 .theme-pudding .archive-pudding .pudding-capsule {
   position: relative; display: flex; align-items: center; gap: 12px;
   min-height: 92px; margin: 34px 0 12px; padding: 12px 20px 12px 112px;
-  border: 1px solid #ecd9a8; border-radius: 999px;
-  background: linear-gradient(135deg, #fffdf5 0%, #fef8e3 45%, #fdf1c8 100%);
+  border: 1px solid #f0e9cf; border-radius: 999px;
+  background: linear-gradient(135deg, #fefefa 0%, #fdfbf0 45%, #fbf6e1 100%);
   box-shadow: 0 8px 22px rgba(151,104,49,.12), inset 0 1px 0 rgba(255,255,255,.9);
 }
 .theme-pudding .archive-pudding .pudding-capsule-avatar {
@@ -60,7 +60,7 @@
   display: grid; place-items: center; color: #92643c; font-size: 26px; font-weight: 800;
 }
 .theme-pudding .archive-pudding .pudding-capsule-avatar img { display: block; width: 100%; height: 100%; border-radius: 50%; object-fit: cover; }
-.theme-pudding .archive-pudding .pudding-capsule-avatar span { display: grid; place-items: center; width: 100%; height: 100%; border-radius: 50%; background: #f7e8bf; }
+.theme-pudding .archive-pudding .pudding-capsule-avatar span { display: grid; place-items: center; width: 100%; height: 100%; border-radius: 50%; background: #f7f2dc; }
 .theme-pudding .archive-pudding .pudding-capsule-name {
   position: absolute; top: -31px; left: 104px; max-width: calc(100% - 190px);
   overflow: hidden; white-space: nowrap; text-overflow: ellipsis;
@@ -71,19 +71,19 @@
 }
 .theme-pudding .archive-pudding .pudding-capsule-copy { flex: 1 1 auto; min-width: 0; width: auto; padding-top: 6px; text-align: start; }
 .theme-pudding .archive-pudding .pudding-capsule-copy span { display: -webkit-box; -webkit-box-orient: vertical; -webkit-line-clamp: 2; line-clamp: 2; overflow: hidden; white-space: normal; text-overflow: clip; max-width: 100%; color: #6b5240; font-size: 14px; line-height: 1.45; font-weight: 500; word-break: normal; overflow-wrap: anywhere; }
-.theme-pudding .archive-pudding .pudding-capsule-copy i { display: block; height: 1px; margin-top: 9px; background: linear-gradient(90deg, #c99a4a 0 18%, #ead9b3 18% 100%); }
+.theme-pudding .archive-pudding .pudding-capsule-copy i { display: block; height: 1px; margin-top: 9px; background: linear-gradient(90deg, #c99a4a 0 18%, #efead5 18% 100%); }
 .theme-pudding .archive-pudding .pudding-capsule-dog { flex: 0 0 64px; width: 64px; height: auto; margin: -8px 0; pointer-events: none; }
 /* FROM ME：头像在右，名字在头像左边，布丁狗在左 */
 .theme-pudding .archive-pudding .pudding-capsule.from-me { flex-direction: row-reverse; padding: 12px 112px 12px 20px; }
 .theme-pudding .archive-pudding .pudding-capsule.from-me .pudding-capsule-avatar { left: auto; right: 10px; }
 .theme-pudding .archive-pudding .pudding-capsule.from-me .pudding-capsule-name { left: auto; right: 104px; text-align: right; }
-.theme-pudding .archive-pudding .pudding-capsule.from-me .pudding-capsule-copy i { background: linear-gradient(270deg, #c99a4a 0 18%, #ead9b3 18% 100%); }
+.theme-pudding .archive-pudding .pudding-capsule.from-me .pudding-capsule-copy i { background: linear-gradient(270deg, #c99a4a 0 18%, #efead5 18% 100%); }
 
 /* 小信封 */
 .theme-pudding .archive-pudding .pudding-letter {
   position: relative; padding: 18px 22px 14px;
-  border: 1px solid #ecd9a8; border-radius: 28px;
-  background: linear-gradient(160deg, #fffdf5 0%, #fffaeb 55%, #fdf3d2 100%);
+  border: 1px solid #f0e9cf; border-radius: 28px;
+  background: linear-gradient(160deg, #fefefa 0%, #fefcf4 55%, #fbf8e7 100%);
   box-shadow: 0 10px 26px rgba(151,104,49,.10), inset 0 1px 0 rgba(255,255,255,.9);
   color: #5b4330;
 }
@@ -97,12 +97,12 @@
 .theme-pudding .archive-pudding .archive-body { padding: 0 2px; color: #5b4330; line-height: 2; text-align: left; }
 .theme-pudding .archive-pudding .archive-body :is(p,.message-story-paragraph) { margin: 0 0 1.15em; line-height: 2; text-align: left; }
 .theme-pudding .archive-pudding .archive-body :is(p,.message-story-paragraph):last-child { margin-bottom: 0; }
-.theme-pudding .archive-pudding .archive-body :is(.message-quote,.chat-quote) { display: inline !important; width: auto !important; margin: 0 .08em !important; padding: .14em .58em !important; border: 1px solid #ead7bf !important; border-radius: 12px !important; color: #7c5842 !important; background: #f4e7da !important; box-shadow: inset 0 1px 0 rgba(255,255,255,.76) !important; line-height: 1.8 !important; text-align: left !important; box-decoration-break: clone; -webkit-box-decoration-break: clone; }
+.theme-pudding .archive-pudding .archive-body :is(.message-quote,.chat-quote) { display: inline !important; width: auto !important; margin: 0 .08em !important; padding: .14em .58em !important; border: 1px solid #f0ebdb !important; border-radius: 12px !important; color: #7c5842 !important; background: #f7f3ea !important; box-shadow: inset 0 1px 0 rgba(255,255,255,.76) !important; line-height: 1.8 !important; text-align: left !important; box-decoration-break: clone; -webkit-box-decoration-break: clone; }
 .theme-pudding .archive-pudding .archive-body :is(.message-narration,.chat-narration,em) { color: #9d8165; font-style: normal; }
-.theme-pudding .archive-pudding.user .archive-body :is(.message-content,.message-content-flat,.message-flat-body,.message-content-rich) { width: 100%; max-width: 100%; text-align: left; }
+.theme-pudding .archive-pudding.user .archive-body :is(.message-content,.message-content-flat,.message-flat-body,.message-content-rich) { width: fit-content !important; max-width: 100%; margin-left: auto !important; margin-right: 0 !important; text-align: left; } /* 我方短消息靠右，长了自然铺满 */
 
 /* 场景块 / 状态卡（时间、地点、天气）在信里占满宽度 */
-.theme-pudding .archive-pudding .archive-body :is(.weijing-status-card, .weijing-scene-strip, .rp-status-card, details, section) { width: auto; max-width: 100%; margin: 14px 0; border-color: #ead8b7; background: rgba(255,253,247,.92); color: #5b4330; box-shadow: none; }
+.theme-pudding .archive-pudding .archive-body :is(.weijing-status-card, .weijing-scene-strip, .rp-status-card, details, section) { width: auto; max-width: 100%; margin: 14px 0; border-color: #efead7; background: rgba(255,254,251,.92); color: #5b4330; box-shadow: none; }
 
 /* 小手机：同一套胶囊 + 信封，尺寸收小一点，短消息不显得太空。 */
 .theme-pudding .phone-chat .archive-row.archive-pudding { margin-bottom: 22px !important; }
@@ -124,8 +124,8 @@
 .theme-pudding .home-heading h1 { color: #5b4330; }
 .theme-pudding .home-heading h1::after { content: ' ૮ ・ﻌ・ა'; font-size: .55em; }
 .theme-pudding .home-heading p { color: #a3825f; }
-.theme-pudding .home-entrances > button { border: 2px solid #fbe3b3; border-radius: 30px; color: #5b4330; background: linear-gradient(160deg,#fffdf6,#fff3d6); box-shadow: 0 6px 0 #f6d9a0, 0 16px 30px rgba(176,112,40,.10); }
-.theme-pudding .home-entrances > button:active { transform: translateY(3px); box-shadow: 0 3px 0 #f6d9a0, 0 10px 20px rgba(176,112,40,.10); }
+.theme-pudding .home-entrances > button { border: 2px solid #f8f1d6; border-radius: 30px; color: #5b4330; background: linear-gradient(160deg,#fefefa,#fdf9e9); box-shadow: 0 6px 0 #f4eccb, 0 16px 30px rgba(176,112,40,.10); }
+.theme-pudding .home-entrances > button:active { transform: translateY(3px); box-shadow: 0 3px 0 #f4eccb, 0 10px 20px rgba(176,112,40,.10); }
 .theme-pudding .home-icon { color: #fff; border-radius: 22px 22px 18px 18px; background: linear-gradient(180deg,#b9702c 0 26%,#ffd77d 27% 100%); box-shadow: inset 0 -5px 0 rgba(214,150,62,.35), 0 8px 18px rgba(176,112,40,.20); }
 .theme-pudding .home-entrances small { color: #b0906b; }
 .theme-pudding .home-entrances i { color: #e0ad6a; }
@@ -136,25 +136,25 @@
   background-image: radial-gradient(rgba(232,170,84,.18) 2px, transparent 2.4px);
   background-size: 24px 24px;
 }
-.theme-pudding .message-content-bubble, .theme-pudding.phone-canvas .message-layout-bubble .message-content-rich { border: 2px solid #fbe6bd; border-radius: 22px 22px 22px 8px; background: rgba(255,253,246,.96); box-shadow: 0 4px 0 #f8e0ad; }
+.theme-pudding .message-content-bubble, .theme-pudding.phone-canvas .message-layout-bubble .message-content-rich { border: 2px solid #f9f2db; border-radius: 22px 22px 22px 8px; background: rgba(254,254,250,.96); box-shadow: 0 4px 0 #f6efd2; }
 .theme-pudding .message-row.user .message-content-bubble { border-color: transparent; border-radius: 22px 22px 8px 22px; color: #fff; background: linear-gradient(160deg,#e59a45,#f5c272); box-shadow: 0 4px 0 #c97f30; }
 .theme-pudding .message-bubble-author { color: #b48b5d; }
-.theme-pudding .composer { border: 2px solid #fbe3b3; background: rgba(255,248,228,.66); box-shadow: 0 5px 0 #f4d59a, 0 12px 26px rgba(176,112,40,.12); }
-.theme-pudding .composer-plus { color: #b6782f; background: #fde9bf; }
+.theme-pudding .composer { border: 2px solid #f8f1d6; background: rgba(253,251,240,.66); box-shadow: 0 5px 0 #f3eac8, 0 12px 26px rgba(176,112,40,.12); }
+.theme-pudding .composer-plus { color: #b6782f; background: #faf4dc; }
 .theme-pudding .composer > textarea { padding-left: 44px; background: url('/pudding-dog.svg') no-repeat 4px center / 36px auto; }
-.theme-pudding .send-button:not(.stop) { color: #8a5a2b; border: 2px solid #c99a4a; background: #fffaf0; box-shadow: 0 3px 8px rgba(151,104,49,.16); }
+.theme-pudding .send-button:not(.stop) { color: #8a5a2b; border: 2px solid #c99a4a; background: #fefdf7; box-shadow: 0 3px 8px rgba(151,104,49,.16); }
 .theme-pudding .send-button.stop { background: linear-gradient(160deg,#c9636f,#e98f93); box-shadow: 0 4px 0 #a14b57; }
-.theme-pudding .chat-jump-controls button { color: #b0702c; background: rgba(255,247,226,.95); box-shadow: 0 6px 18px rgba(176,112,40,.16); }
+.theme-pudding .chat-jump-controls button { color: #b0702c; background: rgba(253,251,239,.95); box-shadow: 0 6px 18px rgba(176,112,40,.16); }
 
 /* Theme picker swatch */
 .theme-choice-grid button.pudding i { background: linear-gradient(180deg,#b9702c 0 28%,#ffd77d 29% 100%); }
 
 /* Settings and other pages */
-.theme-pudding .page-header { background: rgba(255,246,220,.94); }
-.theme-pudding .page-header::before { background: #fff6dc; }
-.theme-pudding.chat-canvas { background: #fff6dc; }
-.theme-pudding .settings-group, .theme-pudding .appearance-card, .theme-pudding .theme-choice-card { border: 2px solid #fbe6bd; background: rgba(255,251,238,.92); box-shadow: 0 4px 0 #f8e0ad; }
-.theme-pudding .privacy-note { color: #9c7a55; background: #fdf0d2; }
+.theme-pudding .page-header { background: rgba(253,250,236,.94); }
+.theme-pudding .page-header::before { background: #fdfaec; }
+.theme-pudding.chat-canvas { background: #fdfaec; }
+.theme-pudding .settings-group, .theme-pudding .appearance-card, .theme-pudding .theme-choice-card { border: 2px solid #f9f2db; background: rgba(254,253,246,.92); box-shadow: 0 4px 0 #f6efd2; }
+.theme-pudding .privacy-note { color: #9c7a55; background: #fbf7e7; }
 .theme-pudding .theme-choice-grid button { color: #5b4330; background: rgba(255,255,255,.72); }
-.theme-pudding .theme-choice-grid button.active { border-color: #e3a556; box-shadow: 0 4px 0 #f4d59a; }
+.theme-pudding .theme-choice-grid button.active { border-color: #e3a556; box-shadow: 0 4px 0 #f3eac8; }
 .theme-pudding .duplicate-theme-button { color: #b0702c; border-color: #ecc58a; }

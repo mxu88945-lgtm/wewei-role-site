@@ -250,7 +250,7 @@ const builtInThemes: ChatThemePreset[] = [
   { id: 'mist', name: '惟境紫雾', mode: 'mist', baseColor: '#f5f1f8', textColor: '#4e4852', narrationColor: '#7f7089', quoteColor: '#7b4d67', frost: .72 },
   { id: 'pearl', name: '月光珍珠', mode: 'pearl', baseColor: '#f8f7f5', textColor: '#403d42', narrationColor: '#716d74', quoteColor: '#6a5360', frost: .68 },
   { id: 'sage', name: '青瓷薄荷', mode: 'sage', baseColor: '#e8f2ee', textColor: '#354b45', narrationColor: '#718a82', quoteColor: '#47776d', frost: .66 },
-  { id: 'pudding', name: '布丁来信', mode: 'pudding', baseColor: '#fff9e9', textColor: '#5b4330', narrationColor: '#9d8165', quoteColor: '#a9663a', frost: .70 },
+  { id: 'pudding', name: '布丁来信', mode: 'pudding', baseColor: '#fefcf3', textColor: '#5b4330', narrationColor: '#9d8165', quoteColor: '#a9663a', frost: .70 },
   { id: 'strawberry', name: '草莓奶油兔', mode: 'strawberry', baseColor: '#fff0f3', textColor: '#5c3a44', narrationColor: '#a8707f', quoteColor: '#c04866', frost: .70 },
   { id: 'blueberry', name: '蓝莓蝴蝶结', mode: 'blueberry', baseColor: '#eef5fd', textColor: '#34465e', narrationColor: '#6f86a6', quoteColor: '#3f6fae', frost: .70 },
   { id: 'liquid', name: '惟镜·液态', mode: 'liquid', baseColor: '#f7f6f2', textColor: '#383735', narrationColor: '#74716c', quoteColor: '#69645f', frost: .34 },
@@ -4969,7 +4969,7 @@ function UpdateCard() {
     }
   }
 
-  return <section className="update-card"><strong>应用更新</strong><p>主动检查并拉取最新网页版本，不会删除角色、聊天记录或本地设置。</p><small>当前版本：v220 · 2026.11.12 布丁来信左右平铺到边（两侧各约 8px），去掉信纸里的小狗，签名显示完整</small><button onClick={refresh} disabled={state === 'checking'}>{state === 'checking' ? '正在检查更新…' : state === 'error' ? '更新失败，点我重试' : '强制刷新到最新版'}</button></section>
+  return <section className="update-card"><strong>应用更新</strong><p>主动检查并拉取最新网页版本，不会删除角色、聊天记录或本地设置。</p><small>当前版本：v221 · 2026.11.12 布丁来信调成淡淡的鹅黄，底色近白</small><button onClick={refresh} disabled={state === 'checking'}>{state === 'checking' ? '正在检查更新…' : state === 'error' ? '更新失败，点我重试' : '强制刷新到最新版'}</button></section>
 }
 
 function PersonaPage({ identities, selectedId, isBound, onSelect, onAdd, onDelete, onUpdate, onBack }: { identities: UserIdentity[]; selectedId: string; isBound: boolean; onSelect: (id: string) => void; onAdd: () => void; onDelete: (id: string) => void; onUpdate: (patch: Partial<UserIdentity>) => void; onBack: () => void }) {

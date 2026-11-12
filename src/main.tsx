@@ -25,7 +25,7 @@ import './theme-archives.css'
 import './memoryApiEnhancements'
 
 const APP_SCOPE = '/wewei-role-site/'
-const SERVICE_WORKER_RELEASE = '2026-11-12-pudding-wide-v220'
+const SERVICE_WORKER_RELEASE = '2026-11-12-pudding-soft-v221'
 
 if ('serviceWorker' in navigator) {
   let reloadingForUpdate = false
