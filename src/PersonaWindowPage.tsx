@@ -30,6 +30,7 @@ import { buildPersonaRequest, extractPersonaMemory, generatePersonaReply, getPer
 import { findTrackByTitle, useMusicStore } from './musicStore'
 import { buildNowPlayingNote } from './nowPlayingNote'
 import ArchiveHeading from './ArchiveHeading'
+import { PuddingCapsule, PuddingLetter } from './PuddingLetter'
 import { messageThemeLayout } from './chatThemeLayout'
 import './persona-window.css'
 
@@ -674,15 +675,7 @@ export default function PersonaWindowPage(props: Props) {
               {message.attachments?.length ? <div className="persona-attachment-list" aria-label="消息文件">{message.attachments.map((attachment) => <div className="persona-attachment-card" key={attachment.id}><span aria-hidden="true">📄</span><div><strong>{attachment.name}</strong><small>{attachmentSizeLabel(attachment.size)}{attachment.truncated ? ' · 过长，已保存前 20 万字' : ' · 只读参考'}</small></div></div>)}</div> : null}
               {streamingNow && (!message.text || isPendingAssistantText(message.text)) ? <div className="persona-typing">（{activeCharacter.name}正在回应…）</div> : (message.text.trim() ? <MessageContent text={isUser ? message.text : personaReplyText(message.text)} role={message.role} character={activeCharacter} userName={identity.name} streaming={streamingNow} noStatus layout={look.layout} paper={look.paper} /> : null)}
         </>
-        return <div key={message.id} data-message-id={message.id} className={look.rowClass}>
-          {look.archive ? <><ArchiveHeading theme={look.archive} name={name} avatar={avatar} user={isUser} /><div className="archive-body">{content}</div></> : look.layout === 'flat' ? <div className="message-line message-line-flat">
-            <div className="message-author">{avatarNode}<span>{name}</span></div>
-            <div className="message-flat-body">{content}</div>
-          </div> : <div className="message-line message-line-bubble">
-            {avatarNode}
-            <div className="message-bubble-column"><span className="message-bubble-author">{name}</span>{content}</div>
-          </div>}
-          {!streamingNow && <div className="message-action-row">
+        const actionRow = streamingNow ? null : <div className="message-action-row">
             <button className="message-action-trigger" aria-label="消息操作" {...tap(() => setMenuMessageId(menuMessageId === message.id ? null : message.id))}>•••</button>
             {menuMessageId === message.id && <span className="persona-message-menu">
               <button {...tap(() => { void navigator.clipboard?.writeText(message.text).catch(() => undefined); setMenuMessageId(null) })}>复制</button>
@@ -692,7 +685,16 @@ export default function PersonaWindowPage(props: Props) {
               <button className="danger" {...tap(() => { if (window.confirm('删除这条消息？')) setPersonaState((current) => deletePersonaMessage(current, active.id, threadId, message.id)); setMenuMessageId(null) })}>删除</button>
             </span>}
             {!isUser && message.id === lastMessage?.id && !generating && <button className="continue-turn-button" aria-label="让 TA 继续说" title="继续" {...tap(letThemSpeak)}>▶</button>}
+          </div>
+        return <div key={message.id} data-message-id={message.id} className={look.rowClass}>
+          {look.archive === 'pudding' ? <><PuddingCapsule name={name} avatar={avatar} user={isUser} /><PuddingLetter user={isUser} actions={actionRow}>{content}</PuddingLetter></> : look.archive ? <><ArchiveHeading theme={look.archive} name={name} avatar={avatar} user={isUser} /><div className="archive-body">{content}</div></> : look.layout === 'flat' ? <div className="message-line message-line-flat">
+            <div className="message-author">{avatarNode}<span>{name}</span></div>
+            <div className="message-flat-body">{content}</div>
+          </div> : <div className="message-line message-line-bubble">
+            {avatarNode}
+            <div className="message-bubble-column"><span className="message-bubble-author">{name}</span>{content}</div>
           </div>}
+          {look.archive !== 'pudding' && actionRow}
           {!isUser && (message.finishReason === 'length' || message.finishReason === 'max_tokens') && <span className="message-finish-note">回复达到上限，可点 ▶ 让 TA 接着说</span>}
           {!isUser && message.songPick && !streamingNow ? <PersonaSongChip title={message.songPick} tap={tap} /> : null}
           {!isUser && message.selfCardEdit && !streamingNow ? <button type="button" className="persona-selfcard-chip" {...tap(() => { setSidebarOpen(false); setSettingsPanel('selfCard'); setDrawerOpen(true) })}>✎ 他改了自己的「{selfCardLabel(message.selfCardEdit)}」</button> : null}

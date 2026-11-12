@@ -1,5 +1,7 @@
-const CACHE_NAME = 'weijing-shell-v217'
+const CACHE_NAME = 'weijing-shell-v218'
 const APP_ROOT = '/wewei-role-site/'
+// v218：布丁来信的两张布丁狗图，安装时先放进缓存，离线也能显示。
+const PRECACHE = ['pudding-dog.svg', 'pudding-bone.svg'].map((name) => `${APP_ROOT}${name}`)
 
 async function rememberResponse(key, response) {
   if (!response.ok) return
@@ -11,8 +13,16 @@ async function rememberResponse(key, response) {
   }
 }
 
-self.addEventListener('install', () => {
+self.addEventListener('install', (event) => {
   self.skipWaiting()
+  event.waitUntil((async () => {
+    try {
+      const cache = await caches.open(CACHE_NAME)
+      await cache.addAll(PRECACHE)
+    } catch {
+      // Precache is best effort: a failed fetch must never block the new worker.
+    }
+  })())
 })
 
 self.addEventListener('activate', (event) => {
