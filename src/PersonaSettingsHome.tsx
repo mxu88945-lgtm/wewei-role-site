@@ -1,9 +1,10 @@
 import type { PointerEvent } from 'react'
 
-export type PersonaSettingsPanel = 'home' | 'model' | 'prompts' | 'appearance' | 'tasks'
+export type PersonaSettingsPanel = 'home' | 'model' | 'prompts' | 'appearance' | 'tasks' | 'selfCard'
 type Tap = (action: () => void) => { onPointerUp: (event: PointerEvent) => void; onClick: () => void }
-type IconName = 'prompt' | 'memory' | 'past' | 'windows' | 'model' | 'people' | 'appearance' | 'music'
+type IconName = 'selfCard' | 'prompt' | 'memory' | 'past' | 'windows' | 'model' | 'people' | 'appearance' | 'music'
 const ICONS: Record<IconName, string> = {
+  selfCard: 'M12 20h9M16.5 3.5a2.12 2.12 0 0 1 3 3L7 19l-4 1 1-4Z',
   prompt: 'M9 4h6M10 4v16m4-16v16M9 4H7a4 4 0 0 0 0 8h3',
   appearance: 'M12 3a9 9 0 1 0 0 18h2a2 2 0 0 0 1-3.7 1.5 1.5 0 0 1 .8-2.8H18a3 3 0 0 0 3-3A9 9 0 0 0 12 3ZM7 10h.01M10 7h.01M15 7h.01M17 11h.01',
   memory: 'm12 3 8 9-8 9-8-9 8-9Z',
@@ -25,16 +26,19 @@ function Row({ icon, title, description, value, onSelect, tap }: { icon: IconNam
   </button>
 }
 
-export default function PersonaSettingsHome({ promptLength, memoryCount, threadCount, threadTitle, channelName, modelName, pastLifeEnabled, onNavigate, onThreads, onMemory, onManage, onTogglePastLife, trackCount = 0, songPickEnabled = true, onMusic, onToggleSongPick, tap }: {
+export default function PersonaSettingsHome({ promptLength, memoryCount, threadCount, threadTitle, channelName, modelName, pastLifeEnabled, onNavigate, onThreads, onMemory, onManage, onTogglePastLife, trackCount = 0, songPickEnabled = true, onMusic, onToggleSongPick, selfCardLength = 0, tap }: {
   promptLength: number; memoryCount: number; threadCount: number; threadTitle: string; channelName: string; modelName: string; pastLifeEnabled: boolean
   onNavigate: (panel: PersonaSettingsPanel) => void; onThreads: () => void; onMemory: () => void; onManage: () => void; onTogglePastLife: () => void
   /** v207 一起听歌 */
-  trackCount?: number; songPickEnabled?: boolean; onMusic?: () => void; onToggleSongPick?: () => void; tap: Tap
+  trackCount?: number; songPickEnabled?: boolean; onMusic?: () => void; onToggleSongPick?: () => void
+  /** v211 他自己写的卡 */
+  selfCardLength?: number; tap: Tap
 }) {
   return <div className="persona-settings-home">
     <p className="persona-settings-caption">你们的相处</p>
     <section className="persona-settings-group" aria-label="相处与记忆">
       <Row icon="prompt" title="系统提示词" description="相处方式、语气与表达偏好" value={promptLength ? `${promptLength.toLocaleString()} 字` : '默认规则'} onSelect={() => onNavigate('prompts')} tap={tap} />
+      <Row icon="selfCard" title="他自己写的卡" description="他在相处中慢慢补全的自己，原卡不动" value={selfCardLength ? `${selfCardLength.toLocaleString()} 字` : '还空着'} onSelect={() => onNavigate('selfCard')} tap={tap} />
       <Row icon="memory" title="记忆" description="长期记忆 · 同一人格的窗口共用" value={`${memoryCount} 条`} onSelect={onMemory} tap={tap} />
       <Row icon="appearance" title="外观与文字" description="主题、壁纸、字号与文字颜色" onSelect={() => onNavigate('appearance')} tap={tap} />
       <Row icon="past" title="任务卡" description="当前窗口的倒计时、完成与取消" onSelect={() => onNavigate('tasks')} tap={tap} />

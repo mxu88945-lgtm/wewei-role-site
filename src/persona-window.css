@@ -290,3 +290,15 @@ button.persona-settings-row:active { background: var(--theme-accent-soft); }
 
 /* v208：输入框随内容长高（JS 写 height），16px 防 iOS 聚焦放大；约 6 行封顶后内部滚动。 */
 .composer.persona-composer textarea { font-size: 16px; line-height: 1.4; min-height: 34px; max-height: 147px; overflow-y: auto; }
+
+/* v211 他自己写的卡 */
+.persona-selfcard-chip { display: inline-flex; align-items: center; max-width: 100%; margin: 0 0 8px; padding: 2px 10px; border: 0; border-radius: 999px; background: rgba(125,104,141,.08); color: #9c8da6; font-size: 11px; font-weight: 500; line-height: 1.6; text-align: left; overflow: hidden; white-space: nowrap; text-overflow: ellipsis; }
+.persona-selfcard-toggle { padding: 12px 14px; border-radius: 16px; background: rgba(255,255,255,.6); }
+.persona-selfcard-field { display: grid; gap: 6px; }
+.persona-selfcard-editor { display: block; box-sizing: border-box; width: 100%; min-height: 64px; resize: vertical; padding: 11px 13px; border: 1px solid rgba(125,104,141,.15); border-radius: 14px; outline-color: var(--theme-accent); color: #51435e; background: rgba(255,255,255,.82); font: inherit; font-size: 16px; line-height: 1.7; }
+.persona-selfcard-editor::placeholder { color: #b9aec0; }
+.persona-selfcard-version { display: flex; align-items: center; justify-content: space-between; gap: 10px; margin-top: 12px; }
+.persona-selfcard-version div { min-width: 0; }
+.persona-selfcard-version strong { display: block; color: #6d5b79; font-size: 12px; font-weight: 600; }
+.persona-selfcard-version small { color: #a99cb1; font-size: 10px; }
+.persona-selfcard-version .soft-button { flex-shrink: 0; font-size: 11px; }

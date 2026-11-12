@@ -25,6 +25,7 @@ import { normalizePersonaTasks, type PersonaTask } from './personaTasks'
 import { isApiChannelComplete, resolveApiChannel, type ApiChannel } from './apiChannels'
 import { buildBackstagePersonaMemory } from './backstageNotes'
 import { stripSongPick } from './personaSongPick'
+import { normalizeSelfCard, normalizeSelfCardHistory, SELF_CARD_SECTIONS, stripSelfCardTag, type SelfCard, type SelfCardKey, type SelfCardVersion } from './personaSelfCard'
 
 export const PERSONA_WINDOWS_KEY = 'weijing.personaWindows'
 /** 自动整理记忆：攒够这么多条新消息（用户 + 角色）就后台整理一次。 */
@@ -54,6 +55,8 @@ export type PersonaMessage = {
   quote?: { messageId: number; author: string; text: string }
   /** v207：他在这条回复里点的歌（[点歌:X] 解析出来的歌名；正文里已去掉标记）。 */
   songPick?: string
+  /** v211：他在这条回复里改了自我卡的哪一栏（[自我卡:栏目|…] 解析出来；正文里已去掉标记）。 */
+  selfCardEdit?: SelfCardKey
 }
 
 export type PersonaMemoryEntry = {
@@ -126,6 +129,12 @@ export type PersonaWindow = {
   tasksEnabled?: boolean
   /** v207：让他自己点歌，默认开（只存 false）。 */
   songPickEnabled?: boolean
+  /** v211：他自己写的卡（只在人格窗口，所有窗口共用；原卡永远不改）。 */
+  selfCard?: SelfCard
+  /** v211：自我卡最近 20 个旧版本（时间 + 原因），用于恢复。 */
+  selfCardHistory?: SelfCardVersion[]
+  /** v211：让他自己补全，默认开（只存 false）。 */
+  selfCardEnabled?: boolean
 }
 
 export const PERSONA_STATE_VERSION = 2
@@ -137,6 +146,8 @@ export const personaIdFor = (characterId: string) => `persona-${characterId}`
 
 const isRecord = (value: unknown): value is Record<string, unknown> => Boolean(value) && typeof value === 'object' && !Array.isArray(value)
 const text = (value: unknown) => typeof value === 'string' ? value : ''
+
+const isSelfCardKey = (value: unknown): value is SelfCardKey => SELF_CARD_SECTIONS.some((item) => item.key === value)
 
 function normalizeMessage(value: unknown): PersonaMessage | null {
   if (!isRecord(value)) return null
@@ -152,7 +163,7 @@ function normalizeMessage(value: unknown): PersonaMessage | null {
   }).filter((item): item is ChatAttachment => Boolean(item)).slice(0, CHAT_ATTACHMENT_LIMIT)
   const recallSources = (Array.isArray(value.recallSources) ? value.recallSources : []).filter(isRecord).filter((source) => text(source.threadId) && Number.isSafeInteger(source.messageId) && (source.role === 'user' || source.role === 'assistant')).slice(0, 20).map((source): PersonaRecallSource => ({ threadId: text(source.threadId), messageId: Number(source.messageId), title: text(source.title), role: source.role === 'user' ? 'user' : 'assistant', createdAt: Number(source.createdAt) || 0 }))
   const quote = isRecord(value.quote) && Number.isFinite(Number(value.quote.messageId)) ? { messageId: Number(value.quote.messageId), author: text(value.quote.author), text: text(value.quote.text) } : undefined
-  return { id, role, text: text(value.text), createdAt: Number(value.createdAt) || 0, ...(images?.length ? { images } : {}), ...(attachments.length ? { attachments } : {}), ...(value.finishReason !== undefined ? { finishReason: (value.finishReason as string | null) } : {}), ...(recallSources.length ? { recallSources } : {}), ...(role === 'assistant' && text(value.taskCompletionId) ? { taskCompletionId: text(value.taskCompletionId) } : {}), ...(quote ? { quote } : {}), ...(role === 'assistant' && text(value.songPick).trim() ? { songPick: text(value.songPick).trim().slice(0, 80) } : {}) }
+  return { id, role, text: text(value.text), createdAt: Number(value.createdAt) || 0, ...(images?.length ? { images } : {}), ...(attachments.length ? { attachments } : {}), ...(value.finishReason !== undefined ? { finishReason: (value.finishReason as string | null) } : {}), ...(recallSources.length ? { recallSources } : {}), ...(role === 'assistant' && text(value.taskCompletionId) ? { taskCompletionId: text(value.taskCompletionId) } : {}), ...(quote ? { quote } : {}), ...(role === 'assistant' && text(value.songPick).trim() ? { songPick: text(value.songPick).trim().slice(0, 80) } : {}), ...(role === 'assistant' && isSelfCardKey(value.selfCardEdit) ? { selfCardEdit: value.selfCardEdit } : {}) }
 }
 
 function normalizeMemory(value: unknown): PersonaMemoryEntry | null {
@@ -244,6 +255,9 @@ export function normalizePersonaState(value: unknown): PersonaWindowState {
       ...(normalizePersonaAppearance(raw.appearance) ? { appearance: normalizePersonaAppearance(raw.appearance) } : {}),
       ...(raw.tasksEnabled === false ? { tasksEnabled: false } : {}),
       ...(raw.songPickEnabled === false ? { songPickEnabled: false } : {}),
+      ...(Object.keys(normalizeSelfCard(raw.selfCard)).length ? { selfCard: normalizeSelfCard(raw.selfCard) } : {}),
+      ...(normalizeSelfCardHistory(raw.selfCardHistory).length ? { selfCardHistory: normalizeSelfCardHistory(raw.selfCardHistory) } : {}),
+      ...(raw.selfCardEnabled === false ? { selfCardEnabled: false } : {}),
     })
   }
   const activeId = text(value.activeId)
@@ -536,7 +550,7 @@ export function conversationInvolvesCharacter(conversation: Conversation, ids: r
 const conversationKind = (conversation: Conversation) => conversation.phone ? (conversation.phone.dm ? '小手机私聊' : '小手机群聊') : conversation.kind === 'group' ? '长剧情·群戏' : '长剧情'
 
 function messageText(text: string) {
-  return stripSongPick(stripUiOnlyStatusBlocks(stripPresentationalHtmlForPrompt(text)).replace(/\n{2,}/g, '\n').trim())
+  return stripSelfCardTag(stripSongPick(stripUiOnlyStatusBlocks(stripPresentationalHtmlForPrompt(text)).replace(/\n{2,}/g, '\n').trim()))
 }
 
 /** His own lines and hers, newest last — for conversations that have no memory or summary yet. */

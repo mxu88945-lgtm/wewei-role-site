@@ -13,6 +13,8 @@ import { CHAT_RENDER_WINDOW, earlierChatMessageCount, earlierChatWindowAnchor, r
 import { createKeyboardScrollPin, VIEWPORT_CHANGE_EVENT, VIEWPORT_WILL_CHANGE_EVENT } from './keyboardScrollPin'
 import MessageContent, { isPendingAssistantText } from './MessageContent'
 import { personaReplyText } from './personaWindowPresentation'
+import PersonaSelfCardPanel from './PersonaSelfCardPanel'
+import { restoreSelfCard, selfCardLabel, selfCardLength, setSelfCardSection } from './personaSelfCard'
 import PersonaSettingsHome, { type PersonaSettingsPanel } from './PersonaSettingsHome'
 import PersonaAppearanceSettings, { type PersonaAppearanceControls } from './PersonaAppearanceSettings'
 import { PersonaTaskCards, PersonaTaskPanel, PersonaTaskPin } from './PersonaTaskCards'
@@ -688,6 +690,7 @@ export default function PersonaWindowPage(props: Props) {
           </div>}
           {!isUser && (message.finishReason === 'length' || message.finishReason === 'max_tokens') && <span className="message-finish-note">回复达到上限，可点 ▶ 让 TA 接着说</span>}
           {!isUser && message.songPick && !streamingNow ? <PersonaSongChip title={message.songPick} tap={tap} /> : null}
+          {!isUser && message.selfCardEdit && !streamingNow ? <button type="button" className="persona-selfcard-chip" {...tap(() => { setSidebarOpen(false); setSettingsPanel('selfCard'); setDrawerOpen(true) })}>✎ 他改了自己的「{selfCardLabel(message.selfCardEdit)}」</button> : null}
           {!isUser && message.recallSources?.length ? <PersonaRecallReceipt sources={message.recallSources} persona={active} /> : null}
           {!isUser && tasksByMessage.has(message.id) && <PersonaTaskCards tasks={tasksByMessage.get(message.id)!} busy={generating} onAction={taskAction} onReact={taskReact} tap={tap} />}
         </div>
@@ -714,11 +717,15 @@ export default function PersonaWindowPage(props: Props) {
         {!sidebarOpen && <header className={`persona-settings-header ${settingsPanel === 'home' ? 'is-home' : ''}`}>
           {settingsPanel !== 'home' && <button className="persona-settings-back" aria-label="返回设置" {...tap(() => { setSettingsPanel('home'); setRenaming(null) })}>‹</button>}
           {settingsPanel === 'home' && avatarOf(activeCharacter, 'large')}
-          <div><small>{settingsPanel === 'home' ? '人格窗口' : activeCharacter.name}</small><h2>{settingsPanel === 'home' ? activeCharacter.name : { model: '模型与渠道', prompts: '系统提示词', appearance: '外观与文字', tasks: '任务卡' }[settingsPanel]}</h2>{settingsPanel === 'home' && <p>和 {identity.name}，在这里慢慢相处。</p>}</div>
+          <div><small>{settingsPanel === 'home' ? '人格窗口' : activeCharacter.name}</small><h2>{settingsPanel === 'home' ? activeCharacter.name : { model: '模型与渠道', prompts: '系统提示词', appearance: '外观与文字', tasks: '任务卡', selfCard: '他自己写的卡' }[settingsPanel]}</h2>{settingsPanel === 'home' && <p>和 {identity.name}，在这里慢慢相处。</p>}</div>
           <button className="persona-settings-close" aria-label="关闭" {...tap(() => { setDrawerOpen(false); setRenaming(null) })}>×</button>
         </header>}
         <div className="right-drawer-scroll">
-          {drawerOpen && settingsPanel === 'home' && <PersonaSettingsHome promptLength={active.systemPrompt?.trim().length || 0} memoryCount={active.memories.length} threadCount={active.threads.length} threadTitle={thread?.title || ''} channelName={resolvePersonaApi(active, props.apiChannels, props.api).name} modelName={resolvePersonaApi(active, props.apiChannels, props.api).modelName || ''} pastLifeEnabled={active.pastLifeEnabled !== false} onNavigate={setSettingsPanel} onThreads={openSidebar} onMemory={() => { setDrawerOpen(false); setViewReturn('settings'); setView('memory') }} onManage={() => { setDrawerOpen(false); setViewReturn('settings'); setView('manage') }} onTogglePastLife={togglePastLife} trackCount={trackCount} songPickEnabled={active.songPickEnabled !== false} onMusic={() => { setDrawerOpen(false); setMusicSheetOpen(true) }} onToggleSongPick={() => setPersonaState((current) => updatePersona(current, active.id, (item) => { const next = { ...item }; if (item.songPickEnabled === false) delete next.songPickEnabled; else next.songPickEnabled = false; return next }))} tap={tap} />}
+          {drawerOpen && settingsPanel === 'home' && <PersonaSettingsHome promptLength={active.systemPrompt?.trim().length || 0} memoryCount={active.memories.length} threadCount={active.threads.length} threadTitle={thread?.title || ''} channelName={resolvePersonaApi(active, props.apiChannels, props.api).name} modelName={resolvePersonaApi(active, props.apiChannels, props.api).modelName || ''} pastLifeEnabled={active.pastLifeEnabled !== false} onNavigate={setSettingsPanel} onThreads={openSidebar} onMemory={() => { setDrawerOpen(false); setViewReturn('settings'); setView('memory') }} onManage={() => { setDrawerOpen(false); setViewReturn('settings'); setView('manage') }} onTogglePastLife={togglePastLife} trackCount={trackCount} songPickEnabled={active.songPickEnabled !== false} onMusic={() => { setDrawerOpen(false); setMusicSheetOpen(true) }} onToggleSongPick={() => setPersonaState((current) => updatePersona(current, active.id, (item) => { const next = { ...item }; if (item.songPickEnabled === false) delete next.songPickEnabled; else next.songPickEnabled = false; return next }))} selfCardLength={selfCardLength(active.selfCard)} tap={tap} />}
+          {drawerOpen && settingsPanel === 'selfCard' && <PersonaSelfCardPanel key={active.id} name={activeCharacter.name} card={active.selfCard} history={active.selfCardHistory} enabled={active.selfCardEnabled !== false} onFocus={scrollFieldIntoView} tap={tap}
+            onSave={(key, content) => setPersonaState((current) => updatePersona(current, active.id, (item) => setSelfCardSection(item, key, content, `她改了「${selfCardLabel(key)}」`)))}
+            onRestore={(index) => setPersonaState((current) => updatePersona(current, active.id, (item) => restoreSelfCard(item, index)))}
+            onToggle={() => setPersonaState((current) => updatePersona(current, active.id, (item) => { const next = { ...item }; if (item.selfCardEnabled === false) delete next.selfCardEnabled; else next.selfCardEnabled = false; return next }))} />}
           {sidebarOpen && <section className="drawer-compact-group persona-threads">
             <h3 className="persona-section-title">最近</h3>
             {active.threads.slice().sort((a, b) => (b.updatedAt || 0) - (a.updatedAt || 0)).map((item) => {

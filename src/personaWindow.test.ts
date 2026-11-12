@@ -211,6 +211,58 @@ describe('前世记忆', () => {
     expect(JSON.stringify(buildPersonaRequest(persona, history, { ...deps, songList: () => [] }))).not.toContain('一起听歌｜你可以自己点歌')
   })
 
+  it('v211 puts his self card in the first system message right after the original card, and strips old tags from history', () => {
+    const deps = { character: gu, user: { name: '周惟惟', description: '' }, api, memoryApi: api, temperature: 1, topP: 1, maxTokens: 1000, streaming: false, memoryLength: 40, pastLife: () => '' }
+    const persona = { ...createPersonaWindow('gu'), selfCard: { likes: '下雨天和她泡的茶' } }
+    const history = [{ id: 1, role: 'user' as const, text: '嗨', createdAt: 1 }, { id: 2, role: 'assistant' as const, text: '在。\n[自我卡:喜好|下雨天]', createdAt: 2 }, { id: 3, role: 'user' as const, text: '嗯', createdAt: 3 }]
+    const messages = buildPersonaRequest(persona, history, deps)
+    expect(messages.filter((item) => item.role === 'system')).toHaveLength(1)
+    const system = String(messages[0].content)
+    const card = system.indexOf('【背景参考资料结束】')
+    const self = system.indexOf('他自己补全的自己')
+    expect(card).toBeGreaterThan(-1)
+    expect(self).toBeGreaterThan(card)
+    expect(system.indexOf('【用户资料参考')).toBeGreaterThan(self)
+    expect(system).toContain('【喜好】下雨天和她泡的茶')
+    expect(system).toContain('[自我卡:栏目|')
+    expect(JSON.stringify(messages.slice(1))).not.toContain('[自我卡:喜好')
+    expect(String(buildPersonaRequest({ ...persona, selfCardEnabled: false }, history, deps)[0].content)).not.toContain('[自我卡:栏目|')
+    // Same card → same first system message (prompt cache intact).
+    expect(String(buildPersonaRequest(persona, [...history, { id: 4, role: 'assistant' as const, text: '好', createdAt: 4 }, { id: 5, role: 'user' as const, text: '再见', createdAt: 5 }], deps)[0].content)).toBe(system)
+  })
+
+  it('v211 applies a self-card tag when a reply finishes, keeps history, and never touches the original card', async () => {
+    const original = JSON.stringify(gu)
+    setPersonaState((state) => enablePersona(state, 'gu'))
+    const deps = { character: gu, user: { name: '周惟惟', description: '' }, api, memoryApi: api, temperature: 1, topP: 1, maxTokens: 1000, streaming: false, memoryLength: 40, pastLife: () => '' }
+    completions.push('“嗯，我好像确实喜欢下雨天。”\n[自我卡:喜好|喜欢下雨天]')
+    await generatePersonaReply(personaIdFor('gu'), deps, { text: '你喜欢什么天气' })
+    let persona = getPersonaState().personas[0]
+    const reply = persona.threads[0].messages[1]
+    expect(reply.text).toBe('“嗯，我好像确实喜欢下雨天。”')
+    expect(reply.selfCardEdit).toBe('likes')
+    expect(persona.selfCard).toEqual({ likes: '喜欢下雨天' })
+    expect(persona.selfCardHistory?.[0]).toMatchObject({ reason: '他改了「喜好」', card: {} })
+    expect(JSON.stringify(gu)).toBe(original)
+    // Survives normalize (backup / reload) and applies to every window of the persona.
+    const restored = normalizePersonaState(JSON.parse(JSON.stringify(getPersonaState())))
+    expect(restored.personas[0].selfCard).toEqual({ likes: '喜欢下雨天' })
+    expect(restored.personas[0].threads[0].messages[1].selfCardEdit).toBe('likes')
+    setPersonaState((state) => addPersonaThread(state, personaIdFor('gu')))
+    persona = getPersonaState().personas[0]
+    expect(String(buildPersonaRequest(persona, [{ id: 1, role: 'user', text: '新窗口', createdAt: 1 }], deps, activeThread(persona))[0].content)).toContain('【喜好】喜欢下雨天')
+    // Switch off: tag is still hidden but not applied.
+    setPersonaState((state) => updatePersona(state, personaIdFor('gu'), (item) => ({ ...item, selfCardEnabled: false })))
+    completions.push('“好。”\n[自我卡:习惯|早睡]')
+    await generatePersonaReply(personaIdFor('gu'), deps, { text: '早点睡' })
+    persona = getPersonaState().personas[0]
+    const lastMessages = activeThread(persona).messages
+    const last = lastMessages[lastMessages.length - 1]
+    expect(last.text).toBe('“好。”')
+    expect(last.selfCardEdit).toBeUndefined()
+    expect(persona.selfCard).toEqual({ likes: '喜欢下雨天' })
+  })
+
   it('v208/v210 carries the now-playing note in the latest user turn tail (not a second system message), read at send time', () => {
     let note = ''
     const deps = { character: gu, user: { name: '周惟惟', description: '' }, api, memoryApi: api, temperature: 1, topP: 1, maxTokens: 1000, streaming: false, memoryLength: 40, pastLife: () => '', nowPlaying: () => note }
