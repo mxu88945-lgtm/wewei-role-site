@@ -26,13 +26,16 @@ const getOffset = (id: string) => Number(localStorage.getItem(offsetKey(id)) || 
 
 export default function MusicPlayer({ hideFloat = false }: { hideFloat?: boolean } = {}) {
   const { tracks, activeId, mini, sheetOpen, lyrics } = useMusicStore()
-  const { setSheetOpen, setMini, addTracks, removeTrack, setActive, setHasLyrics, setNow, setLyrics } = useMusicStore.getState()
+  const { setSheetOpen, setMini, addTracks, removeTracks, renameTrack, setActive, setHasLyrics, setNow, setLyrics } = useMusicStore.getState()
   const [playing, setPlaying] = useState(false)
   const [pos, setPos] = useState(0)
   const [dur, setDur] = useState(0)
   const [err, setErr] = useState('')
   const [hint, setHint] = useState('')
   const [offsetView, setOffsetView] = useState(0)
+  // v217 歌单「管理」：多选删除（只选一首时可改名）
+  const [managing, setManaging] = useState(false)
+  const [picked, setPicked] = useState<Set<string>>(() => new Set())
   const audioRef = useRef<HTMLAudioElement | null>(null)
   const urlRef = useRef('')
   const loadedRef = useRef('')
@@ -222,15 +225,48 @@ export default function MusicPlayer({ hideFloat = false }: { hideFloat?: boolean
     } catch (e) { setErr(`保存失败：${(e as Error).message}`) }
   }
 
+  /** 删歌（单删和批量删共用）：音频、歌词、歌词偏移一起清；正在放的被删就干净停下。 */
+  function dropTracks(ids: string[]) {
+    if (!ids.length) return
+    for (const id of ids) {
+      void musicDel(`music:${id}`); void musicDel(`lyric:${id}`)
+      try { localStorage.removeItem(offsetKey(id)) } catch { /* ignore */ }
+      candRef.current.delete(id); triedRef.current.delete(id)
+    }
+    if (ids.includes(loadedRef.current)) {
+      const a = ensureAudio()
+      loadedRef.current = ''
+      a.pause(); a.removeAttribute('src'); a.load()
+      if (urlRef.current) { URL.revokeObjectURL(urlRef.current); urlRef.current = '' }
+      setPlaying(false); setPos(0); setDur(0); setNow(null); setLyrics([]); setHint(''); setErr('')
+    }
+    removeTracks(ids)
+  }
+
   function del(t: MusicTrack) {
     if (!window.confirm(`删除「${t.name}」？`)) return
-    void musicDel(`music:${t.id}`); void musicDel(`lyric:${t.id}`)
-    if (loadedRef.current === t.id) {
-      const a = ensureAudio(); a.pause(); a.removeAttribute('src'); loadedRef.current = ''
-      if (urlRef.current) { URL.revokeObjectURL(urlRef.current); urlRef.current = '' }
-      setPos(0); setDur(0); setNow(null); setLyrics([])
-    }
-    removeTrack(t.id)
+    dropTracks([t.id])
+  }
+
+  function exitManage() { setManaging(false); setPicked(new Set()) }
+  function togglePick(id: string) {
+    setPicked((p) => { const n = new Set(p); if (n.has(id)) n.delete(id); else n.add(id); return n })
+  }
+  function delPicked() {
+    const ids = tracks.filter((t) => picked.has(t.id)).map((t) => t.id)
+    if (!ids.length || !window.confirm(`删除选中的 ${ids.length} 首？`)) return
+    dropTracks(ids)
+    setPicked(new Set())
+    if (ids.length >= tracks.length) setManaging(false)
+  }
+  function renamePicked() {
+    const t = tracks.find((x) => picked.has(x.id))
+    if (!t) return
+    const name = window.prompt('改个名字', t.name)
+    if (name == null || !name.trim() || name.trim() === t.name) return
+    renameTrack(t.id, name)
+    candRef.current.delete(t.id) // 歌名变了，网上歌词候选按新名字重找
+    triedRef.current.delete(t.id)
   }
 
   useEffect(() => () => { audioRef.current?.pause(); if (urlRef.current) URL.revokeObjectURL(urlRef.current) }, [])
@@ -250,6 +286,29 @@ export default function MusicPlayer({ hideFloat = false }: { hideFloat?: boolean
       fileRef.current?.click()
     }
   }), [])
+
+  // v217：锁屏 / 控制中心显示歌名，能直接暂停、切上下首（另外两个 app 都有）。
+  const sessionName = loadedRef.current ? tracks.find((t) => t.id === loadedRef.current)?.name ?? '' : ''
+  useEffect(() => {
+    const ms = typeof navigator !== 'undefined' ? navigator.mediaSession : undefined
+    if (!ms) return
+    try {
+      ms.metadata = sessionName && typeof MediaMetadata !== 'undefined' ? new MediaMetadata({ title: sessionName, artist: '一起听歌 · 惟境' }) : null
+      ms.playbackState = !sessionName ? 'none' : playing ? 'playing' : 'paused'
+    } catch { /* 老系统不支持就算了 */ }
+  }, [sessionName, playing])
+  useEffect(() => {
+    const ms = typeof navigator !== 'undefined' ? navigator.mediaSession : undefined
+    if (!ms) return
+    const set = (action: MediaSessionAction, fn: (() => void) | null) => { try { ms.setActionHandler(action, fn) } catch { /* ignore */ } }
+    set('play', () => { const a = audioRef.current; if (a?.src) void a.play().catch(() => {}); else commandRef.current({ kind: 'toggle', nonce: 0 }) })
+    set('pause', () => audioRef.current?.pause())
+    set('previoustrack', () => commandRef.current({ kind: 'step', dir: -1, nonce: 0 }))
+    set('nexttrack', () => commandRef.current({ kind: 'step', dir: 1, nonce: 0 }))
+    return () => { for (const a of ['play', 'pause', 'previoustrack', 'nexttrack'] as MediaSessionAction[]) set(a, null) }
+  }, [])
+
+  useEffect(() => { if (!sheetOpen) { setManaging(false); setPicked(new Set()) } }, [sheetOpen])
 
   const loaded = Boolean(active && loadedRef.current === active.id)
   const timed = isTimed(lyrics)
@@ -289,15 +348,31 @@ export default function MusicPlayer({ hideFloat = false }: { hideFloat?: boolean
         <button type="button" className="push" onClick={() => void nextVersion(active.id)}>换一版歌词</button>
       </div>}
       {err && <p className="wj-music-error">{err}</p>}
-      <div className="wj-music-list">
-        {tracks.map((t) => <div key={t.id} className={t.id === active?.id ? 'current' : ''}>
-          <button type="button" className="name" onClick={() => void playTrack(t.id)}>{t.name}</button>
-          <button type="button" className="mini" onClick={() => { lyricForRef.current = t.id; lyricFileRef.current?.click() }}>{t.hasLyrics ? '换词' : '+词'}</button>
-          <button type="button" className="mini danger" aria-label="删除" onClick={() => del(t)}>×</button>
-        </div>)}
+      {tracks.length > 0 && <div className="wj-music-list-head">
+        {managing ? <>
+          <button type="button" onClick={() => setPicked(picked.size === tracks.length ? new Set() : new Set(tracks.map((t) => t.id)))}>{picked.size === tracks.length ? '取消全选' : '全选'}</button>
+          {picked.size === 1 && <button type="button" onClick={renamePicked}>改名</button>}
+          <button type="button" className="danger push" disabled={!picked.size} onClick={delPicked}>删除选中（{picked.size}）</button>
+          <button type="button" className="strong" onClick={exitManage}>完成</button>
+        </> : <>
+          <span>歌单 · {tracks.length} 首</span>
+          <button type="button" className="push" onClick={() => setManaging(true)}>管理</button>
+        </>}
+      </div>}
+      <div className={`wj-music-list${managing ? ' managing' : ''}`}>
+        {tracks.map((t) => managing
+          ? <button key={t.id} type="button" role="checkbox" aria-checked={picked.has(t.id)} className={`wj-music-pick${picked.has(t.id) ? ' on' : ''}${t.id === active?.id ? ' current' : ''}`} onClick={() => togglePick(t.id)}>
+            <span className="box" aria-hidden="true">{picked.has(t.id) ? '✓' : ''}</span>
+            <span className="name">{t.name}</span>
+          </button>
+          : <div key={t.id} className={t.id === active?.id ? 'current' : ''}>
+            <button type="button" className="name" onClick={() => void playTrack(t.id)}>{t.name}</button>
+            <button type="button" className="mini" onClick={() => { lyricForRef.current = t.id; lyricFileRef.current?.click() }}>{t.hasLyrics ? '换词' : '+词'}</button>
+            <button type="button" className="mini danger" aria-label="删除" onClick={() => del(t)}>×</button>
+          </div>)}
         {!tracks.length && <p className="wj-music-empty">歌只存在这台手机里 ♡ 原唱的歌词最准。</p>}
       </div>
-      <button type="button" className="wj-music-add" onClick={() => { importWantRef.current = null; fileRef.current?.click() }}>＋ 导入音乐（可连同同名 .lrc 一起选）</button>
+      {!managing &&       <button type="button" className="wj-music-add" onClick={() => { importWantRef.current = null; fileRef.current?.click() }}>＋ 导入音乐（可连同同名 .lrc 一起选）</button>}
     </section>
   </div>, document.body)
 

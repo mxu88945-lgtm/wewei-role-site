@@ -22,6 +22,10 @@ interface MusicState extends Persisted {
   setMini: (on: boolean) => void
   addTracks: (list: MusicTrack[]) => void
   removeTrack: (id: string) => void
+  /** v217 歌单「管理」批量删：一次写盘；当前曲目被删就落到剩下的第一首 */
+  removeTracks: (ids: string[]) => void
+  /** v217：管理里只选一首时可以改名 */
+  renameTrack: (id: string, name: string) => void
   setActive: (id: string) => void
   setHasLyrics: (id: string, on: boolean) => void
   now: NowPlaying | null
@@ -60,10 +64,17 @@ export const useMusicStore = create<MusicState>((set, get) => {
     setSheetOpen: (open) => set({ sheetOpen: open }),
     setMini: (on) => persist({ mini: on }),
     addTracks: (list) => persist({ tracks: [...get().tracks, ...list], activeId: get().activeId || list[0]?.id || '' }),
-    removeTrack: (id) => {
-      const tracks = get().tracks.filter((t) => t.id !== id)
-      persist({ tracks, activeId: get().activeId === id ? tracks[0]?.id ?? '' : get().activeId })
+    removeTrack: (id) => get().removeTracks([id]),
+    removeTracks: (ids) => {
+      const drop = new Set(ids)
+      if (!drop.size) return
+      const tracks = get().tracks.filter((t) => !drop.has(t.id))
+      const activeId = drop.has(get().activeId) ? tracks[0]?.id ?? '' : get().activeId
+      const blocked = drop.has(get().autoplayBlockedId) ? '' : get().autoplayBlockedId
+      persist({ tracks, activeId })
+      if (blocked !== get().autoplayBlockedId) set({ autoplayBlockedId: blocked })
     },
+    renameTrack: (id, name) => { const n = name.trim(); if (n) persist({ tracks: get().tracks.map((t) => (t.id === id ? { ...t, name: n } : t)) }) },
     setActive: (id) => persist({ activeId: id }),
     setHasLyrics: (id, on) => persist({ tracks: get().tracks.map((t) => (t.id === id ? { ...t, hasLyrics: on } : t)) }),
     now: null,

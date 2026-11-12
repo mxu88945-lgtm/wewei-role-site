@@ -41,3 +41,16 @@
 .wj-music-list .danger { font-size: 16px; }
 .wj-music-empty { font-size: 12px; color: #8a766b; padding: 6px 8px; }
 .wj-music-add { width: 100%; border: 1px dashed rgba(120,90,70,.3); background: none; border-radius: 14px; padding: 10px; font-size: 13px; color: #4d3d35; }
+
+/* v217 歌单「管理」多选 */
+.wj-music-list-head { display: flex; align-items: center; gap: 4px; margin: 8px 0 0; padding: 0 8px; font-size: 12px; color: #8a766b; }
+.wj-music-list-head button { border: 0; background: none; padding: 4px 6px; font-size: 12px; color: #4d3d35; border-radius: 999px; }
+.wj-music-list-head .push { margin-left: auto; }
+.wj-music-list-head .danger { color: #b4413a; }
+.wj-music-list-head .danger:disabled { color: #8a766b; opacity: .5; }
+.wj-music-list-head .strong { color: var(--theme-accent, #9a6c56); font-weight: 600; }
+.wj-music-list .wj-music-pick { display: flex; align-items: center; gap: 10px; width: 100%; padding: 8px; border: 0; border-radius: 12px; background: none; color: inherit; text-align: left; }
+.wj-music-list .wj-music-pick.on { background: rgba(185,138,116,.12); }
+.wj-music-pick .box { flex: none; width: 18px; height: 18px; display: flex; align-items: center; justify-content: center; border-radius: 50%; border: 1.5px solid rgba(120,90,70,.3); font-size: 11px; line-height: 1; color: #fff; }
+.wj-music-pick.on .box { border-color: var(--theme-accent, #b98a74); background: var(--theme-accent, #b98a74); }
+.wj-music-list .wj-music-pick .name { padding: 0; }
