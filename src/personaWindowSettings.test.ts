@@ -79,7 +79,7 @@ describe('人格设置：提示词、背景和窗口范围 (v138)', () => {
     const message = activeThread(persona).messages[0]
     expect(message.attachments).toEqual([attachment])
     const request = buildPersonaRequest(persona, [message], deps)
-    expect(String(request[request.length - 1].content)).toContain('附件：旧剧情.txt')
+    expect(String(request[request.length - 1].content)).toContain('【只读参考附件】旧剧情.txt')
     expect(String(request[request.length - 1].content)).toContain('只给这个人格看的文件正文')
   })
 

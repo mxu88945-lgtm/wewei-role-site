@@ -25,7 +25,7 @@ import './theme-archives.css'
 import './memoryApiEnhancements'
 
 const APP_SCOPE = '/wewei-role-site/'
-const SERVICE_WORKER_RELEASE = '2026-11-12-selfcard-2000-v213'
+const SERVICE_WORKER_RELEASE = '2026-11-12-reference-file-v214'
 
 if ('serviceWorker' in navigator) {
   let reloadingForUpdate = false
