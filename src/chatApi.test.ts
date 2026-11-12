@@ -515,4 +515,27 @@ describe('v126 non-stream timeout', () => {
     expect(fetchMock).toHaveBeenCalledTimes(1)
     vi.unstubAllGlobals(); vi.useRealTimers()
   })
+
+  it('v209 Claude cache_control 被中转站拒绝时去掉标记重试一次，并记住这个渠道', async () => {
+    const { resetPromptCacheMemory } = await import('./promptCache')
+    resetPromptCacheMemory()
+    const bodies: any[] = []
+    vi.stubGlobal('fetch', vi.fn(async (_url: string, init?: RequestInit) => {
+      const body = JSON.parse(String(init?.body))
+      bodies.push(body)
+      if (Array.isArray(body.messages[0].content)) return new Response(JSON.stringify({ error: { message: 'messages[0].content must be a string' } }), { status: 400, headers: { 'content-type': 'application/json' } })
+      return new Response(JSON.stringify({ choices: [{ message: { content: '好。' } }] }), { headers: { 'content-type': 'application/json' } })
+    }))
+    const api = { baseUrl: 'https://relay.example/v1', apiKey: 'test', modelName: 'claude-sonnet-4-5' }
+    const messages = [{ role: 'system' as const, content: [{ type: 'text' as const, text: '稳定前缀', cache_control: { type: 'ephemeral' as const } }] }, { role: 'user' as const, content: '你好' }]
+    let output = ''
+    await completeChat({ api, messages, temperature: 1, topP: 1, maxTokens: 100, streaming: false, signal: new AbortController().signal, onDelta: (delta) => { output += delta } })
+    expect(output).toBe('好。')
+    expect(bodies).toHaveLength(2)
+    expect(bodies[1].messages[0].content).toBe('稳定前缀')
+    await completeChat({ api, messages, temperature: 1, topP: 1, maxTokens: 100, streaming: false, signal: new AbortController().signal, onDelta: () => {} })
+    expect(bodies).toHaveLength(3)
+    expect(bodies[2].messages[0].content).toBe('稳定前缀')
+    resetPromptCacheMemory()
+  })
 })

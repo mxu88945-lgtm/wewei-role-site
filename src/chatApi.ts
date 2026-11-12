@@ -1,6 +1,7 @@
+import { hasPromptCache, markPromptCacheUnsupported, promptCacheUnsupported, stripPromptCache } from './promptCache'
 export type ApiConfig = { baseUrl: string; apiKey: string; modelName: string; protocol?: 'openai' | 'anthropic'; maxTokenField?: 'auto' | 'max_tokens' | 'max_completion_tokens' }
 export type ChatApiContentPart =
-  | { type: 'text'; text: string }
+  | { type: 'text'; text: string; cache_control?: { type: 'ephemeral' } }
   | { type: 'image_url'; image_url: { url: string; detail?: 'auto' | 'low' | 'high' } }
 export type ChatApiMessage = { role: 'system' | 'user' | 'assistant'; content: string | ChatApiContentPart[] }
 export type CompletionActivity = 'connecting' | 'retrying' | 'thinking' | 'content'
@@ -493,8 +494,10 @@ export async function completeChat(options: CompletionOptions): Promise<Completi
 }
 
 async function completeChatRequest(options: CompletionOptions) {
-  const { api, messages, temperature, topP, maxTokens, streaming, signal, onDelta, onActivity } = options
+  const { api, temperature, topP, maxTokens, streaming, signal, onDelta, onActivity } = options
   const anthropic = api.protocol === 'anthropic'
+  // v209：Claude cache_control 只走 OpenAI 兼容格式；原生 Anthropic 或已知不认的渠道一律去掉标记。
+  let messages = anthropic || promptCacheUnsupported(api) ? stripPromptCache(options.messages) : options.messages
   const compatibility: RequestCompatibility = {
     tokenField: tokenField(api),
     omitTemperature: false,
@@ -509,7 +512,7 @@ async function completeChatRequest(options: CompletionOptions) {
         const response = await requestApi(endpoint(api.baseUrl, anthropic ? 'messages' : 'chat/completions'), {
           method: 'POST',
           headers: { 'Content-Type': 'application/json', ...apiHeaders(api) },
-          body: JSON.stringify(anthropic ? anthropicPayload(options, effectiveMaxTokens, compatibility) : {
+          body: JSON.stringify(anthropic ? anthropicPayload({ ...options, messages }, effectiveMaxTokens, compatibility) : {
             model: api.modelName,
             messages: openAiCompatibleMessages(messages),
             ...(!compatibility.omitTemperature ? { temperature } : {}),
@@ -568,6 +571,12 @@ async function completeChatRequest(options: CompletionOptions) {
       }
       if (!compatibility.omitTopP && unsupportedParameter(message, 'top_p')) {
         compatibility.omitTopP = true
+        continue
+      }
+      // 中转站不认数组内容/cache_control：去掉标记重试一次，本次会话记住这个渠道。
+      if (hasPromptCache(messages) && ![401, 402, 403, 429].includes(status)) {
+        markPromptCacheUnsupported(api)
+        messages = stripPromptCache(messages)
         continue
       }
       const detail = /\bHTTP\s+\d+/i.test(message) ? message : `${message}（HTTP ${status}）`
