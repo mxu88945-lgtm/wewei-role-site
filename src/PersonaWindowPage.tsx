@@ -8,6 +8,8 @@ import type { StoryProject } from './storyProject'
 import type { ChatApiMessage } from './chatApi'
 import { applyMacros } from './regexEngine'
 import { CHAT_IMAGE_LIMIT, prepareChatImage, type ChatImage } from './chatImages'
+import { readCachedModels, readPickedModel, saveCachedModels, savePickedModel } from './modelListCache'
+import ChatImageViewer from './ChatImageViewer'
 import { buildPhoneRealWorldNote } from './phoneGroup'
 import { refreshPhoneWeatherIfEnabled } from './phoneWeather'
 import { CHAT_ATTACHMENT_ACCEPT, CHAT_ATTACHMENT_LIMIT, attachmentSizeLabel, isReadableAttachment, prepareChatAttachment, type ChatAttachment } from './chatAttachments'
@@ -112,26 +114,40 @@ function PersonaModelPicker({ persona, channels, mainApi, onChange, onFocus }: {
   const tap = useOneTap()
   const follows = !persona.apiChannelId || !channels.some((item) => item.id === persona.apiChannelId)
   const channel = follows ? mainApi : channels.find((item) => item.id === persona.apiChannelId) || mainApi
-  const [models, setModels] = useState<ApiModel[]>([])
+  // v229：切渠道时直接显示该渠道上次获取的模型列表（与主聊天、API 渠道页共用缓存），获取模型仍可刷新。
+  const [models, setModels] = useState<ApiModel[]>(() => readCachedModels(channel.id))
   const [message, setMessage] = useState('')
   const [loading, setLoading] = useState(false)
-  useEffect(() => { setModels([]); setMessage('') }, [channel.id])
+  useEffect(() => {
+    const cached = readCachedModels(channel.id)
+    setModels(cached)
+    setMessage(cached.length ? `已获取 ${cached.length} 个模型` : '')
+  }, [channel.id])
+  const pickModel = (modelName: string | undefined) => {
+    savePickedModel(persona.id, channel.id, modelName)
+    onChange({ apiChannelId: persona.apiChannelId, modelName })
+  }
+  const switchChannel = (nextId: string) => {
+    if (!follows) savePickedModel(persona.id, channel.id, persona.modelName)
+    onChange(nextId ? { apiChannelId: nextId, modelName: readPickedModel(persona.id, nextId) } : { apiChannelId: undefined, modelName: undefined })
+  }
   const load = async () => {
     setLoading(true)
     setMessage('正在获取模型…')
     try {
       const next = await fetchApiModels(channel)
-      setModels(next)
+      saveCachedModels(channel.id, next)
+      setModels(next.length ? next : readCachedModels(channel.id))
       setMessage(next.length ? `已获取 ${next.length} 个模型` : '接口没有返回可用模型，可手动填写。')
     } catch (error) {
       setMessage(error instanceof Error ? error.message : '获取模型失败，可手动填写。')
     } finally { setLoading(false) }
   }
   return <div className="member-api-binding persona-model-picker">
-    <label><span>回复渠道</span><select value={follows ? '' : channel.id} onChange={(event) => onChange(event.target.value ? { apiChannelId: event.target.value, modelName: undefined } : { apiChannelId: undefined, modelName: undefined })}><option value="">跟随主聊天（{mainApi.name}）</option><ChannelOptions channels={channels} renderLabel={(item) => item.name} /></select></label>
-    {!follows && <label><span>回复模型</span><div className="member-model-field"><input list={listId} value={persona.modelName || ''} onFocus={onFocus} onChange={(event) => onChange({ apiChannelId: persona.apiChannelId, modelName: event.target.value || undefined })} placeholder={channel.modelName || '手动填写模型名称'} autoCapitalize="none" autoCorrect="off" /><button type="button" {...tap(() => { void load() })} disabled={loading}>{loading ? '获取中…' : '获取模型'}</button></div></label>}
+    <label><span>回复渠道</span><select value={follows ? '' : channel.id} onChange={(event) => switchChannel(event.target.value)}><option value="">跟随主聊天（{mainApi.name}）</option><ChannelOptions channels={channels} renderLabel={(item) => item.name} /></select></label>
+    {!follows && <label><span>回复模型</span><div className="member-model-field"><input list={listId} value={persona.modelName || ''} onFocus={onFocus} onChange={(event) => pickModel(event.target.value || undefined)} placeholder={channel.modelName || '手动填写模型名称'} autoCapitalize="none" autoCorrect="off" /><button type="button" {...tap(() => { void load() })} disabled={loading}>{loading ? '获取中…' : '获取模型'}</button></div></label>}
     <datalist id={listId}>{models.map((model) => <option value={model.id} key={model.id} />)}</datalist>
-    {!follows && models.length > 0 && <label><span>模型列表</span><select value={models.some((model) => model.id === persona.modelName) ? persona.modelName : ''} onChange={(event) => { if (event.target.value) onChange({ apiChannelId: persona.apiChannelId, modelName: event.target.value }) }}><option value="">从 {models.length} 个模型中选择</option>{models.map((model) => <option value={model.id} key={model.id}>{model.id}</option>)}</select></label>}
+    {!follows && models.length > 0 && <label><span>模型列表</span><select value={models.some((model) => model.id === persona.modelName) ? persona.modelName : ''} onChange={(event) => { if (event.target.value) pickModel(event.target.value) }}><option value="">从 {models.length} 个模型中选择</option>{models.map((model) => <option value={model.id} key={model.id}>{model.id}</option>)}</select></label>}
     {message && <small className="member-model-message">{message}</small>}
   </div>
 }
@@ -177,7 +193,7 @@ export default function PersonaWindowPage(props: Props) {
   const [pendingAttachments, setPendingAttachments] = useState<ChatAttachment[]>([])
   const [imageBusy, setImageBusy] = useState(false)
   const [attachmentBusy, setAttachmentBusy] = useState(false)
-  const [viewerImage, setViewerImage] = useState<ChatImage | null>(null)
+  const [viewerImage, setViewerImage] = useState<{ images: ChatImage[]; index: number } | null>(null)
   const [menuMessageId, setMenuMessageId] = useState<number | null>(null)
   const [editingMessageId, setEditingMessageId] = useState<number | null>(null)
   const [quoteDraft, setQuoteDraft] = useState<{ messageId: number; author: string; text: string } | null>(null)
@@ -690,7 +706,7 @@ export default function PersonaWindowPage(props: Props) {
         const avatarNode = <div className="message-avatar">{avatar ? <img src={avatar} alt="" /> : name.slice(-1)}</div>
         const content = <>
               {message.quote && <div className="persona-message-quote"><b>{message.quote.author}：</b>{message.quote.text}</div>}
-              {message.images?.length ? <div className={`message-images persona-message-images count-${Math.min(message.images.length, 4)}`}>{message.images.map((image) => <button type="button" key={image.id} aria-label="查看图片" {...tap(() => setViewerImage(image))}><img src={image.dataUrl} alt="" width={image.width} height={image.height} loading="lazy" decoding="async" /></button>)}</div> : null}
+              {message.images?.length ? <div className={`message-images persona-message-images count-${Math.min(message.images.length, 4)}`}>{message.images.map((image, imageIndex) => <button type="button" key={image.id} aria-label="查看图片" {...tap(() => setViewerImage({ images: message.images || [], index: imageIndex }))}><img src={image.dataUrl} alt="" loading="lazy" decoding="async" draggable={false} style={message.images!.length === 1 && image.width && image.height ? { aspectRatio: `${image.width} / ${image.height}` } : undefined} /></button>)}</div> : null}
               {message.attachments?.length ? <div className="persona-attachment-list" aria-label="消息文件">{message.attachments.map((attachment) => <div className="persona-attachment-card" key={attachment.id}><span aria-hidden="true">📄</span><div><strong>{attachment.name}</strong><small>{attachmentSizeLabel(attachment.size)}{attachment.truncated ? ' · 过长，已保存前 20 万字' : ' · 只读参考'}</small></div></div>)}</div> : null}
               {streamingNow && (!message.text || isPendingAssistantText(message.text)) ? <div className="persona-typing">（{activeCharacter.name}正在回应…）</div> : (message.text.trim() ? <MessageContent text={isUser ? message.text : personaReplyText(message.text)} role={message.role} character={activeCharacter} userName={identity.name} streaming={streamingNow} noStatus layout={look.layout} paper={look.paper} /> : null)}
         </>
@@ -726,7 +742,7 @@ export default function PersonaWindowPage(props: Props) {
     {activeTasks.length > 0 && !drawerOpen && !sidebarOpen && <PersonaTaskPin tasks={activeTasks} tap={tap} onOpen={() => { setSidebarOpen(false); setSettingsPanel('tasks'); setDrawerOpen(true) }} onDone={(id) => taskAction(id, 'done')} />}
     <div ref={composerRef} className={`composer persona-composer${pendingImages.length || imageBusy || pendingAttachments.length || attachmentBusy ? ' has-images' : ''}`}>
       {(pendingImages.length > 0 || imageBusy || pendingAttachments.length > 0 || attachmentBusy) && <div className="persona-composer-media">
-        {(pendingImages.length > 0 || imageBusy) && <div className="composer-images" aria-label="待发送图片">{pendingImages.map((image) => <div key={image.id}><img src={image.dataUrl} alt="" role="button" aria-label="查看大图" onClick={() => setViewerImage(image)} /><button type="button" aria-label="移除图片" onClick={() => setPendingImages((current) => current.filter((item) => item.id !== image.id))}>×</button></div>)}{imageBusy && <span className="composer-images-busy">处理中…</span>}</div>}
+        {(pendingImages.length > 0 || imageBusy) && <div className="composer-images" aria-label="待发送图片">{pendingImages.map((image, imageIndex) => <div key={image.id}><img src={image.dataUrl} alt="" role="button" aria-label="查看大图" onClick={() => setViewerImage({ images: pendingImages, index: imageIndex })} /><button type="button" aria-label="移除图片" onClick={() => setPendingImages((current) => current.filter((item) => item.id !== image.id))}>×</button></div>)}{imageBusy && <span className="composer-images-busy">处理中…</span>}</div>}
         {(pendingAttachments.length > 0 || attachmentBusy) && <div className="persona-composer-attachments" aria-label="待发送文件">{pendingAttachments.map((attachment) => <div className="persona-pending-attachment" key={attachment.id}><span aria-hidden="true">📄</span><div><strong>{attachment.name}</strong><small>{attachmentSizeLabel(attachment.size)}</small></div><button type="button" aria-label={`移除${attachment.name}`} onClick={() => setPendingAttachments((current) => current.filter((item) => item.id !== attachment.id))}>×</button></div>)}{attachmentBusy && <span className="persona-attachment-busy">正在读取文件…</span>}</div>}
       </div>}
       {quoteDraft && <div className="persona-quote-draft" aria-label="引用回复"><span><b>{quoteDraft.author}：</b>{quoteDraft.text}</span><button type="button" aria-label="取消引用" onClick={() => setQuoteDraft(null)}>×</button></div>}
@@ -791,6 +807,6 @@ export default function PersonaWindowPage(props: Props) {
         {sidebarOpen && <nav className="persona-history-footer" aria-label="人格窗口导航"><div className="persona-history-actions"><button type="button" className="persona-circle-btn" aria-label="回到惟镜首页" title="回到惟镜首页" {...tap(onBack)}><svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><path d="M3 10.5 12 3l9 7.5" /><path d="M5 9.5V21h14V9.5" /></svg></button><button type="button" className="persona-circle-btn" aria-label="管理人格" title="管理人格" {...tap(() => { setSidebarOpen(false); setViewReturn(null); setView('manage') })}><svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="3" /><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 1 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 1 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 1 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 1 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1Z" /></svg></button><button type="button" className="persona-circle-btn" aria-label="新聊天" title="新聊天" {...tap(() => { setPersonaState((current) => addPersonaThread(current, active.id)); setSidebarOpen(false); setPendingImages([]); setPendingAttachments([]); setMenuMessageId(null); setRenaming(null) })}><svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><path d="M12 20h9" /><path d="M16.5 3.5a2.12 2.12 0 0 1 3 3L7 19l-4 1 1-4Z" /></svg></button></div></nav>}
       </aside>
     </div>}
-    {viewerImage && <div className="chat-image-viewer" role="dialog" aria-modal="true" aria-label="查看图片" onClick={() => setViewerImage(null)}><img src={viewerImage.dataUrl} alt="" /><button type="button" aria-label="关闭图片">×</button></div>}
+    {viewerImage && <ChatImageViewer images={viewerImage.images} startIndex={viewerImage.index} onClose={() => setViewerImage(null)} />}
   </section>
 }

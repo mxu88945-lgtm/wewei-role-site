@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useState } from 'react'
 import { fetchApiModels, type ApiModel } from './chatApi'
+import { saveCachedModels } from './modelListCache'
 import { formatPromptUsage, readPromptUsage, subscribePromptUsage } from './promptUsage'
 import { API_PLATFORM_PRESETS, applyApiPlatform, getApiPlatformPreset, inferApiPlatform, type ApiChannel, type ApiPlatform } from './apiChannels'
 import { sortChannelsByHost } from './channelGroups'
@@ -89,6 +90,7 @@ export default function ApiSettingsPage({
     setModelMessages((current) => ({ ...current, [channel.id]: '正在请求模型列表…' }))
     try {
       const nextModels = await fetchApiModels(channel)
+      saveCachedModels(channel.id, nextModels)
       setModelsByChannel((current) => ({ ...current, [channel.id]: nextModels }))
       if (!nextModels.length) {
         setModelStates((current) => ({ ...current, [channel.id]: 'error' }))

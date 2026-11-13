@@ -50,6 +50,7 @@ import { NOTICE_DURATIONS, lurkFallback, activeNotice, noticeRemaining, buildNot
 import { assignChatGroup, chatGroupNames, groupConversations, setChatGroupMembers } from './chatGroups'
 import { assignLibraryGroup, libraryPlacementDraft, preserveLibraryPlacement, autoOrganizeLibraryCharacters, setLibraryGroupMembers, effectiveLibraryRole, groupLibraryCharacters, LIBRARY_ROLE_LABELS, libraryGroupNames } from './characterLibraryGroups'
 import { activeCharacterMemory, characterMemoryEntryFromConversation, characterMemoryExtractionPrompt, characterMemorySummaryProtocol, parseCharacterMemoryCandidates, splitCharacterMemorySummary } from './characterMemory'
+import { readCachedModels, saveCachedModels } from './modelListCache'
 import { ChatApiError, completeChat, fetchApiModels, testApiConnection, type ApiConfig, type ApiModel } from './chatApi'
 import { buildChatPrompt } from './promptBuilder'
 import { foldPromptForRelay } from './promptTail'
@@ -4934,15 +4935,16 @@ function PetSettings({ enabled, variant, onEnabledChange, onVariantChange, onRes
 function MemberApiBinding({ channels, channelId, modelName, onChannelChange, onModelChange }: { channels: ApiChannel[]; channelId: string; modelName: string; onChannelChange: (id: string) => void; onModelChange: (modelName: string) => void }) {
   const channel = channels.find((item) => item.id === channelId) || channels[0]
   const modelListId = useId()
-  const [models, setModels] = useState<ApiModel[]>([])
+  const [models, setModels] = useState<ApiModel[]>(() => readCachedModels(channel?.id))
   const [modelState, setModelState] = useState<'idle' | 'loading' | 'ready' | 'error'>('idle')
   const [modelMessage, setModelMessage] = useState('')
 
   useEffect(() => {
-    setModels([])
+    // v229：切渠道直接带出该渠道上次获取的模型列表（与人格窗口共用缓存）。
+    setModels(readCachedModels(channel?.id))
     setModelState('idle')
     setModelMessage('')
-  }, [channelId])
+  }, [channel?.id])
 
   const loadModels = async () => {
     if (!channel) return
@@ -4950,7 +4952,8 @@ function MemberApiBinding({ channels, channelId, modelName, onChannelChange, onM
     setModelMessage('正在获取模型…')
     try {
       const nextModels = await fetchApiModels(channel)
-      setModels(nextModels)
+      saveCachedModels(channel.id, nextModels)
+      setModels(nextModels.length ? nextModels : readCachedModels(channel.id))
       setModelState('ready')
       setModelMessage(nextModels.length ? `已获取 ${nextModels.length} 个模型` : '接口没有返回可用模型，可继续手动填写。')
     } catch (error) {
@@ -4999,7 +5002,7 @@ function UpdateCard() {
     }
   }
 
-  return <section className="update-card"><strong>应用更新</strong><p>主动检查并拉取最新网页版本，不会删除角色、聊天记录或本地设置。</p><small>当前版本：v228 · 2026.11.13 渠道按中转地址自动分组：选择回复渠道时，同一个中转地址（Base URL 域名）的渠道排在一起并带分组标题；设置 → API 渠道列表也按地址排列，渠道数据与 ID 不变</small><button onClick={refresh} disabled={state === 'checking'}>{state === 'checking' ? '正在检查更新…' : state === 'error' ? '更新失败，点我重试' : '强制刷新到最新版'}</button></section>
+  return <section className="update-card"><strong>应用更新</strong><p>主动检查并拉取最新网页版本，不会删除角色、聊天记录或本地设置。</p><small>当前版本：v229 · 2026.11.13 人格窗口按渠道记住模型列表：切换回复渠道时直接显示上次获取的模型，并带回该渠道上次选的模型；聊天里的图片排成小缩略图，点开可左右滑、双指缩放、保存/分享</small><button onClick={refresh} disabled={state === 'checking'}>{state === 'checking' ? '正在检查更新…' : state === 'error' ? '更新失败，点我重试' : '强制刷新到最新版'}</button></section>
 }
 
 function PersonaPage({ identities, selectedId, isBound, onSelect, onAdd, onDelete, onUpdate, onBack }: { identities: UserIdentity[]; selectedId: string; isBound: boolean; onSelect: (id: string) => void; onAdd: () => void; onDelete: (id: string) => void; onUpdate: (patch: Partial<UserIdentity>) => void; onBack: () => void }) {
