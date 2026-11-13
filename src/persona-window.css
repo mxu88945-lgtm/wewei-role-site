@@ -363,3 +363,21 @@ button.persona-settings-row:active { background: var(--theme-accent-soft); }
 .persona-life-row small { display: block; margin-top: 3px; overflow: hidden; color: #a095a6; font-size: 11px; text-overflow: ellipsis; white-space: nowrap; }
 button.persona-life-row:active { background: var(--theme-accent-soft); }
 .persona-life-form-actions { display: flex; gap: 10px; justify-content: flex-end; }
+
+/* v231 自制礼物：与小手机礼物图鉴同一套渐变色，卡片保持简洁 */
+.persona-gift-card { --gift-a: #fff5e8; --gift-b: #d8a77f; display: grid; grid-template-columns: 52px minmax(0, 1fr); align-items: center; gap: 12px; box-sizing: border-box; width: min(100%, 320px); margin: 2px 0 8px; padding: 10px 14px 10px 10px; border: 1px solid rgba(114, 78, 54, .1); border-radius: 18px; background: rgba(255,255,255,.88); color: #433832; }
+.persona-gift-art { display: grid; place-items: center; width: 52px; height: 52px; border-radius: 14px; background: linear-gradient(145deg, var(--gift-a), color-mix(in srgb, var(--gift-b) 58%, white)); font-size: 28px; line-height: 1; }
+.persona-gift-copy { display: grid; gap: 2px; min-width: 0; }
+.persona-gift-copy small { color: #9a887d; font-size: 11px; }
+.persona-gift-copy strong { overflow: hidden; font-size: 15px; text-overflow: ellipsis; white-space: nowrap; }
+.persona-gift-copy span { color: #8b7d74; font-size: 12px; line-height: 1.45; }
+.persona-gift-copy em { margin-top: 2px; color: #6f5d52; font-size: 12.5px; font-style: normal; line-height: 1.5; }
+.persona-gift-shelf { display: grid; overflow: hidden; border: 1px solid rgba(125,104,141,.12); border-radius: 20px; background: rgba(255,255,255,.7); }
+.persona-gift-shelf .persona-empty { padding: 14px; }
+.persona-gift-shelf-row { display: grid; grid-template-columns: 44px minmax(0, 1fr) 34px; align-items: center; gap: 10px; padding: 10px 8px 10px 12px; border-bottom: 1px solid rgba(125,104,141,.09); }
+.persona-gift-shelf-row:last-child { border-bottom: 0; }
+.persona-gift-shelf-row .persona-gift-art { width: 44px; height: 44px; border-radius: 12px; font-size: 24px; }
+.persona-gift-shelf-copy { display: grid; gap: 2px; min-width: 0; }
+.persona-gift-shelf-copy strong { overflow: hidden; color: #463b4d; font-size: 14px; text-overflow: ellipsis; white-space: nowrap; }
+.persona-gift-shelf-copy small { overflow: hidden; color: #9a939e; font-size: 11px; text-overflow: ellipsis; white-space: nowrap; }
+.persona-gift-shelf-row button { width: 34px; height: 34px; border: 0; border-radius: 50%; background: transparent; color: #a99eb0; font-size: 20px; }

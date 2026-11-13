@@ -1,9 +1,10 @@
 import type { PointerEvent } from 'react'
 
-export type PersonaSettingsPanel = 'home' | 'model' | 'prompts' | 'appearance' | 'tasks' | 'selfCard' | 'period' | 'lifePeople'
+export type PersonaSettingsPanel = 'home' | 'model' | 'prompts' | 'appearance' | 'tasks' | 'selfCard' | 'period' | 'lifePeople' | 'gifts'
 type Tap = (action: () => void) => { onPointerUp: (event: PointerEvent) => void; onClick: () => void }
-type IconName = 'selfCard' | 'prompt' | 'memory' | 'past' | 'windows' | 'model' | 'people' | 'appearance' | 'music' | 'period' | 'person'
+type IconName = 'gift' | 'selfCard' | 'prompt' | 'memory' | 'past' | 'windows' | 'model' | 'people' | 'appearance' | 'music' | 'period' | 'person'
 const ICONS: Record<IconName, string> = {
+  gift: 'M20 12v9H4v-9M2 7h20v5H2V7Zm10 14V7m0 0H7.5a2.5 2.5 0 0 1 0-5C11 2 12 7 12 7Zm0 0h4.5a2.5 2.5 0 0 0 0-5C13 2 12 7 12 7Z',
   selfCard: 'M12 20h9M16.5 3.5a2.12 2.12 0 0 1 3 3L7 19l-4 1 1-4Z',
   prompt: 'M9 4h6M10 4v16m4-16v16M9 4H7a4 4 0 0 0 0 8h3',
   appearance: 'M12 3a9 9 0 1 0 0 18h2a2 2 0 0 0 1-3.7 1.5 1.5 0 0 1 .8-2.8H18a3 3 0 0 0 3-3A9 9 0 0 0 12 3ZM7 10h.01M10 7h.01M15 7h.01M17 11h.01',
@@ -28,13 +29,15 @@ function Row({ icon, title, description, value, onSelect, tap }: { icon: IconNam
   </button>
 }
 
-export default function PersonaSettingsHome({ promptLength, memoryCount, threadCount, threadTitle, channelName, modelName, pastLifeEnabled, onNavigate, onThreads, onMemory, onManage, onTogglePastLife, trackCount = 0, songPickEnabled = true, onMusic, onToggleSongPick, selfCardLength = 0, periodLabel, peopleCount, personaCount, onSwitchPersona, tap }: {
+export default function PersonaSettingsHome({ promptLength, memoryCount, threadCount, threadTitle, channelName, modelName, pastLifeEnabled, onNavigate, onThreads, onMemory, onManage, onTogglePastLife, trackCount = 0, songPickEnabled = true, onMusic, onToggleSongPick, selfCardLength = 0, giftCount, periodLabel, peopleCount, personaCount, onSwitchPersona, tap }: {
   promptLength: number; memoryCount: number; threadCount: number; threadTitle: string; channelName: string; modelName: string; pastLifeEnabled: boolean
   onNavigate: (panel: PersonaSettingsPanel) => void; onThreads: () => void; onMemory: () => void; onManage: () => void; onTogglePastLife: () => void
   /** v207 一起听歌 */
   trackCount?: number; songPickEnabled?: boolean; onMusic?: () => void; onToggleSongPick?: () => void
   /** v211 他自己写的卡 */
   selfCardLength?: number
+  /** v231 他做的礼物（不传就不显示） */
+  giftCount?: number
   /** v230 她的生活：经期记录、人物档案（不传就不显示） */
   periodLabel?: string; peopleCount?: number
   /** v230 切换人格（原顶栏中间的入口） */
@@ -45,6 +48,7 @@ export default function PersonaSettingsHome({ promptLength, memoryCount, threadC
     <section className="persona-settings-group" aria-label="相处与记忆">
       <Row icon="prompt" title="系统提示词" description="相处方式、语气与表达偏好" value={promptLength ? `${promptLength.toLocaleString()} 字` : '默认规则'} onSelect={() => onNavigate('prompts')} tap={tap} />
       <Row icon="selfCard" title="他自己写的卡" description="他在相处中慢慢补全的自己，原卡不动" value={selfCardLength ? `${selfCardLength.toLocaleString()} 字` : '还空着'} onSelect={() => onNavigate('selfCard')} tap={tap} />
+      {giftCount !== undefined && <Row icon="gift" title="他做的礼物" description="他亲手做给你的礼物，聊天里会变成礼物卡" value={giftCount ? `${giftCount} 份` : '还没有'} onSelect={() => onNavigate('gifts')} tap={tap} />}
       <Row icon="memory" title="记忆" description="长期记忆 · 同一人格的窗口共用" value={`${memoryCount} 条`} onSelect={onMemory} tap={tap} />
       <Row icon="appearance" title="外观与文字" description="主题、壁纸、字号与文字颜色" onSelect={() => onNavigate('appearance')} tap={tap} />
       <Row icon="past" title="任务卡" description="当前窗口的倒计时、完成与取消" onSelect={() => onNavigate('tasks')} tap={tap} />

@@ -22,6 +22,7 @@ import { personaMemoryEntryAvailable } from './personaWindowMemory'
 import type { ApiConfig } from './chatApi'
 import { normalizePersonaAppearance, type PersonaAppearance } from './personaAppearance'
 import { normalizePersonaTasks, type PersonaTask } from './personaTasks'
+import { normalizePersonaGift, normalizePersonaGifts, type PersonaGift } from './personaGifts'
 import { isApiChannelComplete, resolveApiChannel, type ApiChannel } from './apiChannels'
 import { buildBackstagePersonaMemory } from './backstageNotes'
 import { stripSongPick } from './personaSongPick'
@@ -57,6 +58,8 @@ export type PersonaMessage = {
   songPick?: string
   /** v211：他在这条回复里改了自我卡的哪一栏（[自我卡:栏目|…] 解析出来；正文里已去掉标记）。 */
   selfCardEdit?: SelfCardKey
+  /** v231：他在这条回复里亲手做的礼物（[自制礼物:…] 解析出来；正文里已去掉标记）。 */
+  gift?: PersonaGift
 }
 
 export type PersonaMemoryEntry = {
@@ -135,6 +138,10 @@ export type PersonaWindow = {
   selfCardHistory?: SelfCardVersion[]
   /** v211：让他自己补全，默认开（只存 false）。 */
   selfCardEnabled?: boolean
+  /** v231：他做过的礼物（自制礼物架，所有窗口共用，最多 60 份）。 */
+  customGifts?: PersonaGift[]
+  /** v231：让他自己做礼物，默认开（只存 false）。 */
+  giftsEnabled?: boolean
 }
 
 export const PERSONA_STATE_VERSION = 2
@@ -163,7 +170,7 @@ function normalizeMessage(value: unknown): PersonaMessage | null {
   }).filter((item): item is ChatAttachment => Boolean(item)).slice(0, CHAT_ATTACHMENT_LIMIT)
   const recallSources = (Array.isArray(value.recallSources) ? value.recallSources : []).filter(isRecord).filter((source) => text(source.threadId) && Number.isSafeInteger(source.messageId) && (source.role === 'user' || source.role === 'assistant')).slice(0, 20).map((source): PersonaRecallSource => ({ threadId: text(source.threadId), messageId: Number(source.messageId), title: text(source.title), role: source.role === 'user' ? 'user' : 'assistant', createdAt: Number(source.createdAt) || 0 }))
   const quote = isRecord(value.quote) && Number.isFinite(Number(value.quote.messageId)) ? { messageId: Number(value.quote.messageId), author: text(value.quote.author), text: text(value.quote.text) } : undefined
-  return { id, role, text: text(value.text), createdAt: Number(value.createdAt) || 0, ...(images?.length ? { images } : {}), ...(attachments.length ? { attachments } : {}), ...(value.finishReason !== undefined ? { finishReason: (value.finishReason as string | null) } : {}), ...(recallSources.length ? { recallSources } : {}), ...(role === 'assistant' && text(value.taskCompletionId) ? { taskCompletionId: text(value.taskCompletionId) } : {}), ...(quote ? { quote } : {}), ...(role === 'assistant' && text(value.songPick).trim() ? { songPick: text(value.songPick).trim().slice(0, 80) } : {}), ...(role === 'assistant' && isSelfCardKey(value.selfCardEdit) ? { selfCardEdit: value.selfCardEdit } : {}) }
+  return { id, role, text: text(value.text), createdAt: Number(value.createdAt) || 0, ...(images?.length ? { images } : {}), ...(attachments.length ? { attachments } : {}), ...(value.finishReason !== undefined ? { finishReason: (value.finishReason as string | null) } : {}), ...(recallSources.length ? { recallSources } : {}), ...(role === 'assistant' && text(value.taskCompletionId) ? { taskCompletionId: text(value.taskCompletionId) } : {}), ...(quote ? { quote } : {}), ...(role === 'assistant' && text(value.songPick).trim() ? { songPick: text(value.songPick).trim().slice(0, 80) } : {}), ...(role === 'assistant' && isSelfCardKey(value.selfCardEdit) ? { selfCardEdit: value.selfCardEdit } : {}), ...(role === 'assistant' && normalizePersonaGift(value.gift) ? { gift: normalizePersonaGift(value.gift)! } : {}) }
 }
 
 function normalizeMemory(value: unknown): PersonaMemoryEntry | null {
@@ -258,6 +265,8 @@ export function normalizePersonaState(value: unknown): PersonaWindowState {
       ...(Object.keys(normalizeSelfCard(raw.selfCard)).length ? { selfCard: normalizeSelfCard(raw.selfCard) } : {}),
       ...(normalizeSelfCardHistory(raw.selfCardHistory).length ? { selfCardHistory: normalizeSelfCardHistory(raw.selfCardHistory) } : {}),
       ...(raw.selfCardEnabled === false ? { selfCardEnabled: false } : {}),
+      ...(normalizePersonaGifts(raw.customGifts).length ? { customGifts: normalizePersonaGifts(raw.customGifts) } : {}),
+      ...(raw.giftsEnabled === false ? { giftsEnabled: false } : {}),
     })
   }
   const activeId = text(value.activeId)
