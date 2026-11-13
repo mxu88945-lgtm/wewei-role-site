@@ -294,14 +294,27 @@ export const PERSONA_GIFT_PROMPT_HISTORY = 12
  * 稳定前缀里的说明：只在礼物架或礼物往来变化时变，平时每轮一样，缓存照样命中。
  * enabled=false（关了「让 TA 送礼物」）时只留「她送的礼物卡是真事」和往来记录，不教 TA 送。
  */
-export function buildPersonaGiftPrompt(shelf: PersonaGift[] | undefined, history: PersonaGiftEvent[] = [], options: { enabled?: boolean } = {}): string {
+const giftRow = (item: PersonaGiftEvent) => {
+  const who = item.direction === 'user-to-role' ? '{{user}}送你' : '你送{{user}}'
+  return `- ${giftDay(item.createdAt)}：${who}${item.icon}「${item.name}」${item.note ? `，附言“${item.note}”` : ''}`
+}
+/** v236：常驻只留最近两次往来，更早的聊到礼物时再附上。 */
+export const PERSONA_GIFT_STABLE_HISTORY = 2
+const GIFT_TOPIC = /礼物|送你|送我|送的|收到|🎁|回礼|礼物架/
+
+/** v236：她这一轮（或他上一条）聊到礼物、或点到某件礼物的名字时，附上更早的往来；否则空串。 */
+export function personaGiftRecallNote(history: PersonaGiftEvent[], scan: string): string {
+  const older = history.slice(-PERSONA_GIFT_PROMPT_HISTORY, -PERSONA_GIFT_STABLE_HISTORY)
+  if (!older.length || !scan.trim()) return ''
+  if (!GIFT_TOPIC.test(scan) && !older.some((item) => item.name.length >= 2 && scan.includes(item.name))) return ''
+  return `【更早的礼物往来｜聊到礼物才附上】\n${older.map(giftRow).join('\n')}`
+}
+
+export function buildPersonaGiftPrompt(shelf: PersonaGift[] | undefined, history: PersonaGiftEvent[] = [], options: { enabled?: boolean; historyLimit?: number } = {}): string {
   const enabled = options.enabled !== false
   const list = normalizePersonaGifts(shelf)
   const recent = list.slice(-PERSONA_GIFT_PROMPT_SHELF)
-  const rows = history.slice(-PERSONA_GIFT_PROMPT_HISTORY).map((item) => {
-    const who = item.direction === 'user-to-role' ? '{{user}}送你' : '你送{{user}}'
-    return `- ${giftDay(item.createdAt)}：${who}${item.icon}「${item.name}」${item.note ? `，附言“${item.note}”` : ''}`
-  })
+  const rows = history.slice(-Math.min(PERSONA_GIFT_PROMPT_HISTORY, options.historyLimit ?? PERSONA_GIFT_PROMPT_HISTORY)).map(giftRow)
   const past = rows.length ? `你们最近的礼物往来：\n${rows.join('\n')}\n只在相关时自然记起，不要逐条复述，不要提“系统、记录、礼物账本”。` : ''
   const receive = '{{user}}可以把礼物卡送给你（消息里写作「🎁 礼物事件｜…」）：那是已经真实发生的事，按你的人设自然接住，不要像客服复述商品资料。'
   if (!enabled) return ['【礼物往来】', receive, past].filter(Boolean).join('\n')

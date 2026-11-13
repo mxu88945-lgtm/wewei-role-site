@@ -4,13 +4,18 @@ import type { PersonaWindow } from './personaWindow'
 import type { PersonaMemoryAudit, PersonaRecallSource } from './personaWindowMemory'
 import { personaReplyText } from './personaWindowPresentation'
 
+const sumChars = (parts: NonNullable<PersonaMemoryAudit['parts']>, where: 'stable' | 'context' | 'turn') => parts.filter((part) => part.where === where).reduce((sum, part) => sum + part.chars, 0)
+
 export function PersonaMemoryInspection({ audit }: { audit?: PersonaMemoryAudit }) {
   return <section className="persona-source-card persona-memory-inspection">
     <strong>本轮记忆使用记录</strong>
     {!audit ? <small>发送一条消息后，这里会显示实际带入的记忆。查看请求预览不会消耗召回冷却。</small> : <>
       <small>自动记忆层 {audit.used.toLocaleString()} / {audit.budget.toLocaleString()} 字 · 旧原文 {audit.sources.length} 个来源{audit.pastLife ? ` · 前世记忆 · 按需召回 · ${audit.pastLife.chars ? `${audit.pastLife.chars.toLocaleString()} 字` : '未带入'}` : ''}</small>
+      {audit.recallMode && <small>召回方式：{audit.recallMode === 'semantic' ? '语义召回（按意思找）+ 线索' : '线索 + 关键词（语义召回没开或这轮没连上）'}</small>}
+      {audit.cueScan && <small>本轮线索来自：她最新一句 + TA 上一条回复</small>}
       {audit.query && <small>检索依据：{audit.query}</small>}
-      {audit.lanes.map((lane) => <details key={lane.key}><summary>{lane.label} · {lane.chars ? `${lane.chars} 字` : '未带入'}{lane.key === 'original' || lane.key === 'past-life' ? ` · 命中 ${lane.selected} / 候选 ${lane.candidates}${lane.suppressed ? ` · 冷却 ${lane.suppressed}` : ''}` : ''}</summary><pre>{lane.preview || '这一层本轮没有相关内容。'}</pre></details>)}
+      {audit.parts?.length ? <details><summary>本轮请求构成 · 常驻 {sumChars(audit.parts, 'stable').toLocaleString()} 字 · 最近上下文 {sumChars(audit.parts, 'context').toLocaleString()} 字 · 本轮背景 {sumChars(audit.parts, 'turn').toLocaleString()} 字</summary><pre>{audit.parts.map((part) => `${part.where === 'stable' ? '常驻' : part.where === 'context' ? '上下文' : '本轮'} · ${part.label} · ${part.chars} 字`).join('\n')}</pre></details> : null}
+      {audit.lanes.map((lane) => <details key={lane.key}><summary>{lane.label} · {lane.chars ? `${lane.chars} 字` : '未带入'}{lane.key === 'original' || lane.key === 'past-life' || lane.key === 'background' ? ` · 命中 ${lane.selected} / 候选 ${lane.candidates}${lane.suppressed ? ` · 冷却 ${lane.suppressed}` : ''}` : ''}</summary><pre>{lane.preview || '这一层本轮没有相关内容。'}</pre></details>)}
     </>}
   </section>
 }

@@ -116,7 +116,10 @@ function recallContext(history: PersonaMessage[]) {
   return before.map((message) => clipPersonaText(message.text, 300)).join('\n')
 }
 
-export function recallPastLife(chunks: readonly PastLifeChunk[], options: { history: PersonaMessage[]; aliases?: string; charName?: string; userName?: string; ledger?: Record<string, number>; turn?: number; budget?: number; maxChunks?: number }): PastLifeRecall {
+/** v236：语义相似度达到这个值，就算没有提示词/关键词也能想起这一小段。 */
+export const PAST_LIFE_SEMANTIC_MIN = 0.55
+
+export function recallPastLife(chunks: readonly PastLifeChunk[], options: { history: PersonaMessage[]; aliases?: string; charName?: string; userName?: string; ledger?: Record<string, number>; turn?: number; budget?: number; maxChunks?: number; /** v236：语义召回命中（小段 key → 相似度）。 */ semantic?: ReadonlyMap<string, number>; /** v236：段首说明（故事背景用另一句）。 */ lead?: string }): PastLifeRecall {
   const poolChars = chunks.reduce((sum, chunk) => sum + chunk.text.length, 0)
   const empty: PastLifeRecall = { text: '', chunks: [], keys: [], candidates: 0, suppressed: 0, poolChunks: chunks.length, poolChars }
   const query = personaRecallQuery(options.history)
@@ -146,8 +149,10 @@ export function recallPastLife(chunks: readonly PastLifeChunk[], options: { hist
     const nameHit = named.some((name) => normalized(chunk.text).includes(name)) ? 6 : named.length ? 2 : 0
     const kindHit = cue && ((/群/.test(query) && /群/.test(chunk.kind)) || (/剧本|剧情|故事|戏里/.test(query) && /长剧情/.test(chunk.kind)) || (/幕后|戏外/.test(query) && /幕后/.test(chunk.kind)) || (/私聊/.test(query) && /私聊/.test(chunk.kind)))
     const semantic = lexical > 0 || cue ? semanticScore(query, chunk.text) : 0
-    const qualifies = titleHit || nameHit >= 6 || lexical >= 5 || (cue && (lexical >= 2 || (lexical >= 1 && (semantic > 0 || kindHit))))
-    const score = lexical + contextual + semantic + (titleHit ? 8 : 0) + nameHit + (kindHit ? 2 : 0) + (chunk.bound ? 2 : 0)
+    const vector = options.semantic?.get(chunk.key) || 0
+    const vectorHit = vector >= PAST_LIFE_SEMANTIC_MIN
+    const qualifies = vectorHit || titleHit || nameHit >= 6 || lexical >= 5 || (cue && (lexical >= 2 || (lexical >= 1 && (semantic > 0 || kindHit))))
+    const score = lexical + contextual + semantic + (titleHit ? 8 : 0) + nameHit + (kindHit ? 2 : 0) + (chunk.bound ? 2 : 0) + (vectorHit ? (vector - 0.45) * 20 : 0)
     return { chunk, score, qualifies }
   }).filter((row) => row.qualifies).sort((a, b) => b.score - a.score || Number(b.chunk.bound) - Number(a.chunk.bound))
   const turn = options.turn ?? 0
@@ -155,7 +160,8 @@ export function recallPastLife(chunks: readonly PastLifeChunk[], options: { hist
   const allowed = scored.filter((row) => explicit || !Number.isFinite(options.ledger?.[row.chunk.key]) || turn - options.ledger![row.chunk.key] >= PERSONA_RECALL_COOLDOWN)
   const budget = options.budget ?? PAST_LIFE_RECALL_BUDGET, max = options.maxChunks ?? PAST_LIFE_RECALL_MAX_CHUNKS
   const picked: PastLifeChunk[] = []
-  let room = budget - LEAD.length
+  const lead = options.lead ?? LEAD
+  let room = budget - lead.length
   for (const row of allowed) {
     if (picked.length >= max) break
     if (row.chunk.text.length + 1 > room) continue
@@ -163,9 +169,33 @@ export function recallPastLife(chunks: readonly PastLifeChunk[], options: { hist
   }
   return {
     ...empty,
-    text: picked.length ? `${LEAD}\n${picked.map((chunk) => chunk.text).join('\n')}` : '',
+    text: picked.length ? `${lead}\n${picked.map((chunk) => chunk.text).join('\n')}` : '',
     chunks: picked, keys: picked.map((chunk) => chunk.key), candidates: scored.length, suppressed: scored.length - allowed.length,
   }
+}
+
+export const BACKGROUND_RECALL_HEADER = '【故事背景·按需附上｜只读】'
+const BACKGROUND_LEAD = `${BACKGROUND_RECALL_HEADER}\n和这轮话题有关的故事背景/世界设定片段，用来理解人和事，不是此刻的场景，不逐条复述。`
+export const BACKGROUND_RECALL_BUDGET = 1200
+export const BACKGROUND_RECALL_MAX_CHUNKS = 2
+/** 故事背景、全局世界书短于这个字数就整段常驻（便宜，又多半是核心）；更长的切小段按需召回。 */
+export const BACKGROUND_STABLE_MAX = 1200
+
+export function recallBackground(chunks: readonly PastLifeChunk[], options: Omit<Parameters<typeof recallPastLife>[1], 'lead'>) {
+  return recallPastLife(chunks, { budget: BACKGROUND_RECALL_BUDGET, maxChunks: BACKGROUND_RECALL_MAX_CHUNKS, ...options, lead: BACKGROUND_LEAD })
+}
+
+/** 稳定前缀里的指路：只列来源标题（不随话题变）。 */
+export function backgroundPointer(titles: readonly string[]) {
+  if (!titles.length) return ''
+  return `【故事背景｜按需附上】{{char}}来自的世界与身边的人另有资料（${titles.slice(0, 6).join('、')}）。聊到相关的人、地方或往事时，应用会在本轮附上【故事背景·按需附上】片段；没附上的细节不要编造。`
+}
+
+/** v236：故事背景的召回接到尾巴（与前世记忆同一套冷却），记进本轮记录。 */
+export function withBackgroundRecall<T extends PersonaMemoryContext & { pastLifeKeys: string[] }>(memory: T, recall: PastLifeRecall | null): T {
+  if (!recall) return memory
+  const lane = { key: 'background', label: '故事背景 · 按需召回', chars: recall.text.length, selected: recall.chunks.length, candidates: recall.candidates, suppressed: recall.suppressed, preview: recall.text || (recall.poolChunks ? '本轮未召回：没有聊到故事背景里的人、地方或事。' : '') }
+  return { ...memory, dynamicText: [memory.dynamicText, recall.text].filter(Boolean).join('\n\n'), audit: { ...memory.audit, lanes: [...memory.audit.lanes, lane] }, pastLifeKeys: [...memory.pastLifeKeys, ...recall.keys] }
 }
 
 /** 把本轮召回接到动态尾巴，并记进本轮记忆使用记录。 */

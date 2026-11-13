@@ -8,17 +8,23 @@ import type { PersonaMemoryEntry, PersonaMessage, PersonaThread, PersonaWindow }
 import { stripTurnContext } from './promptTail'
 import { personaReplyText } from './personaWindowPresentation'
 import { isGuestMessage } from './personaGroup'
+import { cueScanText, rankPersonaMemories, type PersonaSemanticHits } from './personaMemoryRank'
 
 export const PERSONA_MEMORY_BUDGET = 6400
 export const PERSONA_LOCKED_BUDGET = 1200
 export const PERSONA_RECALL_COOLDOWN = 4
+/** v236：每轮「按需召回」（旧原文、相关记忆、其他窗口档案、前世、故事背景）合计上限。 */
+export const PERSONA_TURN_RECALL_MAX_CHARS = 3600
+export const PERSONA_TURN_RECALL_MAX_ITEMS = 12
+/** 不是明确问往事时，纯关键词命中旧原文要这么强才召回（泛词不再把旧话拉进来）。 */
+export const PERSONA_KEYWORD_RECALL_MIN = 4
 const RECENT_STATE_MS = 36 * 60 * 60 * 1000
 export type PersonaRecallSource = { threadId: string; messageId: number; title: string; role: 'user' | 'assistant'; createdAt: number }
 export type PersonaMemoryLane = { key: string; label: string; chars: number; selected: number; candidates: number; suppressed: number; preview: string }
 /** v226：前世记忆按需召回的本轮记录（不占自动记忆层预算）。 */
 export type PersonaPastLifeAudit = { enabled: boolean; poolChunks: number; poolChars: number; recalled: { label: string; chars: number }[]; chars: number }
-export type PersonaMemoryAudit = { query: string; budget: number; used: number; lanes: PersonaMemoryLane[]; sources: PersonaRecallSource[]; pastLife?: PersonaPastLifeAudit }
-export type PersonaMemoryContext = { text: string; /** v209：不随本轮消息变化的层（锁定/核心/本窗连续性档案），放稳定前缀。 */ stableText: string; /** 随最新消息/时间变化的层，放末尾动态提醒。 */ dynamicText: string; audit: PersonaMemoryAudit; keys: string[]; turn: number }
+export type PersonaMemoryAudit = { query: string; budget: number; used: number; lanes: PersonaMemoryLane[]; sources: PersonaRecallSource[]; pastLife?: PersonaPastLifeAudit; /** v236：本轮线索扫描（她最新一句 + 他上一条）、召回方式、每块字数。 */ cueScan?: string; recallMode?: 'semantic' | 'keyword'; recalledMemoryIds?: string[]; parts?: { key: string; label: string; where: 'stable' | 'context' | 'turn'; chars: number }[] }
+export type PersonaMemoryContext = { /** v236：本轮按需召回已用的字数与条数（给前世/背景算剩余额度）。 */ recallChars?: number; recallItems?: number; recalledMemoryIds?: string[]; text: string; /** v209：不随本轮消息变化的层（锁定/核心/本窗连续性档案），放稳定前缀。 */ stableText: string; /** 随最新消息/时间变化的层，放末尾动态提醒。 */ dynamicText: string; audit: PersonaMemoryAudit; keys: string[]; turn: number }
 type Names = { char: string; user: string }
 type Hit = { thread: PersonaThread; message: PersonaMessage; index: number; key: string; score: number }
 
@@ -132,10 +138,12 @@ function scopedThreads(persona: PersonaWindow, active: PersonaThread) {
   return persona.recallScope === 'thread' ? [active] : persona.threads.map((thread) => thread.id === active.id ? active : thread)
 }
 
-function rankedHistory(persona: PersonaWindow, active: PersonaThread, query: string, excluded: Set<string>, now: number): Hit[] {
+function rankedHistory(persona: PersonaWindow, active: PersonaThread, query: string, excluded: Set<string>, now: number, semantic?: ReadonlyMap<string, number>, minScore = 0): Hit[] {
   const tokens = personaRecallTokens(query, persona.memoryAliases)
-  if (!tokens.size && !explicitPersonaRecall(query)) return []
+  if (!tokens.size && !explicitPersonaRecall(query) && !semantic?.size) return []
   const explicit = explicitPersonaRecall(query)
+  // v236：门槛随问题长短变——一两个词的短问题命中一个就算；长的闲聊要多个词对上才算（泛词不再拉旧话）。
+  const required = Math.min(minScore, Math.max(1, Math.ceil(tokens.size * .15)))
   const hits: Hit[] = []
   for (const thread of scopedThreads(persona, active)) for (let index = 0; index < thread.messages.length; index++) {
     const message = thread.messages[index], key = keyOf(thread.id, message.id)
@@ -145,8 +153,11 @@ function rankedHistory(persona: PersonaWindow, active: PersonaThread, query: str
     const lower = text.toLocaleLowerCase()
     const lexical = [...tokens].reduce((sum, token) => sum + (lower.includes(token) ? token.length > 2 ? 2 : 1 : 0), 0)
     const temporal = personaRecallTimeScore(query, message.createdAt, now)
-    const semantic = semanticScore(query, text)
-    if (lexical > 0 || (explicit && temporal + semantic > 0)) hits.push({ thread, message, index, key, score: lexical + temporal + semantic })
+    const topic = semanticScore(query, text)
+    const vector = semantic?.get(key) || 0
+    const score = lexical + temporal + topic + (vector ? (vector - 0.45) * 20 : 0)
+    // v236：语义命中直接算；只靠关键词时（不是明确问往事）要够强。
+    if (vector || ((lexical > 0 || (explicit && temporal + topic > 0)) && (explicit || score >= required))) hits.push({ thread, message, index, key, score })
   }
   return hits.sort((a, b) => b.score - a.score || b.message.createdAt - a.message.createdAt)
 }
@@ -218,7 +229,10 @@ function recentState(message: PersonaMessage, now: number) {
 }
 
 /** All transient/persistent personal-memory layers share this final packing pass. */
-export function buildPersonaMemoryContext(persona: PersonaWindow, active: PersonaThread, history: PersonaMessage[], recent: PersonaMessage[], names: Names, now = Date.now()): PersonaMemoryContext {
+export function buildPersonaMemoryContext(persona: PersonaWindow, active: PersonaThread, history: PersonaMessage[], recent: PersonaMessage[], names: Names, now = Date.now(), options: { semantic?: PersonaSemanticHits | null } = {}): PersonaMemoryContext {
+  const semantic = options.semantic || undefined
+  const scan = cueScanText(history)
+  const recentTexts = recent.map((message) => normalized(rawText(message))).filter((text) => text.length >= 4)
   const query = personaRecallQuery(history), tokens = personaRecallTokens(query, persona.memoryAliases)
   const turn = history.filter((message) => message.role === 'user' && usable(message)).length
   const seen = new Set<string>(), recentIds = new Set(recent.map((message) => keyOf(active.id, message.id)))
@@ -233,13 +247,13 @@ export function buildPersonaMemoryContext(persona: PersonaWindow, active: Person
     lanes.push({ key, label, chars: body.length, selected: body ? selected : 0, candidates, suppressed, preview: clipPersonaText(body, 900) })
   }
   const memoryRows = (entries: PersonaMemoryEntry[], cap: number) => {
-    const rows: string[] = []; let length = 0
+    const rows: string[] = [], ids: string[] = []; let length = 0
     for (const entry of entries) {
       const fact = normalized(entry.content), row = `· ${entry.title}：${entry.content.trim()}`
       if (!fact || personaMemoryNearDuplicate(fact, seen) || row.length + length > cap) continue
-      rows.push(row); seen.add(fact); length += row.length + 1
+      rows.push(row); ids.push(entry.id); seen.add(fact); length += row.length + 1
     }
-    return { text: rows.join('\n'), count: rows.length }
+    return { text: rows.join('\n'), count: rows.length, ids }
   }
   const availableMemories = persona.memories.filter((entry) => personaMemoryEntryAvailable(persona, entry))
   const locked = availableMemories.filter((entry) => entry.locked)
@@ -260,24 +274,36 @@ export function buildPersonaMemoryContext(persona: PersonaWindow, active: Person
   const omitted = history.filter((message) => usable(message) && !recentIds.has(keyOf(active.id, message.id)))
   const bridge = !active.contextSummary ? omitted.slice(-4).map((message) => `${speakerName(message, names)}：${clipPersonaText(rawText(message), 170)}`).join('\n') : ''
   add('bridge', '原文衔接桥', bridge ? `【紧邻近期对话前的原文｜低于最新消息】\n${bridge}` : '', 800)
-  const candidates = persona.recallEnabled === false ? [] : rankedHistory(persona, active, query, recentIds, now)
+  const candidates = persona.recallEnabled === false ? [] : rankedHistory(persona, active, query, recentIds, now, semantic?.messages, PERSONA_KEYWORD_RECALL_MIN)
   const allowed = candidates.filter((hit) => explicitPersonaRecall(query) || !Number.isFinite(active.recallLedger?.[hit.key]) || turn - active.recallLedger![hit.key] >= PERSONA_RECALL_COOLDOWN)
   const recallBudget = Math.min(1800, PERSONA_MEMORY_BUDGET - used - (parts.length ? 2 : 0))
   const packed = packHistory(allowed, query, names, recallBudget, 3, persona.memoryAliases)
   add('original', '本窗与同人格跨窗原文', packed.text, recallBudget, packed.sources.length, candidates.length, candidates.length - allowed.length)
   if (packed.text && lanes[lanes.length - 1].chars === packed.text.length) { sources.push(...packed.sources); keys.push(...packed.keys) }
-  const relevant = availableMemories.filter((entry) => !entry.pinned && !entry.locked)
-    .map((entry) => ({ entry, score: [...tokens].reduce((sum, token) => sum + (entry.content.toLocaleLowerCase().includes(token) ? token.length : 0), 0) + (explicitPersonaRecall(query) ? semanticScore(query, entry.content) : 0) }))
-    .filter((row) => row.score > 0).sort((a, b) => b.score - a.score || Number(a.entry.autoGenerated) - Number(b.entry.autoGenerated) || (b.entry.updatedAt || b.entry.createdAt) - (a.entry.updatedAt || a.entry.createdAt)).slice(0, 6).map((row) => row.entry)
+  // v236 线索触发 + 用进废退 + 重要度：只用她最新一句和他上一条回复去对线索 / 语义命中，对上了才拉本体。
+  const explicit = explicitPersonaRecall(query)
+  const keywordScore = (entry: PersonaMemoryEntry) => [...tokens].reduce((sum, token) => sum + (entry.content.toLocaleLowerCase().includes(token) ? token.length : 0), 0) + (explicit ? semanticScore(query, entry.content) : 0)
+  const aliasGroups = [...BUILTIN_ALIASES, ...(persona.memoryAliases || '').split('\n').slice(0, 40)].map((line) => line.toLocaleLowerCase().split(/[|｜]/).map((item) => item.trim()).filter((item) => item.length >= 2)).filter((group) => group.length > 1)
+  // 去重：本体已经在最近上下文里出现过的不再召回。
+  const inRecent = (entry: PersonaMemoryEntry) => { const fact = normalized(entry.content); return fact.length >= 6 && recentTexts.some((text) => text.includes(fact) || fact.includes(text) && text.length >= fact.length * .72) }
+  const ranked = rankPersonaMemories(availableMemories.filter((entry) => !entry.pinned && !entry.locked && !inRecent(entry)), { scan: explicit ? `${scan}\n${query}` : scan, semantic: semantic?.memories, keywordScore, aliasGroups, now })
+  const relevant = ranked.slice(0, 6).map((row) => row.entry)
   const confirmed = relevant.filter((entry) => !entry.autoGenerated), derived = relevant.filter((entry) => entry.autoGenerated)
   const facts = memoryRows(confirmed, 1000)
   add('facts', '你确认的相关记忆', facts.text ? `【用户确认的长期事实】\n${facts.text}` : '', 1100, facts.count, confirmed.length)
-  const related = scopedThreads(persona, active).filter((thread) => thread.id !== active.id && thread.contextSummary?.trim() && (tokens.size > 0 ? [...tokens].some((token) => thread.contextSummary!.includes(token)) : true)).sort((a, b) => b.updatedAt - a.updatedAt).slice(0, 1)
+  // v236：其他窗口的档案不再「有词就带」——要明确问往事，或至少两个三字词对上，或语义命中那扇窗口的旧文。
+  const relatedScore = (thread: PersonaThread) => [...tokens].filter((token) => token.length >= 3 && thread.contextSummary!.includes(token)).length
+  const semanticThread = (thread: PersonaThread) => [...(semantic?.messages.keys() || [])].some((key) => key.startsWith(`${thread.id}|`))
+  const related = scopedThreads(persona, active).filter((thread) => thread.id !== active.id && thread.contextSummary?.trim() && (explicit || relatedScore(thread) >= 2 || semanticThread(thread))).sort((a, b) => b.updatedAt - a.updatedAt).slice(0, 1)
     .map(continuityBlock).join('\n')
   add('continuity-related', '连续性档案 · 相关窗口', related ? `${continuityHeader}\n${related}` : '', ownContinuity ? 800 : 1500)
   const hints = memoryRows(derived, 700)
   add('derived', 'TA 提炼 · 待确认线索', hints.text ? `【模型提炼线索｜未经你逐条确认，不可覆盖用户原话】\n${hints.text}` : '', 800, hints.count, derived.length)
-  return { text: parts.join('\n\n'), stableText: stableParts.join('\n\n'), dynamicText: dynamicParts.join('\n\n'), audit: { query, budget: PERSONA_MEMORY_BUDGET, used, lanes, sources }, keys, turn }
+  const recallLanes = lanes.filter((lane) => ['original', 'facts', 'continuity-related', 'derived'].includes(lane.key))
+  const recallChars = recallLanes.reduce((sum, lane) => sum + lane.chars, 0)
+  const recallItems = recallLanes.reduce((sum, lane) => sum + lane.selected, 0)
+  const recalledMemoryIds = [...(facts.text && lanes.find((lane) => lane.key === 'facts')?.chars ? facts.ids : []), ...(hints.text && lanes.find((lane) => lane.key === 'derived')?.chars ? hints.ids : [])]
+  return { text: parts.join('\n\n'), stableText: stableParts.join('\n\n'), dynamicText: dynamicParts.join('\n\n'), audit: { query, budget: PERSONA_MEMORY_BUDGET, used, lanes, sources, cueScan: scan, recallMode: semantic ? 'semantic' : 'keyword', recalledMemoryIds }, keys, turn, recallChars, recallItems, recalledMemoryIds }
 }
 
 export function commitPersonaRecallLedger(thread: PersonaThread, keys: string[], turn: number) {

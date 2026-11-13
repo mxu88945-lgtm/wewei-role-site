@@ -4,12 +4,22 @@
  */
 import type { ApiChannel } from './apiChannels'
 import { embedTexts, SILICONFLOW_BASE_URL } from './semanticEmbeddings'
-import { buildAllSegments, type SegmentConversation, type SegmentMessage } from './semanticSegments'
-import { idbVectorStore, type VectorRecord, type VectorStore } from './semanticVectorDb'
+import { buildAllSegments, segmentConversation, segmentKey, type Segment, type SegmentConversation, type SegmentMessage } from './semanticSegments'
+import { cosine, idbVectorStore, normalize, type VectorRecord, type VectorStore } from './semanticVectorDb'
+import { getPersonaState, isPersonaStoreHydrated } from './personaWindowStore'
+import { memorySemanticText, type PersonaSemanticHits } from './personaMemoryRank'
+import type { PersonaMessage, PersonaWindow } from './personaWindow'
+import type { PersonaSemanticInput } from './personaWindowRuntime'
+import { personaReplyText } from './personaWindowPresentation'
+import { stripTurnContext } from './promptTail'
 import { backoffFor, runIndexPass, TRANSIENT_BACKOFF_MS } from './semanticIndex'
 import {
   SEMANTIC_CANDIDATES,
+  SEMANTIC_QUERY_TIMEOUT_MS,
+  SEMANTIC_THRESHOLD,
   SEMANTIC_TIMEOUT_SKIP_MS,
+  topSemantic,
+  withTimeout,
   SEMANTIC_TOP_K,
   SemanticTimeoutError,
   renderSemanticRecall,
@@ -86,6 +96,8 @@ export function resetSemanticRuntimeForTest(store?: VectorStore): void {
   state = { config: readConfig(), progress: { indexed: 0, total: 0, running: false } }
   sources = null
   cache = null
+  personaCache = null
+  chunkVectors.clear()
   querySkipUntil = 0
   backoffUntil = 0
   running = false
@@ -131,11 +143,13 @@ async function loadRecords(model: string, conversationId: string): Promise<Itera
 }
 
 function cachePut(model: string, records: VectorRecord[]) {
+  if (personaCache?.model === model) records.forEach((record) => personaCache!.byConv.get(record.conversationId)?.set(record.key, record))
   if (cache?.model !== model) return
   records.forEach((record) => { if (record.conversationId === cache!.conversationId) cache!.records.set(record.key, record) })
 }
 
 function cacheRemove(model: string, keys: string[]) {
+  if (personaCache?.model === model) personaCache.byConv.forEach((map) => keys.forEach((key) => map.delete(key)))
   if (cache?.model !== model) return
   keys.forEach((key) => cache!.records.delete(key))
 }
@@ -183,12 +197,138 @@ export async function semanticRecallForConversation(input: ConversationRecallInp
   }
 }
 
+/* ---------------- 人格窗口（v236） ---------------- */
+
+let personaCache: { model: string; byConv: Map<string, Map<string, VectorRecord>> } | null = null
+
+async function loadPersonaRecords(model: string, conversationId: string): Promise<VectorRecord[]> {
+  if (personaCache?.model !== model) personaCache = { model, byConv: new Map() }
+  const hit = personaCache.byConv.get(conversationId)
+  if (hit) return [...hit.values()]
+  const list = await vectorStore.forConversation(model, conversationId)
+  personaCache.byConv.set(conversationId, new Map(list.map((record) => [record.key, record])))
+  return list
+}
+
+/** 前世记忆 / 故事背景的小段会随剧情变，只在内存里存向量（按 模型|人格|小段 key），不进库、不参与清理。 */
+const chunkVectors = new Map<string, Float32Array>()
+const CHUNK_VECTOR_LIMIT = 3000
+let warming = false
+
+async function warmChunkVectors(channel: ApiChannel, model: string, personaId: string, chunks: Array<{ key: string; text: string }>) {
+  if (warming) return
+  const missing = chunks.filter((chunk) => !chunkVectors.has(`${model}|${personaId}|${chunk.key}`)).slice(0, 64)
+  if (!missing.length) return
+  warming = true
+  try {
+    for (let index = 0; index < missing.length; index += 32) {
+      const batch = missing.slice(index, index + 32)
+      const vectors = await embedWithTimeout(channel, model, batch.map((chunk) => chunk.text.slice(0, 1200)))
+      batch.forEach((chunk, at) => { if (vectors[at]) chunkVectors.set(`${model}|${personaId}|${chunk.key}`, normalize(vectors[at])) })
+      while (chunkVectors.size > CHUNK_VECTOR_LIMIT) chunkVectors.delete(chunkVectors.keys().next().value as string)
+    }
+  } catch {
+    /* 下次发送再补 */
+  } finally {
+    warming = false
+  }
+}
+
+/**
+ * 人格窗口的语义召回：用她最新一句 + 他上一条回复做一次查询向量，
+ * 只在「这个人格」的窗口原文（按旧文检索范围）、他的长期记忆、本轮素材池里找。
+ * 关着时立刻 null；失败或 4 秒超时也 null（之后 2 分钟直接跳过），人格窗口自动回退到线索 + 关键词。
+ */
+export async function semanticRecallForPersona(input: PersonaSemanticInput): Promise<PersonaSemanticHits | null> {
+  try {
+    if (!isSemanticReady()) return null
+    const now = Date.now()
+    if (querySkipUntil > now) return null
+    const query = Array.from(input.query.replace(/\s+/g, ' ').trim()).slice(-500).join('')
+    if (!query) return null
+    const config = state.config
+    const channel = semanticChannel(config)!
+    const model = config.model.trim()
+    const persona = input.persona
+    const threads = persona.recallScope === 'thread' ? [input.thread] : persona.threads.map((thread) => thread.id === input.thread.id ? input.thread : thread)
+    const memoryConv = `${PERSONA_MEMORY_NS}${persona.id}`
+    const [vector, threadRecords, memoryRecords] = await Promise.all([
+      withTimeout(async (signal) => (await embedTexts(channel, model, [query], signal))[0], SEMANTIC_QUERY_TIMEOUT_MS),
+      Promise.all(threads.map((thread) => loadPersonaRecords(model, `${PERSONA_THREAD_NS}${thread.id}`))),
+      loadPersonaRecords(model, memoryConv),
+    ])
+    const q = normalize(vector)
+    const messages = new Map<string, number>()
+    threads.forEach((thread, index) => {
+      const conversationId = `${PERSONA_THREAD_NS}${thread.id}`
+      const inContext = new Set(thread.messages.filter((message) => input.inContextKeys.has(`${thread.id}|${message.id}`)).map((message) => message.id))
+      const hits = topSemantic(q, threadRecords[index], { conversationId, topK: SEMANTIC_CANDIDATES })
+      const conversation = { id: conversationId, messages: thread.messages.map(personaSegmentMessage) }
+      for (const hit of selectTurnHits(hits, conversation, inContext, 6)) {
+        for (const id of hit.record.msgIds) if (!inContext.has(id)) messages.set(`${thread.id}|${id}`, Math.max(messages.get(`${thread.id}|${id}`) || 0, hit.score))
+      }
+    })
+    // 长期记忆：向量记录的原文要和当前这条记忆一字不差（改过的旧向量不算）。
+    const byText = new Map(persona.memories.map((entry) => [memorySemanticText(entry), entry.id]))
+    const memories = new Map<string, number>()
+    topSemantic(q, memoryRecords, { conversationId: memoryConv, topK: 12 }).forEach((hit) => {
+      const id = byText.get(hit.record.text)
+      if (id) memories.set(id, hit.score)
+    })
+    const pool = [...(input.pools.pastLife || []), ...input.pools.background]
+    const chunks = new Map<string, number>()
+    for (const chunk of pool) {
+      const vec = chunkVectors.get(`${model}|${persona.id}|${chunk.key}`)
+      if (!vec || vec.length !== q.length) continue
+      const score = cosine(q, vec)
+      if (score >= SEMANTIC_THRESHOLD) chunks.set(chunk.key, score)
+    }
+    // 没算过向量的小段在后台补上（下一轮就能用），这一轮不等。
+    void warmChunkVectors(channel, model, persona.id, pool)
+    scheduleSemanticIndex(20_000)
+    return { messages, memories, chunks }
+  } catch (error) {
+    if (error instanceof SemanticTimeoutError) querySkipUntil = Date.now() + SEMANTIC_TIMEOUT_SKIP_MS
+    return null
+  }
+}
+
 /* ---------------- 后台增量索引 ---------------- */
 
-function gatherSegments(model: string) {
+/**
+ * v236：人格窗口也进向量库，但各有各的命名空间——窗口原文 persona:<窗口id>、长期记忆 persona-mem:<人格id>。
+ * 人格数据还没从本地读出来时返回 null：这一轮先不建也不清理，免得把人格的向量当成过期删掉。
+ */
+function gatherSegments(model: string): { segments: Segment[]; complete: boolean } {
   // 只索引剧情对话（单聊 / 群聊）；小手机不进向量库。
   const conversations = (sources?.conversations() ?? []).filter((conversation) => !conversation.phone)
-  return buildAllSegments(conversations, model)
+  const complete = isPersonaStoreHydrated()
+  return { segments: [...buildAllSegments(conversations, model), ...(complete ? personaSegments(getPersonaState().personas, model) : [])], complete }
+}
+
+export const PERSONA_THREAD_NS = 'persona:'
+export const PERSONA_MEMORY_NS = 'persona-mem:'
+
+const personaSegmentMessage = (message: PersonaMessage): SegmentMessage => ({ id: message.id, role: message.role, text: message.finishReason === 'error' ? '' : message.role === 'assistant' ? personaReplyText(message.text) : stripTurnContext(message.text) })
+
+/** 人格窗口的片段：每扇窗口单独切（和剧情同一套规则），每条长期记忆一段（线索 + 标题 + 本体）。 */
+export function personaSegments(personas: readonly PersonaWindow[], model: string): Segment[] {
+  const out: Segment[] = []
+  const seen = new Set<string>()
+  for (const persona of personas) {
+    for (const thread of persona.threads) {
+      for (const segment of segmentConversation({ id: `${PERSONA_THREAD_NS}${thread.id}`, messages: thread.messages.map(personaSegmentMessage) }, model)) {
+        if (!seen.has(segment.key)) { seen.add(segment.key); out.push(segment) }
+      }
+    }
+    const conversationId = `${PERSONA_MEMORY_NS}${persona.id}`
+    for (const entry of persona.memories) {
+      const text = memorySemanticText(entry)
+      const key = segmentKey(model, conversationId, text)
+      if (!seen.has(key)) { seen.add(key); out.push({ key, conversationId, text, msgIds: [] }) }
+    }
+  }
+  return out
 }
 
 /** 退避只存在内存里：刷新页面就重新试。 */
@@ -232,7 +372,7 @@ async function runOnce(): Promise<void> {
   running = true
   setProgress({ running: true, error: undefined })
   try {
-    const segments = gatherSegments(model)
+    const { segments, complete } = gatherSegments(model)
     const result = await runIndexPass(segments, model, {
       store: vectorStore,
       embed: (texts) => embedWithTimeout(channel, model, texts),
@@ -243,7 +383,7 @@ async function runOnce(): Promise<void> {
       onProgress: (indexed, total) => setProgress({ indexed, total }),
       onPut: (records) => cachePut(model, records),
       onRemove: (keys) => cacheRemove(model, keys),
-    })
+    }, { prune: complete })
     if (result.error) {
       enterBackoff(result.error)
     } else {
@@ -295,7 +435,7 @@ export async function refreshSemanticCounts(autoResume = true): Promise<void> {
   const model = state.config.model.trim()
   if (!model || !sources) return
   try {
-    const segments = gatherSegments(model)
+    const { segments } = gatherSegments(model)
     const keys = await vectorStore.keys(model)
     const indexed = segments.filter((segment) => keys.has(segment.key)).length
     const inBackoff = backoffUntil > Date.now()

@@ -50,7 +50,7 @@ export async function runIndexPass(
   segments: Segment[],
   model: string,
   deps: IndexDeps,
-  opts: { batchSize?: number; gapMs?: number } = {},
+  opts: { batchSize?: number; gapMs?: number; /** v236：数据没读全时（人格窗口还没读出来）只补建、不清理。 */ prune?: boolean } = {},
 ): Promise<IndexResult> {
   const batchSize = Math.max(1, Math.min(INDEX_BATCH_SIZE, opts.batchSize ?? INDEX_BATCH_SIZE))
   const gap = opts.gapMs ?? INDEX_BATCH_GAP_MS
@@ -91,7 +91,7 @@ export async function runIndexPass(
   const current = new Set(segments.map((segment) => segment.key))
   const stale = [...existing].filter((key) => !current.has(key))
   // 一个片段都没有时不清理：多半是数据还没读出来，别把已建好的向量当成过期删掉。
-  if (stale.length && segments.length) {
+  if (stale.length && segments.length && opts.prune !== false) {
     try {
       await deps.store.remove(stale)
       deps.onRemove?.(stale)
