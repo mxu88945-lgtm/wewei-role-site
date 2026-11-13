@@ -363,6 +363,17 @@ button.persona-settings-row:active { background: var(--theme-accent-soft); }
 .persona-life-row small { display: block; margin-top: 3px; overflow: hidden; color: #a095a6; font-size: 11px; text-overflow: ellipsis; white-space: nowrap; }
 button.persona-life-row:active { background: var(--theme-accent-soft); }
 .persona-life-form-actions { display: flex; gap: 10px; justify-content: flex-end; }
+/* v232 人物事件：TA 记的近况，按日期新到旧，可单条删除 */
+.persona-people-events { display: grid; gap: 8px; }
+.persona-people-events > strong { color: #73617f; font-size: 13px; }
+.persona-people-events > small { color: #a095a6; font-size: 11px; line-height: 1.5; }
+.persona-people-events ul { display: grid; margin: 0; padding: 0; list-style: none; overflow: hidden; border: 1px solid rgba(125,104,141,.12); border-radius: 16px; background: rgba(255,255,255,.7); }
+.persona-people-events li { display: flex; align-items: flex-start; gap: 8px; padding: 9px 8px 9px 12px; border-bottom: 1px solid rgba(125,104,141,.09); color: #4f4456; font-size: 13px; line-height: 1.55; }
+.persona-people-events li:last-child { border-bottom: 0; }
+.persona-people-events li > span { flex: 1; min-width: 0; overflow-wrap: anywhere; }
+.persona-people-events li small { display: block; color: #a095a6; font-size: 11px; }
+.persona-people-event-delete { flex-shrink: 0; width: 32px; height: 32px; border: 0; border-radius: 50%; background: transparent; color: #a6929b; font-size: 18px; line-height: 1; }
+.persona-people-toast strong { font-weight: 600; }
 
 /* v231 自制礼物：与小手机礼物图鉴同一套渐变色，卡片保持简洁 */
 .persona-gift-card { --gift-a: #fff5e8; --gift-b: #d8a77f; display: grid; grid-template-columns: 52px minmax(0, 1fr); align-items: center; gap: 12px; box-sizing: border-box; width: min(100%, 320px); margin: 2px 0 8px; padding: 10px 14px 10px 10px; border: 1px solid rgba(114, 78, 54, .1); border-radius: 18px; background: rgba(255,255,255,.88); color: #433832; }

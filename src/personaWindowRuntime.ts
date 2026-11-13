@@ -38,6 +38,7 @@ import { getPersonaState, setPersonaState } from './personaWindowStore'
 import { autoPlaySongPick, buildPersonaSongPrompt, parseSongPick } from './personaSongPick'
 import { buildSelfCardPrompt, parseSelfCardTag, selfCardLabel, setSelfCardSection } from './personaSelfCard'
 import { useMusicStore } from './musicStore'
+import { parsePersonTags, PEOPLE_TAG_PROMPT, type PersonTag } from './peopleProfiles'
 import { addPersonaGift, buildPersonaGiftPrompt, removePersonaGift, parsePersonaGiftTag, personaGiftRecordLine } from './personaGifts'
 import { withPromptCache } from './promptCache'
 import { foldPromptForRelay } from './promptTail'
@@ -74,6 +75,12 @@ export type PersonaRuntimeDeps = {
   period?: () => string
   /** v230：人物档案召回，传入最近的几句（最新在后），没人被提到返回空串。 */
   people?: (recentTexts: string[]) => string
+  /** v232：「让 TA 自己记」开着时返回 true（决定第一条 system 里放不放 [人物:] 说明）。 */
+  peopleSelfRecord?: () => boolean
+  /** v232：把这条回复里的 [人物:] 标签写进档案；返回真正写进去的人名。userTexts 是她最近两条消息。 */
+  recordPeople?: (tags: PersonTag[], userTexts: string[], source: string) => string[]
+  /** v232：重新生成时收回被换掉的那条回复写进档案的内容。 */
+  undoPeople?: (source: string) => void
 }
 
 /**
@@ -85,13 +92,15 @@ type RuntimeSnapshot = {
   memoryBusy: Record<string, boolean>
   errors: Record<string, string>
   notices: Record<string, string>
+  /** v232：轻提示「👥 记进人物档案：X」，按人格 id；seq 递增好让同名提示也重新出现。 */
+  peopleToasts: Record<string, { text: string; seq: number }>
   memoryAudits: Record<string, PersonaMemoryAudit>
   /** v225：后台连续性整理，按窗口（thread）id。 */
   compressing: Record<string, boolean>
   /** v225：上次整理失败的时间与原因（30 分钟冷却），按窗口 id；成功后清掉。 */
   compressionFailures: Record<string, PersonaCompressionFailure>
 }
-let runtime: RuntimeSnapshot = { generating: {}, memoryBusy: {}, errors: {}, notices: {}, memoryAudits: {}, compressing: {}, compressionFailures: {} }
+let runtime: RuntimeSnapshot = { generating: {}, memoryBusy: {}, errors: {}, notices: {}, peopleToasts: {}, memoryAudits: {}, compressing: {}, compressionFailures: {} }
 const runtimeListeners = new Set<() => void>()
 const controllers = new Map<string, AbortController>()
 
@@ -117,6 +126,8 @@ const setCompressionFailure = (threadId: string, failure: PersonaCompressionFail
   else delete compressionFailures[threadId]
   return { ...current, compressionFailures }
 })
+let peopleToastSeq = 0
+export const dismissPeopleToast = (personaId: string) => patchRuntime((current) => { const next = { ...current.peopleToasts }; delete next[personaId]; return { ...current, peopleToasts: next } })
 const setNotice = (id: string, message: string) => patchRuntime((current) => ({ ...current, notices: { ...current.notices, [id]: message } }))
 
 export const subscribePersonaRuntime = (listener: () => void) => { runtimeListeners.add(listener); return () => { runtimeListeners.delete(listener) } }
@@ -182,6 +193,8 @@ export function planPersonaRequest(persona: PersonaWindow, history: PersonaMessa
     persona.songPickEnabled !== false && buildPersonaSongPrompt(deps.songList?.() || []),
     // v231：自制礼物说明 + 他做过的礼物名（只在礼物架变化时变）。
     persona.giftsEnabled !== false && buildPersonaGiftPrompt(persona.customGifts),
+    // v232：人物档案自己记——固定文字，只随开关变。
+    deps.peopleSelfRecord?.() && PEOPLE_TAG_PROMPT,
     // Keep the core boundary in the FIRST system too (some relays drop later system messages).
     PERSONA_FINAL_GUARD,
   ].filter(Boolean).join('\n\n')
@@ -246,9 +259,10 @@ export async function generatePersonaReply(personaId: string, deps: PersonaRunti
   setPersonaError(threadId, '')
   let base = thread.messages
   let replacedGiftId = ''
+  let replacedReplyId: number | undefined
   if (input.regenerate) {
     const last = base[base.length - 1]
-    if (last?.role === 'assistant') { base = base.slice(0, -1); replacedGiftId = last.gift?.id || '' }
+    if (last?.role === 'assistant') { base = base.slice(0, -1); replacedGiftId = last.gift?.id || ''; replacedReplyId = last.id }
   }
   const now = Date.now()
   const additions: PersonaMessage[] = []
@@ -263,6 +277,8 @@ export async function generatePersonaReply(personaId: string, deps: PersonaRunti
   const promptThread = { ...thread, messages: withUser, tasks: thread.tasks?.filter((task) => !input.regenerate || task.sourceMessageId !== thread.messages[thread.messages.length - 1]?.id) }
   const touch = (state: Parameters<typeof updatePersona>[0], at: number) => updatePersona(state, personaId, (item) => ({ ...item, updatedAt: at }))
   // v231：重新生成时，被换掉的那条回复里做的礼物也从礼物架上收回。
+  // v232：被换掉的那条回复记进人物档案的内容也收回。
+  if (replacedReplyId !== undefined) deps.undoPeople?.(`${threadId}:${replacedReplyId}`)
   if (replacedGiftId) setPersonaState((state) => updatePersona(state, personaId, (item) => ({ ...item, customGifts: removePersonaGift(item.customGifts, replacedGiftId) })))
   setPersonaState((state) => touch(updatePersonaThread(state, personaId, threadId, (item) => ({ ...item, messages: [...withUser, placeholder], tasks: item.tasks?.filter((task) => !input.regenerate || task.sourceMessageId !== thread.messages[thread.messages.length - 1]?.id), messageSequence: replyId, updatedAt: now })), now))
   const controller = new AbortController()
@@ -325,6 +341,14 @@ export async function generatePersonaReply(personaId: string, deps: PersonaRunti
     if (selfEdit) setPersonaState((state) => updatePersona(state, personaId, (item) => setSelfCardSection(item, selfEdit.key, selfEdit.content, `他改了「${selfCardLabel(selfEdit.key)}」`)))
     // v207：他点了歌就切过去——每条回复只在生成完这一刻做一次，翻历史不会触发。
     if (songPick) autoPlaySongPick(`${threadId}:${replyId}:${now}`, songPick, useMusicStore.getState())
+    // v232：TA 记下的人——只认她最近两条消息里出现过的名字（recordPeople 里把关）。
+    const recordPeople = deps.peopleSelfRecord?.() ? deps.recordPeople : undefined
+    const personTags = recordPeople ? parsePersonTags(output) : []
+    if (recordPeople && personTags.length) {
+      const userTexts = history.filter((message) => message.role === 'user' && message.text.trim()).slice(-2).map((message) => message.text)
+      const saved = recordPeople(personTags, userTexts, `${threadId}:${replyId}`)
+      if (saved.length) patchRuntime((current) => ({ ...current, peopleToasts: { ...current.peopleToasts, [personaId]: { text: `👥 记进人物档案：${saved.join('、')}`, seq: ++peopleToastSeq } } }))
+    }
     const done = Date.now()
     const sourceIds = [history.filter((message) => message.role === 'user').slice(-1)[0]?.id, replyId].filter((id): id is number => id !== undefined)
     const saves = personaMemorySaves(output, threadId, sourceIds, done)

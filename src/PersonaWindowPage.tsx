@@ -28,7 +28,7 @@ import { PersonaCompressionCard, PersonaMemoryInspection, PersonaRecallReceipt }
 import { canLockPersonaMemory, PERSONA_LOCKED_BUDGET } from './personaWindowMemory'
 import { activeThread, addPersonaThread, buildPersonaSetting, characterAliasIds, collectPastLifeMemory, conversationInvolvesCharacter, deletePersona, deletePersonaThread, deletePersonaMessage, disablePersona, enablePersona, PERSONA_MEMORY_EVERY, PERSONA_WINDOW_PRESET, pendingPersonaMemoryCount, personaMemoryApi, renamePersonaThread, resolvePersonaApi, switchPersona, switchPersonaThread, updatePersona, updatePersonaThread, type PersonaMemoryEntry, type PersonaMessage, type PersonaWindow } from './personaWindow'
 import { hydratePersonaStore, setPersonaState, usePersonaHydrated, usePersonaState } from './personaWindowStore'
-import { buildPersonaRequest, extractPersonaMemory, generatePersonaReply, getPersonaRuntime, maybeCompressPersonaContext, setPersonaError, stopPersonaReply, subscribePersonaRuntime, type PersonaRuntimeDeps } from './personaWindowRuntime'
+import { buildPersonaRequest, dismissPeopleToast, extractPersonaMemory, generatePersonaReply, getPersonaRuntime, maybeCompressPersonaContext, setPersonaError, stopPersonaReply, subscribePersonaRuntime, type PersonaRuntimeDeps } from './personaWindowRuntime'
 
 import { findTrackByTitle, useMusicStore } from './musicStore'
 import { buildNowPlayingNote } from './nowPlayingNote'
@@ -43,7 +43,7 @@ import { PersonaGiftCard, PersonaGiftsPanel } from './PersonaGifts'
 import { removePersonaGift } from './personaGifts'
 import { localToday, peopleStore, periodStore, usePeople, usePeriodLog } from './lifeRecordsStore'
 import { periodStats, periodTurnNote } from './periodLog'
-import { peopleTurnNote } from './peopleProfiles'
+import { applyPersonTags, peopleTurnNote, undoPersonTags } from './peopleProfiles'
 
 type Props = {
   characters: Character[]
@@ -250,6 +250,14 @@ export default function PersonaWindowPage(props: Props) {
   const generating = Boolean(thread && runtime.generating[thread.id])
   const error = thread ? runtime.errors[thread.id] || '' : ''
   const notice = active ? runtime.notices[active.id] || '' : ''
+  // v232：「👥 记进人物档案：X」轻提示，3 秒后自己收起。
+  const peopleToast = active ? runtime.peopleToasts[active.id] : undefined
+  const activeIdForToast = active?.id || ''
+  useEffect(() => {
+    if (!peopleToast || !activeIdForToast) return
+    const timer = window.setTimeout(() => dismissPeopleToast(activeIdForToast), 3200)
+    return () => window.clearTimeout(timer)
+  }, [peopleToast, activeIdForToast])
   const messages = thread?.messages ?? EMPTY_MESSAGES
   const windowStart = resolveChatWindowStart(messages, thread ? windowAnchors[thread.id] : null)
   const earlierCount = earlierChatMessageCount(windowStart)
@@ -285,7 +293,15 @@ export default function PersonaWindowPage(props: Props) {
       songList: () => useMusicStore.getState().tracks.map((track) => track.name),
       nowPlaying: () => { const music = useMusicStore.getState(); return buildNowPlayingNote(music.now, music.lyrics, music.lyricIndex) },
       period: () => periodTurnNote(periodStore.read(), localToday(), identity.name),
-      people: (texts) => peopleTurnNote(peopleStore.read(), texts),
+      people: (texts) => peopleTurnNote(peopleStore.read(), texts, localToday()),
+      // v232：TA 自己建档、自己补充（她最近两条消息里出现过的名字才写）。
+      peopleSelfRecord: () => peopleStore.read().selfRecord,
+      recordPeople: (tags, userTexts, source) => {
+        let saved: string[] = []
+        peopleStore.set((current) => { const applied = applyPersonTags(current, tags, { userTexts, source, today: localToday(), exclude: [character.name, identity.name] }); saved = applied.saved; return applied.saved.length ? applied.state : current })
+        return saved
+      },
+      undoPeople: (source) => peopleStore.set((current) => undoPersonTags(current, source)),
       realWorld: () => { const closing = '这是你们此刻真实的时间、地点与天气；聊天时自然地顺着它（很晚了可以催睡、下雨会提醒带伞），不用每条都提，也不要编造别的时间、地点或天气。'; try { return buildPhoneRealWorldNote(new Date(), JSON.parse(localStorage.getItem('weijing.phoneWeather') || 'null'), closing) } catch { return buildPhoneRealWorldNote(new Date(), null, closing) } },
     }
   }
@@ -702,6 +718,7 @@ export default function PersonaWindowPage(props: Props) {
   const lastMessage = messages[messages.length - 1]
   return <section className={`chat-page persona-window-page${activeTasks.length ? ' has-task-pin' : ''}`} style={activeTasks.length ? { '--persona-task-pin-rows': Math.min(activeTasks.length, PERSONA_TASK_PIN_LIMIT) + (activeTasks.length > PERSONA_TASK_PIN_LIMIT ? 0.5 : 0) } as CSSProperties : undefined}>{header}{switcher}
     {error && <div className="chat-error" role="alert"><button className="chat-error-action" {...tap(() => setPersonaError(threadId, ''))}><span>连接提示</span>{error}</button><button className="chat-error-close" aria-label="关闭提示" {...tap(() => setPersonaError(threadId, ''))}>×</button></div>}
+    {peopleToast && <div className="persona-task-toast persona-people-toast" role="status"><div><strong>{peopleToast.text}</strong></div><button {...tap(() => { dismissPeopleToast(active.id); setSidebarOpen(false); setSettingsPanel('lifePeople'); setDrawerOpen(true) })}>看看</button><button aria-label="关闭人物档案提示" {...tap(() => dismissPeopleToast(active.id))}>×</button></div>}
     <div ref={listRef} className="message-list persona-message-list" onScroll={onScroll}>
       {earlierCount > 0 && <button type="button" className="chat-load-earlier" onClick={loadEarlier}>加载更早 {earlierCount} 条</button>}
       {messages.length === 0 && <div className="persona-intro">{avatarOf(activeCharacter, 'large')}<strong>{activeCharacter.name}</strong><p>从这里，慢慢熟悉彼此。角色卡留作背景参考，你们的关系从此刻的交流继续。</p><button className="soft-button" {...tap(letThemSpeak)}>让 TA 先开口</button></div>}

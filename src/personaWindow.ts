@@ -22,10 +22,11 @@ import { personaMemoryEntryAvailable } from './personaWindowMemory'
 import type { ApiConfig } from './chatApi'
 import { normalizePersonaAppearance, type PersonaAppearance } from './personaAppearance'
 import { normalizePersonaTasks, type PersonaTask } from './personaTasks'
-import { normalizePersonaGift, normalizePersonaGifts, type PersonaGift } from './personaGifts'
+import { normalizePersonaGift, normalizePersonaGifts, stripPersonaGiftTag, type PersonaGift } from './personaGifts'
 import { isApiChannelComplete, resolveApiChannel, type ApiChannel } from './apiChannels'
 import { buildBackstagePersonaMemory } from './backstageNotes'
 import { stripSongPick } from './personaSongPick'
+import { stripPersonTags } from './peopleProfiles'
 import { normalizeSelfCard, normalizeSelfCardHistory, SELF_CARD_SECTIONS, stripSelfCardTag, type SelfCard, type SelfCardKey, type SelfCardVersion } from './personaSelfCard'
 
 export const PERSONA_WINDOWS_KEY = 'weijing.personaWindows'
@@ -561,7 +562,7 @@ export function conversationInvolvesCharacter(conversation: Conversation, ids: r
 const conversationKind = (conversation: Conversation) => conversation.phone ? (conversation.phone.dm ? '小手机私聊' : '小手机群聊') : conversation.kind === 'group' ? '长剧情·群戏' : '长剧情'
 
 function messageText(text: string) {
-  return stripSelfCardTag(stripSongPick(stripUiOnlyStatusBlocks(stripPresentationalHtmlForPrompt(text)).replace(/\n{2,}/g, '\n').trim()))
+  return stripPersonTags(stripPersonaGiftTag(stripSelfCardTag(stripSongPick(stripUiOnlyStatusBlocks(stripPresentationalHtmlForPrompt(text)).replace(/\n{2,}/g, '\n').trim()))))
 }
 
 /** His own lines and hers, newest last — for conversations that have no memory or summary yet. */
