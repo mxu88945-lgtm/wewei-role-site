@@ -1,8 +1,8 @@
 import { AUTO_COMPRESSION_FAILURE_COOLDOWN_MS, AUTO_COMPRESSION_KEEP_RECENT, AUTO_COMPRESSION_TRIGGER, planAutoContextCompression } from './contextCompression'
 import { personaCompressedUntil, type PersonaMessage, type PersonaThread } from './personaWindow'
 
-/** 与 maybeCompressPersonaContext 完全相同的可整理过滤：有正文、不是失败回复。 */
-export const isPersonaCompressible = (message: Pick<PersonaMessage, 'text' | 'finishReason'>) => Boolean(message.text.trim()) && message.finishReason !== 'error'
+/** 与 maybeCompressPersonaContext 完全相同的可整理过滤：有正文（v233：或带礼物）、不是失败回复。 */
+export const isPersonaCompressible = (message: Pick<PersonaMessage, 'text' | 'finishReason'> & { gift?: PersonaMessage['gift'] }) => Boolean(message.text.trim() || message.gift) && message.finishReason !== 'error'
 
 export type PersonaCompressionFailure = { at: number; message: string }
 

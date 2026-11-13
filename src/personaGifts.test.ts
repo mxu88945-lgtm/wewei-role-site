@@ -1,7 +1,7 @@
 import 'fake-indexeddb/auto'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import type { Character } from './characterCard'
-import { addPersonaGift, buildPersonaGiftPrompt, hashGiftColors, normalizePersonaGift, normalizePersonaGifts, parsePersonaGiftTag, personaGiftRecordLine, removePersonaGift, safeGiftColors, stripPersonaGiftTag, PERSONA_GIFT_SHELF_MAX } from './personaGifts'
+import { addPersonaGift, buildPersonaGiftPrompt, hashGiftColors, normalizePersonaGift, normalizePersonaGifts, parsePersonaGiftTag, personaGiftEvent, personaGiftRecordLine, removePersonaGift, safeGiftColors, stripPersonaGiftTag, PERSONA_GIFT_SHELF_MAX } from './personaGifts'
 import { personaReplyText } from './personaWindowPresentation'
 import { activeThread, emptyPersonaState, enablePersona, normalizePersonaState, personaIdFor } from './personaWindow'
 import { getPersonaState, setPersonaState } from './personaWindowStore'
@@ -44,7 +44,7 @@ describe('自制礼物标记 (v231)', () => {
     expect(personaReplyText('等一下\n[自制礼物:🐚|贝')).toBe('等一下')
     expect(personaReplyText('等一下\n[自制')).toBe('等一下')
     expect(personaReplyText('坏标记\n[自制礼物:没有竖线]')).toBe('坏标记')
-    expect(personaReplyText(`嗯。\n${personaGiftRecordLine({ id: 'a', name: '贝壳', subtitle: '', icon: '🐚', colors: ['#ffffff', '#000000'], createdAt: 1, maker: 'role' })}`)).toBe('嗯。')
+    expect(personaReplyText(`嗯。\n${personaGiftRecordLine({ name: '贝壳', maker: 'role' })}`)).toBe('嗯。')
     expect(personaReplyText('[记住:别的]')).toBe('')
   })
 })
@@ -102,7 +102,7 @@ describe('提示词位置 (v231)', () => {
 
   it('tells the model about a gift it gave earlier (without the raw tag)', () => {
     const persona = enablePersona(emptyPersonaState(), 'yu').personas[0]
-    const gift = normalizePersonaGift({ id: 'a', name: '贝壳', icon: '🐚' })!
+    const gift = personaGiftEvent(normalizePersonaGift({ id: 'a', name: '贝壳', icon: '🐚', maker: 'role' })!, 'role-to-user', '', 2, true)
     const request = buildPersonaRequest(persona, [{ id: 1, role: 'user', text: '早', createdAt: 1 }, { id: 2, role: 'assistant', text: '拿着。', createdAt: 2, gift }, { id: 3, role: 'user', text: '谢谢', createdAt: 3 }], deps, activeThread(persona))
     const assistant = request.find((item) => item.role === 'assistant')
     expect(String(assistant?.content)).toContain('拿着。\n（应用记录：你送出了自制礼物「贝壳」）')

@@ -39,7 +39,7 @@ import { autoPlaySongPick, buildPersonaSongPrompt, parseSongPick } from './perso
 import { buildSelfCardPrompt, parseSelfCardTag, selfCardLabel, setSelfCardSection } from './personaSelfCard'
 import { useMusicStore } from './musicStore'
 import { parsePersonTags, PEOPLE_TAG_PROMPT, type PersonTag } from './peopleProfiles'
-import { addPersonaGift, buildPersonaGiftPrompt, removePersonaGift, parsePersonaGiftTag, personaGiftRecordLine } from './personaGifts'
+import { addPersonaGift, buildPersonaGiftPrompt, extractPersonaAssistantGift, personaGiftHistory, personaGiftPromptText, personaGiftRecordLine, removePersonaGift, type PersonaGiftEvent } from './personaGifts'
 import { withPromptCache } from './promptCache'
 import { foldPromptForRelay } from './promptTail'
 import { recordPromptUsage } from './promptUsage'
@@ -191,8 +191,9 @@ export function planPersonaRequest(persona: PersonaWindow, history: PersonaMessa
     PERSONA_MEMORY_TOOLS,
     persona.tasksEnabled !== false && PERSONA_TASK_PROMPT,
     persona.songPickEnabled !== false && buildPersonaSongPrompt(deps.songList?.() || []),
-    // v231：自制礼物说明 + 他做过的礼物名（只在礼物架变化时变）。
-    persona.giftsEnabled !== false && buildPersonaGiftPrompt(persona.customGifts),
+    // v231：自制礼物说明 + 他做过的礼物名。v233：双向礼物——图鉴、礼物架、礼物往来（只在礼物架/往来变化时变）；
+    // 关掉「让 TA 送礼物」后只留「她送的礼物卡是真事」和往来记录。
+    buildPersonaGiftPrompt(persona.customGifts, personaGiftHistory(persona.threads, thread), { enabled: persona.giftsEnabled !== false }),
     // v232：人物档案自己记——固定文字，只随开关变。
     deps.peopleSelfRecord?.() && PEOPLE_TAG_PROMPT,
     // Keep the core boundary in the FIRST system too (some relays drop later system messages).
@@ -215,7 +216,8 @@ export function planPersonaRequest(persona: PersonaWindow, history: PersonaMessa
   const messages: ChatApiMessage[] = [
     { role: 'system', content: applyMacros(system, character, deps.user.name) },
     ...recent.map((item, index): ChatApiMessage => {
-      const body = item.role === 'assistant' && item.gift ? [item.text, personaGiftRecordLine(item.gift)].filter((part) => part.trim()).join('\n') : item.text
+      // v233：她送的礼物以「🎁 礼物事件｜…」文字发给模型；TA 送出的在 TA 那条后面留一句应用记录。
+      const body = !item.gift ? item.text : item.role === 'assistant' ? [item.text, personaGiftRecordLine(item.gift)].filter((part) => part.trim()).join('\n') : [personaGiftPromptText(item.gift, deps.user.name, character.name), item.text].filter((part) => part.trim()).join('\n\n')
       const textWithQuote = item.quote ? `${quotePromptPrefix({ messageId: String(item.quote.messageId), author: item.quote.author, text: item.quote.text })}\n${body}` : body
       const attachmentText = item.role === 'user' ? attachmentPromptText(item.attachments, attachmentTurns.has(index)) : ''
       const content = [textWithQuote, attachmentText].filter(Boolean).join('\n\n')
@@ -246,7 +248,7 @@ export function consolidatePersonaMessages(messages: ChatApiMessage[]): ChatApiM
 /** Visible history for a request: no empty placeholders, no failed turns. */
 const requestHistory = (messages: PersonaMessage[]) => messages.filter((item) => item.text.trim() || item.images?.length || item.attachments?.length || item.gift)
 
-export async function generatePersonaReply(personaId: string, deps: PersonaRuntimeDeps, input: { text?: string; images?: ChatImage[]; attachments?: ChatAttachment[]; regenerate?: boolean; threadId?: string; taskCompletionId?: string; quote?: { messageId: number; author: string; text: string } } = {}) {
+export async function generatePersonaReply(personaId: string, deps: PersonaRuntimeDeps, input: { text?: string; images?: ChatImage[]; attachments?: ChatAttachment[]; gift?: PersonaGiftEvent; regenerate?: boolean; threadId?: string; taskCompletionId?: string; quote?: { messageId: number; author: string; text: string } } = {}) {
   const persona = findPersona(personaId)
   if (!persona) return
   const thread = activeThread(persona, input.threadId)
@@ -262,13 +264,14 @@ export async function generatePersonaReply(personaId: string, deps: PersonaRunti
   let replacedReplyId: number | undefined
   if (input.regenerate) {
     const last = base[base.length - 1]
-    if (last?.role === 'assistant') { base = base.slice(0, -1); replacedGiftId = last.gift?.id || ''; replacedReplyId = last.id }
+    if (last?.role === 'assistant') { base = base.slice(0, -1); replacedGiftId = last.gift?.made ? last.gift.giftId : ''; replacedReplyId = last.id }
   }
   const now = Date.now()
   const additions: PersonaMessage[] = []
   const firstId = Math.max(nextPersonaMessageId(base), (thread.messageSequence || 0) + 1)
-  if ((input.text || '').trim() || input.images?.length || input.attachments?.length) {
-    additions.push({ id: firstId, role: 'user', text: (input.text || '').trim(), createdAt: now, ...(input.images?.length ? { images: input.images } : {}), ...(input.attachments?.length ? { attachments: input.attachments } : {}), ...(input.quote ? { quote: input.quote } : {}) })
+  const userGift = input.gift?.direction === 'user-to-role' ? input.gift : undefined
+  if ((input.text || '').trim() || input.images?.length || input.attachments?.length || userGift) {
+    additions.push({ id: firstId, role: 'user', text: (input.text || '').trim(), createdAt: now, ...(input.images?.length ? { images: input.images } : {}), ...(input.attachments?.length ? { attachments: input.attachments } : {}), ...(input.quote ? { quote: input.quote } : {}), ...(userGift ? { gift: userGift } : {}) })
   }
   const withUser = [...base, ...additions]
   const replyId = Math.max(nextPersonaMessageId(withUser), firstId + additions.length)
@@ -329,15 +332,16 @@ export async function generatePersonaReply(personaId: string, deps: PersonaRunti
     }
     if (flushTimer !== null) { clearTimeout(flushTimer); flushTimer = null }
     const task = !completedTask && findPersona(personaId)?.tasksEnabled !== false ? parsePersonaTask(output, `${threadId}:${replyId}:task`, Date.now(), replyId) : undefined
-    // v231：他亲手做了礼物——挂在这条消息下，并放进他的礼物架。
-    const gift = findPersona(personaId)?.giftsEnabled !== false ? parsePersonaGiftTag(output) : null
+    // v231：他亲手做了礼物——挂在这条消息下，并放进礼物架。v233：也可以 [送礼:ID|附言] 从图鉴/礼物架送。每轮最多一份。
+    const latest = findPersona(personaId)
+    const { gift, made } = latest && latest.giftsEnabled !== false ? extractPersonaAssistantGift(output, latest.customGifts) : { gift: null, made: null }
     const finalText = personaReplyText(output) || (task ? '给你记在任务卡里了。' : '')
     if (!finalText && !gift) throw new Error('模型没有返回正文，换个说法再试一次。')
     const songPick = findPersona(personaId)?.songPickEnabled !== false ? parseSongPick(output) : null
     // v211：他改了自己的卡——整栏替换、旧版进历史，消息下面挂一个小胶囊。
     const selfEdit = findPersona(personaId)?.selfCardEnabled !== false ? parseSelfCardTag(output) : null
     writeReply(finalText, { finishReason: result?.finishReason, ...(sources.size ? { recallSources: [...sources.values()] } : {}), songPick: songPick || undefined, selfCardEdit: selfEdit?.key, gift: gift || undefined }, false)
-    if (gift) setPersonaState((state) => updatePersona(state, personaId, (item) => ({ ...item, customGifts: addPersonaGift(item.customGifts, gift) })))
+    if (made) setPersonaState((state) => updatePersona(state, personaId, (item) => ({ ...item, customGifts: addPersonaGift(item.customGifts, made) })))
     if (selfEdit) setPersonaState((state) => updatePersona(state, personaId, (item) => setSelfCardSection(item, selfEdit.key, selfEdit.content, `他改了「${selfCardLabel(selfEdit.key)}」`)))
     // v207：他点了歌就切过去——每条回复只在生成完这一刻做一次，翻历史不会触发。
     if (songPick) autoPlaySongPick(`${threadId}:${replyId}:${now}`, songPick, useMusicStore.getState())

@@ -5002,7 +5002,7 @@ function UpdateCard() {
     }
   }
 
-  return <section className="update-card"><strong>应用更新</strong><p>主动检查并拉取最新网页版本，不会删除角色、聊天记录或本地设置。</p><small>当前版本：v232 · 2026.11.13 人格窗口的人物档案可以让 TA 自己记：你说起身边某人的新事时，TA 会悄悄建一页或添一条带日期的事件（只记你最近两句里提到的人），记下时有「👥 记进人物档案」小提示。••• 设置 →「人物档案」里能看、能删事件，也可以关掉「让 TA 自己记」。</small><button onClick={refresh} disabled={state === 'checking'}>{state === 'checking' ? '正在检查更新…' : state === 'error' ? '更新失败，点我重试' : '强制刷新到最新版'}</button></section>
+  return <section className="update-card"><strong>应用更新</strong><p>主动检查并拉取最新网页版本，不会删除角色、聊天记录或本地设置。</p><small>当前版本：v233 · 2026.11.13 人格窗口礼物变成双向：输入框 ＋ →「礼物」打开礼物图鉴，可以挑一份或亲手做一份送给 TA，也能点「看看 TA 会送我什么」；TA 也会从图鉴或礼物架里挑一份送你。••• 设置里的「他做的礼物」改名「礼物架」，你和 TA 做的都在那里。</small><button onClick={refresh} disabled={state === 'checking'}>{state === 'checking' ? '正在检查更新…' : state === 'error' ? '更新失败，点我重试' : '强制刷新到最新版'}</button></section>
 }
 
 function PersonaPage({ identities, selectedId, isBound, onSelect, onAdd, onDelete, onUpdate, onBack }: { identities: UserIdentity[]; selectedId: string; isBound: boolean; onSelect: (id: string) => void; onAdd: () => void; onDelete: (id: string) => void; onUpdate: (patch: Partial<UserIdentity>) => void; onBack: () => void }) {

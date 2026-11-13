@@ -36,7 +36,7 @@ export default function PersonaSettingsHome({ promptLength, memoryCount, threadC
   trackCount?: number; songPickEnabled?: boolean; onMusic?: () => void; onToggleSongPick?: () => void
   /** v211 他自己写的卡 */
   selfCardLength?: number
-  /** v231 他做的礼物（不传就不显示） */
+  /** v231 他做的礼物；v233 改为「礼物架」（不传就不显示） */
   giftCount?: number
   /** v230 她的生活：经期记录、人物档案（不传就不显示） */
   periodLabel?: string; peopleCount?: number
@@ -48,7 +48,7 @@ export default function PersonaSettingsHome({ promptLength, memoryCount, threadC
     <section className="persona-settings-group" aria-label="相处与记忆">
       <Row icon="prompt" title="系统提示词" description="相处方式、语气与表达偏好" value={promptLength ? `${promptLength.toLocaleString()} 字` : '默认规则'} onSelect={() => onNavigate('prompts')} tap={tap} />
       <Row icon="selfCard" title="他自己写的卡" description="他在相处中慢慢补全的自己，原卡不动" value={selfCardLength ? `${selfCardLength.toLocaleString()} 字` : '还空着'} onSelect={() => onNavigate('selfCard')} tap={tap} />
-      {giftCount !== undefined && <Row icon="gift" title="他做的礼物" description="他亲手做给你的礼物，聊天里会变成礼物卡" value={giftCount ? `${giftCount} 份` : '还没有'} onSelect={() => onNavigate('gifts')} tap={tap} />}
+      {giftCount !== undefined && <Row icon="gift" title="礼物架" description="你和 TA 亲手做的礼物 · 让 TA 送礼物的开关" value={giftCount ? `${giftCount} 份` : '还没有'} onSelect={() => onNavigate('gifts')} tap={tap} />}
       <Row icon="memory" title="记忆" description="长期记忆 · 同一人格的窗口共用" value={`${memoryCount} 条`} onSelect={onMemory} tap={tap} />
       <Row icon="appearance" title="外观与文字" description="主题、壁纸、字号与文字颜色" onSelect={() => onNavigate('appearance')} tap={tap} />
       <Row icon="past" title="任务卡" description="当前窗口的倒计时、完成与取消" onSelect={() => onNavigate('tasks')} tap={tap} />

@@ -39,8 +39,8 @@ import './persona-window.css'
 import { ChannelOptions } from './ChannelOptions'
 import PersonaPeriodPanel from './PersonaPeriodPanel'
 import PersonaPeoplePanel from './PersonaPeoplePanel'
-import { PersonaGiftCard, PersonaGiftsPanel } from './PersonaGifts'
-import { removePersonaGift } from './personaGifts'
+import { PersonaGiftCard, PersonaGiftSheet, PersonaGiftsPanel } from './PersonaGifts'
+import { addPersonaGift, personaGiftHistory, removePersonaGift, PERSONA_GIFT_REQUEST_TEXT, type PersonaGift, type PersonaGiftEvent } from './personaGifts'
 import { localToday, peopleStore, periodStore, usePeople, usePeriodLog } from './lifeRecordsStore'
 import { periodStats, periodTurnNote } from './periodLog'
 import { applyPersonTags, peopleTurnNote, undoPersonTags } from './peopleProfiles'
@@ -190,6 +190,9 @@ export default function PersonaWindowPage(props: Props) {
   // 从设置页进记忆/管理时记住，返回键要回到设置页而不是直接回聊天
   const [viewReturn, setViewReturn] = useState<'settings' | null>(null)
   const [switcherOpen, setSwitcherOpen] = useState(false)
+  // v233：输入框 ＋ 菜单（图片或文件 / 礼物）和礼物图鉴
+  const [plusOpen, setPlusOpen] = useState(false)
+  const [giftSheetOpen, setGiftSheetOpen] = useState(false)
   const [drawerOpen, setDrawerOpen] = useState(false)
   const [sidebarOpen, setSidebarOpen] = useState(false)
   const [settingsPanel, setSettingsPanel] = useState<PersonaSettingsPanel>('home')
@@ -445,6 +448,28 @@ export default function PersonaWindowPage(props: Props) {
     void generatePersonaReply(active.id, deps, { text, images, attachments, threadId: thread.id, ...(quote ? { quote } : {}) })
   }
 
+  // v233：她送礼物——作为她的一条消息（礼物卡）发出；草稿、待发图片不动。
+  const sendGift = (gift: PersonaGiftEvent) => {
+    if (!active || !thread || generating) return
+    const deps = depsFor(active.characterId)
+    if (!deps) return
+    setGiftSheetOpen(false)
+    stickRef.current = true
+    setWindowAnchors((current) => ({ ...current, [thread.id]: null }))
+    void generatePersonaReply(active.id, deps, { gift, threadId: thread.id })
+  }
+  const requestGift = () => {
+    if (!active || !thread || generating) return
+    const deps = depsFor(active.characterId)
+    if (!deps) return
+    setGiftSheetOpen(false)
+    stickRef.current = true
+    setWindowAnchors((current) => ({ ...current, [thread.id]: null }))
+    void generatePersonaReply(active.id, deps, { text: PERSONA_GIFT_REQUEST_TEXT, threadId: thread.id })
+  }
+  const saveGift = (gift: PersonaGift) => { if (active) setPersonaState((current) => updatePersona(current, active.id, (item) => ({ ...item, customGifts: addPersonaGift(item.customGifts, gift) }))) }
+  const removeGift = (id: string) => { if (active) setPersonaState((current) => updatePersona(current, active.id, (item) => ({ ...item, customGifts: removePersonaGift(item.customGifts, id) }))) }
+
   const letThemSpeak = () => {
     if (!active || generating) return
     const deps = depsFor(active.characterId)
@@ -471,13 +496,13 @@ export default function PersonaWindowPage(props: Props) {
   }
 
   const resend = (message: PersonaMessage) => {
-    if (!active || generating || message.role !== 'user' || (!message.text.trim() && !message.images?.length && !message.attachments?.length)) return
+    if (!active || generating || message.role !== 'user' || (!message.text.trim() && !message.images?.length && !message.attachments?.length && !message.gift)) return
     const deps = depsFor(active.characterId)
     if (!deps) return
     setMenuMessageId(null)
     stickRef.current = true
     setWindowAnchors((current) => ({ ...current, [threadId]: null }))
-    void generatePersonaReply(active.id, deps, { text: message.text, images: message.images, attachments: message.attachments, threadId })
+    void generatePersonaReply(active.id, deps, { text: message.text, images: message.images, attachments: message.attachments, ...(message.gift ? { gift: { ...message.gift, createdAt: Date.now() } } : {}), threadId })
   }
 
   const editForResend = (message: PersonaMessage) => {
@@ -731,6 +756,7 @@ export default function PersonaWindowPage(props: Props) {
         const look = messageThemeLayout(props.themeMode || '', props.chatLayout || 'flat', message.role)
         const avatarNode = <div className="message-avatar">{avatar ? <img src={avatar} alt="" /> : name.slice(-1)}</div>
         const content = <>
+              {isUser && message.gift ? <PersonaGiftCard gift={message.gift} from={identity.name || '我'} to={activeCharacter.name} /> : null}
               {message.quote && <div className="persona-message-quote"><b>{message.quote.author}：</b>{message.quote.text}</div>}
               {message.images?.length ? <div className={`message-images persona-message-images count-${Math.min(message.images.length, 4)}`}>{message.images.map((image, imageIndex) => <button type="button" key={image.id} aria-label="查看图片" {...tap(() => setViewerImage({ images: message.images || [], index: imageIndex }))}><img src={image.dataUrl} alt="" loading="lazy" decoding="async" draggable={false} style={message.images!.length === 1 && image.width && image.height ? { aspectRatio: `${image.width} / ${image.height}` } : undefined} /></button>)}</div> : null}
               {message.attachments?.length ? <div className="persona-attachment-list" aria-label="消息文件">{message.attachments.map((attachment) => <div className="persona-attachment-card" key={attachment.id}><span aria-hidden="true">📄</span><div><strong>{attachment.name}</strong><small>{attachmentSizeLabel(attachment.size)}{attachment.truncated ? ' · 过长，已保存前 20 万字' : ' · 只读参考'}</small></div></div>)}</div> : null}
@@ -740,8 +766,8 @@ export default function PersonaWindowPage(props: Props) {
             <button className="message-action-trigger" aria-label="消息操作" {...tap(() => setMenuMessageId(menuMessageId === message.id ? null : message.id))}>•••</button>
             {menuMessageId === message.id && <span className="persona-message-menu">
               <button {...tap(() => { void navigator.clipboard?.writeText(message.text).catch(() => undefined); setMenuMessageId(null) })}>复制</button>
-              <button {...tap(() => { const author = message.role === 'user' ? (identity.name || '我') : (activeCharacter?.name || ''); const quoted = message.text.trim() || (message.attachments?.length ? `[文件：${message.attachments.map((item) => item.name).join('、')}]` : message.images?.length ? '[图片]' : message.gift ? `[礼物：${message.gift.name}]` : ''); setQuoteDraft({ messageId: message.id, author, text: quoted.slice(0, 120) }); setMenuMessageId(null); textareaRef.current?.focus({ preventScroll: true }) })}>引用</button>
-              {isUser && <><button disabled={generating || imageBusy || attachmentBusy} {...tap(() => resend(message))}>重新发送</button><button disabled={imageBusy || attachmentBusy} {...tap(() => editForResend(message))}>编辑后重发</button></>}
+              <button {...tap(() => { const author = message.role === 'user' ? (identity.name || '我') : (activeCharacter?.name || ''); const quoted = message.text.trim() || (message.attachments?.length ? `[文件：${message.attachments.map((item) => item.name).join('、')}]` : message.images?.length ? '[图片]' : message.gift ? `🎁 ${message.gift.name}` : ''); setQuoteDraft({ messageId: message.id, author, text: quoted.slice(0, 120) }); setMenuMessageId(null); textareaRef.current?.focus({ preventScroll: true }) })}>引用</button>
+              {isUser && <><button disabled={generating || imageBusy || attachmentBusy} {...tap(() => resend(message))}>重新发送</button>{!message.gift && <button disabled={imageBusy || attachmentBusy} {...tap(() => editForResend(message))}>编辑后重发</button>}</>}
               {!isUser && message.id === lastMessage?.id && <button disabled={generating} {...tap(() => { setMenuMessageId(null); regenerate() })}>重新生成</button>}
               <button className="danger" {...tap(() => { if (window.confirm('删除这条消息？')) setPersonaState((current) => deletePersonaMessage(current, active.id, threadId, message.id)); setMenuMessageId(null) })}>删除</button>
             </span>}
@@ -767,6 +793,9 @@ export default function PersonaWindowPage(props: Props) {
     </div>
     {messages.length > 0 && !drawerOpen && !sidebarOpen && !viewerImage && (personaJump.up || personaJump.down) && <nav className={`persona-jump-controls${personaJump.visible ? ' visible' : ''}`} aria-label="快速浏览对话">{personaJump.up && <button aria-label="回到顶部" {...tap(() => scrollChat('top'))}>↑</button>}{personaJump.down && <button aria-label="跳到最新消息" {...tap(() => scrollChat('bottom'))}>↓</button>}</nav>}
     {activeTasks.length > 0 && !drawerOpen && !sidebarOpen && <PersonaTaskPin tasks={activeTasks} tap={tap} onOpen={() => { setSidebarOpen(false); setSettingsPanel('tasks'); setDrawerOpen(true) }} onDone={(id) => taskAction(id, 'done')} />}
+    {plusOpen && <button type="button" className="persona-plus-scrim" aria-label="收起菜单" {...tap(() => setPlusOpen(false))} />}
+    {giftSheetOpen && <PersonaGiftSheet roleName={activeCharacter.name} shelf={active.customGifts || []} history={personaGiftHistory(active.threads)} canRoleSend={active.giftsEnabled !== false} busy={generating} tap={tap}
+      onSend={sendGift} onSave={saveGift} onRemove={removeGift} onRequest={requestGift} onClose={() => setGiftSheetOpen(false)} />}
     <div ref={composerRef} className={`composer persona-composer${pendingImages.length || imageBusy || pendingAttachments.length || attachmentBusy ? ' has-images' : ''}`}>
       {(pendingImages.length > 0 || imageBusy || pendingAttachments.length > 0 || attachmentBusy) && <div className="persona-composer-media">
         {(pendingImages.length > 0 || imageBusy) && <div className="composer-images" aria-label="待发送图片">{pendingImages.map((image, imageIndex) => <div key={image.id}><img src={image.dataUrl} alt="" role="button" aria-label="查看大图" onClick={() => setViewerImage({ images: pendingImages, index: imageIndex })} /><button type="button" aria-label="移除图片" onClick={() => setPendingImages((current) => current.filter((item) => item.id !== image.id))}>×</button></div>)}{imageBusy && <span className="composer-images-busy">处理中…</span>}</div>}
@@ -774,7 +803,11 @@ export default function PersonaWindowPage(props: Props) {
       </div>}
       {quoteDraft && <div className="persona-quote-draft" aria-label="引用回复"><span><b>{quoteDraft.author}：</b>{quoteDraft.text}</span><button type="button" aria-label="取消引用" onClick={() => setQuoteDraft(null)}>×</button></div>}
       {editingMessageId !== null && <div className="persona-editing-hint" aria-label="正在编辑"><span>正在编辑已发送的消息，发送后替换原文</span><button type="button" aria-label="取消编辑" onClick={() => { setEditingMessageId(null); setDraft(''); setPendingImages([]); setPendingAttachments([]) }}>×</button></div>}
-      <button className="composer-plus" aria-label="添加图片或文件" {...tap(() => attachmentInputRef.current?.click())}>＋</button>
+      <button className="composer-plus" aria-label="更多：图片、文件或礼物" aria-expanded={plusOpen} {...tap(() => setPlusOpen((open) => !open))}>＋</button>
+      {plusOpen && <div className="persona-plus-menu" role="menu">
+        <button type="button" role="menuitem" {...tap(() => { setPlusOpen(false); attachmentInputRef.current?.click() })}><span aria-hidden="true">🖼️</span>图片或文件</button>
+        <button type="button" role="menuitem" {...tap(() => { setPlusOpen(false); setGiftSheetOpen(true) })}><span aria-hidden="true">🎁</span>礼物</button>
+      </div>}
       <textarea ref={textareaRef} rows={1} value={draft} onChange={(event) => setDraft(event.target.value)} onFocus={() => { setPersonaJump((current) => ({ ...current, visible: false })); if (personaJumpHideTimer.current) window.clearTimeout(personaJumpHideTimer.current) }} placeholder={generating ? '可以先写下一条，停止后再发送' : `对${activeCharacter.name}说……`} />
       <button className={`send-button ${generating ? 'stop' : ''}`} aria-label={generating ? '停止生成' : '发送'} {...tap(send)}>{generating ? '■' : '↑'}</button>
       <input ref={attachmentInputRef} type="file" accept={`image/*,${CHAT_ATTACHMENT_ACCEPT}`} multiple hidden onChange={(event) => { const files = event.currentTarget.files; void addFiles(files).finally(() => { if (attachmentInputRef.current) attachmentInputRef.current.value = '' }) }} />
@@ -786,14 +819,14 @@ export default function PersonaWindowPage(props: Props) {
         {!sidebarOpen && <header className={`persona-settings-header ${settingsPanel === 'home' ? 'is-home' : ''}`}>
           {settingsPanel !== 'home' && <button className="persona-settings-back" aria-label="返回设置" {...tap(() => { setSettingsPanel('home'); setRenaming(null) })}>‹</button>}
           {settingsPanel === 'home' && avatarOf(activeCharacter, 'large')}
-          <div><small>{settingsPanel === 'home' ? '人格窗口' : activeCharacter.name}</small><h2>{settingsPanel === 'home' ? activeCharacter.name : { model: '模型与渠道', prompts: '系统提示词', appearance: '外观与文字', tasks: '任务卡', selfCard: '他自己写的卡', period: '经期记录', lifePeople: '人物档案', gifts: '他做的礼物' }[settingsPanel]}</h2>{settingsPanel === 'home' && <p>和 {identity.name}，在这里慢慢相处。</p>}</div>
+          <div><small>{settingsPanel === 'home' ? '人格窗口' : activeCharacter.name}</small><h2>{settingsPanel === 'home' ? activeCharacter.name : { model: '模型与渠道', prompts: '系统提示词', appearance: '外观与文字', tasks: '任务卡', selfCard: '他自己写的卡', period: '经期记录', lifePeople: '人物档案', gifts: '礼物架' }[settingsPanel]}</h2>{settingsPanel === 'home' && <p>和 {identity.name}，在这里慢慢相处。</p>}</div>
           <button className="persona-settings-close" aria-label="关闭" {...tap(() => { setDrawerOpen(false); setRenaming(null) })}>×</button>
         </header>}
         <div className="right-drawer-scroll">
           {drawerOpen && settingsPanel === 'home' && <PersonaSettingsHome promptLength={active.systemPrompt?.trim().length || 0} memoryCount={active.memories.length} threadCount={active.threads.length} threadTitle={thread?.title || ''} channelName={resolvePersonaApi(active, props.apiChannels, props.api).name} modelName={resolvePersonaApi(active, props.apiChannels, props.api).modelName || ''} pastLifeEnabled={active.pastLifeEnabled !== false} onNavigate={setSettingsPanel} onThreads={openSidebar} onMemory={() => { setDrawerOpen(false); setViewReturn('settings'); setView('memory') }} onManage={() => { setDrawerOpen(false); setViewReturn('settings'); setView('manage') }} onTogglePastLife={togglePastLife} trackCount={trackCount} songPickEnabled={active.songPickEnabled !== false} onMusic={() => { setDrawerOpen(false); setMusicSheetOpen(true) }} onToggleSongPick={() => setPersonaState((current) => updatePersona(current, active.id, (item) => { const next = { ...item }; if (item.songPickEnabled === false) delete next.songPickEnabled; else next.songPickEnabled = false; return next }))} selfCardLength={selfCardLength(active.selfCard)} personaCount={enabled.length} onSwitchPersona={() => { setDrawerOpen(false); setRenaming(null); setSwitcherOpen(true) }} periodLabel={periodStats(periodLog, localToday()).short} peopleCount={lifePeople.people.length} giftCount={active.customGifts?.length || 0} tap={tap} />}
-          {drawerOpen && settingsPanel === 'gifts' && <PersonaGiftsPanel name={activeCharacter.name} gifts={active.customGifts || []} enabled={active.giftsEnabled !== false} tap={tap}
+          {drawerOpen && settingsPanel === 'gifts' && <PersonaGiftsPanel name={activeCharacter.name} gifts={active.customGifts || []} enabled={active.giftsEnabled !== false} tap={tap} onOpenCatalog={() => { setDrawerOpen(false); setGiftSheetOpen(true) }}
             onToggle={() => setPersonaState((current) => updatePersona(current, active.id, (item) => { const next = { ...item }; if (item.giftsEnabled === false) delete next.giftsEnabled; else next.giftsEnabled = false; return next }))}
-            onRemove={(id) => setPersonaState((current) => updatePersona(current, active.id, (item) => ({ ...item, customGifts: removePersonaGift(item.customGifts, id) })))} />}
+            onRemove={removeGift} />}
           {drawerOpen && settingsPanel === 'period' && <PersonaPeriodPanel name={activeCharacter.name} tap={tap} onFocus={scrollFieldIntoView} />}
           {drawerOpen && settingsPanel === 'lifePeople' && <PersonaPeoplePanel name={activeCharacter.name} tap={tap} onFocus={scrollFieldIntoView} />}
           {drawerOpen && settingsPanel === 'selfCard' && <PersonaSelfCardPanel key={active.id} name={activeCharacter.name} card={active.selfCard} history={active.selfCardHistory} enabled={active.selfCardEnabled !== false} onFocus={scrollFieldIntoView} tap={tap}
