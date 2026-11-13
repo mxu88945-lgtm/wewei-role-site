@@ -69,6 +69,10 @@ export type PersonaRuntimeDeps = {
   nowPlaying?: () => string
   /** v215：现实此刻（时间、定位、天气），每轮变，放尾巴。 */
   realWorld?: () => string
+  /** v230：经期记录的一句话（开关关着/平常日子返回空串）。 */
+  period?: () => string
+  /** v230：人物档案召回，传入最近的几句（最新在后），没人被提到返回空串。 */
+  people?: (recentTexts: string[]) => string
 }
 
 /**
@@ -120,6 +124,13 @@ export const getPersonaRuntime = () => runtime
 const findPersona = (id: string) => getPersonaState().personas.find((item) => item.id === id)
 
 export const PERSONA_MEMORY_INJECT = '以下是{{char}}在这扇独立窗口里与{{user}}相处留下的长期记忆，只属于这里：\n{{memories}}'
+
+/** v230：人物档案只看 TA 最近一句 + 她最近两句；她最新那句放最后（命中权重最高）。 */
+export function peopleScanTexts(recent: PersonaMessage[]): string[] {
+  const users = recent.filter((item) => item.role === 'user' && item.text.trim()).slice(-2)
+  const lastAssistant = [...recent].reverse().find((item) => item.role === 'assistant' && item.text.trim())
+  return [...(lastAssistant ? [lastAssistant.text] : []), ...users.map((item) => item.text)]
+}
 
 export function buildPersonaRequest(persona: PersonaWindow, history: PersonaMessage[], deps: PersonaRuntimeDeps, thread: PersonaThread = activeThread(persona)): ChatApiMessage[] {
   return planPersonaRequest(persona, history, deps, thread).messages
@@ -177,6 +188,8 @@ export function planPersonaRequest(persona: PersonaWindow, history: PersonaMessa
     memory.dynamicText,
     triggeredLore && `【本轮触发的世界书背景参考｜只读】\n${stripPersonaFormatInstructions(triggeredLore)}`,
     deps.realWorld?.().trim(),
+    deps.period?.().trim(),
+    deps.people?.(peopleScanTexts(recent)).trim(),
     personaTaskStatus(thread.tasks),
     deps.nowPlaying?.().trim(),
     PERSONA_FINAL_GUARD,

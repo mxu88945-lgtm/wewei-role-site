@@ -1,8 +1,8 @@
 import type { PointerEvent } from 'react'
 
-export type PersonaSettingsPanel = 'home' | 'model' | 'prompts' | 'appearance' | 'tasks' | 'selfCard'
+export type PersonaSettingsPanel = 'home' | 'model' | 'prompts' | 'appearance' | 'tasks' | 'selfCard' | 'period' | 'lifePeople'
 type Tap = (action: () => void) => { onPointerUp: (event: PointerEvent) => void; onClick: () => void }
-type IconName = 'selfCard' | 'prompt' | 'memory' | 'past' | 'windows' | 'model' | 'people' | 'appearance' | 'music'
+type IconName = 'selfCard' | 'prompt' | 'memory' | 'past' | 'windows' | 'model' | 'people' | 'appearance' | 'music' | 'period' | 'person'
 const ICONS: Record<IconName, string> = {
   selfCard: 'M12 20h9M16.5 3.5a2.12 2.12 0 0 1 3 3L7 19l-4 1 1-4Z',
   prompt: 'M9 4h6M10 4v16m4-16v16M9 4H7a4 4 0 0 0 0 8h3',
@@ -12,6 +12,8 @@ const ICONS: Record<IconName, string> = {
   past: 'M3 11a9 9 0 1 1 3 8M3 5v6h6m3-4v5l3 2',
   windows: 'M4 5h16v14H4V5Zm0 4h16M8 5v4',
   model: 'M8 3v3m8-3v3M8 18v3m8-3v3M3 8h3m-3 8h3m12-8h3m-3 8h3M6 6h12v12H6V6Zm4 4h4v4h-4v-4Z',
+  period: 'M12 3s6 6.4 6 11a6 6 0 0 1-12 0c0-4.6 6-11 6-11Z',
+  person: 'M20 21v-1a5 5 0 0 0-5-5H9a5 5 0 0 0-5 5v1M12 11a4 4 0 1 0 0-8 4 4 0 0 0 0 8Z',
   people: 'M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2M9 11a4 4 0 1 0 0-8 4 4 0 0 0 0 8Zm10-8a4 4 0 0 1 0 8m3 10v-2a4 4 0 0 0-3-3.87',
 }
 
@@ -26,13 +28,17 @@ function Row({ icon, title, description, value, onSelect, tap }: { icon: IconNam
   </button>
 }
 
-export default function PersonaSettingsHome({ promptLength, memoryCount, threadCount, threadTitle, channelName, modelName, pastLifeEnabled, onNavigate, onThreads, onMemory, onManage, onTogglePastLife, trackCount = 0, songPickEnabled = true, onMusic, onToggleSongPick, selfCardLength = 0, tap }: {
+export default function PersonaSettingsHome({ promptLength, memoryCount, threadCount, threadTitle, channelName, modelName, pastLifeEnabled, onNavigate, onThreads, onMemory, onManage, onTogglePastLife, trackCount = 0, songPickEnabled = true, onMusic, onToggleSongPick, selfCardLength = 0, periodLabel, peopleCount, personaCount, onSwitchPersona, tap }: {
   promptLength: number; memoryCount: number; threadCount: number; threadTitle: string; channelName: string; modelName: string; pastLifeEnabled: boolean
   onNavigate: (panel: PersonaSettingsPanel) => void; onThreads: () => void; onMemory: () => void; onManage: () => void; onTogglePastLife: () => void
   /** v207 一起听歌 */
   trackCount?: number; songPickEnabled?: boolean; onMusic?: () => void; onToggleSongPick?: () => void
   /** v211 他自己写的卡 */
-  selfCardLength?: number; tap: Tap
+  selfCardLength?: number
+  /** v230 她的生活：经期记录、人物档案（不传就不显示） */
+  periodLabel?: string; peopleCount?: number
+  /** v230 切换人格（原顶栏中间的入口） */
+  personaCount?: number; onSwitchPersona?: () => void; tap: Tap
 }) {
   return <div className="persona-settings-home">
     <p className="persona-settings-caption">你们的相处</p>
@@ -55,10 +61,16 @@ export default function PersonaSettingsHome({ promptLength, memoryCount, threadC
         <button className={`switch ${songPickEnabled ? 'on' : ''}`} aria-label="让他自己点歌" aria-pressed={songPickEnabled} {...tap(onToggleSongPick)}><span /></button>
       </div>}
     </section></>}
+    {(periodLabel !== undefined || peopleCount !== undefined) && <><p className="persona-settings-caption">你的生活</p>
+    <section className="persona-settings-group" aria-label="你的生活">
+      {periodLabel !== undefined && <Row icon="period" title="经期记录" description="记录与预测，TA 会在需要时体贴一点" value={periodLabel} onSelect={() => onNavigate('period')} tap={tap} />}
+      {peopleCount !== undefined && <Row icon="person" title="人物档案" description="你身边的人，聊到时 TA 会记得是谁" value={peopleCount ? `${peopleCount} 人` : '还空着'} onSelect={() => onNavigate('lifePeople')} tap={tap} />}
+    </section></>}
     <p className="persona-settings-caption">窗口与连接</p>
     <section className="persona-settings-group" aria-label="窗口与连接">
       <Row icon="windows" title="聊天窗口" description={threadTitle || '在左侧栏查看、新开与整理窗口'} value={`${threadCount} 个`} onSelect={onThreads} tap={tap} />
       <Row icon="model" title="模型与渠道" description={modelName || '选择这个人格使用的回复模型'} value={channelName} onSelect={() => onNavigate('model')} tap={tap} />
+      {onSwitchPersona && <Row icon="people" title={`切换人格${personaCount ? `（共 ${personaCount} 位）` : ''}`} description="在你开启的人格之间切换" onSelect={onSwitchPersona} tap={tap} />}
       <Row icon="people" title="管理人格" description="添加、切换与收纳你的独立人格" onSelect={onManage} tap={tap} />
     </section>
     <p className="persona-settings-footer">背景留作来历，相处从此刻开始。</p>

@@ -1,9 +1,7 @@
 /* 人格窗口：沿用聊天页的外壳（chat-canvas / chat-header / message-list / composer），
    只补自己的面板和切换器。不在消息上用 backdrop-filter（iOS 长对话会卡）。 */
 .persona-window-page { position: relative; }
-.persona-header .persona-identity { justify-self: center; max-width: 100%; min-width: 0; }
-.persona-header .persona-identity div { min-width: 0; }
-.persona-header .persona-identity strong { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.persona-header-spacer { min-width: 0; pointer-events: none; }
 .persona-back { font-size: 26px; line-height: 1; }
 
 .persona-room-drawer { position: fixed; inset: 0; z-index: 80; }
@@ -330,3 +328,38 @@ button.persona-settings-row:active { background: var(--theme-accent-soft); }
 .persona-source-card > small.persona-compression-blocker { color: #a0674a; }
 .persona-source-card > small.persona-compression-blocker.running, .persona-source-card > small.persona-compression-blocker.busy { color: #8a838e; }
 .persona-compression-now { justify-self: start; min-height: 34px; padding: 6px 16px; font-size: 13px; touch-action: manipulation; }
+
+/* v230 你的生活：经期记录、人物档案（同设置页的白卡片，无 backdrop-filter） */
+.persona-life-panel { display: grid; gap: 14px; padding: 0 2px; }
+.persona-period-summary { display: grid; gap: 6px; padding: 16px; border: 1px solid color-mix(in srgb, var(--theme-accent) 15%, transparent); border-radius: 18px; background: var(--theme-accent-soft); }
+.persona-period-summary strong { color: var(--theme-accent-text); font-size: 16px; }
+.persona-period-summary small { color: #8a7d94; font-size: 11px; line-height: 1.6; }
+.persona-period-actions { display: flex; gap: 10px; margin-top: 6px; }
+.persona-period-actions .primary-button { flex: 1; }
+.persona-calendar { padding: 14px 12px 10px; border: 1px solid rgba(125,104,141,.1); border-radius: 18px; background: rgba(255,255,255,.55); }
+.persona-calendar-head { display: flex; align-items: center; justify-content: space-between; margin-bottom: 8px; }
+.persona-calendar-head strong { color: #73617f; font-size: 13px; }
+.persona-calendar-head button { width: 34px; height: 34px; border: 0; border-radius: 50%; background: transparent; color: #8a7d94; font-size: 20px; }
+.persona-calendar-grid { display: grid; grid-template-columns: repeat(7, minmax(0, 1fr)); gap: 4px; text-align: center; }
+.persona-calendar-week { color: #a99eb0; font-size: 10px; padding: 2px 0 4px; }
+.persona-calendar-day { display: grid; place-items: center; aspect-ratio: 1; border-radius: 50%; color: #5e5166; font-size: 12px; font-variant-numeric: tabular-nums; }
+.persona-calendar-day.is-period { color: #fff; background: #e58a9a; }
+.persona-calendar-day.is-predicted { color: #c86b7d; box-shadow: inset 0 0 0 1.5px #eeb3be; }
+.persona-calendar-day.is-today { font-weight: 800; text-decoration: underline; text-underline-offset: 3px; }
+.persona-calendar-legend { display: flex; align-items: center; gap: 6px; margin: 8px 2px 0; color: #a095a6; font-size: 10px; }
+.persona-calendar-legend i { display: inline-block; width: 9px; height: 9px; border-radius: 50%; margin-left: 6px; }
+.persona-calendar-legend i.is-period { background: #e58a9a; }
+.persona-calendar-legend i.is-predicted { box-shadow: inset 0 0 0 1.5px #eeb3be; }
+.persona-period-range { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); gap: 10px; }
+.persona-period-range label { display: grid; gap: 4px; min-width: 0; }
+.persona-life-panel .persona-memory-field input { box-sizing: border-box; width: 100%; min-width: 0; padding: 10px; border: 1px solid rgba(125,104,141,.15); border-radius: 12px; background: #fff; color: #665471; font: inherit; font-size: 16px; }
+.persona-life-list { display: grid; overflow: hidden; border: 1px solid rgba(125,104,141,.12); border-radius: 20px; background: rgba(255,255,255,.7); }
+.persona-life-list .persona-empty { padding: 14px; }
+.persona-life-row { display: flex; align-items: center; gap: 10px; width: 100%; min-height: 56px; padding: 10px 14px; border: 0; border-bottom: 1px solid rgba(125,104,141,.09); background: transparent; color: #463b4d; text-align: left; font: inherit; box-sizing: border-box; }
+.persona-life-row:last-child { border-bottom: 0; }
+.persona-life-row > span:first-child { flex: 1; min-width: 0; }
+.persona-life-row strong { display: block; font-size: 14px; font-weight: 650; }
+.persona-life-row em { color: #96879e; font-style: normal; font-weight: 500; font-size: 12px; }
+.persona-life-row small { display: block; margin-top: 3px; overflow: hidden; color: #a095a6; font-size: 11px; text-overflow: ellipsis; white-space: nowrap; }
+button.persona-life-row:active { background: var(--theme-accent-soft); }
+.persona-life-form-actions { display: flex; gap: 10px; justify-content: flex-end; }

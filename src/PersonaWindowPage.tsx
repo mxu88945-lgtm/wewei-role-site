@@ -37,6 +37,11 @@ import { PuddingCapsule, PuddingLetter } from './PuddingLetter'
 import { messageThemeLayout } from './chatThemeLayout'
 import './persona-window.css'
 import { ChannelOptions } from './ChannelOptions'
+import PersonaPeriodPanel from './PersonaPeriodPanel'
+import PersonaPeoplePanel from './PersonaPeoplePanel'
+import { localToday, peopleStore, periodStore, usePeople, usePeriodLog } from './lifeRecordsStore'
+import { periodStats, periodTurnNote } from './periodLog'
+import { peopleTurnNote } from './peopleProfiles'
 
 type Props = {
   characters: Character[]
@@ -203,6 +208,8 @@ export default function PersonaWindowPage(props: Props) {
   const [requestOpen, setRequestOpen] = useState(false)
   const [memoryUiNotice, setMemoryUiNotice] = useState('')
   const [memoryLimit, setMemoryLimit] = useState(30)
+  const periodLog = usePeriodLog()
+  const lifePeople = usePeople()
   // 主聊天同款小圆钮：↑ 离顶部超 280px 才出现（回顶部），↓ 离底部超 280px 才出现（跳最新）
   const listRef = useRef<HTMLDivElement>(null)
   const [personaJump, setPersonaJump] = useState({ up: false, down: false, visible: false })
@@ -275,6 +282,8 @@ export default function PersonaWindowPage(props: Props) {
       setting: () => buildPersonaSetting({ character, characters, conversations, storyProjects: props.storyProjects || [] }),
       songList: () => useMusicStore.getState().tracks.map((track) => track.name),
       nowPlaying: () => { const music = useMusicStore.getState(); return buildNowPlayingNote(music.now, music.lyrics, music.lyricIndex) },
+      period: () => periodTurnNote(periodStore.read(), localToday(), identity.name),
+      people: (texts) => peopleTurnNote(peopleStore.read(), texts),
       realWorld: () => { const closing = '这是你们此刻真实的时间、地点与天气；聊天时自然地顺着它（很晚了可以催睡、下雨会提醒带伞），不用每条都提，也不要编造别的时间、地点或天气。'; try { return buildPhoneRealWorldNote(new Date(), JSON.parse(localStorage.getItem('weijing.phoneWeather') || 'null'), closing) } catch { return buildPhoneRealWorldNote(new Date(), null, closing) } },
     }
   }
@@ -536,10 +545,8 @@ export default function PersonaWindowPage(props: Props) {
 
   const header = <header className="chat-header persona-header">
     <button className="icon-button persona-back" aria-label={view === 'chat' && active ? '打开聊天侧栏' : viewReturn === 'settings' ? '返回设置' : active ? '返回聊天' : '返回首页'} aria-expanded={view === 'chat' && active ? sidebarOpen : undefined} {...tap(() => { setSwitcherOpen(false); if (view !== 'chat' && active) { if (viewReturn === 'settings') { setViewReturn(null); setView('chat'); setSettingsPanel('home'); setDrawerOpen(true) } else setView('chat') } else if (active) openSidebar(); else onBack() })}>{view === 'chat' && active ? <svg width="23" height="23" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.7" strokeLinecap="round" aria-hidden="true"><path d="M4 7h16M4 12h12M4 17h8" /></svg> : '‹'}</button>
-    <button className="chat-identity persona-identity" aria-label="切换人格" aria-expanded={switcherOpen} {...tap(() => setSwitcherOpen((open) => !open))}>
-      {activeCharacter ? (activeCharacter.avatar ? <img src={activeCharacter.avatar} alt="" /> : <span>{activeCharacter.name.slice(-1)}</span>) : <span>✧</span>}
-      <div><strong>{view === 'manage' ? '管理人格' : view === 'memory' ? `${activeCharacter?.name || ''} · 记忆` : activeCharacter?.name || '人格窗口'}</strong><small>{generating ? '正在回应…' : `点这里切换人格${enabled.length > 1 ? ` · 共 ${enabled.length} 位` : ''}`}</small></div>
-    </button>
+    {/* v230：顶栏中间不再放头像/名字/切换入口，切换人格移到 ••• 设置页 */}
+    <span className="persona-header-spacer" aria-hidden="true" />
     {view === 'chat' && active ? <button className="more-button" aria-label="窗口与设置" aria-expanded={drawerOpen} {...tap(() => { setSwitcherOpen(false); setSidebarOpen(false); setSettingsPanel('home'); setDrawerOpen(true) })}>•••</button> : <button className="more-button" aria-label="返回聊天" {...tap(() => { setSwitcherOpen(false); setView('chat') })}>✓</button>}
   </header>
 
@@ -759,11 +766,13 @@ export default function PersonaWindowPage(props: Props) {
         {!sidebarOpen && <header className={`persona-settings-header ${settingsPanel === 'home' ? 'is-home' : ''}`}>
           {settingsPanel !== 'home' && <button className="persona-settings-back" aria-label="返回设置" {...tap(() => { setSettingsPanel('home'); setRenaming(null) })}>‹</button>}
           {settingsPanel === 'home' && avatarOf(activeCharacter, 'large')}
-          <div><small>{settingsPanel === 'home' ? '人格窗口' : activeCharacter.name}</small><h2>{settingsPanel === 'home' ? activeCharacter.name : { model: '模型与渠道', prompts: '系统提示词', appearance: '外观与文字', tasks: '任务卡', selfCard: '他自己写的卡' }[settingsPanel]}</h2>{settingsPanel === 'home' && <p>和 {identity.name}，在这里慢慢相处。</p>}</div>
+          <div><small>{settingsPanel === 'home' ? '人格窗口' : activeCharacter.name}</small><h2>{settingsPanel === 'home' ? activeCharacter.name : { model: '模型与渠道', prompts: '系统提示词', appearance: '外观与文字', tasks: '任务卡', selfCard: '他自己写的卡', period: '经期记录', lifePeople: '人物档案' }[settingsPanel]}</h2>{settingsPanel === 'home' && <p>和 {identity.name}，在这里慢慢相处。</p>}</div>
           <button className="persona-settings-close" aria-label="关闭" {...tap(() => { setDrawerOpen(false); setRenaming(null) })}>×</button>
         </header>}
         <div className="right-drawer-scroll">
-          {drawerOpen && settingsPanel === 'home' && <PersonaSettingsHome promptLength={active.systemPrompt?.trim().length || 0} memoryCount={active.memories.length} threadCount={active.threads.length} threadTitle={thread?.title || ''} channelName={resolvePersonaApi(active, props.apiChannels, props.api).name} modelName={resolvePersonaApi(active, props.apiChannels, props.api).modelName || ''} pastLifeEnabled={active.pastLifeEnabled !== false} onNavigate={setSettingsPanel} onThreads={openSidebar} onMemory={() => { setDrawerOpen(false); setViewReturn('settings'); setView('memory') }} onManage={() => { setDrawerOpen(false); setViewReturn('settings'); setView('manage') }} onTogglePastLife={togglePastLife} trackCount={trackCount} songPickEnabled={active.songPickEnabled !== false} onMusic={() => { setDrawerOpen(false); setMusicSheetOpen(true) }} onToggleSongPick={() => setPersonaState((current) => updatePersona(current, active.id, (item) => { const next = { ...item }; if (item.songPickEnabled === false) delete next.songPickEnabled; else next.songPickEnabled = false; return next }))} selfCardLength={selfCardLength(active.selfCard)} tap={tap} />}
+          {drawerOpen && settingsPanel === 'home' && <PersonaSettingsHome promptLength={active.systemPrompt?.trim().length || 0} memoryCount={active.memories.length} threadCount={active.threads.length} threadTitle={thread?.title || ''} channelName={resolvePersonaApi(active, props.apiChannels, props.api).name} modelName={resolvePersonaApi(active, props.apiChannels, props.api).modelName || ''} pastLifeEnabled={active.pastLifeEnabled !== false} onNavigate={setSettingsPanel} onThreads={openSidebar} onMemory={() => { setDrawerOpen(false); setViewReturn('settings'); setView('memory') }} onManage={() => { setDrawerOpen(false); setViewReturn('settings'); setView('manage') }} onTogglePastLife={togglePastLife} trackCount={trackCount} songPickEnabled={active.songPickEnabled !== false} onMusic={() => { setDrawerOpen(false); setMusicSheetOpen(true) }} onToggleSongPick={() => setPersonaState((current) => updatePersona(current, active.id, (item) => { const next = { ...item }; if (item.songPickEnabled === false) delete next.songPickEnabled; else next.songPickEnabled = false; return next }))} selfCardLength={selfCardLength(active.selfCard)} personaCount={enabled.length} onSwitchPersona={() => { setDrawerOpen(false); setRenaming(null); setSwitcherOpen(true) }} periodLabel={periodStats(periodLog, localToday()).short} peopleCount={lifePeople.people.length} tap={tap} />}
+          {drawerOpen && settingsPanel === 'period' && <PersonaPeriodPanel name={activeCharacter.name} tap={tap} onFocus={scrollFieldIntoView} />}
+          {drawerOpen && settingsPanel === 'lifePeople' && <PersonaPeoplePanel name={activeCharacter.name} tap={tap} onFocus={scrollFieldIntoView} />}
           {drawerOpen && settingsPanel === 'selfCard' && <PersonaSelfCardPanel key={active.id} name={activeCharacter.name} card={active.selfCard} history={active.selfCardHistory} enabled={active.selfCardEnabled !== false} onFocus={scrollFieldIntoView} tap={tap}
             onSave={(key, content) => setPersonaState((current) => updatePersona(current, active.id, (item) => setSelfCardSection(item, key, content, `她改了「${selfCardLabel(key)}」`)))}
             onRestore={(index) => setPersonaState((current) => updatePersona(current, active.id, (item) => restoreSelfCard(item, index)))}
