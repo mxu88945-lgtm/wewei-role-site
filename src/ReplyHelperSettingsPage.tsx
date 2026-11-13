@@ -2,6 +2,7 @@ import { useEffect, useMemo, useState } from 'react'
 import type { ApiChannel } from './apiChannels'
 import { fetchApiModels, type ApiModel } from './chatApi'
 import './reply-helper-settings.css'
+import { ChannelOptions } from './ChannelOptions'
 
 type ReplyHelperSettingsPageProps = {
   channels: ApiChannel[]
@@ -62,7 +63,7 @@ export default function ReplyHelperSettingsPage({ channels, channelId, modelName
             onChannelChange(event.target.value)
             onModelChange(next?.modelName || '')
           }}>
-            {channels.map((channel) => <option value={channel.id} key={channel.id}>{channel.name || '未命名渠道'}</option>)}
+            <ChannelOptions channels={channels} />
           </select>
         </label>
         <label>回复模型

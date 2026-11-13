@@ -34,6 +34,7 @@ import ArchiveHeading from './ArchiveHeading'
 import { PuddingCapsule, PuddingLetter } from './PuddingLetter'
 import { messageThemeLayout } from './chatThemeLayout'
 import './persona-window.css'
+import { ChannelOptions } from './ChannelOptions'
 
 type Props = {
   characters: Character[]
@@ -127,7 +128,7 @@ function PersonaModelPicker({ persona, channels, mainApi, onChange, onFocus }: {
     } finally { setLoading(false) }
   }
   return <div className="member-api-binding persona-model-picker">
-    <label><span>回复渠道</span><select value={follows ? '' : channel.id} onChange={(event) => onChange(event.target.value ? { apiChannelId: event.target.value, modelName: undefined } : { apiChannelId: undefined, modelName: undefined })}><option value="">跟随主聊天（{mainApi.name}）</option>{channels.map((item) => <option key={item.id} value={item.id}>{item.name}</option>)}</select></label>
+    <label><span>回复渠道</span><select value={follows ? '' : channel.id} onChange={(event) => onChange(event.target.value ? { apiChannelId: event.target.value, modelName: undefined } : { apiChannelId: undefined, modelName: undefined })}><option value="">跟随主聊天（{mainApi.name}）</option><ChannelOptions channels={channels} renderLabel={(item) => item.name} /></select></label>
     {!follows && <label><span>回复模型</span><div className="member-model-field"><input list={listId} value={persona.modelName || ''} onFocus={onFocus} onChange={(event) => onChange({ apiChannelId: persona.apiChannelId, modelName: event.target.value || undefined })} placeholder={channel.modelName || '手动填写模型名称'} autoCapitalize="none" autoCorrect="off" /><button type="button" {...tap(() => { void load() })} disabled={loading}>{loading ? '获取中…' : '获取模型'}</button></div></label>}
     <datalist id={listId}>{models.map((model) => <option value={model.id} key={model.id} />)}</datalist>
     {!follows && models.length > 0 && <label><span>模型列表</span><select value={models.some((model) => model.id === persona.modelName) ? persona.modelName : ''} onChange={(event) => { if (event.target.value) onChange({ apiChannelId: persona.apiChannelId, modelName: event.target.value }) }}><option value="">从 {models.length} 个模型中选择</option>{models.map((model) => <option value={model.id} key={model.id}>{model.id}</option>)}</select></label>}

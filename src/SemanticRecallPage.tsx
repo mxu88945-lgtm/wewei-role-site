@@ -12,6 +12,7 @@ import {
   updateSemanticConfig,
 } from './semanticRuntime'
 import './reply-helper-settings.css'
+import { ChannelOptions } from './ChannelOptions'
 
 type SemanticRecallPageProps = {
   channels: ApiChannel[]
@@ -77,7 +78,7 @@ export default function SemanticRecallPage({ channels, onBack }: SemanticRecallP
         <label>向量渠道（复用渠道里的 Key）
           <select value={channel?.id || ''} onChange={(event) => updateSemanticConfig({ channelId: event.target.value })}>
             <option value="">选择渠道…</option>
-            {channels.map((item) => <option value={item.id} key={item.id}>{item.name || item.baseUrl}{item.protocol === 'anthropic' ? '（不支持向量）' : ''}</option>)}
+            <ChannelOptions channels={channels} renderLabel={(item) => `${item.name || item.baseUrl}${item.protocol === 'anthropic' ? '（不支持向量）' : ''}`} />
           </select>
         </label>
         {!channel && <p className="reply-helper-model-message">先在 API 渠道里新增一个硅基流动渠道：https://api.siliconflow.cn/v1</p>}

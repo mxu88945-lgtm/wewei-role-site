@@ -2,6 +2,7 @@ import { useEffect, useMemo, useState } from 'react'
 import { fetchApiModels, type ApiModel } from './chatApi'
 import { formatPromptUsage, readPromptUsage, subscribePromptUsage } from './promptUsage'
 import { API_PLATFORM_PRESETS, applyApiPlatform, getApiPlatformPreset, inferApiPlatform, type ApiChannel, type ApiPlatform } from './apiChannels'
+import { sortChannelsByHost } from './channelGroups'
 
 type ConnectionState = 'idle' | 'testing' | 'ok' | 'error'
 type ModelState = 'idle' | 'loading' | 'ready' | 'error'
@@ -138,7 +139,7 @@ export default function ApiSettingsPage({
         </div>
 
         <div className="api-channel-list">
-          {channels.map((channel) => {
+          {sortChannelsByHost(channels).map((channel) => {
             const active = channel.id === api.id
             const expanded = expandedIds.includes(channel.id)
             const modelState = modelStates[channel.id] ?? 'idle'

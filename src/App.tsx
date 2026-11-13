@@ -113,6 +113,7 @@ import { buildMusicNote } from './lyrics'
 import { isChatScoped, legacyDefaultThemeId, pickGlobalIdentity, pickIdentity, pickThemeId, repairLeakedGlobalPersona } from './chatScope'
 import { readPhoneIdentity, resolvePhoneIdentity, writePhoneIdentity, type PhoneIdentity } from './phoneIdentity'
 import PhoneIdentitySettings from './PhoneIdentitySettings'
+import { ChannelOptions } from './ChannelOptions'
 
 /** v205：手记页的（…）小动作用正文旁白色（.message-narration 读 --chat-narration-color）。 */
 const renderBackstageText = (text: string) => splitBackstageActions(text).map((part, index) => part.action ? <span className="message-narration" key={index}>{part.text}</span> : part.text)
@@ -4960,7 +4961,7 @@ function MemberApiBinding({ channels, channelId, modelName, onChannelChange, onM
 
   if (!channel) return null
   return <div className="member-api-binding">
-    <label><span>回复渠道</span><select value={channel.id} onChange={(event) => onChannelChange(event.target.value)}>{channels.map((item) => <option key={item.id} value={item.id}>{item.name}</option>)}</select></label>
+    <label><span>回复渠道</span><select value={channel.id} onChange={(event) => onChannelChange(event.target.value)}><ChannelOptions channels={channels} renderLabel={(item) => item.name} /></select></label>
     <label><span>回复模型</span><div className="member-model-field"><input list={modelListId} value={modelName} onChange={(event) => onModelChange(event.target.value)} placeholder={channel.modelName || '手动填写模型名称'} autoCapitalize="none" autoCorrect="off" /><button type="button" onClick={loadModels} disabled={modelState === 'loading'}>{modelState === 'loading' ? '获取中…' : '获取模型'}</button></div></label>
     <datalist id={modelListId}>{models.map((model) => <option value={model.id} key={model.id} />)}</datalist>
     {models.length > 0 && <label><span>模型列表</span><select value={models.some((model) => model.id === modelName) ? modelName : ''} onChange={(event) => { if (event.target.value) onModelChange(event.target.value) }}><option value="">从 {models.length} 个模型中选择</option>{models.map((model) => <option value={model.id} key={model.id}>{model.id}</option>)}</select></label>}
@@ -4998,7 +4999,7 @@ function UpdateCard() {
     }
   }
 
-  return <section className="update-card"><strong>应用更新</strong><p>主动检查并拉取最新网页版本，不会删除角色、聊天记录或本地设置。</p><small>当前版本：v227 · 2026.11.13 外观与文字：布丁来信等信纸主题里，聊天正文字号、界面字号、界面字重都会生效（正文字重跟随界面字重，胶囊名字/签名/抬头落款跟随界面字号）；聊天正文预览改用正文字号；聊天正文字号可按 0.5px 微调（如 14.5px）</small><button onClick={refresh} disabled={state === 'checking'}>{state === 'checking' ? '正在检查更新…' : state === 'error' ? '更新失败，点我重试' : '强制刷新到最新版'}</button></section>
+  return <section className="update-card"><strong>应用更新</strong><p>主动检查并拉取最新网页版本，不会删除角色、聊天记录或本地设置。</p><small>当前版本：v228 · 2026.11.13 渠道按中转地址自动分组：选择回复渠道时，同一个中转地址（Base URL 域名）的渠道排在一起并带分组标题；设置 → API 渠道列表也按地址排列，渠道数据与 ID 不变</small><button onClick={refresh} disabled={state === 'checking'}>{state === 'checking' ? '正在检查更新…' : state === 'error' ? '更新失败，点我重试' : '强制刷新到最新版'}</button></section>
 }
 
 function PersonaPage({ identities, selectedId, isBound, onSelect, onAdd, onDelete, onUpdate, onBack }: { identities: UserIdentity[]; selectedId: string; isBound: boolean; onSelect: (id: string) => void; onAdd: () => void; onDelete: (id: string) => void; onUpdate: (patch: Partial<UserIdentity>) => void; onBack: () => void }) {
