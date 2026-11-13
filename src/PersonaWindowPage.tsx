@@ -28,7 +28,7 @@ import { PersonaCompressionCard, PersonaMemoryInspection, PersonaRecallReceipt }
 import { canLockPersonaMemory, PERSONA_LOCKED_BUDGET } from './personaWindowMemory'
 import { activeThread, addPersonaThread, buildPersonaSetting, characterAliasIds, collectPastLifeMemory, conversationInvolvesCharacter, deletePersona, deletePersonaThread, deletePersonaMessage, disablePersona, enablePersona, PERSONA_MEMORY_EVERY, PERSONA_WINDOW_PRESET, pendingPersonaMemoryCount, personaMemoryApi, renamePersonaThread, resolvePersonaApi, switchPersona, switchPersonaThread, updatePersona, updatePersonaThread, type PersonaMemoryEntry, type PersonaMessage, type PersonaWindow } from './personaWindow'
 import { hydratePersonaStore, setPersonaState, usePersonaHydrated, usePersonaState } from './personaWindowStore'
-import { buildPersonaRequest, dismissPeopleToast, extractPersonaMemory, generatePersonaReply, getPersonaRuntime, maybeCompressPersonaContext, setPersonaError, stopPersonaReply, subscribePersonaRuntime, type PersonaRuntimeDeps } from './personaWindowRuntime'
+import { buildPersonaRequest, dismissPeopleToast, extractGuestMemories, extractPersonaMemory, generatePersonaReply, getPersonaRuntime, maybeCompressPersonaContext, setPersonaError, stopPersonaReply, subscribePersonaRuntime, type PersonaRuntimeDeps } from './personaWindowRuntime'
 
 import { findTrackByTitle, useMusicStore } from './musicStore'
 import { buildNowPlayingNote } from './nowPlayingNote'
@@ -44,6 +44,9 @@ import { addPersonaGift, personaGiftHistory, removePersonaGift, PERSONA_GIFT_REQ
 import { localToday, peopleStore, periodStore, usePeople, usePeriodLog } from './lifeRecordsStore'
 import { periodStats, periodTurnNote } from './periodLog'
 import { applyPersonTags, peopleTurnNote, undoPersonTags } from './peopleProfiles'
+import PersonaGroupPanel from './PersonaGroupPanel'
+import MentionPicker from './MentionPicker'
+import { dismissGuest, insertMention, isGuestMessage, isImageAvatar, presentGuests, replyModeOf, speakerOf, typedMentionTrigger } from './personaGroup'
 
 type Props = {
   characters: Character[]
@@ -213,6 +216,8 @@ export default function PersonaWindowPage(props: Props) {
   const [requestOpen, setRequestOpen] = useState(false)
   const [memoryUiNotice, setMemoryUiNotice] = useState('')
   const [memoryLimit, setMemoryLimit] = useState(30)
+  // v234：群聊 @ 选择器（输入 @ 时弹出）
+  const [mentionOpen, setMentionOpen] = useState(false)
   const periodLog = usePeriodLog()
   const lifePeople = usePeople()
   // 主聊天同款小圆钮：↑ 离顶部超 280px 才出现（回顶部），↓ 离底部超 280px 才出现（跳最新）
@@ -266,6 +271,9 @@ export default function PersonaWindowPage(props: Props) {
   const earlierCount = earlierChatMessageCount(windowStart)
   const rendered = windowStart > 0 ? messages.slice(windowStart) : messages
   const tasks = thread?.tasks || []
+  // v234 临时群聊：在场客人（空 = 只有主人格，界面与以前一样）
+  const guestsHere = active && thread ? presentGuests(active, thread, characters) : []
+  const groupOn = guestsHere.length > 0
   const activeTasks = tasks.filter(taskIsActive)
   // 滚轮初次出现时也开始 3 秒隐入计时
   const hasMessages = messages.length > 0
@@ -305,6 +313,8 @@ export default function PersonaWindowPage(props: Props) {
         return saved
       },
       undoPeople: (source) => peopleStore.set((current) => undoPersonTags(current, source)),
+      // v234：客人是角色卡时实时读卡。
+      characters,
       realWorld: () => { const closing = '这是你们此刻真实的时间、地点与天气；聊天时自然地顺着它（很晚了可以催睡、下雨会提醒带伞），不用每条都提，也不要编造别的时间、地点或天气。'; try { return buildPhoneRealWorldNote(new Date(), JSON.parse(localStorage.getItem('weijing.phoneWeather') || 'null'), closing) } catch { return buildPhoneRealWorldNote(new Date(), null, closing) } },
     }
   }
@@ -751,22 +761,25 @@ export default function PersonaWindowPage(props: Props) {
         const isUser = message.role === 'user'
         const streamingNow = !isUser && generating && message.id === lastMessage?.id
         if (!isUser && !streamingNow && !message.text.trim() && !message.gift) return null
-        const name = isUser ? identity.name : activeCharacter.name
-        const avatar = isUser ? identity.avatar : activeCharacter.avatar
+        // v234：客人说的话用他的名字和头像（emoji 头像直接显示）；旧消息、主人格照旧。
+        const guestSpeaker = isGuestMessage(message) ? speakerOf(message, active, activeCharacter.name, characters) : null
+        const name = isUser ? identity.name : guestSpeaker ? guestSpeaker.name : activeCharacter.name
+        const emojiAvatar = guestSpeaker && guestSpeaker.avatar && !isImageAvatar(guestSpeaker.avatar) ? guestSpeaker.avatar.trim().slice(0, 2) : ''
+        const avatar = isUser ? identity.avatar : guestSpeaker ? (isImageAvatar(guestSpeaker.avatar) ? guestSpeaker.avatar : undefined) : activeCharacter.avatar
         const look = messageThemeLayout(props.themeMode || '', props.chatLayout || 'flat', message.role)
-        const avatarNode = <div className="message-avatar">{avatar ? <img src={avatar} alt="" /> : name.slice(-1)}</div>
+        const avatarNode = <div className="message-avatar">{avatar ? <img src={avatar} alt="" /> : emojiAvatar || name.slice(-1)}</div>
         const content = <>
               {isUser && message.gift ? <PersonaGiftCard gift={message.gift} from={identity.name || '我'} to={activeCharacter.name} /> : null}
               {message.quote && <div className="persona-message-quote"><b>{message.quote.author}：</b>{message.quote.text}</div>}
               {message.images?.length ? <div className={`message-images persona-message-images count-${Math.min(message.images.length, 4)}`}>{message.images.map((image, imageIndex) => <button type="button" key={image.id} aria-label="查看图片" {...tap(() => setViewerImage({ images: message.images || [], index: imageIndex }))}><img src={image.dataUrl} alt="" loading="lazy" decoding="async" draggable={false} style={message.images!.length === 1 && image.width && image.height ? { aspectRatio: `${image.width} / ${image.height}` } : undefined} /></button>)}</div> : null}
               {message.attachments?.length ? <div className="persona-attachment-list" aria-label="消息文件">{message.attachments.map((attachment) => <div className="persona-attachment-card" key={attachment.id}><span aria-hidden="true">📄</span><div><strong>{attachment.name}</strong><small>{attachmentSizeLabel(attachment.size)}{attachment.truncated ? ' · 过长，已保存前 20 万字' : ' · 只读参考'}</small></div></div>)}</div> : null}
-              {streamingNow && (!message.text || isPendingAssistantText(message.text)) ? <div className="persona-typing">（{activeCharacter.name}正在回应…）</div> : (message.text.trim() ? <MessageContent text={isUser ? message.text : personaReplyText(message.text)} role={message.role} character={activeCharacter} userName={identity.name} streaming={streamingNow} noStatus layout={look.layout} paper={look.paper} /> : null)}
+              {streamingNow && (!message.text || isPendingAssistantText(message.text)) ? <div className="persona-typing">（{name}正在回应…）</div> : (message.text.trim() ? <MessageContent text={isUser ? message.text : personaReplyText(message.text)} role={message.role} character={activeCharacter} userName={identity.name} streaming={streamingNow} noStatus layout={look.layout} paper={look.paper} /> : null)}
         </>
         const actionRow = streamingNow ? null : <div className="message-action-row">
             <button className="message-action-trigger" aria-label="消息操作" {...tap(() => setMenuMessageId(menuMessageId === message.id ? null : message.id))}>•••</button>
             {menuMessageId === message.id && <span className="persona-message-menu">
               <button {...tap(() => { void navigator.clipboard?.writeText(message.text).catch(() => undefined); setMenuMessageId(null) })}>复制</button>
-              <button {...tap(() => { const author = message.role === 'user' ? (identity.name || '我') : (activeCharacter?.name || ''); const quoted = message.text.trim() || (message.attachments?.length ? `[文件：${message.attachments.map((item) => item.name).join('、')}]` : message.images?.length ? '[图片]' : message.gift ? `🎁 ${message.gift.name}` : ''); setQuoteDraft({ messageId: message.id, author, text: quoted.slice(0, 120) }); setMenuMessageId(null); textareaRef.current?.focus({ preventScroll: true }) })}>引用</button>
+              <button {...tap(() => { const author = message.role === 'user' ? (identity.name || '我') : name; const quoted = message.text.trim() || (message.attachments?.length ? `[文件：${message.attachments.map((item) => item.name).join('、')}]` : message.images?.length ? '[图片]' : message.gift ? `🎁 ${message.gift.name}` : ''); setQuoteDraft({ messageId: message.id, author, text: quoted.slice(0, 120) }); setMenuMessageId(null); textareaRef.current?.focus({ preventScroll: true }) })}>引用</button>
               {isUser && <><button disabled={generating || imageBusy || attachmentBusy} {...tap(() => resend(message))}>重新发送</button>{!message.gift && <button disabled={imageBusy || attachmentBusy} {...tap(() => editForResend(message))}>编辑后重发</button>}</>}
               {!isUser && message.id === lastMessage?.id && <button disabled={generating} {...tap(() => { setMenuMessageId(null); regenerate() })}>重新生成</button>}
               <button className="danger" {...tap(() => { if (window.confirm('删除这条消息？')) setPersonaState((current) => deletePersonaMessage(current, active.id, threadId, message.id)); setMenuMessageId(null) })}>删除</button>
@@ -808,7 +821,12 @@ export default function PersonaWindowPage(props: Props) {
         <button type="button" role="menuitem" {...tap(() => { setPlusOpen(false); attachmentInputRef.current?.click() })}><span aria-hidden="true">🖼️</span>图片或文件</button>
         <button type="button" role="menuitem" {...tap(() => { setPlusOpen(false); setGiftSheetOpen(true) })}><span aria-hidden="true">🎁</span>礼物</button>
       </div>}
-      <textarea ref={textareaRef} rows={1} value={draft} onChange={(event) => setDraft(event.target.value)} onFocus={() => { setPersonaJump((current) => ({ ...current, visible: false })); if (personaJumpHideTimer.current) window.clearTimeout(personaJumpHideTimer.current) }} placeholder={generating ? '可以先写下一条，停止后再发送' : `对${activeCharacter.name}说……`} />
+      {groupOn && <div className="persona-member-strip" aria-label="群聊成员">
+        <button type="button" className="persona-member-chip main" aria-label={`@${activeCharacter.name}`} title={`@${activeCharacter.name}`} {...tap(() => { setDraft((current) => insertMention(current, activeCharacter.name)); textareaRef.current?.focus({ preventScroll: true }) })}>{activeCharacter.avatar ? <img src={activeCharacter.avatar} alt="" /> : activeCharacter.name.slice(-1)}</button>
+        {guestsHere.map((guest) => <button type="button" key={guest.id} className="persona-member-chip" aria-label={`@${guest.name}`} title={`@${guest.name}`} {...tap(() => { setDraft((current) => insertMention(current, guest.name)); textareaRef.current?.focus({ preventScroll: true }) })}>{isImageAvatar(guest.avatar) ? <img src={guest.avatar} alt="" /> : guest.avatar?.trim() ? guest.avatar.trim().slice(0, 2) : guest.name.slice(-1)}</button>)}
+        <button type="button" className="persona-member-mode" aria-label="群聊成员与回复方式" {...tap(() => { setSidebarOpen(false); setSettingsPanel('group'); setDrawerOpen(true) })}>{thread && replyModeOf(thread) === 'natural' ? '自然接话' : '@ 点名'}</button>
+      </div>}
+      <textarea ref={textareaRef} rows={1} value={draft} onChange={(event) => { const next = event.target.value; if (groupOn && typedMentionTrigger(draft, next)) setMentionOpen(true); setDraft(next) }} onFocus={() => { setPersonaJump((current) => ({ ...current, visible: false })); if (personaJumpHideTimer.current) window.clearTimeout(personaJumpHideTimer.current) }} placeholder={generating ? '可以先写下一条，停止后再发送' : groupOn ? '对大家说……（@ 点名）' : `对${activeCharacter.name}说……`} />
       <button className={`send-button ${generating ? 'stop' : ''}`} aria-label={generating ? '停止生成' : '发送'} {...tap(send)}>{generating ? '■' : '↑'}</button>
       <input ref={attachmentInputRef} type="file" accept={`image/*,${CHAT_ATTACHMENT_ACCEPT}`} multiple hidden onChange={(event) => { const files = event.currentTarget.files; void addFiles(files).finally(() => { if (attachmentInputRef.current) attachmentInputRef.current.value = '' }) }} />
     </div>
@@ -819,11 +837,21 @@ export default function PersonaWindowPage(props: Props) {
         {!sidebarOpen && <header className={`persona-settings-header ${settingsPanel === 'home' ? 'is-home' : ''}`}>
           {settingsPanel !== 'home' && <button className="persona-settings-back" aria-label="返回设置" {...tap(() => { setSettingsPanel('home'); setRenaming(null) })}>‹</button>}
           {settingsPanel === 'home' && avatarOf(activeCharacter, 'large')}
-          <div><small>{settingsPanel === 'home' ? '人格窗口' : activeCharacter.name}</small><h2>{settingsPanel === 'home' ? activeCharacter.name : { model: '模型与渠道', prompts: '系统提示词', appearance: '外观与文字', tasks: '任务卡', selfCard: '他自己写的卡', period: '经期记录', lifePeople: '人物档案', gifts: '礼物架' }[settingsPanel]}</h2>{settingsPanel === 'home' && <p>和 {identity.name}，在这里慢慢相处。</p>}</div>
+          <div><small>{settingsPanel === 'home' ? '人格窗口' : activeCharacter.name}</small><h2>{settingsPanel === 'home' ? activeCharacter.name : { model: '模型与渠道', prompts: '系统提示词', appearance: '外观与文字', tasks: '任务卡', selfCard: '他自己写的卡', period: '经期记录', lifePeople: '人物档案', gifts: '礼物架', group: '群聊成员' }[settingsPanel]}</h2>{settingsPanel === 'home' && <p>和 {identity.name}，在这里慢慢相处。</p>}</div>
           <button className="persona-settings-close" aria-label="关闭" {...tap(() => { setDrawerOpen(false); setRenaming(null) })}>×</button>
         </header>}
         <div className="right-drawer-scroll">
-          {drawerOpen && settingsPanel === 'home' && <PersonaSettingsHome promptLength={active.systemPrompt?.trim().length || 0} memoryCount={active.memories.length} threadCount={active.threads.length} threadTitle={thread?.title || ''} channelName={resolvePersonaApi(active, props.apiChannels, props.api).name} modelName={resolvePersonaApi(active, props.apiChannels, props.api).modelName || ''} pastLifeEnabled={active.pastLifeEnabled !== false} onNavigate={setSettingsPanel} onThreads={openSidebar} onMemory={() => { setDrawerOpen(false); setViewReturn('settings'); setView('memory') }} onManage={() => { setDrawerOpen(false); setViewReturn('settings'); setView('manage') }} onTogglePastLife={togglePastLife} trackCount={trackCount} songPickEnabled={active.songPickEnabled !== false} onMusic={() => { setDrawerOpen(false); setMusicSheetOpen(true) }} onToggleSongPick={() => setPersonaState((current) => updatePersona(current, active.id, (item) => { const next = { ...item }; if (item.songPickEnabled === false) delete next.songPickEnabled; else next.songPickEnabled = false; return next }))} selfCardLength={selfCardLength(active.selfCard)} personaCount={enabled.length} onSwitchPersona={() => { setDrawerOpen(false); setRenaming(null); setSwitcherOpen(true) }} periodLabel={periodStats(periodLog, localToday()).short} peopleCount={lifePeople.people.length} giftCount={active.customGifts?.length || 0} tap={tap} />}
+          {drawerOpen && settingsPanel === 'home' && <PersonaSettingsHome promptLength={active.systemPrompt?.trim().length || 0} memoryCount={active.memories.length} threadCount={active.threads.length} threadTitle={thread?.title || ''} channelName={resolvePersonaApi(active, props.apiChannels, props.api).name} modelName={resolvePersonaApi(active, props.apiChannels, props.api).modelName || ''} pastLifeEnabled={active.pastLifeEnabled !== false} onNavigate={setSettingsPanel} onThreads={openSidebar} onMemory={() => { setDrawerOpen(false); setViewReturn('settings'); setView('memory') }} onManage={() => { setDrawerOpen(false); setViewReturn('settings'); setView('manage') }} onTogglePastLife={togglePastLife} trackCount={trackCount} songPickEnabled={active.songPickEnabled !== false} onMusic={() => { setDrawerOpen(false); setMusicSheetOpen(true) }} onToggleSongPick={() => setPersonaState((current) => updatePersona(current, active.id, (item) => { const next = { ...item }; if (item.songPickEnabled === false) delete next.songPickEnabled; else next.songPickEnabled = false; return next }))} selfCardLength={selfCardLength(active.selfCard)} personaCount={enabled.length} onSwitchPersona={() => { setDrawerOpen(false); setRenaming(null); setSwitcherOpen(true) }} periodLabel={periodStats(periodLog, localToday()).short} peopleCount={lifePeople.people.length} giftCount={active.customGifts?.length || 0} groupLabel={groupOn ? `${guestsHere.length + 1} 人 · ${thread && replyModeOf(thread) === 'natural' ? '自然' : '@'}` : '仅 TA'} tap={tap} />}
+          {drawerOpen && settingsPanel === 'group' && thread && <PersonaGroupPanel persona={active} thread={thread} characters={characters} mainName={activeCharacter.name} mainAvatar={activeCharacter.avatar} userName={identity.name} tap={tap} onFocus={scrollFieldIntoView}
+            onChange={(transform) => setPersonaState((current) => updatePersona(current, active.id, transform))}
+            onDismiss={(guestId) => {
+              setPersonaState((current) => updatePersona(current, active.id, (item) => dismissGuest(item, threadId, guestId)))
+              // 请出时顺手在后台按他的视角整理他在场的新消息（攒够 4 条才整理）。
+              const deps = depsFor(active.characterId)
+              if (deps) void extractGuestMemories(active.id, deps, { guestId, threadId, every: 4 })
+            }}
+            onExtract={(guestId) => { const deps = depsFor(active.characterId); if (deps) void extractGuestMemories(active.id, deps, { guestId, manual: true }) }}
+            busy={(guestId) => Boolean(runtime.memoryBusy[`${active.id}:${guestId}`])} />}
           {drawerOpen && settingsPanel === 'gifts' && <PersonaGiftsPanel name={activeCharacter.name} gifts={active.customGifts || []} enabled={active.giftsEnabled !== false} tap={tap} onOpenCatalog={() => { setDrawerOpen(false); setGiftSheetOpen(true) }}
             onToggle={() => setPersonaState((current) => updatePersona(current, active.id, (item) => { const next = { ...item }; if (item.giftsEnabled === false) delete next.giftsEnabled; else next.giftsEnabled = false; return next }))}
             onRemove={removeGift} />}
@@ -872,6 +900,7 @@ export default function PersonaWindowPage(props: Props) {
         {sidebarOpen && <nav className="persona-history-footer" aria-label="人格窗口导航"><div className="persona-history-actions"><button type="button" className="persona-circle-btn" aria-label="回到惟镜首页" title="回到惟镜首页" {...tap(onBack)}><svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><path d="M3 10.5 12 3l9 7.5" /><path d="M5 9.5V21h14V9.5" /></svg></button><button type="button" className="persona-circle-btn" aria-label="管理人格" title="管理人格" {...tap(() => { setSidebarOpen(false); setViewReturn(null); setView('manage') })}><svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="3" /><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 1 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 1 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 1 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 1 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1Z" /></svg></button><button type="button" className="persona-circle-btn" aria-label="新聊天" title="新聊天" {...tap(() => { setPersonaState((current) => addPersonaThread(current, active.id)); setSidebarOpen(false); setPendingImages([]); setPendingAttachments([]); setMenuMessageId(null); setRenaming(null) })}><svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><path d="M12 20h9" /><path d="M16.5 3.5a2.12 2.12 0 0 1 3 3L7 19l-4 1 1-4Z" /></svg></button></div></nav>}
       </aside>
     </div>}
+    {mentionOpen && groupOn && <MentionPicker members={[{ id: active.id, name: activeCharacter.name, avatar: activeCharacter.avatar }, ...guestsHere.map((guest) => ({ id: guest.id, name: guest.name, avatar: isImageAvatar(guest.avatar) ? guest.avatar : undefined }))]} everyone onPick={(picked) => { setMentionOpen(false); setDraft((current) => insertMention(current, picked)); textareaRef.current?.focus({ preventScroll: true }) }} onClose={() => setMentionOpen(false)} />}
     {viewerImage && <ChatImageViewer images={viewerImage.images} startIndex={viewerImage.index} onClose={() => setViewerImage(null)} />}
   </section>
 }

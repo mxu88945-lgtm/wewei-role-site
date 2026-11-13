@@ -27,6 +27,7 @@ import { isApiChannelComplete, resolveApiChannel, type ApiChannel } from './apiC
 import { buildBackstagePersonaMemory } from './backstageNotes'
 import { stripSongPick } from './personaSongPick'
 import { stripPersonTags } from './peopleProfiles'
+import { normalizeGuests, normalizeMessageGroup, normalizeThreadGroup, isGuestMessage, type PersonaGuest, type PersonaReplyMode } from './personaGroup'
 import { normalizeSelfCard, normalizeSelfCardHistory, SELF_CARD_SECTIONS, stripSelfCardTag, type SelfCard, type SelfCardKey, type SelfCardVersion } from './personaSelfCard'
 
 export const PERSONA_WINDOWS_KEY = 'weijing.personaWindows'
@@ -62,6 +63,14 @@ export type PersonaMessage = {
   /** v231：他在这条回复里亲手做的礼物（[自制礼物:…] 解析出来；正文里已去掉标记）。
    *  v233：双向礼物——她的消息上是她送 TA 的（user-to-role），TA 的回复上是 TA 送她的（[送礼:…] 或 [自制礼物:…]）。 */
   gift?: PersonaGiftEvent
+  /** v234 群聊：这条回复是谁说的（guest-… = 客人；persona-… 或不填 = 主人格，旧消息都不填）。 */
+  speakerId?: string
+  /** v234：客人说的话存一份当时的名字（客人被删后仍能显示、进摘要）。 */
+  speakerName?: string
+  /** v234：这条消息发生时在场的客人 id（只在群聊时写；客人记忆只整理他在场的消息）。 */
+  present?: string[]
+  /** v234：同一轮多人接话的几条回复共用第一条的编号（重新生成时一起换掉）。 */
+  groupTurn?: number
 }
 
 export type PersonaMemoryEntry = {
@@ -96,6 +105,12 @@ export type PersonaThread = {
   /** 单调递增，删消息后不复用旧文编号。 */
   messageSequence?: number
   tasks?: PersonaTask[]
+  /** v234 临时群聊：此刻在这扇窗口里的客人 id（主人格永远在场，不在这里）。空 = 只有主人格。 */
+  memberIds?: string[]
+  /** v234：@ 点名（默认）或自然接话。 */
+  replyMode?: PersonaReplyMode
+  /** v234：每位客人在这扇窗口里已整理进他自己记忆的最后一条消息 id。 */
+  guestMemoryThrough?: Record<string, number>
 }
 
 export type PersonaWindow = {
@@ -144,6 +159,8 @@ export type PersonaWindow = {
   customGifts?: PersonaGift[]
   /** v231：让他自己做礼物，默认开（只存 false）。v233：关掉后 TA 既不自制也不 [送礼]。 */
   giftsEnabled?: boolean
+  /** v234：拉进过这扇人格窗口的客人（卡 + 他自己的窗口记忆），请出后仍保留。 */
+  guests?: PersonaGuest[]
 }
 
 export const PERSONA_STATE_VERSION = 2
@@ -173,7 +190,7 @@ function normalizeMessage(value: unknown): PersonaMessage | null {
   const recallSources = (Array.isArray(value.recallSources) ? value.recallSources : []).filter(isRecord).filter((source) => text(source.threadId) && Number.isSafeInteger(source.messageId) && (source.role === 'user' || source.role === 'assistant')).slice(0, 20).map((source): PersonaRecallSource => ({ threadId: text(source.threadId), messageId: Number(source.messageId), title: text(source.title), role: source.role === 'user' ? 'user' : 'assistant', createdAt: Number(source.createdAt) || 0 }))
   const gift = normalizePersonaGiftEvent(value.gift, role)
   const quote = isRecord(value.quote) && Number.isFinite(Number(value.quote.messageId)) ? { messageId: Number(value.quote.messageId), author: text(value.quote.author), text: text(value.quote.text) } : undefined
-  return { id, role, text: text(value.text), createdAt: Number(value.createdAt) || 0, ...(images?.length ? { images } : {}), ...(attachments.length ? { attachments } : {}), ...(value.finishReason !== undefined ? { finishReason: (value.finishReason as string | null) } : {}), ...(recallSources.length ? { recallSources } : {}), ...(role === 'assistant' && text(value.taskCompletionId) ? { taskCompletionId: text(value.taskCompletionId) } : {}), ...(quote ? { quote } : {}), ...(role === 'assistant' && text(value.songPick).trim() ? { songPick: text(value.songPick).trim().slice(0, 80) } : {}), ...(role === 'assistant' && isSelfCardKey(value.selfCardEdit) ? { selfCardEdit: value.selfCardEdit } : {}), ...(gift ? { gift } : {}) }
+  return { id, role, text: text(value.text), createdAt: Number(value.createdAt) || 0, ...(images?.length ? { images } : {}), ...(attachments.length ? { attachments } : {}), ...(value.finishReason !== undefined ? { finishReason: (value.finishReason as string | null) } : {}), ...(recallSources.length ? { recallSources } : {}), ...(role === 'assistant' && text(value.taskCompletionId) ? { taskCompletionId: text(value.taskCompletionId) } : {}), ...(quote ? { quote } : {}), ...(role === 'assistant' && text(value.songPick).trim() ? { songPick: text(value.songPick).trim().slice(0, 80) } : {}), ...(role === 'assistant' && isSelfCardKey(value.selfCardEdit) ? { selfCardEdit: value.selfCardEdit } : {}), ...(gift ? { gift } : {}), ...normalizeMessageGroup(value, role) }
 }
 
 function normalizeMemory(value: unknown): PersonaMemoryEntry | null {
@@ -216,6 +233,7 @@ function normalizeThread(raw: Record<string, unknown>, fallbackId: string, index
     ...(isRecord(raw.recallLedger) ? { recallLedger: Object.fromEntries(Object.entries(raw.recallLedger).filter(([, turn]) => typeof turn === 'number' && Number.isSafeInteger(turn) && turn >= 0).sort((a, b) => Number(b[1]) - Number(a[1])).slice(0, 120)) as Record<string, number> } : {}),
     ...(Number.isSafeInteger(Number(raw.messageSequence)) && Number(raw.messageSequence) > 0 ? { messageSequence: Number(raw.messageSequence) } : {}),
     ...(Array.isArray(raw.tasks) ? { tasks: normalizePersonaTasks(raw.tasks) } : {}),
+    ...normalizeThreadGroup(raw),
   }
 }
 
@@ -270,6 +288,7 @@ export function normalizePersonaState(value: unknown): PersonaWindowState {
       ...(raw.selfCardEnabled === false ? { selfCardEnabled: false } : {}),
       ...(normalizePersonaGifts(raw.customGifts).length ? { customGifts: normalizePersonaGifts(raw.customGifts) } : {}),
       ...(raw.giftsEnabled === false ? { giftsEnabled: false } : {}),
+      ...(normalizeGuests(raw.guests, normalizeMemory).length ? { guests: normalizeGuests(raw.guests, normalizeMemory) } : {}),
     })
   }
   const activeId = text(value.activeId)
@@ -769,7 +788,7 @@ export function buildPersonaWindowNoteForPhone(state: PersonaWindowState, charac
   const available = persona.memories.filter((item) => personaMemoryEntryAvailable(persona, item))
   const memories = [...available.filter((item) => item.pinned || item.locked), ...available.filter((item) => !item.pinned && !item.locked).slice(-20)]
     .map((item) => `· ${item.autoGenerated ? '〔TA提炼，未经用户逐条确认〕' : '〔用户确认〕'}${item.title}：${item.content}`)
-  const recent = (latestThread(persona)?.messages || []).filter((item) => item.text.trim() && item.finishReason !== 'error').slice(-6)
+  const recent = (latestThread(persona)?.messages || []).filter((item) => item.text.trim() && item.finishReason !== 'error' && !isGuestMessage(item)).slice(-6)
     .map((item) => `${item.role === 'user' ? names.user : names.char}：${clip(messageText(item.text).replace(/\n/g, ' '), 120)}`)
   if (!memories.length && !recent.length) return ''
   const body = clip([
@@ -795,7 +814,7 @@ export function personaWindowForBackstage(state: PersonaWindowState, characterId
   const available = persona.memories.filter((item) => personaMemoryEntryAvailable(persona, item))
   const memories = [...available.filter((item) => item.pinned || item.locked), ...available.filter((item) => !item.pinned && !item.locked).reverse()]
     .map((item) => `${item.title && item.title !== '记忆' ? `${item.title}：` : ''}${item.content}`.replace(/\s+/g, ' ').trim()).filter(Boolean)
-  const recent = (latestThread(persona)?.messages || []).filter((item) => item.text.trim() && item.finishReason !== 'error').slice(-turns)
+  const recent = (latestThread(persona)?.messages || []).filter((item) => item.text.trim() && item.finishReason !== 'error' && !isGuestMessage(item)).slice(-turns)
     .map((item) => `${item.role === 'user' ? userName : '你'}：${clip(messageText(item.text).replace(/\n/g, ' '), 200)}`)
     .filter((line) => !/：$/.test(line))
   if (!memories.length && !recent.length) return undefined

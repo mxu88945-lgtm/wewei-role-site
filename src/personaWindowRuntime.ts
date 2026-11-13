@@ -43,6 +43,7 @@ import { addPersonaGift, buildPersonaGiftPrompt, extractPersonaAssistantGift, pe
 import { withPromptCache } from './promptCache'
 import { foldPromptForRelay } from './promptTail'
 import { recordPromptUsage } from './promptUsage'
+import { addGuestMemories, buildGroupAfterTail, buildGroupSystemBlock, buildGroupTurnTail, guestMemoryExtractionPrompt, isGuestId, isGuestMessage, labelGroupContent, pendingGuestMessages, planGroupTurn, PERSONA_GROUP_SEGMENT_CAP, PERSONA_GUEST_MEMORY_EVERY, resolveGuest, speakerOf, splitGroupReply, type GroupTurnPlan } from './personaGroup'
 
 /**
  * Generation, memory and compression for the 人格窗口. Module-level on purpose:
@@ -81,6 +82,8 @@ export type PersonaRuntimeDeps = {
   recordPeople?: (tags: PersonTag[], userTexts: string[], source: string) => string[]
   /** v232：重新生成时收回被换掉的那条回复写进档案的内容。 */
   undoPeople?: (source: string) => void
+  /** v234：角色库（客人是角色卡时实时读卡）；不传 = 只用存下的简卡。 */
+  characters?: readonly Character[]
 }
 
 /**
@@ -176,6 +179,10 @@ export function planPersonaRequest(persona: PersonaWindow, history: PersonaMessa
   const baseMemory = buildPersonaMemoryContext(persona, thread, history, recent, { char: character.name, user: deps.user.name })
   const pastRecall = pastLifeChunks ? recallPastLife(pastLifeChunks, { history, aliases: persona.memoryAliases, charName: character.name, userName: deps.user.name, ledger: thread.recallLedger, turn: baseMemory.turn }) : null
   const memory = withPastLifeRecall(baseMemory, pastRecall && { ...pastRecall, text: pastRecall.text && stripPersonaFormatInstructions(pastRecall.text) })
+  // v234 临时群聊：没有在场客人时 group 为 null，下面的提示词与之前逐字一致。
+  const group = planGroupTurn(persona, thread, history, { name: character.name, avatar: deps.character.avatar }, deps.characters)
+  const guestHistory = !group && recent.some(isGuestMessage)
+  const names = { char: character.name, user: deps.user.name }
   // v209 稳定前缀：只放两轮之间不变的内容（人设、规则、长期/锁定记忆、本窗连续性档案、歌单），
   // 这样 Gemini 的隐式缓存和 Claude 的 cache_control 都能命中。
   const system = [
@@ -196,6 +203,8 @@ export function planPersonaRequest(persona: PersonaWindow, history: PersonaMessa
     buildPersonaGiftPrompt(persona.customGifts, personaGiftHistory(persona.threads, thread), { enabled: persona.giftsEnabled !== false }),
     // v232：人物档案自己记——固定文字，只随开关变。
     deps.peopleSelfRecord?.() && PEOPLE_TAG_PROMPT,
+    // v234：成员、各自人设/世界观/窗口记忆、模式与输出格式——只随成员或模式变。
+    group && buildGroupSystemBlock(group, names),
     // Keep the core boundary in the FIRST system too (some relays drop later system messages).
     PERSONA_FINAL_GUARD,
   ].filter(Boolean).join('\n\n')
@@ -210,20 +219,37 @@ export function planPersonaRequest(persona: PersonaWindow, history: PersonaMessa
     personaTaskStatus(thread.tasks),
     deps.nowPlaying?.().trim(),
     PERSONA_FINAL_GUARD,
+    // v234：这一轮谁说（每轮变，所以放尾巴）。
+    group ? buildGroupTurnTail(group) : guestHistory ? buildGroupAfterTail(names) : '',
   ].filter(Boolean).join('\n\n')
   const imageTurns = imagePromptIndices(recent)
   const attachmentTurns = attachmentPromptIndices(recent)
-  const messages: ChatApiMessage[] = [
-    { role: 'system', content: applyMacros(system, character, deps.user.name) },
-    ...recent.map((item, index): ChatApiMessage => {
+  const labelled = new Set<ChatApiMessage>()
+  const turns = recent.map((item, index): ChatApiMessage => {
       // v233：她送的礼物以「🎁 礼物事件｜…」文字发给模型；TA 送出的在 TA 那条后面留一句应用记录。
       const body = !item.gift ? item.text : item.role === 'assistant' ? [item.text, personaGiftRecordLine(item.gift)].filter((part) => part.trim()).join('\n') : [personaGiftPromptText(item.gift, deps.user.name, character.name), item.text].filter((part) => part.trim()).join('\n\n')
       const textWithQuote = item.quote ? `${quotePromptPrefix({ messageId: String(item.quote.messageId), author: item.quote.author, text: item.quote.text })}\n${body}` : body
       const attachmentText = item.role === 'user' ? attachmentPromptText(item.attachments, attachmentTurns.has(index)) : ''
       const content = [textWithQuote, attachmentText].filter(Boolean).join('\n\n')
+      if (item.role === 'assistant' && (group || isGuestMessage(item)) && content.trim()) {
+        // v234：群聊里每条回复段首带【名字】（和输出格式一致）；客人说过的话在群聊结束后也带着。
+        const turn: ChatApiMessage = { role: 'assistant', content: labelGroupContent(speakerOf(item, persona, character.name, deps.characters).name, content) }
+        labelled.add(turn)
+        return turn
+      }
       return { role: item.role, content: item.role === 'user' ? userContentWithImages(content, item.images, imageTurns.has(index)) : content }
     })
-      .filter((item) => Array.isArray(item.content) || String(item.content).trim()),
+      .filter((item) => Array.isArray(item.content) || String(item.content).trim())
+  // 同一轮几个人接的话合成一条 assistant（只合并带【名字】的，旧的一对一历史不动）。
+  const history2: ChatApiMessage[] = []
+  for (const turn of turns) {
+    const last = history2[history2.length - 1]
+    if (last && labelled.has(last) && labelled.has(turn)) { const merged: ChatApiMessage = { role: 'assistant', content: `${String(last.content)}\n\n${String(turn.content)}` }; labelled.add(merged); history2[history2.length - 1] = merged }
+    else history2.push(turn)
+  }
+  const messages: ChatApiMessage[] = [
+    { role: 'system', content: applyMacros(system, character, deps.user.name) },
+    ...history2,
   ]
   if (options.event) messages.push({ role: 'user', content: options.event })
   else if (!history.some((item) => item.role === 'user')) {
@@ -231,7 +257,7 @@ export function planPersonaRequest(persona: PersonaWindow, history: PersonaMessa
   }
   messages.push({ role: 'system', content: applyMacros(dynamic, character, deps.user.name) })
   // v209/v210：Claude 加 cache_control（第一条 system + 最新用户消息前一条）；其它模型保持纯字符串。
-  return { messages: withPromptCache(consolidatePersonaMessages(messages), deps.api), memory }
+  return { messages: withPromptCache(consolidatePersonaMessages(messages), deps.api), memory, group }
 }
 
 /**
@@ -261,29 +287,44 @@ export async function generatePersonaReply(personaId: string, deps: PersonaRunti
   setPersonaError(threadId, '')
   let base = thread.messages
   let replacedGiftId = ''
-  let replacedReplyId: number | undefined
+  let replacedReplyIds: number[] = []
   if (input.regenerate) {
     const last = base[base.length - 1]
-    if (last?.role === 'assistant') { base = base.slice(0, -1); replacedGiftId = last.gift?.made ? last.gift.giftId : ''; replacedReplyId = last.id }
+    if (last?.role === 'assistant') {
+      // v234：同一轮多人接的话（同一个 groupTurn）一起换掉；一对一时只有最后一条，和以前一样。
+      let cut = base.length - 1
+      if (last.groupTurn !== undefined) while (cut > 0 && base[cut - 1].role === 'assistant' && base[cut - 1].groupTurn === last.groupTurn) cut--
+      const removed = base.slice(cut)
+      base = base.slice(0, cut)
+      replacedGiftId = removed.find((message) => message.gift?.made)?.gift?.giftId || ''
+      replacedReplyIds = removed.map((message) => message.id)
+    }
   }
+  const replaced = new Set(replacedReplyIds)
   const now = Date.now()
   const additions: PersonaMessage[] = []
   const firstId = Math.max(nextPersonaMessageId(base), (thread.messageSequence || 0) + 1)
   const userGift = input.gift?.direction === 'user-to-role' ? input.gift : undefined
+  // v234：在场的客人（没有 = 一对一，下面一切照旧）。
+  const presentIds = (thread.memberIds || []).filter((id) => (persona.guests || []).some((guest) => guest.id === id))
+  const presence = presentIds.length ? { present: presentIds } : {}
   if ((input.text || '').trim() || input.images?.length || input.attachments?.length || userGift) {
-    additions.push({ id: firstId, role: 'user', text: (input.text || '').trim(), createdAt: now, ...(input.images?.length ? { images: input.images } : {}), ...(input.attachments?.length ? { attachments: input.attachments } : {}), ...(input.quote ? { quote: input.quote } : {}), ...(userGift ? { gift: userGift } : {}) })
+    additions.push({ id: firstId, role: 'user', text: (input.text || '').trim(), createdAt: now, ...(input.images?.length ? { images: input.images } : {}), ...(input.attachments?.length ? { attachments: input.attachments } : {}), ...(input.quote ? { quote: input.quote } : {}), ...(userGift ? { gift: userGift } : {}), ...presence })
   }
   const withUser = [...base, ...additions]
   const replyId = Math.max(nextPersonaMessageId(withUser), firstId + additions.length)
-  const placeholder: PersonaMessage = { id: replyId, role: 'assistant', text: '', createdAt: now, ...(completedTask ? { taskCompletionId: completedTask.id } : {}) }
   const history = requestHistory(withUser)
-  const promptThread = { ...thread, messages: withUser, tasks: thread.tasks?.filter((task) => !input.regenerate || task.sourceMessageId !== thread.messages[thread.messages.length - 1]?.id) }
+  const group: GroupTurnPlan | null = planGroupTurn(persona, thread, history, { name: deps.character.name, avatar: deps.character.avatar }, deps.characters)
+  const speakerFields = (speakerId: string): Partial<PersonaMessage> => !group ? {} : { speakerId, ...(isGuestId(speakerId) ? { speakerName: group.speakers.find((item) => item.id === speakerId)?.name || '客人' } : {}), ...presence, groupTurn: replyId }
+  const defaultSpeaker = group ? group.targets?.[0] || persona.id : ''
+  const placeholder: PersonaMessage = { id: replyId, role: 'assistant', text: '', createdAt: now, ...(completedTask ? { taskCompletionId: completedTask.id } : {}), ...speakerFields(defaultSpeaker) }
+  const promptThread = { ...thread, messages: withUser, tasks: thread.tasks?.filter((task) => !input.regenerate || task.sourceMessageId === undefined || !replaced.has(task.sourceMessageId)) }
   const touch = (state: Parameters<typeof updatePersona>[0], at: number) => updatePersona(state, personaId, (item) => ({ ...item, updatedAt: at }))
   // v231：重新生成时，被换掉的那条回复里做的礼物也从礼物架上收回。
   // v232：被换掉的那条回复记进人物档案的内容也收回。
-  if (replacedReplyId !== undefined) deps.undoPeople?.(`${threadId}:${replacedReplyId}`)
+  for (const id of replacedReplyIds) deps.undoPeople?.(`${threadId}:${id}`)
   if (replacedGiftId) setPersonaState((state) => updatePersona(state, personaId, (item) => ({ ...item, customGifts: removePersonaGift(item.customGifts, replacedGiftId) })))
-  setPersonaState((state) => touch(updatePersonaThread(state, personaId, threadId, (item) => ({ ...item, messages: [...withUser, placeholder], tasks: item.tasks?.filter((task) => !input.regenerate || task.sourceMessageId !== thread.messages[thread.messages.length - 1]?.id), messageSequence: replyId, updatedAt: now })), now))
+  setPersonaState((state) => touch(updatePersonaThread(state, personaId, threadId, (item) => ({ ...item, messages: [...withUser, placeholder], tasks: item.tasks?.filter((task) => !input.regenerate || task.sourceMessageId === undefined || !replaced.has(task.sourceMessageId)), messageSequence: group ? replyId + PERSONA_GROUP_SEGMENT_CAP - 1 : replyId, updatedAt: now })), now))
   const controller = new AbortController()
   controllers.set(threadId, controller)
   setFlag('generating', threadId, true)
@@ -293,7 +334,17 @@ export async function generatePersonaReply(personaId: string, deps: PersonaRunti
     ...item,
     messages: item.messages.map((message) => message.id === replyId ? { ...message, text, ...extra } : message),
   })), busy)
-  const removeReply = () => setPersonaState((state) => updatePersonaThread(state, personaId, threadId, (item) => ({ ...item, messages: item.messages.filter((message) => message.id !== replyId) })))
+  const isReplySlot = (id: number) => group ? id >= replyId && id < replyId + PERSONA_GROUP_SEGMENT_CAP : id === replyId
+  const removeReply = () => setPersonaState((state) => updatePersonaThread(state, personaId, threadId, (item) => ({ ...item, messages: item.messages.filter((message) => !isReplySlot(message.id)) })))
+  // v234：多人接话——按【名字】切成几条消息（编号 replyId、replyId+1…），流式时也一样切，标记不显示。
+  type GroupPart = { speakerId: string; raw: string; text: string }
+  const groupParts = (raw: string, streaming: boolean): GroupPart[] => group ? splitGroupReply(raw, group, { userName: deps.user.name, streaming }).map((part) => ({ ...part, text: personaReplyText(part.raw) })) : []
+  const writeGroup = (parts: { speakerId: string; text: string; extra?: Partial<PersonaMessage> }[], busy = true) => setPersonaState((state) => updatePersonaThread(state, personaId, threadId, (item) => {
+    const slots = parts.length ? parts : [{ speakerId: defaultSpeaker, text: '' }]
+    const keep = item.messages.filter((message) => !isReplySlot(message.id))
+    return { ...item, messages: [...keep, ...slots.map((part, index): PersonaMessage => ({ id: replyId + index, role: 'assistant', text: part.text, createdAt: now, ...(index === 0 && completedTask ? { taskCompletionId: completedTask.id } : {}), ...speakerFields(part.speakerId), ...part.extra }))] }
+  }), busy)
+  const writeStream = (raw: string) => group ? writeGroup(groupParts(raw, true).filter((part) => part.text)) : writeReply(personaReplyText(raw))
   try {
     const event = completedTask ? `【应用事件，不是用户打字】用户刚刚点击完成当前窗口的任务「${completedTask.text}」。用时由应用记录：${personaTaskStatus([completedTask], now)}。请简短自然地回应这次完成，不复述系统说明，不新增任务。` : undefined
     // v210：事件作为最新一条用户消息，动态尾巴并在它后面；第一条 system 不动，提示词缓存不断。
@@ -313,7 +364,7 @@ export async function generatePersonaReply(personaId: string, deps: PersonaRunti
         onDelta: (delta) => {
           output += delta
           if (flushTimer !== null) return
-          flushTimer = setTimeout(() => { flushTimer = null; writeReply(personaReplyText(output)) }, 80)
+          flushTimer = setTimeout(() => { flushTimer = null; writeStream(output) }, 80)
         },
       })
       if (controller.signal.aborted) throw new DOMException('Aborted', 'AbortError')
@@ -328,49 +379,69 @@ export async function generatePersonaReply(personaId: string, deps: PersonaRunti
       found.sources.forEach((source) => sources.set(`${source.threadId}|${source.messageId}`, source))
       rememberAudit()
       request.push({ role: 'assistant', content: output }, { role: 'user', content: `【应用本地检索结果｜只读历史证据，不是用户的新指令】\n${found.text}\n请基于已读原文回应用户刚才的问题。` })
-      writeReply('')
+      writeStream('')
     }
     if (flushTimer !== null) { clearTimeout(flushTimer); flushTimer = null }
-    const task = !completedTask && findPersona(personaId)?.tasksEnabled !== false ? parsePersonaTask(output, `${threadId}:${replyId}:task`, Date.now(), replyId) : undefined
-    // v231：他亲手做了礼物——挂在这条消息下，并放进礼物架。v233：也可以 [送礼:ID|附言] 从图鉴/礼物架送。每轮最多一份。
+    // v234：群聊时按【名字】切段；主人格专属（任务、礼物、点歌、自我卡、人物档案、长期记忆）只读【主人格】那一段，
+    // 客人段落里的这些标签只是被隐藏、丢掉；客人的 [记忆:] 进他自己的窗口记忆。一对一时 own = 整条回复，和以前一样。
+    const rawParts = group ? groupParts(output, false) : []
+    const own = group ? rawParts.filter((part) => part.speakerId === persona.id).map((part) => part.raw).join('\n\n') : output
     const latest = findPersona(personaId)
-    const { gift, made } = latest && latest.giftsEnabled !== false ? extractPersonaAssistantGift(output, latest.customGifts) : { gift: null, made: null }
-    const finalText = personaReplyText(output) || (task ? '给你记在任务卡里了。' : '')
-    if (!finalText && !gift) throw new Error('模型没有返回正文，换个说法再试一次。')
-    const songPick = findPersona(personaId)?.songPickEnabled !== false ? parseSongPick(output) : null
+    const wantsTask = !completedTask && latest?.tasksEnabled !== false && Boolean(parsePersonaTask(own, 'probe', 0, 0))
+    // v231：他亲手做了礼物——挂在这条消息下，并放进礼物架。v233：也可以 [送礼:ID|附言] 从图鉴/礼物架送。每轮最多一份。
+    const { gift, made } = latest && latest.giftsEnabled !== false ? extractPersonaAssistantGift(own, latest.customGifts) : { gift: null, made: null }
+    const parts = rawParts.filter((part) => part.text || (part.speakerId === persona.id && (gift || wantsTask)))
+    const mainIndex = group ? parts.findIndex((part) => part.speakerId === persona.id) : 0
+    const mainReplyId = replyId + Math.max(0, mainIndex)
+    const task = wantsTask ? parsePersonaTask(own, `${threadId}:${mainReplyId}:task`, Date.now(), mainReplyId) : undefined
+    const finalText = personaReplyText(own) || (task ? '给你记在任务卡里了。' : '')
+    if (group ? !parts.length : !finalText && !gift) throw new Error('模型没有返回正文，换个说法再试一次。')
+    const songPick = findPersona(personaId)?.songPickEnabled !== false ? parseSongPick(own) : null
     // v211：他改了自己的卡——整栏替换、旧版进历史，消息下面挂一个小胶囊。
-    const selfEdit = findPersona(personaId)?.selfCardEnabled !== false ? parseSelfCardTag(output) : null
-    writeReply(finalText, { finishReason: result?.finishReason, ...(sources.size ? { recallSources: [...sources.values()] } : {}), songPick: songPick || undefined, selfCardEdit: selfEdit?.key, gift: gift || undefined }, false)
+    const selfEdit = findPersona(personaId)?.selfCardEnabled !== false ? parseSelfCardTag(own) : null
+    const ownExtra: Partial<PersonaMessage> = { songPick: songPick || undefined, selfCardEdit: selfEdit?.key, gift: gift || undefined }
+    const recall = sources.size ? { recallSources: [...sources.values()] } : {}
+    if (group) writeGroup(parts.map((part, index) => ({ speakerId: part.speakerId, text: index === mainIndex ? finalText : part.text, extra: { ...(index === mainIndex ? ownExtra : {}), ...(index === Math.max(0, mainIndex) ? recall : {}), ...(index === parts.length - 1 ? { finishReason: result?.finishReason } : {}) } })), false)
+    else writeReply(finalText, { finishReason: result?.finishReason, ...recall, ...ownExtra }, false)
     if (made) setPersonaState((state) => updatePersona(state, personaId, (item) => ({ ...item, customGifts: addPersonaGift(item.customGifts, made) })))
     if (selfEdit) setPersonaState((state) => updatePersona(state, personaId, (item) => setSelfCardSection(item, selfEdit.key, selfEdit.content, `他改了「${selfCardLabel(selfEdit.key)}」`)))
     // v207：他点了歌就切过去——每条回复只在生成完这一刻做一次，翻历史不会触发。
     if (songPick) autoPlaySongPick(`${threadId}:${replyId}:${now}`, songPick, useMusicStore.getState())
     // v232：TA 记下的人——只认她最近两条消息里出现过的名字（recordPeople 里把关）。
     const recordPeople = deps.peopleSelfRecord?.() ? deps.recordPeople : undefined
-    const personTags = recordPeople ? parsePersonTags(output) : []
+    const personTags = recordPeople ? parsePersonTags(own) : []
     if (recordPeople && personTags.length) {
       const userTexts = history.filter((message) => message.role === 'user' && message.text.trim()).slice(-2).map((message) => message.text)
-      const saved = recordPeople(personTags, userTexts, `${threadId}:${replyId}`)
+      const saved = recordPeople(personTags, userTexts, `${threadId}:${mainReplyId}`)
       if (saved.length) patchRuntime((current) => ({ ...current, peopleToasts: { ...current.peopleToasts, [personaId]: { text: `👥 记进人物档案：${saved.join('、')}`, seq: ++peopleToastSeq } } }))
     }
     const done = Date.now()
-    const sourceIds = [history.filter((message) => message.role === 'user').slice(-1)[0]?.id, replyId].filter((id): id is number => id !== undefined)
-    const saves = personaMemorySaves(output, threadId, sourceIds, done)
+    const lastUserId = history.filter((message) => message.role === 'user').slice(-1)[0]?.id
+    const sourceIds = [lastUserId, mainReplyId].filter((id): id is number => id !== undefined)
+    const saves = personaMemorySaves(own, threadId, sourceIds, done)
+    const guestSaves = parts.map((part, index) => ({ guestId: part.speakerId, entries: isGuestId(part.speakerId) ? personaMemorySaves(part.raw, threadId, [lastUserId, replyId + index].filter((id): id is number => id !== undefined), done) : [] })).filter((item) => item.entries.length)
     setPersonaState((state) => {
-      const withMemory = updatePersona(state, personaId, (item) => ({ ...item, memories: mergePersonaMemories(item.memories, saves) }))
+      const withMemory = updatePersona(state, personaId, (item) => guestSaves.reduce((acc, save) => addGuestMemories(acc, save.guestId, save.entries, mergePersonaMemories), saves.length || !guestSaves.length ? { ...item, memories: mergePersonaMemories(item.memories, saves) } : item))
       return touch(updatePersonaThread(withMemory, personaId, threadId, (item) => ({ ...commitPersonaRecallLedger(item, [...sources.keys(), ...plan.memory.pastLifeKeys], plan.memory.turn), ...(completedTask ? { tasks: item.tasks?.map((entry) => entry.id === completedTask.id ? { ...entry, reactedAt: done } : entry) } : task && !item.tasks?.some((existing) => taskIsActive(existing) && existing.text === task.text) ? { tasks: [...(item.tasks || []), task] } : {}), updatedAt: done })), done)
     })
+    // v234：客人在场的新消息攒够了，就在后台按他的视角整理进他自己的窗口记忆。
+    if (group) setTimeout(() => { void extractGuestMemories(personaId, deps, { threadId, every: PERSONA_GUEST_MEMORY_EVERY }) }, 2400)
     setTimeout(() => {
       void maybeCompressPersonaContext(personaId, deps, threadId)
     }, 1200)
   } catch (error) {
     if (flushTimer !== null) { clearTimeout(flushTimer); flushTimer = null }
     const partial = personaReplyText(output)
+    const partialParts = group ? groupParts(output, true).filter((part) => part.text) : []
+    const keepPartial = (finishReason: string) => group
+      ? writeGroup(partialParts.map((part, index) => ({ speakerId: part.speakerId, text: part.text, ...(index === partialParts.length - 1 ? { extra: { finishReason } } : {}) })), false)
+      : writeReply(partial, { finishReason }, false)
+    const hasPartial = group ? partialParts.length > 0 : Boolean(partial)
     if (controller.signal.aborted) {
-      if (partial) writeReply(partial, { finishReason: 'stop' }, false)
+      if (hasPartial) keepPartial('stop')
       else removeReply()
     } else {
-      if (partial) writeReply(partial, { finishReason: 'error' }, false)
+      if (hasPartial) keepPartial('error')
       else removeReply()
       setPersonaError(threadId, error instanceof Error ? error.message : '回复失败，请稍后再试。')
     }
@@ -384,7 +455,7 @@ export function stopPersonaReply(threadId: string) {
   controllers.get(threadId)?.abort()
 }
 
-type MemoryDeps = Pick<PersonaRuntimeDeps, 'character' | 'user' | 'memoryApi'>
+type MemoryDeps = Pick<PersonaRuntimeDeps, 'character' | 'user' | 'memoryApi'> & Partial<Pick<PersonaRuntimeDeps, 'characters'>>
 
 async function extractThreadMemory(persona: PersonaWindow, thread: PersonaThread, deps: MemoryDeps) {
   const pending = pendingPersonaMemoryMessages(thread).slice(0, PERSONA_MEMORY_BATCH)
@@ -399,7 +470,7 @@ async function extractThreadMemory(persona: PersonaWindow, thread: PersonaThread
     onDelta: (delta) => { raw += delta },
     messages: [
       { role: 'system', content: applyMacros(personaMemoryExtractionPrompt, character, deps.user.name) },
-      { role: 'user', content: `角色：${character.name}\n用户：${deps.user.name}\n\n已有记忆（仅供查重）：\n${known}\n\n本次新增对话：\n${transcript}` },
+      { role: 'user', content: `角色：${character.name}\n用户：${deps.user.name}\n\n已有记忆（仅供查重）：\n${known}\n\n本次新增对话：\n${transcript}${pending.some(isGuestMessage) ? `\n\n（其中有临时加入这扇窗口的客人在说话；只整理与${character.name}和${deps.user.name}有关、${character.name}在场知道的事，客人自己的设定和经历不记成${character.name}的。）` : ''}` },
     ],
   })
   const parsed = parsePersonaMemoryCandidates(raw)
@@ -426,6 +497,9 @@ export async function extractPersonaMemory(personaId: string, deps: MemoryDeps, 
   if (!persona || runtime.memoryBusy[personaId]) return
   const targets = (threadId ? persona.threads.filter((item) => item.id === threadId) : persona.threads)
     .filter((thread) => pendingPersonaMemoryMessages(thread).length >= 2)
+  // v234：手动整理时顺带整理客人的窗口记忆（各记各的）。
+  const guestsPending = manual && (persona.guests || []).some((guest) => persona.threads.some((thread) => pendingGuestMessages(thread, guest.id).length >= 2))
+  if (!targets.length && guestsPending) { await extractGuestMemories(personaId, deps, { manual: true }); return }
   if (!targets.length) { if (manual) setNotice(personaId, '新增对话不足 2 条，暂时没有可整理的内容。'); return }
   if (!isApiChannelComplete(deps.memoryApi)) { if (manual) setNotice(personaId, '记忆 API 未配置完整（设置 → 长记忆，或这个人格的聊天渠道）。'); return }
   setFlag('memoryBusy', personaId, true)
@@ -443,6 +517,63 @@ export async function extractPersonaMemory(personaId: string, deps: MemoryDeps, 
   } finally {
     setFlag('memoryBusy', personaId, false)
   }
+  if (guestsPending) await extractGuestMemories(personaId, deps, { manual: true, quiet: true })
+}
+
+/**
+ * v234：客人的窗口记忆。只读他在场时的消息（message.present / speakerId），按他的视角整理，
+ * 只写进 persona.guests[i].memories，不碰主人格的长期记忆、人物档案、礼物。
+ * every：自动整理的门槛；guestId 不传 = 所有有新内容的客人。
+ */
+export async function extractGuestMemories(personaId: string, deps: MemoryDeps, options: { guestId?: string; threadId?: string; manual?: boolean; quiet?: boolean; every?: number } = {}) {
+  const persona = findPersona(personaId)
+  if (!persona?.guests?.length) return 0
+  if (!options.manual && persona.autoMemory === false) return 0
+  if (!isApiChannelComplete(deps.memoryApi)) { if (options.manual && !options.quiet) setNotice(personaId, '记忆 API 未配置完整（设置 → 长记忆，或这个人格的聊天渠道）。'); return 0 }
+  const every = options.manual ? 2 : Math.max(2, options.every || PERSONA_GUEST_MEMORY_EVERY)
+  const guests = persona.guests.filter((guest) => !options.guestId || guest.id === options.guestId)
+  let added = 0
+  const touched: string[] = []
+  for (const guest of guests) {
+    const busyKey = `${personaId}:${guest.id}`
+    if (runtime.memoryBusy[busyKey]) continue
+    const threads = persona.threads.filter((thread) => !options.threadId || thread.id === options.threadId)
+    const work = threads.map((thread) => ({ thread, pending: pendingGuestMessages(thread, guest.id).slice(0, PERSONA_MEMORY_BATCH) })).filter((item) => item.pending.length >= every)
+    if (!work.length) continue
+    setFlag('memoryBusy', busyKey, true)
+    try {
+      for (const { thread, pending } of work) {
+        const live = findPersona(personaId)
+        const liveGuest = live?.guests?.find((item) => item.id === guest.id)
+        if (!live || !liveGuest) break
+        const resolved = resolveGuest(liveGuest, deps.characters)
+        const transcript = personaContinuityTranscript(pending, { char: deps.character.name, user: deps.user.name })
+        const known = clipPersonaText(liveGuest.memories.slice(-40).map((item) => `- ${item.title}：${clipPersonaText(item.content, 200)}`).join('\n'), 3000) || '暂无'
+        let raw = ''
+        await completeChat({
+          api: deps.memoryApi, temperature: .2, topP: 1, maxTokens: 2000, streaming: false, signal: new AbortController().signal,
+          onDelta: (delta) => { raw += delta },
+          messages: [
+            { role: 'system', content: guestMemoryExtractionPrompt(resolved, deps.user.name, deps.character.name) },
+            { role: 'user', content: `客人：${resolved.name}\n用户：${deps.user.name}\n窗口主人：${deps.character.name}\n\n${resolved.name}已有的记忆（仅供查重）：\n${known}\n\n本次新增对话（${resolved.name}在场）：\n${transcript}` },
+          ],
+        })
+        const parsed = parsePersonaMemoryCandidates(raw)
+        if (!parsed) throw new Error('记忆整理结果无法读取')
+        const entries = parsed.map((entry) => ({ ...entry, sourceThreadId: thread.id, sourceMessageIds: pending.map((message) => message.id) }))
+        const throughId = pending[pending.length - 1].id
+        setPersonaState((state) => updatePersona(state, personaId, (item) => addGuestMemories(item, guest.id, entries, mergePersonaMemories, { threadId: thread.id, throughId })))
+        added += entries.length
+        if (entries.length && !touched.includes(resolved.name)) touched.push(resolved.name)
+      }
+    } catch (error) {
+      if (options.manual) setNotice(personaId, `客人记忆整理失败：${error instanceof Error ? error.message : '请稍后再试'}`)
+    } finally {
+      setFlag('memoryBusy', busyKey, false)
+    }
+  }
+  if (options.manual) setNotice(personaId, added ? `${options.quiet ? (runtime.notices[personaId] || '').replace(/。?$/, '；') : ''}客人记忆新增 ${added} 条（${touched.join('、')}各记各的）。` : options.quiet ? runtime.notices[personaId] || '' : '客人这一段没有需要记住的新内容。')
+  return added
 }
 
 /** 后台上下文压缩（同长剧情规则：240 条触发，保留最近 max(96, 记忆长度) 条原文）。 */

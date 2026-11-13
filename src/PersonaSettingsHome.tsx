@@ -1,6 +1,6 @@
 import type { PointerEvent } from 'react'
 
-export type PersonaSettingsPanel = 'home' | 'model' | 'prompts' | 'appearance' | 'tasks' | 'selfCard' | 'period' | 'lifePeople' | 'gifts'
+export type PersonaSettingsPanel = 'home' | 'model' | 'prompts' | 'appearance' | 'tasks' | 'selfCard' | 'period' | 'lifePeople' | 'gifts' | 'group'
 type Tap = (action: () => void) => { onPointerUp: (event: PointerEvent) => void; onClick: () => void }
 type IconName = 'gift' | 'selfCard' | 'prompt' | 'memory' | 'past' | 'windows' | 'model' | 'people' | 'appearance' | 'music' | 'period' | 'person'
 const ICONS: Record<IconName, string> = {
@@ -29,7 +29,7 @@ function Row({ icon, title, description, value, onSelect, tap }: { icon: IconNam
   </button>
 }
 
-export default function PersonaSettingsHome({ promptLength, memoryCount, threadCount, threadTitle, channelName, modelName, pastLifeEnabled, onNavigate, onThreads, onMemory, onManage, onTogglePastLife, trackCount = 0, songPickEnabled = true, onMusic, onToggleSongPick, selfCardLength = 0, giftCount, periodLabel, peopleCount, personaCount, onSwitchPersona, tap }: {
+export default function PersonaSettingsHome({ promptLength, memoryCount, threadCount, threadTitle, channelName, modelName, pastLifeEnabled, onNavigate, onThreads, onMemory, onManage, onTogglePastLife, trackCount = 0, songPickEnabled = true, onMusic, onToggleSongPick, selfCardLength = 0, giftCount, periodLabel, peopleCount, personaCount, onSwitchPersona, groupLabel, tap }: {
   promptLength: number; memoryCount: number; threadCount: number; threadTitle: string; channelName: string; modelName: string; pastLifeEnabled: boolean
   onNavigate: (panel: PersonaSettingsPanel) => void; onThreads: () => void; onMemory: () => void; onManage: () => void; onTogglePastLife: () => void
   /** v207 一起听歌 */
@@ -41,7 +41,9 @@ export default function PersonaSettingsHome({ promptLength, memoryCount, threadC
   /** v230 她的生活：经期记录、人物档案（不传就不显示） */
   periodLabel?: string; peopleCount?: number
   /** v230 切换人格（原顶栏中间的入口） */
-  personaCount?: number; onSwitchPersona?: () => void; tap: Tap
+  personaCount?: number; onSwitchPersona?: () => void
+  /** v234 临时群聊（不传就不显示） */
+  groupLabel?: string; tap: Tap
 }) {
   return <div className="persona-settings-home">
     <p className="persona-settings-caption">你们的相处</p>
@@ -73,6 +75,7 @@ export default function PersonaSettingsHome({ promptLength, memoryCount, threadC
     <p className="persona-settings-caption">窗口与连接</p>
     <section className="persona-settings-group" aria-label="窗口与连接">
       <Row icon="windows" title="聊天窗口" description={threadTitle || '在左侧栏查看、新开与整理窗口'} value={`${threadCount} 个`} onSelect={onThreads} tap={tap} />
+      {groupLabel !== undefined && <Row icon="people" title="群聊成员" description="拉人进来临时群聊 · @ 点名或自然接话" value={groupLabel} onSelect={() => onNavigate('group')} tap={tap} />}
       <Row icon="model" title="模型与渠道" description={modelName || '选择这个人格使用的回复模型'} value={channelName} onSelect={() => onNavigate('model')} tap={tap} />
       {onSwitchPersona && <Row icon="people" title={`切换人格${personaCount ? `（共 ${personaCount} 位）` : ''}`} description="在你开启的人格之间切换" onSelect={onSwitchPersona} tap={tap} />}
       <Row icon="people" title="管理人格" description="添加、切换与收纳你的独立人格" onSelect={onManage} tap={tap} />
