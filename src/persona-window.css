@@ -267,6 +267,9 @@ button.persona-settings-row:active { background: var(--theme-accent-soft); }
 .persona-task-pin-more { flex: 0 0 auto; align-self: flex-end; padding: 5px 12px; border: 1px solid var(--theme-accent-soft-strong); border-radius: 999px; background: rgba(255,255,255,.94); color: var(--theme-accent-text); box-shadow: 0 4px 12px rgba(62,43,75,.10); font: inherit; font-size: 12px; font-weight: 700; }
 @keyframes persona-task-pin-in { from { opacity: 0; transform: translateY(-8px) scale(.96); } }
 .has-task-pin .persona-message-list { padding-top: calc(76px + var(--persona-task-pin-rows, 1) * 62px + env(safe-area-inset-top)); }
+/* v235：音乐小浮窗在右上角时，任务卡往下让一格，避免叠在唱片上 */
+body:has(.wj-music-float) .persona-task-pins { top: calc(72px + 58px + env(safe-area-inset-top)); }
+body:has(.wj-music-float) .has-task-pin .persona-message-list { padding-top: calc(76px + 58px + var(--persona-task-pin-rows, 1) * 62px + env(safe-area-inset-top)); }
 .persona-task-toast { position: fixed; z-index: 90; top: calc(70px + env(safe-area-inset-top)); left: 50%; transform: translateX(-50%); width: min(360px, calc(100vw - 32px)); display: flex; align-items: center; gap: 8px; padding: 12px; border: 1px solid var(--theme-accent-soft-strong); border-radius: 18px; background: #fffaf5; color: #695349; box-shadow: 0 8px 28px rgba(75,44,26,.15); }
 .persona-task-toast > div { flex: 1; min-width: 0; }
 .persona-task-toast strong, .persona-task-toast small { display: block; font-size: 12px; line-height: 1.6; overflow-wrap: anywhere; }

@@ -5002,7 +5002,7 @@ function UpdateCard() {
     }
   }
 
-  return <section className="update-card"><strong>应用更新</strong><p>主动检查并拉取最新网页版本，不会删除角色、聊天记录或本地设置。</p><small>当前版本：v234 · 2026.11.13 人格窗口可以临时群聊了：••• 设置 →「群聊成员」，从角色卡或手写简卡把人拉进来，随时请出、再拉回时记忆还在。两种回复方式：「@ 点名」你 @ 谁谁说（点几个按顺序各回一条，没 @ 就是 TA），「自然接话」由大家自己接戏、每轮最多 3 人。客人有自己的人设、世界观和窗口记忆，不进 TA 的长期记忆；只有 TA 一个人时一切照旧。</small><button onClick={refresh} disabled={state === 'checking'}>{state === 'checking' ? '正在检查更新…' : state === 'error' ? '更新失败，点我重试' : '强制刷新到最新版'}</button></section>
+  return <section className="update-card"><strong>应用更新</strong><p>主动检查并拉取最新网页版本，不会删除角色、聊天记录或本地设置。</p><small>当前版本：v235 · 2026.11.13 音乐小浮窗开着时，任务卡往下让一格，不再叠在唱片上。</small><button onClick={refresh} disabled={state === 'checking'}>{state === 'checking' ? '正在检查更新…' : state === 'error' ? '更新失败，点我重试' : '强制刷新到最新版'}</button></section>
 }
 
 function PersonaPage({ identities, selectedId, isBound, onSelect, onAdd, onDelete, onUpdate, onBack }: { identities: UserIdentity[]; selectedId: string; isBound: boolean; onSelect: (id: string) => void; onAdd: () => void; onDelete: (id: string) => void; onUpdate: (patch: Partial<UserIdentity>) => void; onBack: () => void }) {
