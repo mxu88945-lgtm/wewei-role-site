@@ -140,7 +140,8 @@ describe('提示词 (v234)', () => {
     expect(system).toContain('阿七的世界观：\n武侠世界。')
     expect(system).toContain('周惟惟爱吃阳春面')
     expect(system).toContain('林栖是虞山行的师弟，爱笑。')
-    expect(system).toContain('林栖的世界观：\n江湖客栈。')
+    expect(system).not.toContain('江湖客栈')
+    expect(system).toContain('借人不借戏')
     expect(system).toContain('【回复模式｜@ 点名】')
     expect(system).not.toContain('本轮依次')
     const last = plan.messages[plan.messages.length - 1]

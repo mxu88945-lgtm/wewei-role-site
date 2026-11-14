@@ -33,7 +33,7 @@ export type PersonaGuest = {
 }
 
 export type GroupSpeaker = { id: string; name: string; avatar?: string; main: boolean }
-export type ResolvedGuest = GroupSpeaker & { persona: string; world: string; memories: PersonaMemoryEntry[] }
+export type ResolvedGuest = GroupSpeaker & { persona: string; world: string; memories: PersonaMemoryEntry[]; fromCard?: boolean }
 
 /** 同时在场的客人上限（不含主人格）。 */
 export const PERSONA_GROUP_GUEST_LIMIT = 6
@@ -117,8 +117,9 @@ export function resolveGuest(guest: PersonaGuest, characters: readonly CardLike[
   const name = (card?.name || guest.name).trim() || guest.name
   const cardPersona = card ? [card.description, card.personality].map((part) => stripPersonaFormatInstructions(part || '')).filter((part) => part.trim()).join('\n') : ''
   const persona = (guest.persona?.trim() || cardPersona).replace(/\{\{char\}\}/gi, name)
-  const world = (guest.world?.trim() || (card ? stripPersonaFormatInstructions(card.scenario || '') : '')).replace(/\{\{char\}\}/gi, name)
-  return { id: guest.id, name, avatar: guest.avatar || card?.avatar, main: false, persona: clip(persona.trim(), GUEST_PERSONA_MAX), world: clip(world.trim(), GUEST_WORLD_MAX), memories: guest.memories }
+  // v237：角色卡客人不再自动带原卡开局场景（那是原卡的剧情），只有她在这里手写的世界观才生效。
+  const world = (guest.world?.trim() || '').replace(/\{\{char\}\}/gi, name)
+  return { id: guest.id, name, avatar: guest.avatar || card?.avatar, main: false, fromCard: Boolean(card), persona: clip(persona.trim(), GUEST_PERSONA_MAX), world: clip(world.trim(), GUEST_WORLD_MAX), memories: guest.memories }
 }
 
 /** 这扇窗口此刻在场的客人（按拉进来的顺序；库里已删掉的不算）。 */
@@ -203,7 +204,7 @@ export function buildGroupSystemBlock(plan: Pick<GroupTurnPlan, 'mode' | 'guests
   const allowed = [names.char, ...plan.guests.map((guest) => guest.name)]
   const cards = plan.guests.map((guest) => [
     `〔${guest.name}｜临时加入的客人〕`,
-    guest.persona && `人设：\n${guest.persona}`,
+    guest.persona && (guest.fromCard ? `人设（借自原角色卡，只取性格、说话方式、外貌与身份气质）：\n${guest.persona}` : `人设：\n${guest.persona}`),
     guest.world && `${guest.name}的世界观：\n${guest.world}`,
     memoryLines(guest.memories) && `${guest.name}在这扇窗口里记得的事（只属于${guest.name}）：\n${memoryLines(guest.memories)}`,
   ].filter(Boolean).join('\n')).join('\n\n')
@@ -219,6 +220,7 @@ ${mode}
 【群聊回复格式】
 - 每位发言人单独一段，段首另起一行写【名字】，名字只能是：${allowed.join('、')}。这个标记只给应用看，会被隐藏，不会显示给她。
 - 每段只写这个人自己的话和简短动作；不替别人说话，不替${names.user}发言、行动或决定。
+- 从角色卡拉来的客人是“借人不借戏”：原卡里的剧情、人物关系、恩怨和与${names.user}或任何人的过往一律不作数；原卡里的其他人物不在场，也不要提起。他是第一次走进这扇窗口，和在场的人原本素不相识，彼此的关系只从这扇窗口里发生的事开始（他自己的窗口记忆和【他的世界观】另有写明的除外）。
 - 客人各按自己的人设与世界观说话，只知道自己在场时发生的事；${names.char}的长期记忆、前世记忆和与${names.user}的私事，客人并不知道。
 - 礼物、人物档案、自我卡、点歌和任务卡只属于${names.char}，只能写在【${names.char}】那一段；客人段落里不要写这些标记（写了也会被丢掉）。客人想记住的事，可以在自己那段末尾写 [记忆:一句话]，只记进他自己的窗口记忆。`
 }
