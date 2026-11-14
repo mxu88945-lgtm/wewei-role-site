@@ -1,4 +1,4 @@
-const CACHE_NAME = 'weijing-shell-v240'
+const CACHE_NAME = 'weijing-shell-v241'
 const APP_ROOT = '/wewei-role-site/'
 // v218：布丁来信的两张布丁狗图，安装时先放进缓存，离线也能显示。
 // v239：谢聿衡 Q 版立绘 9 张表情也先缓存，换表情离线也不白。

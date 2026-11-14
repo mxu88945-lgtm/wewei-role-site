@@ -4,11 +4,13 @@
  * - 有歌在放（或放到一半暂停）时右上角出一个小胶囊：当前歌词 + 上一首/播放/下一首；点唱片收起/展开。
  * - 播完自动下一首，按歌单顺序循环。
  * - 正在放的歌、当前几句歌词、歌单同步进 musicStore，发请求时注入【一起听歌】。
+ * - v241：「换词/+词」先选「粘贴歌词」或「从文件选」；网上找不到时直接把歌词贴进来。没时间轴的歌词静态列出来。
  * 不用 backdrop-filter（压在消息区上会卡）。
  */
 import { useEffect, useRef, useState } from 'react'
 import { createPortal } from 'react-dom'
 import { fetchLyricCandidates, isTimed, lyricIndexAt, parseLyrics, shiftLyrics, type LyricLine } from './lyrics'
+import { isNoLyricsHint, LYRIC_PASTE_PLACEHOLDER, lyricPasteAction, staticLyricTexts } from './lyricPaste'
 import { findTrackByTitle, musicDel, musicGet, musicSet, musicTrackId, useMusicStore, type MusicCommand, type MusicTrack } from './musicStore'
 import './music.css'
 
@@ -45,6 +47,11 @@ export default function MusicPlayer({ hideFloat = false }: { hideFloat?: boolean
   const lyricForRef = useRef('')
   const triedRef = useRef(new Set<string>())
   const candRef = useRef(new Map<string, { list: string[]; idx: number }>())
+  // v241：歌单行「换词/+词」先弹一个小选择；「粘贴歌词」打开粘贴面板
+  const [lyricChoice, setLyricChoice] = useState<MusicTrack | null>(null)
+  const [paste, setPaste] = useState<{ id: string; name: string; text: string; had: boolean } | null>(null)
+  const [pasteBusy, setPasteBusy] = useState(false)
+  const pasteRef = useRef<HTMLTextAreaElement>(null)
   const stateRef = useRef({ tracks, activeId })
   stateRef.current = { tracks, activeId }
   const active = tracks.find((t) => t.id === activeId) ?? tracks[0]
@@ -102,7 +109,7 @@ export default function MusicPlayer({ hideFloat = false }: { hideFloat?: boolean
       const list = await fetchLyricCandidates(t.name, await waitDuration())
       candRef.current.set(id, { list, idx: 0 })
       const text = list[0] || ''
-      if (!text || !parseLyrics(text).length) { if (loadedRef.current === id) setHint('没找到歌词，可以点「+词」自己加'); return }
+      if (!text || !parseLyrics(text).length) { if (loadedRef.current === id) setHint('没找到歌词，可以点「粘贴歌词」自己贴进来'); return }
       await musicSet(`lyric:${id}`, text)
       setHasLyrics(id, true)
       if (loadedRef.current === id) { setLyrics(shiftLyrics(parseLyrics(text), getOffset(id))); setHint('') }
@@ -196,6 +203,42 @@ export default function MusicPlayer({ hideFloat = false }: { hideFloat?: boolean
       setHasLyrics(id, true)
       if (loadedRef.current === id) await loadLyrics(id)
     } catch (e) { setErr(`歌词保存失败：${(e as Error).message}`) }
+  }
+
+  function pickLyricFile(id: string) {
+    setLyricChoice(null)
+    lyricForRef.current = id
+    lyricFileRef.current?.click()
+  }
+
+  async function openPaste(t: MusicTrack) {
+    setLyricChoice(null)
+    const saved = await musicGet<string>(`lyric:${t.id}`).catch(() => null)
+    const text = typeof saved === 'string' ? saved : ''
+    setPaste({ id: t.id, name: t.name, text, had: Boolean(text.trim()) })
+  }
+
+  async function savePaste(raw: string) {
+    if (!paste || pasteBusy) return
+    const { id } = paste
+    const action = lyricPasteAction(raw)
+    setPasteBusy(true)
+    try {
+      if (action.kind === 'clear') {
+        await musicDel(`lyric:${id}`)
+        setHasLyrics(id, false)
+        triedRef.current.add(id) // 她亲手清掉的，别马上又去网上找
+        if (loadedRef.current === id) { setLyrics([]); setHint('') }
+      } else {
+        await musicSet(`lyric:${id}`, action.text)
+        setHasLyrics(id, true)
+        triedRef.current.add(id)
+        if (!paste.had) { try { localStorage.removeItem(offsetKey(id)) } catch { /* ignore */ } }
+        if (loadedRef.current === id) await loadLyrics(id)
+      }
+      setErr('')
+      setPaste(null)
+    } catch (e) { setErr(`歌词保存失败：${(e as Error).message}`) } finally { setPasteBusy(false) }
   }
 
   async function onFiles(files: FileList | null) {
@@ -308,7 +351,13 @@ export default function MusicPlayer({ hideFloat = false }: { hideFloat?: boolean
     return () => { for (const a of ['play', 'pause', 'previoustrack', 'nexttrack'] as MediaSessionAction[]) set(a, null) }
   }, [])
 
-  useEffect(() => { if (!sheetOpen) { setManaging(false); setPicked(new Set()) } }, [sheetOpen])
+  useEffect(() => { if (!sheetOpen) { setManaging(false); setPicked(new Set()); setLyricChoice(null); setPaste(null) } }, [sheetOpen])
+
+  // v241 粘贴面板：挂载时立刻写入可见高度（键盘弹起时贴在键盘上方）
+  const pasteOpen = Boolean(paste)
+  useEffect(() => {
+    if (pasteOpen) (window as Window & { __weijingApplyAppHeight?: () => void }).__weijingApplyAppHeight?.()
+  }, [pasteOpen])
 
   const loaded = Boolean(active && loadedRef.current === active.id)
   const timed = isTimed(lyrics)
@@ -316,6 +365,7 @@ export default function MusicPlayer({ hideFloat = false }: { hideFloat?: boolean
   const curLine: LyricLine | undefined = timed && li >= 0 ? lyrics[li] : undefined
   const nextLine: LyricLine | undefined = timed ? lyrics[li + 1] : undefined
   // v200：只在换句时写进 store，剧情美化卡的唱片机条据此显示当前这句歌词。
+  const staticLines = loaded ? staticLyricTexts(lyrics) : []
   const publishedLine = timed ? li : -1
   useEffect(() => { useMusicStore.getState().setLyricIndex(publishedLine) }, [publishedLine])
   const inputs = <>
@@ -345,8 +395,10 @@ export default function MusicPlayer({ hideFloat = false }: { hideFloat?: boolean
       </div>
       {active && loaded && <div className="wj-music-lyric-tools">
         {timed && <><button type="button" onClick={() => nudge(active.id, -0.5)}>提前 0.5s</button><span>{offsetView > 0 ? '+' : ''}{offsetView.toFixed(1)}s</span><button type="button" onClick={() => nudge(active.id, 0.5)}>延后 0.5s</button></>}
-        <button type="button" className="push" onClick={() => void nextVersion(active.id)}>换一版歌词</button>
+        {isNoLyricsHint(hint) && <button type="button" className="push" onClick={() => void openPaste(active)}>粘贴歌词</button>}
+        <button type="button" className={isNoLyricsHint(hint) ? '' : 'push'} onClick={() => void nextVersion(active.id)}>换一版歌词</button>
       </div>}
+      {staticLines.length > 0 && !hint && <div className="wj-music-static-lyrics" aria-label="歌词">{staticLines.map((line, i) => <p key={i}>{line}</p>)}</div>}
       {err && <p className="wj-music-error">{err}</p>}
       {tracks.length > 0 && <div className="wj-music-list-head">
         {managing ? <>
@@ -367,13 +419,37 @@ export default function MusicPlayer({ hideFloat = false }: { hideFloat?: boolean
           </button>
           : <div key={t.id} className={t.id === active?.id ? 'current' : ''}>
             <button type="button" className="name" onClick={() => void playTrack(t.id)}>{t.name}</button>
-            <button type="button" className="mini" onClick={() => { lyricForRef.current = t.id; lyricFileRef.current?.click() }}>{t.hasLyrics ? '换词' : '+词'}</button>
+            <button type="button" className="mini" onClick={() => setLyricChoice(t)}>{t.hasLyrics ? '换词' : '+词'}</button>
             <button type="button" className="mini danger" aria-label="删除" onClick={() => del(t)}>×</button>
           </div>)}
         {!tracks.length && <p className="wj-music-empty">歌只存在这台手机里 ♡ 原唱的歌词最准。</p>}
       </div>
       {!managing &&       <button type="button" className="wj-music-add" onClick={() => { importWantRef.current = null; fileRef.current?.click() }}>＋ 导入音乐（可连同同名 .lrc 一起选）</button>}
     </section>
+    {lyricChoice && createPortal(<div className="wj-lyric-choice-layer" role="dialog" aria-modal="true" aria-label="加歌词">
+      <button type="button" className="wj-music-backdrop" aria-label="关闭" onClick={() => setLyricChoice(null)} />
+      <div className="wj-lyric-choice">
+        <small>{lyricChoice.name}</small>
+        <button type="button" onClick={() => void openPaste(lyricChoice)}>粘贴歌词</button>
+        <button type="button" onClick={() => pickLyricFile(lyricChoice.id)}>从文件选</button>
+        <button type="button" className="cancel" onClick={() => setLyricChoice(null)}>取消</button>
+      </div>
+    </div>, document.body)}
+    {paste && createPortal(<div className="wj-lyric-paste-layer" role="dialog" aria-modal="true" aria-label="粘贴歌词">
+      <button type="button" className="wj-music-backdrop" aria-label="取消" onClick={() => setPaste(null)} />
+      <form className="wj-lyric-paste" onSubmit={(e) => { e.preventDefault(); void savePaste(pasteRef.current?.value ?? '') }}>
+        <div className="wj-lyric-paste-title">
+          <strong>{paste.name}</strong>
+          {paste.had && <button type="button" onClick={() => { if (pasteRef.current) pasteRef.current.value = ''; pasteRef.current?.focus() }}>清空</button>}
+        </div>
+        <textarea ref={pasteRef} defaultValue={paste.text} placeholder={LYRIC_PASTE_PLACEHOLDER} aria-label="歌词" spellCheck={false} autoCapitalize="off" autoCorrect="off"
+          onFocus={(e) => { const el = e.currentTarget; window.setTimeout(() => el.scrollIntoView({ block: 'center' }), 320) }} />
+        <div className="wj-lyric-paste-actions">
+          <button type="button" onClick={() => setPaste(null)}>取消</button>
+          <button type="submit" className="strong" disabled={pasteBusy}>{pasteBusy ? '保存中…' : '保存'}</button>
+        </div>
+      </form>
+    </div>, document.body)}
   </div>, document.body)
 
   // v200：剧情美化卡开着时聊天页不显示小浮窗（卡上有自己的唱片机）。只是不渲染按钮，

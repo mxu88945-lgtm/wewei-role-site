@@ -54,3 +54,30 @@
 .wj-music-pick .box { flex: none; width: 18px; height: 18px; display: flex; align-items: center; justify-content: center; border-radius: 50%; border: 1.5px solid rgba(120,90,70,.3); font-size: 11px; line-height: 1; color: #fff; }
 .wj-music-pick.on .box { border-color: var(--theme-accent, #b98a74); background: var(--theme-accent, #b98a74); }
 .wj-music-list .wj-music-pick .name { padding: 0; }
+
+/* v241 没时间轴的歌词：静态列出来 */
+.wj-music-static-lyrics { max-height: 168px; overflow-y: auto; -webkit-overflow-scrolling: touch; margin: 0 0 10px; padding: 10px 12px; border-radius: 14px; background: rgba(185,138,116,.07); font-size: 13px; line-height: 1.75; color: #5e4c42; text-align: center; }
+.wj-music-static-lyrics p { margin: 0; }
+
+/* v241 歌单行「换词/+词」→ 选：粘贴歌词 / 从文件选 */
+.wj-lyric-choice-layer { position: fixed; inset: 0; z-index: 97; display: flex; align-items: flex-end; }
+.wj-lyric-choice { position: relative; width: 100%; padding: 14px 18px calc(16px + env(safe-area-inset-bottom)); border-radius: 22px 22px 0 0; background: #fffaf5; color: #4d3d35; box-shadow: 0 -8px 30px rgba(60,40,30,.16); display: flex; flex-direction: column; gap: 8px; }
+.wj-lyric-choice small { font-size: 12px; color: #8a766b; text-align: center; overflow: hidden; white-space: nowrap; text-overflow: ellipsis; }
+.wj-lyric-choice button { border: 1px solid rgba(120,90,70,.16); background: #fff; border-radius: 14px; padding: 12px; font-size: 15px; color: #4d3d35; }
+.wj-lyric-choice button.cancel { border: 0; background: none; color: #8a766b; font-size: 14px; padding: 8px; }
+
+/* v241 粘贴歌词：index.html 给这一层写入可见高度，键盘弹起时整张卡片贴在键盘上方 */
+.wj-lyric-paste-layer { position: fixed; inset: 0; z-index: 98; display: flex; align-items: flex-end; }
+.wj-lyric-paste { position: relative; width: 100%; max-height: calc(100% - 24px - env(safe-area-inset-top)); display: flex; flex-direction: column; gap: 10px; padding: 16px 18px calc(16px + env(safe-area-inset-bottom)); border-radius: 22px 22px 0 0; background: #fffaf5; color: #4d3d35; box-shadow: 0 -8px 30px rgba(60,40,30,.16); }
+.wj-lyric-paste-title { display: flex; align-items: baseline; gap: 8px; min-width: 0; }
+.wj-lyric-paste-title strong { flex: 1; min-width: 0; font-size: 15px; overflow: hidden; white-space: nowrap; text-overflow: ellipsis; }
+.wj-lyric-paste-title button { flex: none; border: 0; background: none; padding: 2px 4px; font-size: 12px; color: #b4413a; }
+.wj-lyric-paste textarea { flex: 1 1 auto; min-height: 120px; height: 42vh; width: 100%; box-sizing: border-box; resize: none; border: 1px solid rgba(120,90,70,.18); border-radius: 14px; background: #fff; padding: 10px 12px; font-size: 16px; line-height: 1.6; color: #4d3d35; font-family: inherit; -webkit-overflow-scrolling: touch; }
+.wj-lyric-paste textarea:focus { outline: none; border-color: var(--theme-accent, #b98a74); }
+.wj-lyric-paste-actions { display: flex; gap: 10px; }
+.wj-lyric-paste-actions button { flex: 1; border: 1px solid rgba(120,90,70,.18); background: #fff; border-radius: 999px; padding: 10px; font-size: 14px; color: #4d3d35; }
+.wj-lyric-paste-actions button.strong { border-color: transparent; background: var(--theme-accent, #b98a74); color: #fff; }
+.wj-lyric-paste-actions button:disabled { opacity: .5; }
+html[data-standalone] .wj-lyric-paste-layer { bottom: auto; }
+html[data-standalone][data-kb] .wj-lyric-paste { border-radius: 18px; height: calc(100% - 10px - max(14px, env(safe-area-inset-top))); max-height: none; padding-bottom: 12px; }
+html[data-standalone][data-kb] .wj-lyric-paste textarea { height: auto; min-height: 60px; flex: 1 1 0; }
