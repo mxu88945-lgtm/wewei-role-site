@@ -311,7 +311,7 @@ export default function PersonaWindowPage(props: Props) {
       peopleSelfRecord: () => peopleStore.read().selfRecord,
       recordPeople: (tags, userTexts, source) => {
         let saved: string[] = []
-        peopleStore.set((current) => { const applied = applyPersonTags(current, tags, { userTexts, source, today: localToday(), exclude: [character.name, identity.name] }); saved = applied.saved; return applied.saved.length ? applied.state : current })
+        peopleStore.set((current) => { const applied = applyPersonTags(current, tags, { userTexts, source, today: localToday(), exclude: [character.name, identity.name, ...characters.map((item) => item.name)] }); saved = applied.saved; return applied.saved.length ? applied.state : current })
         return saved
       },
       undoPeople: (source) => peopleStore.set((current) => undoPersonTags(current, source)),

@@ -571,7 +571,7 @@ type PastLifeInput = {
   conversations: readonly Conversation[]
   memoryEntries: Readonly<LongMemoryMap>
   /** All cards; cards with exactly the same name (duplicated / re-imported) count as the same person. */
-  characters?: readonly Pick<Character, 'id' | 'name'>[]
+  characters?: readonly (Pick<Character, 'id' | 'name'> & Partial<Pick<Character, 'tagline'>>)[]
   userName?: string
   maxChars?: number
   /** 手动绑定的群聊 id，前世记忆优先抓这些。 */
@@ -643,6 +643,21 @@ function conversationExcerpt(conversation: Conversation, ids: readonly string[],
 function castNames(conversation: Conversation, ids: readonly string[], characters: readonly { id: string; name: string }[]) {
   const cast = new Set<string>([conversation.characterId || '', ...(conversation.participantIds || []), ...conversation.messages.map((message) => message.characterId || '')].filter((id) => id && !ids.includes(id)))
   return [...new Set(characters.filter((item) => cast.has(item.id)).map((item) => item.name.trim()).filter((name) => name.length >= 2))].slice(0, 12)
+}
+
+/** v238：小手机群里的其他人是谁（按角色卡一句话简介），免得模型凭名字猜身份职业。 */
+function castLine(conversation: Conversation, ids: readonly string[], characters: readonly (Pick<Character, 'id' | 'name'> & Partial<Pick<Character, 'tagline'>>)[]) {
+  if (!conversation.phone) return ''
+  const cast = new Set<string>([...(conversation.participantIds || []), ...conversation.messages.map((message) => message.characterId || '')].filter((id) => id && !ids.includes(id)))
+  const seen = new Set<string>()
+  const items = characters.filter((item) => cast.has(item.id)).flatMap((item) => {
+    const name = item.name.trim()
+    if (!name || seen.has(name)) return []
+    seen.add(name)
+    const tagline = (item.tagline || '').replace(/\s+/g, ' ').trim()
+    return [tagline ? `${name}（${clip(tagline, 40)}）` : name]
+  }).slice(0, 8)
+  return items.length ? `群里的其他人：${items.join('、')}（身份以此为准，没写明的不要猜）` : ''
 }
 
 /**
@@ -729,6 +744,7 @@ export function collectPastLifeMemory({ character, conversations, memoryEntries,
       summary ? `经过：\n${clip(summary, 1400)}` : '',
       excerpt ? `最后写到的：\n${excerptLines.slice(-10).join('\n')}` : '',
     ].filter(Boolean) : [
+      castLine(conversation, ids, characters),
       core.length ? `他记得的事：\n${core.join('\n')}` : '',
       long.length ? `那段日子：\n${long.join('\n')}` : '',
       summary && remembered < 4 ? `经过：\n${clip(summary, 1200)}` : '',
@@ -747,6 +763,7 @@ export function collectPastLifeMemory({ character, conversations, memoryEntries,
 - 可以自然记得有记录的称呼、偏好与交流；谈起长剧情时理解为共同故事。旧卡里的职业、婚姻和人物关系不自动成为当前关系。
 - 那些故事里的地点、身份和未完的事件属于过去的篇章，不要当成此刻正在发生；不要逐条复述。
 - 与这扇窗口自己的记忆或最新对话冲突时，以这扇窗口为准。
+- 记录里出现的其他人，身份、职业只以记录里写明的为准；没写明就别自己补（比如凭空叫谁“律师”“X总”），不同故事里同名的人也不要混成一个身份。
 ${backstagePushed && sources.some((item) => item.source === 'backstage') ? '- 〔幕后手记与戏外私聊〕是他戏外本人和{{user}}私下说过的话，可以自然记得、接着聊；那不是戏里的剧情。\n' : ''}${boundStorySet.size ? '- 标有〔绑定的剧本〕的长剧情是{{user}}特意让你记着的，优先参考它的记忆、经过和最后写到的地方。\n' : ''}${boundGroupIds.length ? '- 上面标有〔绑定的群〕的小手机群聊，其"最后聊到的"是最新的实时消息，你确实知道群里刚才发生了什么。' + '{{user}}问起时可以直接说记得、自然接话，不用装作不知道，也不用说什么"后台没有同步"。' : ''}`
   const text = `${preamble}\n\n${blocks.join('\n\n')}`
   return { text, sources, characterIds: ids, relatedConversationCount: related.length, blocks: pieces, preamble }
