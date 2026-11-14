@@ -80,6 +80,11 @@ export function buildMusicNote(now: NowPlaying | null, lines: LyricLine[], playl
         const seg = lines.slice(from, to).map((l, k) => (from + k === i ? `▶ ${l.text}` : `  ${l.text}`))
         parts.push('现在唱到（▶ 是这一句）：\n' + seg.join('\n'))
       }
+      // v243：带时间轴的歌也附整段歌词
+      let all = ''
+      for (const l of lines) if (!all.endsWith(l.text)) all += (all ? ' / ' : '') + l.text
+      if (all.length > 600) all = all.slice(0, 600) + '…'
+      parts.push('整首歌词：' + all)
     } else {
       let text = lines.map((l) => l.text).join(' / ')
       if (text.length > 600) text = text.slice(0, 600) + '…'
