@@ -5,6 +5,8 @@
 import { guessSongMeta, isTimed, type LyricLine, type NowPlaying } from './lyrics'
 
 export const NOW_PLAYING_NOTE_MAX = 200
+/** v242：没时间轴的纯文本歌词（她自己粘的）整段给，最多这么多字，总长另放宽 */
+export const PLAIN_LYRICS_NOTE_MAX = 600
 
 const clip = (text: string, max: number) => (text.length > max ? `${text.slice(0, max - 1)}…` : text)
 
@@ -18,6 +20,10 @@ export function buildNowPlayingNote(now: NowPlaying | null, lyrics: LyricLine[],
     if (lyricIndex >= 0 && lyricIndex < lyrics.length) {
       lyrics.slice(lyricIndex, lyricIndex + 3).forEach((line, k) => lines.push(`${k === 0 ? '▶' : ' '} ${clip(line.text, 28)}`))
     } else if (lyricIndex < 0 && now.pos < (lyrics[0]?.t ?? 0)) lines.push('前奏中，还没唱到歌词。')
+  } else if (lyrics.length) {
+    const tail = '可自然提到，别每条都提；要引用就用上面原句，别编歌词。'
+    const words = clip(lyrics.map((l) => l.text).join(' / '), PLAIN_LYRICS_NOTE_MAX)
+    return [clip(head, NOW_PLAYING_NOTE_MAX), `这首歌的歌词：${words}`, tail].join('\n')
   }
   lines.push('可自然提到，别每条都提，别编歌词。')
   return clip(lines.join('\n'), NOW_PLAYING_NOTE_MAX)

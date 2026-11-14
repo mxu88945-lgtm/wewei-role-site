@@ -5002,7 +5002,7 @@ function UpdateCard() {
     }
   }
 
-  return <section className="update-card"><strong>应用更新</strong><p>主动检查并拉取最新网页版本，不会删除角色、聊天记录或本地设置。</p><small>当前版本：v241 · 2026.11.14 一起听歌可以直接粘贴歌词了：歌单里点「换词 / +词」，选「粘贴歌词」把歌词贴进去保存就行（也可以「从文件选」）；网上找不到歌词时，正在放的这首旁边也有「粘贴歌词」。一句一行就能看，带 [00:12.30] 这种时间就会跟着滚动。没有时间的歌词现在会在播放器里整段列出来。</small><button onClick={refresh} disabled={state === 'checking'}>{state === 'checking' ? '正在检查更新…' : state === 'error' ? '更新失败，点我重试' : '强制刷新到最新版'}</button></section>
+  return <section className="update-card"><strong>应用更新</strong><p>主动检查并拉取最新网页版本，不会删除角色、聊天记录或本地设置。</p><small>当前版本：v242 · 2026.11.14 人格窗口里也能看到你粘的纯文本歌词了：放歌时，他会拿到整段歌词（最多约 600 字），能顺着歌词聊、引用原句。主聊天本来就有。</small><button onClick={refresh} disabled={state === 'checking'}>{state === 'checking' ? '正在检查更新…' : state === 'error' ? '更新失败，点我重试' : '强制刷新到最新版'}</button></section>
 }
 
 function PersonaPage({ identities, selectedId, isBound, onSelect, onAdd, onDelete, onUpdate, onBack }: { identities: UserIdentity[]; selectedId: string; isBound: boolean; onSelect: (id: string) => void; onAdd: () => void; onDelete: (id: string) => void; onUpdate: (patch: Partial<UserIdentity>) => void; onBack: () => void }) {

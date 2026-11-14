@@ -26,7 +26,7 @@ import './story-composer.css'
 import './memoryApiEnhancements'
 
 const APP_SCOPE = '/wewei-role-site/'
-const SERVICE_WORKER_RELEASE = '2026-11-14-music-paste-lyrics-v241'
+const SERVICE_WORKER_RELEASE = '2026-11-14-persona-plain-lyrics-v242'
 
 if ('serviceWorker' in navigator) {
   let reloadingForUpdate = false
