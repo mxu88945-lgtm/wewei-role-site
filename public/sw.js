@@ -1,7 +1,9 @@
-const CACHE_NAME = 'weijing-shell-v238'
+const CACHE_NAME = 'weijing-shell-v239'
 const APP_ROOT = '/wewei-role-site/'
 // v218：布丁来信的两张布丁狗图，安装时先放进缓存，离线也能显示。
-const PRECACHE = ['pudding-dog.svg'].map((name) => `${APP_ROOT}${name}`)
+// v239：谢聿衡 Q 版立绘 9 张表情也先缓存，换表情离线也不白。
+const SPRITE_MOODS = ['cold', 'happy', 'shy', 'love', 'smug', 'angry', 'sad', 'cry', 'surprised']
+const PRECACHE = ['pudding-dog.svg', ...SPRITE_MOODS.map((mood) => `sprites/xieyuheng/xie_${mood}.webp`)].map((name) => `${APP_ROOT}${name}`)
 
 async function rememberResponse(key, response) {
   if (!response.ok) return

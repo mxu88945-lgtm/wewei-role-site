@@ -80,7 +80,7 @@ describe('v207 人格窗口主题：每个主题都有实际样式', () => {
     expect(pudding.replace(/\/\*[\s\S]*?\*\//g, '')).not.toMatch(/backdrop-filter/)
     expect(file('ArchiveHeading.tsx')).not.toContain('ᓚ')
     const sw = readFileSync(new URL('../public/sw.js', import.meta.url), 'utf8')
-    expect(sw).toContain("['pudding-dog.svg']")
+    expect(sw).toContain("'pudding-dog.svg'")
     expect(sw).not.toContain('pudding-bone')
   })
 })

@@ -47,6 +47,9 @@ import { localToday, peopleStore, periodStore, usePeople, usePeriodLog } from '.
 import { periodStats, periodTurnNote } from './periodLog'
 import { applyPersonTags, peopleTurnNote, undoPersonTags } from './peopleProfiles'
 import PersonaGroupPanel from './PersonaGroupPanel'
+import PersonaSprite from './PersonaSprite'
+import { spriteAppearOf, spriteEnabled, spriteSetFor } from './personaSprite'
+import { setSpritePrefs, useSpriteState } from './personaSpriteStore'
 import MentionPicker from './MentionPicker'
 import { dismissGuest, insertMention, isGuestMessage, isImageAvatar, presentGuests, replyModeOf, speakerOf, typedMentionTrigger } from './personaGroup'
 
@@ -222,6 +225,7 @@ export default function PersonaWindowPage(props: Props) {
   const [mentionOpen, setMentionOpen] = useState(false)
   const periodLog = usePeriodLog()
   const lifePeople = usePeople()
+  const spritePrefs = useSpriteState()
   // 主聊天同款小圆钮：↑ 离顶部超 280px 才出现（回顶部），↓ 离底部超 280px 才出现（跳最新）
   const listRef = useRef<HTMLDivElement>(null)
   const [personaJump, setPersonaJump] = useState({ up: false, down: false, visible: false })
@@ -754,6 +758,9 @@ export default function PersonaWindowPage(props: Props) {
     </div></section>
   }
 
+  // v239 Q 版立绘：有立绘套装的人格才有（登记在 personaSprite.ts 的 SPRITE_SETS）
+  const spriteSet = spriteSetFor(activeCharacter.name)
+  const spriteOn = spriteEnabled(spriteSet, spritePrefs[active.id])
   const lastMessage = messages[messages.length - 1]
   return <section className={`chat-page persona-window-page${activeTasks.length ? ' has-task-pin' : ''}`} style={activeTasks.length ? { '--persona-task-pin-rows': Math.min(activeTasks.length, PERSONA_TASK_PIN_LIMIT) + (activeTasks.length > PERSONA_TASK_PIN_LIMIT ? 0.5 : 0) } as CSSProperties : undefined}>{header}{switcher}
     {error && <div className="chat-error" role="alert"><button className="chat-error-action" {...tap(() => setPersonaError(threadId, ''))}><span>连接提示</span>{error}</button><button className="chat-error-close" aria-label="关闭提示" {...tap(() => setPersonaError(threadId, ''))}>×</button></div>}
@@ -810,6 +817,7 @@ export default function PersonaWindowPage(props: Props) {
     </div>
     {messages.length > 0 && !drawerOpen && !sidebarOpen && !viewerImage && (personaJump.up || personaJump.down) && <nav className={`persona-jump-controls${personaJump.visible ? ' visible' : ''}`} aria-label="快速浏览对话">{personaJump.up && <button aria-label="回到顶部" {...tap(() => scrollChat('top'))}>↑</button>}{personaJump.down && <button aria-label="跳到最新消息" {...tap(() => scrollChat('bottom'))}>↓</button>}</nav>}
     {activeTasks.length > 0 && !drawerOpen && !sidebarOpen && <PersonaTaskPin tasks={activeTasks} tap={tap} onOpen={() => { setSidebarOpen(false); setSettingsPanel('tasks'); setDrawerOpen(true) }} onDone={(id) => taskAction(id, 'done')} />}
+    {spriteSet && spriteOn && <PersonaSprite key={active.id} personaId={active.id} set={spriteSet} messages={messages} generating={generating} error={error} suppressed={menuMessageId !== null || plusOpen || mentionOpen || Boolean(viewerImage) || giftSheetOpen || drawerOpen || sidebarOpen} readText={(message) => personaReplyText(message.text)} isGuest={(message) => isGuestMessage(message as PersonaMessage)} />}
     {plusOpen && <button type="button" className="persona-plus-scrim" aria-label="收起菜单" {...tap(() => setPlusOpen(false))} />}
     {giftSheetOpen && <PersonaGiftSheet roleName={activeCharacter.name} shelf={active.customGifts || []} history={personaGiftHistory(active.threads)} canRoleSend={active.giftsEnabled !== false} busy={generating} tap={tap}
       onSend={sendGift} onSave={saveGift} onRemove={removeGift} onRequest={requestGift} onClose={() => setGiftSheetOpen(false)} />}
@@ -845,7 +853,7 @@ export default function PersonaWindowPage(props: Props) {
           <button className="persona-settings-close" aria-label="关闭" {...tap(() => { setDrawerOpen(false); setRenaming(null) })}>×</button>
         </header>}
         <div className="right-drawer-scroll">
-          {drawerOpen && settingsPanel === 'home' && <PersonaSettingsHome promptLength={active.systemPrompt?.trim().length || 0} memoryCount={active.memories.length} threadCount={active.threads.length} threadTitle={thread?.title || ''} channelName={resolvePersonaApi(active, props.apiChannels, props.api).name} modelName={resolvePersonaApi(active, props.apiChannels, props.api).modelName || ''} pastLifeEnabled={active.pastLifeEnabled !== false} onNavigate={setSettingsPanel} onThreads={openSidebar} onMemory={() => { setDrawerOpen(false); setViewReturn('settings'); setView('memory') }} onManage={() => { setDrawerOpen(false); setViewReturn('settings'); setView('manage') }} onTogglePastLife={togglePastLife} trackCount={trackCount} songPickEnabled={active.songPickEnabled !== false} onMusic={() => { setDrawerOpen(false); setMusicSheetOpen(true) }} onToggleSongPick={() => setPersonaState((current) => updatePersona(current, active.id, (item) => { const next = { ...item }; if (item.songPickEnabled === false) delete next.songPickEnabled; else next.songPickEnabled = false; return next }))} selfCardLength={selfCardLength(active.selfCard)} personaCount={enabled.length} onSwitchPersona={() => { setDrawerOpen(false); setRenaming(null); setSwitcherOpen(true) }} periodLabel={periodStats(periodLog, localToday()).short} peopleCount={lifePeople.people.length} giftCount={active.customGifts?.length || 0} groupLabel={groupOn ? `${guestsHere.length + 1} 人 · ${thread && replyModeOf(thread) === 'natural' ? '自然' : '@'}` : '仅 TA'} tap={tap} />}
+          {drawerOpen && settingsPanel === 'home' && <PersonaSettingsHome promptLength={active.systemPrompt?.trim().length || 0} memoryCount={active.memories.length} threadCount={active.threads.length} threadTitle={thread?.title || ''} channelName={resolvePersonaApi(active, props.apiChannels, props.api).name} modelName={resolvePersonaApi(active, props.apiChannels, props.api).modelName || ''} pastLifeEnabled={active.pastLifeEnabled !== false} onNavigate={setSettingsPanel} onThreads={openSidebar} onMemory={() => { setDrawerOpen(false); setViewReturn('settings'); setView('memory') }} onManage={() => { setDrawerOpen(false); setViewReturn('settings'); setView('manage') }} onTogglePastLife={togglePastLife} trackCount={trackCount} songPickEnabled={active.songPickEnabled !== false} onMusic={() => { setDrawerOpen(false); setMusicSheetOpen(true) }} onToggleSongPick={() => setPersonaState((current) => updatePersona(current, active.id, (item) => { const next = { ...item }; if (item.songPickEnabled === false) delete next.songPickEnabled; else next.songPickEnabled = false; return next }))} selfCardLength={selfCardLength(active.selfCard)} personaCount={enabled.length} onSwitchPersona={() => { setDrawerOpen(false); setRenaming(null); setSwitcherOpen(true) }} periodLabel={periodStats(periodLog, localToday()).short} peopleCount={lifePeople.people.length} giftCount={active.customGifts?.length || 0} groupLabel={groupOn ? `${guestsHere.length + 1} 人 · ${thread && replyModeOf(thread) === 'natural' ? '自然' : '@'}` : '仅 TA'} sprite={spriteSet ? { on: spriteOn, appear: spriteAppearOf(spritePrefs[active.id]), onToggle: () => setSpritePrefs(active.id, (current) => ({ ...current, on: !spriteOn })), onAppear: (appear) => setSpritePrefs(active.id, (current) => ({ ...current, appear, hidden: false })) } : undefined} tap={tap} />}
           {drawerOpen && settingsPanel === 'group' && thread && <PersonaGroupPanel persona={active} thread={thread} characters={characters} mainName={activeCharacter.name} mainAvatar={activeCharacter.avatar} userName={identity.name} tap={tap} onFocus={scrollFieldIntoView}
             onChange={(transform) => setPersonaState((current) => updatePersona(current, active.id, transform))}
             onDismiss={(guestId) => {

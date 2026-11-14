@@ -29,7 +29,7 @@ function Row({ icon, title, description, value, onSelect, tap }: { icon: IconNam
   </button>
 }
 
-export default function PersonaSettingsHome({ promptLength, memoryCount, threadCount, threadTitle, channelName, modelName, pastLifeEnabled, onNavigate, onThreads, onMemory, onManage, onTogglePastLife, trackCount = 0, songPickEnabled = true, onMusic, onToggleSongPick, selfCardLength = 0, giftCount, periodLabel, peopleCount, personaCount, onSwitchPersona, groupLabel, tap }: {
+export default function PersonaSettingsHome({ promptLength, memoryCount, threadCount, threadTitle, channelName, modelName, pastLifeEnabled, onNavigate, onThreads, onMemory, onManage, onTogglePastLife, trackCount = 0, songPickEnabled = true, onMusic, onToggleSongPick, selfCardLength = 0, giftCount, periodLabel, peopleCount, personaCount, onSwitchPersona, groupLabel, sprite, tap }: {
   promptLength: number; memoryCount: number; threadCount: number; threadTitle: string; channelName: string; modelName: string; pastLifeEnabled: boolean
   onNavigate: (panel: PersonaSettingsPanel) => void; onThreads: () => void; onMemory: () => void; onManage: () => void; onTogglePastLife: () => void
   /** v207 一起听歌 */
@@ -43,7 +43,10 @@ export default function PersonaSettingsHome({ promptLength, memoryCount, threadC
   /** v230 切换人格（原顶栏中间的入口） */
   personaCount?: number; onSwitchPersona?: () => void
   /** v234 临时群聊（不传就不显示） */
-  groupLabel?: string; tap: Tap
+  groupLabel?: string
+  /** v239 Q 版立绘（只有登记了立绘套装的人格才传） */
+  sprite?: { on: boolean; appear: 'mood' | 'always'; onToggle: () => void; onAppear: (appear: 'mood' | 'always') => void }
+  tap: Tap
 }) {
   return <div className="persona-settings-home">
     <p className="persona-settings-caption">你们的相处</p>
@@ -59,6 +62,17 @@ export default function PersonaSettingsHome({ promptLength, memoryCount, threadC
         <button className={`switch ${pastLifeEnabled ? 'on' : ''}`} aria-label="前世记忆" aria-pressed={pastLifeEnabled} {...tap(onTogglePastLife)}><span /></button>
       </div>
     </section>
+    {sprite && <><p className="persona-settings-caption">立绘</p>
+    <section className="persona-settings-group" aria-label="立绘">
+      <div className="persona-settings-row persona-settings-toggle">
+        <Icon name="person" /><span className="persona-settings-copy"><strong>立绘模式</strong><small>Q 版小人按回复换表情 · 可拖到左右边 · 点他隐身</small></span>
+        <button className={`switch ${sprite.on ? 'on' : ''}`} aria-label="立绘模式" aria-pressed={sprite.on} {...tap(sprite.onToggle)}><span /></button>
+      </div>
+      {sprite.on && <div className="persona-settings-row persona-settings-toggle">
+        <Icon name="appearance" /><span className="persona-settings-copy"><strong>出现方式</strong><small>{sprite.appear === 'always' ? '一直站在输入框上方' : '回复带情绪时出现几秒'}</small></span>
+        <select className="persona-sprite-appear" aria-label="立绘出现方式" value={sprite.appear} onChange={(event) => sprite.onAppear(event.target.value === 'always' ? 'always' : 'mood')}><option value="mood">有情绪时出现</option><option value="always">常驻</option></select>
+      </div>}
+    </section></>}
     {onMusic && <><p className="persona-settings-caption">一起听歌</p>
     <section className="persona-settings-group" aria-label="一起听歌">
       <Row icon="music" title="🎵 唱片机" description="和主聊天同一份歌单" value={trackCount ? `${trackCount} 首` : '导入歌'} onSelect={onMusic} tap={tap} />

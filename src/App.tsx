@@ -5002,7 +5002,7 @@ function UpdateCard() {
     }
   }
 
-  return <section className="update-card"><strong>应用更新</strong><p>主动检查并拉取最新网页版本，不会删除角色、聊天记录或本地设置。</p><small>当前版本：v238 · 2026.11.14 人格窗口不再乱给小手机群友安身份：前世记忆里的群聊会附上群友的角色简介，没写明的身份不许猜；人物档案不再把角色当成现实里的人记下来。</small><button onClick={refresh} disabled={state === 'checking'}>{state === 'checking' ? '正在检查更新…' : state === 'error' ? '更新失败，点我重试' : '强制刷新到最新版'}</button></section>
+  return <section className="update-card"><strong>应用更新</strong><p>主动检查并拉取最新网页版本，不会删除角色、聊天记录或本地设置。</p><small>当前版本：v239 · 2026.11.14 人格窗口新增谢聿衡 Q 版立绘：他站在输入框上方，按回复换 9 种表情（开心、害羞、比心、坏笑、生气、委屈、哭、惊讶、平静）；可拖到左右边，点他隐身留一条小竖条，再点叫回来。在 ••• 设置 →「立绘」里开关，可选「有情绪时出现」或「常驻」。</small><button onClick={refresh} disabled={state === 'checking'}>{state === 'checking' ? '正在检查更新…' : state === 'error' ? '更新失败，点我重试' : '强制刷新到最新版'}</button></section>
 }
 
 function PersonaPage({ identities, selectedId, isBound, onSelect, onAdd, onDelete, onUpdate, onBack }: { identities: UserIdentity[]; selectedId: string; isBound: boolean; onSelect: (id: string) => void; onAdd: () => void; onDelete: (id: string) => void; onUpdate: (patch: Partial<UserIdentity>) => void; onBack: () => void }) {

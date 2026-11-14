@@ -499,3 +499,31 @@ button.persona-life-row:active { background: var(--theme-accent-soft); }
 .persona-group-draft input:not([type=file]) { width: 100%; box-sizing: border-box; min-height: 40px; padding: 8px 12px; border: 1px solid rgba(125,104,141,.15); border-radius: 12px; background: #fff; font: inherit; font-size: 16px; }
 .persona-group-avatar-field { display: flex; align-items: center; gap: 8px; }
 .persona-group-avatar-field input { flex: 1; min-width: 0; }
+
+/* v239 人格窗口 Q 版立绘（同顾祁砚 v374）：站在输入框正上方的左/右边（--persona-scroll-bottom = 页底到输入框顶 + 12），
+   z-index 30：盖在消息上，在输入框(35)/滚轮(35)/任务钉(36)/顶栏(36)/＋菜单遮罩(34)/抽屉与弹层之下。
+   外层不接点按，只有 .persona-sprite-hit（他身上）和隐身后的小竖条接。没有 backdrop-filter。 */
+.persona-sprite-stage { position: absolute; z-index: 30; right: max(4px, env(safe-area-inset-right)); bottom: calc(var(--persona-scroll-bottom, 132px) - 10px + var(--sprite-y, 0px)); height: clamp(100px, 31vw, 140px); aspect-ratio: 549 / 910; pointer-events: none; transition: opacity .2s ease; }
+.persona-sprite-stage[data-side="left"] { right: auto; left: max(4px, env(safe-area-inset-left)); }
+.persona-sprite-img { position: absolute; left: 0; bottom: 0; width: 100%; height: 100%; max-width: none; object-fit: contain; object-position: bottom center; opacity: 0; transition: opacity .25s ease; filter: drop-shadow(0 1px 2px rgba(0,0,0,.14)); -webkit-user-select: none; user-select: none; -webkit-user-drag: none; pointer-events: none; }
+.persona-sprite-img.on { opacity: 1; }
+.persona-sprite-hit { position: absolute; left: 22%; right: 22%; top: 10%; bottom: 0; pointer-events: auto; touch-action: none; cursor: grab; -webkit-touch-callout: none; -webkit-user-select: none; user-select: none; -webkit-tap-highlight-color: transparent; }
+.persona-sprite-stage.away { opacity: 0; transition: opacity .35s ease; }
+.persona-sprite-stage.away .persona-sprite-hit { pointer-events: none; }
+.persona-sprite-stage.dragging { transition: none; }
+.persona-sprite-stage.dragging .persona-sprite-hit { cursor: grabbing; }
+.persona-sprite-stage.snapping { transition: transform .24s ease-out, opacity .2s ease; }
+.persona-sprite-stage.hop { animation: persona-sprite-hop .3s ease-out; }
+@keyframes persona-sprite-hop { 0%, 100% { transform: translateY(0); } 40% { transform: translateY(-6px); } }
+.persona-sprite-tab { position: absolute; z-index: 30; right: 0; bottom: calc(var(--persona-scroll-bottom, 132px) + 26px + var(--sprite-y, 0px)); width: 26px; height: 34px; pointer-events: auto; touch-action: none; cursor: pointer; -webkit-touch-callout: none; -webkit-tap-highlight-color: transparent; }
+.persona-sprite-tab[data-side="left"] { right: auto; left: 0; }
+.persona-sprite-tab::before { content: ''; position: absolute; top: 8px; right: 2px; width: 8px; height: 18px; border-radius: 4px; background: rgba(128,128,136,.32); box-shadow: inset 0 0 0 1px rgba(255,255,255,.35); }
+.persona-sprite-tab[data-side="left"]::before { right: auto; left: 2px; }
+@media (prefers-reduced-motion: reduce) {
+  .persona-sprite-stage.hop { animation: none; }
+  .persona-sprite-stage, .persona-sprite-img, .persona-sprite-stage.snapping { transition: none; }
+}
+html[data-kb] .persona-sprite-stage { opacity: 0; }
+html[data-kb] .persona-sprite-stage .persona-sprite-hit { pointer-events: none; }
+html[data-kb] .persona-sprite-tab { display: none; }
+.persona-sprite-appear { flex: none; max-width: 128px; padding: 5px 8px; border: 1px solid rgba(125,104,141,.18); border-radius: 10px; background: rgba(255,255,255,.7); color: inherit; font: inherit; font-size: 13px; }

@@ -26,7 +26,7 @@ import './story-composer.css'
 import './memoryApiEnhancements'
 
 const APP_SCOPE = '/wewei-role-site/'
-const SERVICE_WORKER_RELEASE = '2026-11-14-persona-cast-identity-v238'
+const SERVICE_WORKER_RELEASE = '2026-11-14-persona-chibi-sprite-v239'
 
 if ('serviceWorker' in navigator) {
   let reloadingForUpdate = false
