@@ -1,6 +1,6 @@
 import { readdirSync, readFileSync } from 'node:fs'
 import { describe, expect, it } from 'vitest'
-import { classifySpriteMood, normalizeSpriteState, SPRITE_MOODS, SPRITE_SETS, spriteAppearOf, spriteEnabled, spriteFile, spriteMoodScores, spritePosOf, spriteReplyTail, spriteSetFor, spriteSnapPos } from './personaSprite'
+import { addSpriteHearts, classifySpriteMood, makeSpriteHearts, SPRITE_DOUBLE_TAP_MS, SPRITE_HEART_CAP, SPRITE_LOVE_MS, normalizeSpriteState, SPRITE_MOODS, SPRITE_SETS, spriteAppearOf, spriteEnabled, spriteFile, spriteMoodScores, spritePosOf, spriteReplyTail, spriteSetFor, spriteSnapPos } from './personaSprite'
 
 const file = (path: string) => readFileSync(new URL(path, import.meta.url), 'utf8')
 
@@ -107,5 +107,29 @@ describe('v239 立绘工具', () => {
     expect(block).toMatch(/html\[data-kb\] \.persona-sprite-stage \{ opacity: 0; \}/)
     expect(block).toMatch(/prefers-reduced-motion/)
     expect(file('./personaSprite.ts')).toContain("PERSONA_SPRITE_KEY = 'weijing.personaSprite'")
+  })
+
+  it('v240 hearts: 3–5 per tap around his head, capped, double tap hides', () => {
+    for (const r of [0, 0.5, 0.999]) {
+      const burst = makeSpriteHearts(() => r)
+      expect(burst.length).toBeGreaterThanOrEqual(3)
+      expect(burst.length).toBeLessThanOrEqual(5)
+      for (const heart of burst) { expect(heart.x).toBeGreaterThanOrEqual(30); expect(heart.x).toBeLessThanOrEqual(70); expect(Math.abs(heart.dx)).toBeLessThanOrEqual(14) }
+    }
+    const ids = makeSpriteHearts().concat(makeSpriteHearts()).map((heart) => heart.id)
+    expect(new Set(ids).size).toBe(ids.length)
+    let alive = addSpriteHearts([], makeSpriteHearts())
+    for (let i = 0; i < 6; i++) alive = addSpriteHearts(alive, makeSpriteHearts(() => 0.9))
+    expect(alive.length).toBe(SPRITE_HEART_CAP)
+    expect(SPRITE_DOUBLE_TAP_MS).toBe(300)
+    expect(SPRITE_LOVE_MS).toBe(2000)
+    const css = file('./persona-window.css')
+    const block = css.slice(css.indexOf('/* v240 点他冒爱心'))
+    expect(block).toMatch(/\.persona-sprite-hearts \{[^}]*pointer-events: none;/)
+    expect(block).toMatch(/prefers-reduced-motion[\s\S]*persona-heart-fade/)
+    const tsx = file('./PersonaSprite.tsx')
+    expect(tsx).toContain('SPRITE_DOUBLE_TAP_MS')
+    expect(tsx).toContain('if (d.moving) lastTapRef.current = 0')
+    expect(file('./PersonaSettingsHome.tsx')).toContain('点他冒爱心，双击隐身')
   })
 })

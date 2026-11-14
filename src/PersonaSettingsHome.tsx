@@ -65,7 +65,7 @@ export default function PersonaSettingsHome({ promptLength, memoryCount, threadC
     {sprite && <><p className="persona-settings-caption">立绘</p>
     <section className="persona-settings-group" aria-label="立绘">
       <div className="persona-settings-row persona-settings-toggle">
-        <Icon name="person" /><span className="persona-settings-copy"><strong>立绘模式</strong><small>Q 版小人按回复换表情 · 可拖到左右边 · 点他隐身</small></span>
+        <Icon name="person" /><span className="persona-settings-copy"><strong>立绘模式</strong><small>Q 版小人按回复换表情 · 可拖到左右边 · 点他冒爱心，双击隐身</small></span>
         <button className={`switch ${sprite.on ? 'on' : ''}`} aria-label="立绘模式" aria-pressed={sprite.on} {...tap(sprite.onToggle)}><span /></button>
       </div>
       {sprite.on && <div className="persona-settings-row persona-settings-toggle">

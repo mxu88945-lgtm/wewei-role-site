@@ -1,5 +1,5 @@
 import { useEffect, useLayoutEffect, useRef, useState, type CSSProperties, type PointerEvent as ReactPointerEvent } from 'react'
-import { classifySpriteMood, SPRITE_MOODS, SPRITE_STAY_MS, spriteAppearOf, spriteFile, spritePosOf, spriteReplyTail, spriteSnapPos, type SpriteMood, type SpritePos, type SpriteSet } from './personaSprite'
+import { addSpriteHearts, classifySpriteMood, makeSpriteHearts, SPRITE_DOUBLE_TAP_MS, SPRITE_HEART_MS, SPRITE_LOVE_MS, SPRITE_MOODS, SPRITE_STAY_MS, spriteAppearOf, spriteFile, spritePosOf, spriteReplyTail, spriteSnapPos, type SpriteHeart, type SpriteMood, type SpritePos, type SpriteSet } from './personaSprite'
 import { setSpritePrefs, useSpriteState } from './personaSpriteStore'
 
 const APP_ROOT = '/wewei-role-site/' // 与 vite.config base、sw.js APP_ROOT 一致
@@ -36,6 +36,11 @@ export default function PersonaSprite({ personaId, set, messages, generating, er
   const wasGenerating = useRef(generating)
   const [shown, setShown] = useState(() => appear === 'always' ? !prefs?.hidden : false)
   const [dragging, setDragging] = useState(false)
+  const [hearts, setHearts] = useState<SpriteHeart[]>([])
+  const lastTapRef = useRef(0)
+  const loveTimer = useRef(0)
+  const loveBackRef = useRef<SpriteMood | ''>('')
+  const heartTimers = useRef<number[]>([])
 
   const hop = () => {
     const stage = stageRef.current
@@ -92,7 +97,10 @@ export default function PersonaSprite({ personaId, set, messages, generating, er
     const finished = wasGenerating.current && !generating
     wasGenerating.current = generating
     if (generating) return
-    const mood = classifySpriteMood(tail, moodRef.current)
+    // 点出来的比心脸还没换回去时，按点之前的表情判断（不让比心脸影响打分）
+    const before = loveTimer.current && loveBackRef.current ? loveBackRef.current : moodRef.current
+    if (loveTimer.current) { window.clearTimeout(loveTimer.current); loveTimer.current = 0 }
+    const mood = classifySpriteMood(tail, before)
     if (finished && !error && appear === 'mood' && !pinnedRef.current && mood !== 'cold') {
       setMood(mood)
       setShownNow(true, true)
@@ -103,7 +111,34 @@ export default function PersonaSprite({ personaId, set, messages, generating, er
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [tail, generating])
 
-  useEffect(() => () => window.clearTimeout(awayTimer.current), [])
+  useEffect(() => () => {
+    window.clearTimeout(awayTimer.current); window.clearTimeout(loveTimer.current)
+    heartTimers.current.forEach((timer) => window.clearTimeout(timer))
+  }, [])
+
+  // v240 单击：冒爱心 + 比心脸 2 秒再换回来；有情绪时出现模式重新数 8 秒。
+  const loveTap = () => {
+    const burst = makeSpriteHearts()
+    setHearts((current) => addSpriteHearts(current, burst))
+    const ids = new Set(burst.map((heart) => heart.id))
+    const life = SPRITE_HEART_MS + Math.max(...burst.map((heart) => heart.delay)) + 60
+    const timer = window.setTimeout(() => {
+      heartTimers.current = heartTimers.current.filter((t) => t !== timer)
+      setHearts((current) => current.filter((heart) => !ids.has(heart.id)))
+    }, life)
+    heartTimers.current.push(timer)
+    if (!loveTimer.current) loveBackRef.current = moodRef.current === 'love' ? '' : moodRef.current
+    window.clearTimeout(loveTimer.current)
+    setMood('love', true)
+    loveTimer.current = window.setTimeout(() => {
+      loveTimer.current = 0
+      if (loveBackRef.current && moodRef.current === 'love') setMood(loveBackRef.current)
+    }, SPRITE_LOVE_MS)
+    if (appear === 'mood' && !pinnedRef.current) {
+      window.clearTimeout(awayTimer.current)
+      awayTimer.current = window.setTimeout(() => { if (!pinnedRef.current) setShownNow(false) }, SPRITE_STAY_MS)
+    }
+  }
 
   const box = (stage: HTMLElement) => {
     const page = (stage.offsetParent as HTMLElement | null) || stage.parentElement!
@@ -140,13 +175,21 @@ export default function PersonaSprite({ personaId, set, messages, generating, er
     event.preventDefault(); event.stopPropagation()
     window.clearTimeout(d.press)
     drag.current = null
+    if (d.moving) lastTapRef.current = 0
     setDragging(false)
     const dx = event.clientX - d.x0, dy = event.clientY - d.y0
     if (!d.moving) {
       stage.style.transform = ''
-      if (event.type === 'pointerup' && Date.now() - d.t0 < 600) { // 点一下 → 隐身（常驻模式记住）
-        setShownNow(false)
-        if (appear === 'always') setSpritePrefs(personaId, (current) => ({ ...current, hidden: true }))
+      if (event.type === 'pointerup' && Date.now() - d.t0 < 600) {
+        const now = Date.now()
+        if (now - lastTapRef.current <= SPRITE_DOUBLE_TAP_MS) { // 双击 → 隐身（常驻模式记住）
+          lastTapRef.current = 0
+          setShownNow(false)
+          if (appear === 'always') setSpritePrefs(personaId, (current) => ({ ...current, hidden: true }))
+        } else { // 单击 → 冒爱心（立刻出，不等双击判定）
+          lastTapRef.current = now
+          loveTap()
+        }
       }
       return
     }
@@ -173,16 +216,17 @@ export default function PersonaSprite({ personaId, set, messages, generating, er
   const summon = (event: ReactPointerEvent<HTMLDivElement>) => {
     event.preventDefault(); event.stopPropagation()
     setShownNow(true, true)
-    pinnedRef.current = true // 手动叫出来：点他之前一直在
+    pinnedRef.current = true // 手动叫出来：双击他之前一直在
     if (appear === 'always') setSpritePrefs(personaId, (current) => ({ ...current, hidden: false }))
   }
 
   const style = { '--sprite-y': `${pos.y}px` } as CSSProperties
   return <>
-    <div ref={stageRef} className={`persona-sprite-stage${shown && !suppressed ? '' : ' away'}${dragging ? ' dragging' : ''}`} data-side={pos.side} style={style} aria-hidden="true" onAnimationEnd={() => stageRef.current?.classList.remove('hop')}>
+    <div ref={stageRef} className={`persona-sprite-stage${shown && !suppressed ? '' : ' away'}${dragging ? ' dragging' : ''}`} data-side={pos.side} style={style} aria-hidden="true" onAnimationEnd={(event) => { if (event.target === event.currentTarget) event.currentTarget.classList.remove('hop') }}>
       <img ref={imgRefs[0]} className="persona-sprite-img" alt="" draggable={false} decoding="async" />
       <img ref={imgRefs[1]} className="persona-sprite-img" alt="" draggable={false} decoding="async" />
-      <div className="persona-sprite-hit" title="拖动 · 点一下隐身" onPointerDown={onDown} onPointerMove={onMove} onPointerUp={onEnd} onPointerCancel={onEnd} onClick={(event) => event.stopPropagation()} />
+      {hearts.length > 0 && <div className="persona-sprite-hearts">{hearts.map((heart) => <span key={heart.id} className="persona-sprite-heart" style={{ '--hx': `${heart.x}%`, '--hdx': `${heart.dx}px`, '--hk': heart.k, '--hd': `${heart.delay}ms` } as CSSProperties}>♥</span>)}</div>}
+      <div className="persona-sprite-hit" title="点他冒爱心 · 双击隐身 · 拖动" onPointerDown={onDown} onPointerMove={onMove} onPointerUp={onEnd} onPointerCancel={onEnd} onClick={(event) => event.stopPropagation()} />
     </div>
     {!shown && !suppressed && <div className="persona-sprite-tab" role="button" aria-label="叫他出来" title="叫他出来" data-side={pos.side} style={style} onPointerDown={(event) => { event.preventDefault(); event.stopPropagation() }} onPointerUp={summon} onClick={(event) => event.stopPropagation()} />}
   </>

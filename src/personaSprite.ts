@@ -163,3 +163,29 @@ export const spriteAppearOf = (prefs: PersonaSpritePrefs | undefined): SpriteApp
 export const spritePosOf = (prefs: PersonaSpritePrefs | undefined): SpritePos => prefs?.pos || { side: 'right', y: 0 }
 
 export const SPRITE_STAY_MS = 8000
+
+// v240 点他冒爱心：单击 3–5 颗小粉心从头顶附近飘起，双击才隐身。
+export const SPRITE_LOVE_MS = 2000
+export const SPRITE_DOUBLE_TAP_MS = 300
+export const SPRITE_HEART_MS = 900
+export const SPRITE_HEART_CAP = 12
+/** 一颗心：x 是相对立绘宽度的百分比，dx 是飘的横向偏移(px)，k 缩放，delay 错开(ms)。 */
+export type SpriteHeart = { id: number; x: number; dx: number; k: number; delay: number }
+
+let heartSeq = 0
+export function makeSpriteHearts(random: () => number = Math.random): SpriteHeart[] {
+  const count = 3 + Math.floor(random() * 3) // 3–5
+  return Array.from({ length: count }, (_, index) => ({
+    id: ++heartSeq,
+    x: Math.round(32 + random() * 36), // 头部大约在 32%–68%
+    dx: Math.round((random() - 0.5) * 28),
+    k: Math.round((0.75 + random() * 0.5) * 100) / 100,
+    delay: Math.round(index * 70 + random() * 40),
+  }))
+}
+
+/** 连点时只留最新的 cap 颗。 */
+export function addSpriteHearts(current: readonly SpriteHeart[], burst: readonly SpriteHeart[], cap = SPRITE_HEART_CAP): SpriteHeart[] {
+  const all = [...current, ...burst]
+  return all.length > cap ? all.slice(all.length - cap) : all
+}
