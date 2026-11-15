@@ -69,8 +69,11 @@ describe('v253 长剧情世界书', () => {
       { role: 'user' as const, text: '想去江南看看' }, { role: 'assistant' as const, text: '好。' },
       { role: 'user' as const, text: '今天下雨了' }, { role: 'assistant' as const, text: '带伞。' }, { role: 'user' as const, text: '嗯' },
     ]
-    const build = (book: CharacterBook) => buildChatPrompt({ mode: 'story', character: { ...storyCharacter, characterBook: book }, user: storyUser, messages: history, preset: '', globalWorldbook: '', memory: { entries: [], injectPosition: 'none', injectPrompt: '' }, memoryLength: 47, cacheLayout: true }).map((message) => String(message.content)).join('\n')
-    expect(build({ name: 't', entries: [lore(1, ['江南'], '江南水网密布ZZ。')] })).toContain('江南水网密布ZZ')
+    const build = (book: CharacterBook, loreIndex?: boolean) => buildChatPrompt({ mode: 'story', character: { ...storyCharacter, characterBook: book }, user: storyUser, messages: history, preset: '', globalWorldbook: '', memory: { entries: [], injectPosition: 'none', injectPrompt: '' }, memoryLength: 47, cacheLayout: true, loreIndex }).map((message) => String(message.content)).join('\n')
+    // v254：卡没写扫描深度时默认只扫最近 4 条；「江南」在倒数第 5 条，不再触发（v253 回退时照旧扫整段）。
+    expect(build({ name: 't', entries: [lore(1, ['江南'], '江南水网密布ZZ。')] }, false)).toContain('江南水网密布ZZ')
+    expect(build({ name: 't', entries: [lore(1, ['江南'], '江南水网密布ZZ。')] })).not.toContain('江南水网密布ZZ')
+    expect(build({ name: 't', scan_depth: 6, entries: [lore(1, ['江南'], '江南水网密布ZZ。')] })).toContain('江南水网密布ZZ')
     expect(build({ name: 't', scan_depth: 2, entries: [lore(1, ['江南'], '江南水网密布ZZ。')] })).not.toContain('江南水网密布ZZ')
     vi.useRealTimers()
   })

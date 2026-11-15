@@ -59,6 +59,8 @@ type PromptInput = {
     /** v252：核心记忆较早条目小段的原始余弦（小段 key → 分）。 */
     coreSemantic?: ReadonlyMap<string, number>
   }
+  /** v254：长剧情世界书摘要常驻 + 提到才附全文（默认开；localStorage weijing.loreIndex=0 回退到 v253）。 */
+  loreIndex?: boolean
   /** v253：长剧情三层记忆去重（默认开；只给评测传 false 量「去重前」）。 */
   dedupeMemory?: boolean
   /** v251：压缩提要/召回片段里的说话人名字（默认：她=用户名，其余=角色名）。 */
@@ -129,9 +131,9 @@ export function entryScanDepth(book: CharacterBook | undefined, entry: WorldBook
 
 const loreContentKey = (entry: WorldBookEntry) => entry.content.replace(/\s+/g, '')
 
-export function activeEntries(book: CharacterBook | undefined, source: string, messages?: readonly string[]) {
+export function activeEntries(book: CharacterBook | undefined, source: string, messages?: readonly string[], defaultDepth?: number) {
   const scanFor = (entry: WorldBookEntry) => {
-    const depth = messages ? entryScanDepth(book, entry) : undefined
+    const depth = messages ? entryScanDepth(book, entry) ?? defaultDepth : undefined
     return depth ? messages!.slice(-depth).join('\n') : source
   }
   const active = (book?.entries || [])
@@ -153,6 +155,130 @@ export function activeEntries(book: CharacterBook | undefined, source: string, m
   }
   const kept = new Set(byContent.values())
   return active.filter((entry) => kept.has(entry))
+}
+
+/** v254：长剧情世界书——卡没写扫描深度时，关键词只扫最近 4 条（两来两回）；以前扫整段最近原文（≈8200 token），几乎每条每轮都触发。 */
+export const LORE_DEFAULT_SCAN_DEPTH = 4
+/** v254：触发过的条目（关键词或语义）之后 3 轮仍附全文，不会刚提完下一轮就忘。卡自己写了 sticky 就照卡。 */
+export const LORE_STICKY_TURNS = 3
+/** v254：常驻条目改摘要后，靠语义召回补触发的门槛（她最新一句 vs 条目全文的余弦）。 */
+export const LORE_SEMANTIC_MIN = 0.72
+/** 常驻条目不超过这么多字就照旧整条常驻（摘要省不了多少）。 */
+export const LORE_SUMMARY_MIN_CHARS = 160
+/** 常驻部分总共不超过这么多字：整本照旧常驻，不动。 */
+export const LORE_SMALL_BOOK = 2500
+/** 「他本人」的常驻人设条目照旧整条常驻的预算。 */
+export const LORE_CORE_FULL_BUDGET = 3000
+/** 规则/格式/文风类常驻条目照旧整条（这类是每轮都要遵守的指令，不是资料）。 */
+const LORE_RULE_TITLE = /规则|格式|输出|状态栏|状态|文风|写作|要求|禁止|指令|提示词|设定说明/
+const LORE_RULE_HEAD = /^[\s【[（(]*(?:规则|格式|输出要求|写作要求|注意|必须|禁止|严禁|务必|每轮)/
+
+function loreHash(value: string) {
+  let h = 0x811c9dc5
+  for (let index = 0; index < value.length; index++) { h ^= value.charCodeAt(index); h = Math.imul(h, 0x01000193) >>> 0 }
+  return h.toString(36)
+}
+export const loreKey = (entry: WorldBookEntry) => `lore:${loreHash(loreContentKey(entry))}`
+
+/** 条目的标题：卡里的备注（去掉编号/括号），没有就用第一个关键词。 */
+export function loreTitle(entry: WorldBookEntry) {
+  const comment = (entry.comment || '').replace(/^[#\s\d.、:：-]+/, '').replace(/[【】〔〕[\]]/g, '').trim()
+  if (comment.length >= 2 && comment.length <= 24) return comment
+  return entry.keys.map((key) => key.trim()).find((key) => key.length >= 2 && !entry.use_regex) || ''
+}
+
+function loreIsCore(entry: WorldBookEntry, name: string) {
+  const head = entry.content.trim().slice(0, 12)
+  if (head.includes('{{user}}')) return true
+  return [name.trim(), '{{char}}'].filter((item) => item.length >= 2).some((item) => (entry.comment || '').includes(item) || entry.keys.some((key) => key.includes(item)) || head.includes(item))
+}
+
+/**
+ * v254：长剧情里哪些常驻条目改成「一行摘要常驻 + 提到才附全文」。
+ * 照旧整条常驻：常驻部分本来就小（≤2500 字）的整本、短条目（≤160 字）、规则/格式类、没有关键词也没有标题（召回不到）的、
+ * 「他本人」的核心人设（≤3000 字）。其余（世界、地点、配角、势力……）只常驻一行摘要。
+ */
+export function storyLoreSummarized(book: CharacterBook | undefined, name = '') {
+  const out = new Set<WorldBookEntry>()
+  const constants = (book?.entries || []).filter((entry) => entry.enabled && entry.content.trim() && isSteadyLoreEntry(entry) && entryPosition(entry) !== 'at_depth')
+    .sort((a, b) => a.insertion_order - b.insertion_order)
+  if (constants.reduce((sum, entry) => sum + entry.content.length, 0) <= LORE_SMALL_BOOK) return out
+  let coreUsed = 0
+  for (const entry of constants) {
+    if (entry.content.trim().length <= LORE_SUMMARY_MIN_CHARS) continue
+    if (LORE_RULE_TITLE.test(entry.comment || '') || LORE_RULE_HEAD.test(entry.content)) continue
+    const title = loreTitle(entry)
+    if (!title && !entry.keys.some((key) => key.trim())) continue
+    if (loreIsCore(entry, name) && coreUsed + entry.content.length <= LORE_CORE_FULL_BUDGET) { coreUsed += entry.content.length; continue }
+    out.add(entry)
+  }
+  return out
+}
+
+/** 一行摘要：标题 + 开头一句（≤48 字）。每轮逐字相同，留在稳定前缀。 */
+export function loreSummaryLine(entry: WorldBookEntry) {
+  const title = loreTitle(entry) || entry.keys.find((key) => key.trim()) || ''
+  const body = entry.content.replace(/\s+/g, ' ').trim()
+  const first = (body.split(/(?<=[。！？!?；;])/)[0] || body).trim()
+  const clipped = first.length > 48 ? `${first.slice(0, 48)}…` : first
+  return `〔世界书·${title}〕${clipped}（提到时附全文）`
+}
+
+/** v254：改成摘要的常驻条目，作为语义召回的小段（和核心记忆较早条目同一批向量，key = loreKey）。 */
+export function storyLoreChunks(book: CharacterBook | undefined, name = ''): PastLifeChunk[] {
+  return [...storyLoreSummarized(book, name)].map((entry) => {
+    const title = loreTitle(entry)
+    return { key: loreKey(entry), label: `世界书｜${title}`, title, kind: '世界书', bound: false, names: [], text: `${title}\n${entry.content.trim().slice(0, 1200)}` }
+  })
+}
+
+export type StoryLorePlan = { stable: WorldBookEntry[]; turn: WorldBookEntry[]; keys: string[]; summarized: number; fullTriggered: number }
+
+/**
+ * v254：长剧情世界书。
+ * - 稳定前缀：整条常驻的条目 + 改摘要条目的一行摘要（每轮一样，缓存不受影响）。
+ * - 本轮背景：关键词条目（卡没写扫描深度就只扫最近 4 条）、改摘要条目被提到（标题/关键词）或语义相近时的全文、3 轮粘滞。
+ * keys：这轮新触发的（记进账本，粘滞从这轮算；只靠粘滞带上的不续期）。
+ */
+export function planStoryLore(book: CharacterBook | undefined, options: { messages: readonly string[]; name?: string; ledger?: Record<string, number>; turn?: number; semantic?: ReadonlyMap<string, number> }): StoryLorePlan {
+  const summarized = storyLoreSummarized(book, options.name)
+  const rest = book ? { ...book, entries: book.entries.filter((entry) => !summarized.has(entry)) } : book
+  const source = options.messages.join('\n')
+  const active = activeEntries(rest, source, options.messages, LORE_DEFAULT_SCAN_DEPTH)
+  const stableSet = new Set(active.filter((entry) => isSteadyLoreEntry(entry) && entryPosition(entry) !== 'at_depth'))
+  const keys: string[] = []
+  const turn = options.turn
+  const stickyFor = (entry: WorldBookEntry) => positiveDepth(entry.extensions.sticky) ?? LORE_STICKY_TURNS
+  const recentlyFired = (entry: WorldBookEntry) => {
+    const last = options.ledger?.[loreKey(entry)]
+    return turn !== undefined && last !== undefined && turn > last && turn - last <= stickyFor(entry)
+  }
+  const fired = new Set<WorldBookEntry>()
+  for (const entry of active) if (!stableSet.has(entry) && !entry.constant) { fired.add(entry); keys.push(loreKey(entry)) }
+  // 粘滞：前几轮触发过、这轮没提到的关键词条目（概率条目不粘）。
+  const firedContent = new Set(active.map(loreContentKey))
+  for (const entry of rest?.entries || []) {
+    if (!entry.enabled || !entry.content.trim() || entry.constant || fired.has(entry) || firedContent.has(loreContentKey(entry))) continue
+    if (entry.extensions.useProbability && Number(entry.extensions.probability ?? 100) < 100) continue
+    if (recentlyFired(entry)) { fired.add(entry); firedContent.add(loreContentKey(entry)) }
+  }
+  // 改摘要的常驻条目：标题/关键词出现在最近几条，或语义相近，或还在粘滞期 → 本轮附全文。
+  let fullTriggered = 0
+  const full = new Set<WorldBookEntry>()
+  for (const entry of summarized) {
+    if (firedContent.has(loreContentKey(entry))) continue
+    const depth = entryScanDepth(book, entry) ?? LORE_DEFAULT_SCAN_DEPTH
+    const scan = options.messages.slice(-depth).join('\n')
+    const title = loreTitle(entry)
+    const hit = entry.keys.some((key) => matchesKeyword(scan, key, entry)) || (title.length >= 2 && scan.toLocaleLowerCase().includes(title.toLocaleLowerCase()))
+    const semantic = (options.semantic?.get(loreKey(entry)) ?? 0) >= LORE_SEMANTIC_MIN
+    if (hit || semantic) { full.add(entry); keys.push(loreKey(entry)); fullTriggered++ }
+    else if (recentlyFired(entry)) full.add(entry)
+  }
+  const order = (a: WorldBookEntry, b: WorldBookEntry) => a.insertion_order - b.insertion_order
+  const stable = [...stableSet, ...[...summarized].map((entry) => ({ ...entry, content: loreSummaryLine(entry) }))].sort(order)
+  const turnEntries = [...active.filter((entry) => !stableSet.has(entry)), ...[...fired].filter((entry) => !active.includes(entry)), ...full].sort(order)
+  return { stable, turn: turnEntries, keys, summarized: summarized.size, fullTriggered }
 }
 
 function entryPosition(entry: WorldBookEntry) {
@@ -317,10 +443,12 @@ export function buildChatPrompt(input: PromptInput): ChatApiMessage[] {
   const plainText = (message: SourceMessage) => modelVisibleMessageText(message).replace(/^【[^｜\n]{1,40}｜其他成员的发言[^】\n]*】\n/, '')
   const scanSource = recent.map((message) => message.text).join('\n')
   const cacheLayout = Boolean(input.cacheLayout) && !isPhone
-  const allEntries = activeEntries(character.characterBook, scanSource, recent.map((message) => message.text))
+  // v254：长剧情世界书——常驻里的世界/地点/配角条目只留一行摘要，提到（关键词/标题/语义）才附全文并粘滞 3 轮；关键词默认只扫最近 4 条。
+  const lorePlan = cacheLayout && input.loreIndex !== false ? planStoryLore(character.characterBook, { messages: recent.map((message) => message.text), name: character.name, ledger: input.evictedRecall?.ledger, turn: input.evictedRecall?.turn, semantic: input.evictedRecall?.coreSemantic }) : null
+  const allEntries = lorePlan ? [] : activeEntries(character.characterBook, scanSource, recent.map((message) => message.text))
   // cacheLayout: only steady entries keep their card positions; triggered/probability/depth lore goes after the history.
-  const entries = cacheLayout ? allEntries.filter((entry) => isSteadyLoreEntry(entry) && entryPosition(entry) !== 'at_depth') : allEntries
-  const turnEntries = cacheLayout ? allEntries.filter((entry) => !entries.includes(entry)) : []
+  const entries = lorePlan ? lorePlan.stable : cacheLayout ? allEntries.filter((entry) => isSteadyLoreEntry(entry) && entryPosition(entry) !== 'at_depth') : allEntries
+  const turnEntries = lorePlan ? lorePlan.turn : cacheLayout ? allEntries.filter((entry) => !entries.includes(entry)) : []
   // v252：长剧情普通记忆按她最新一句 + 他上一条挑（整段最近原文的字词几乎每份记忆都对得上，等于每轮带满 6000 字）。
   const selectedMemories = cacheLayout
     ? selectRelevantMemories(input.memory.entries, latestExchangeText(recent.map((message) => ({ role: message.role, text: message.text }))), STORY_TURN_MEMORY_MAX_CHARS, STORY_TURN_MEMORY_MAX_ENTRIES)
@@ -345,7 +473,7 @@ export function buildChatPrompt(input: PromptInput): ChatApiMessage[] {
   const coveredBy = recallOn && dedupeOn && summaryText ? summaryText : undefined
   const coreChunks = recallOn ? coreMemoryChunks(character, coveredBy) : []
   const coreRecall = coreChunks.length ? recallPastLife(coreChunks, { history: recent as unknown as PersonaMessage[], charName: character.name, userName: input.user.name, ledger: input.evictedRecall!.ledger, turn: input.evictedRecall!.turn, semantic: input.evictedRecall!.coreSemantic, budget: CORE_RECALL_BUDGET, maxChunks: CORE_RECALL_MAX_CHUNKS, lead: CORE_RECALL_LEAD, rareShare: EVICTED_RARE_SHARE, rareSpanMin: CORE_RECALL_RARE_SPAN_MIN }) : null
-  input.onDiagnostics?.({ memoryCount: selectedMemories.length, historyCount: recent.length, historyTokens: historyWindow.tokens, evictedCount: evicted.length, evictedKeys: [...(evictedRecall?.keys || []), ...(coreRecall?.keys || [])] })
+  input.onDiagnostics?.({ memoryCount: selectedMemories.length, historyCount: recent.length, historyTokens: historyWindow.tokens, evictedCount: evicted.length, evictedKeys: [...(evictedRecall?.keys || []), ...(coreRecall?.keys || []), ...(lorePlan?.keys || [])] })
   // v252：长剧情核心记忆：较新/进行中整条，较早的只列要点（细节按需召回）；小手机和关了召回时照旧整份。
   const characterMemory = characterMemoryPrompt(character, recallOn ? { fullBudget: CORE_MEMORY_FULL_BUDGET, coveredBy } : 12000)
   // v253：长期记忆只发前两层（和最近原文、滑出提要）里还没有的句子。置顶的在稳定区，只和摘要/核心记忆比，保证开头逐字稳定。

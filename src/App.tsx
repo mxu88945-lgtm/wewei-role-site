@@ -53,7 +53,7 @@ import { assignLibraryGroup, libraryPlacementDraft, preserveLibraryPlacement, au
 import { activeCharacterMemory, characterMemoryEntryFromConversation, characterMemoryExtractionPrompt, characterMemorySummaryProtocol, parseCharacterMemoryCandidates, splitCharacterMemorySummary } from './characterMemory'
 import { readCachedModels, saveCachedModels } from './modelListCache'
 import { ChatApiError, completeChat, fetchApiModels, testApiConnection, type ApiConfig, type ApiModel } from './chatApi'
-import { buildChatPrompt, coreMemoryChunks, storyHistoryWindow } from './promptBuilder'
+import { buildChatPrompt, coreMemoryChunks, storyHistoryWindow, storyLoreChunks } from './promptBuilder'
 import { EVICTED_POOL_MAX } from './evictedRecall'
 import { HISTORY_TOKEN_BUDGET } from './historyWindow'
 import { currentImageTurn, extractImageMemo, withImageMemo } from './imageMemo'
@@ -676,6 +676,8 @@ function App() {
   const [memoryLength, setMemoryLength] = useState(() => read('weijing.memoryLength', 47))
   // v251：最近原文 token 上限（人格窗口 + 长剧情）。没做界面：默认 8200；localStorage 设 0 可回到只按条数。
   const [historyTokenBudget] = useState(() => read('weijing.historyTokenBudget', HISTORY_TOKEN_BUDGET))
+  // v254：长剧情世界书摘要常驻 + 提到才附全文；localStorage weijing.loreIndex=0 回退。
+  const [loreIndex] = useState(() => { try { return localStorage.getItem('weijing.loreIndex') !== '0' } catch { return true } })
   // v251：长剧情「滑出窗口原文」按需召回的冷却账本（会话 id → 小段 key → 轮次），只在内存里。
   const evictedRecallLedgerRef = useRef(new Map<string, Record<string, number>>())
   const [maxTokens, setMaxTokens] = useState(() => read('weijing.maxTokens', 8000))
@@ -2915,6 +2917,7 @@ function App() {
       compressedUntil: !isPhone && hasValidContextSummary ? conversation.compressedUntil : undefined,
       // v210：长剧情（含普通群聊）走提示词缓存布局；小手机不动。
       cacheLayout: !isPhone,
+      loreIndex,
       // v250：续演 / 自动活跃不是她的新一轮，不重发图片。
       noLiveImages: Boolean(requestOptions.continueWithoutUser),
     })
@@ -3122,7 +3125,7 @@ function App() {
         conversation: { id: conversationId, messages: nextMessages },
         inContextIds: new Set(nextMessages.slice(Math.max(0, recallWindowStart - EVICTED_POOL_MAX)).map((message) => message.id)),
         speakerName: (message) => message.role === 'user' ? identity.name : messageCharacterName(message as Message, conversation),
-        chunks: { namespace: `core:${conversationId}:${speaker.id}`, items: coreMemoryChunks({ ...speaker, characterMemory: memoriesForConversationCharacter(conversation, speaker) }, conversation.contextSummary && (conversation.contextSummaryRevision || 0) === (conversation.historyRevision || 0) ? stripUiOnlyStatusBlocks(conversation.contextSummary) || undefined : undefined) },
+        chunks: { namespace: `core:${conversationId}:${speaker.id}`, items: [...coreMemoryChunks({ ...speaker, characterMemory: memoriesForConversationCharacter(conversation, speaker) }, conversation.contextSummary && (conversation.contextSummaryRevision || 0) === (conversation.historyRevision || 0) ? stripUiOnlyStatusBlocks(conversation.contextSummary) || undefined : undefined), ...(loreIndex ? storyLoreChunks(speaker.characterBook, speaker.name) : [])] },
       })
       const semanticOptions = semantic && (semantic.text || semantic.messageScores.size || semantic.chunkScores.size) ? { ...requestOptions, ...(semantic.text ? { semanticRecall: semantic.text } : {}), semanticScores: { messages: semantic.messageScores, core: semantic.chunkScores } } : requestOptions
       const prepared = prepareAssistantRequest(conversation, nextMessages, speaker, semanticOptions)
@@ -5058,7 +5061,7 @@ function UpdateCard() {
     }
   }
 
-  return <section className="update-card"><strong>应用更新</strong><p>主动检查并拉取最新网页版本，不会删除角色、聊天记录或本地设置。</p><small>当前版本：v253 · 2026.11.15 长剧情每轮更省：核心记忆较早条目只列要点、细节按需附上，长期记忆按最新一轮挑，尾巴重复规则只留一句；开了语义召回时，前世记忆与较早原文按「线索＋语义」一起判（问往事想得起，闲聊不多带）</small><button onClick={refresh} disabled={state === 'checking'}>{state === 'checking' ? '正在检查更新…' : state === 'error' ? '更新失败，点我重试' : '强制刷新到最新版'}</button></section>
+  return <section className="update-card"><strong>应用更新</strong><p>主动检查并拉取最新网页版本，不会删除角色、聊天记录或本地设置。</p><small>当前版本：v254 · 2026.11.15 长剧情世界书更省：常驻里的世界、地点、配角条目只留一行摘要，聊到（关键词、标题或意思相近）才附全文并多记 3 轮；他本人、规则类和小世界书照旧整条；关键词默认只看最近 4 条</small><button onClick={refresh} disabled={state === 'checking'}>{state === 'checking' ? '正在检查更新…' : state === 'error' ? '更新失败，点我重试' : '强制刷新到最新版'}</button></section>
 }
 
 function PersonaPage({ identities, selectedId, isBound, onSelect, onAdd, onDelete, onUpdate, onBack }: { identities: UserIdentity[]; selectedId: string; isBound: boolean; onSelect: (id: string) => void; onAdd: () => void; onDelete: (id: string) => void; onUpdate: (patch: Partial<UserIdentity>) => void; onBack: () => void }) {
