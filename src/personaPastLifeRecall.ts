@@ -104,7 +104,7 @@ export function pastLifeChunksFrom(input: string | PastLifeResult | undefined) {
   return chunkPastLife(input.blocks?.length ? input.blocks : pastLifeBlocksFromText(input.text))
 }
 
-const PAST_CUE = /前世|剧本|剧情|故事|戏里|戏外|群里|群聊|小手机|幕后|那时候|那会儿/
+const PAST_CUE = /前世|剧本|剧情|故事|戏里|戏外|群里|群聊|小手机|幕后|那时候|那会儿|剧场|排戏|演戏|对戏|那场戏/
 const SPEAKER = /^([^：:\n·〔]{2,12})[：:]/gm
 const LABEL_WORDS = new Set(['他记得的事', '那段日子', '经过', '最后聊到的', '最后写到的'])
 
@@ -204,7 +204,7 @@ export function recallPastLife(chunks: readonly PastLifeChunk[], options: { hist
     const names = [...new Set([...chunk.names, ...speakers])].map(normalized).filter((name) => name.length >= 2 && !skip.has(name))
     const named = names.filter((name) => q.includes(name))
     const nameHit = named.some((name) => normalized(chunk.text).includes(name)) ? 6 : named.length ? 2 : 0
-    const kindHit = cue && ((/群/.test(query) && /群/.test(chunk.kind)) || (/剧本|剧情|故事|戏里/.test(query) && /长剧情/.test(chunk.kind)) || (/幕后|戏外/.test(query) && /幕后/.test(chunk.kind)) || (/私聊/.test(query) && /私聊/.test(chunk.kind)))
+    const kindHit = cue && ((/群/.test(query) && /群/.test(chunk.kind)) || (/剧本|剧情|故事|戏里|剧场|排戏|演戏|对戏/.test(query) && /长剧情/.test(chunk.kind)) || (/幕后|戏外/.test(query) && /幕后/.test(chunk.kind)) || (/私聊/.test(query) && /私聊/.test(chunk.kind)))
     const semantic = lexical > 0 || cue ? semanticScore(query, chunk.text) : 0
     const vector = options.semantic?.get(chunk.key)
     const hasVector = typeof vector === 'number' && Number.isFinite(vector)

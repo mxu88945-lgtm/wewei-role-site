@@ -14,7 +14,7 @@ function GuestAvatar({ name, avatar }: { name: string; avatar?: string }) {
  * v234 ••• →「群聊成员」：拉人进来（角色卡 / 手写简卡）、请出与拉回、回复模式、客人的世界观与窗口记忆。
  * 主人格始终在场，不能请出。
  */
-export default function PersonaGroupPanel({ persona, thread, characters, mainName, mainAvatar, userName, tap, onFocus, onChange, onDismiss, onExtract, busy }: {
+export default function PersonaGroupPanel({ persona, thread, characters, mainName, mainAvatar, userName, tap, onFocus, onChange, onDismiss, onExtract, busy, storiesFor }: {
   persona: PersonaWindow
   thread: PersonaThread
   characters: Character[]
@@ -28,6 +28,8 @@ export default function PersonaGroupPanel({ persona, thread, characters, mainNam
   onDismiss: (guestId: string) => void
   onExtract: (guestId: string) => void
   busy: (guestId: string) => boolean
+  /** v256：这张卡演过的剧场/剧本（非小手机），给客人勾选绑定。 */
+  storiesFor?: (characterId: string) => Array<{ id: string; title: string }>
 }) {
   const [query, setQuery] = useState('')
   const [pickOpen, setPickOpen] = useState(false)
@@ -70,6 +72,13 @@ export default function PersonaGroupPanel({ persona, thread, characters, mainNam
     return <div className="persona-guest-editor">
       {guest.source === 'custom' && <label className="persona-memory-field"><strong>人设</strong><textarea rows={3} maxLength={8000} value={guest.persona || ''} onFocus={onFocus} placeholder="他是谁、性格和说话方式" onChange={(event) => { const value = event.target.value; onChange((current) => updateGuest(current, guest.id, { persona: value })) }} /></label>}
       <label className="persona-memory-field"><strong>他的世界观</strong><textarea rows={3} maxLength={8000} value={guest.world || ''} onFocus={onFocus} placeholder={guest.source === 'card' ? '不填就只借人不借戏：不带原卡剧情和人物关系；想让他带着自己的故事来就写在这里' : '他来自哪里、那个世界的规则'} onChange={(event) => { const value = event.target.value; onChange((current) => updateGuest(current, guest.id, { world: value })) }} /><small>{guest.source === 'card' ? `性格与说话方式实时读角色卡「${resolved.name}」，原卡剧情不带进来。` : '随这张简卡保存在人格窗口里。'}</small></label>
+      {guest.source === 'card' && guest.characterId && storiesFor && (() => {
+        const stories = storiesFor(guest.characterId)
+        if (!stories.length) return null
+        const bound = guest.boundStoryIds || []
+        const toggle = (id: string) => onChange((current) => updateGuest(current, guest.id, { boundStoryIds: bound.includes(id) ? bound.filter((item) => item !== id) : [...bound, id].slice(-6) }))
+        return <div className="persona-bound-groups"><div><strong>绑定剧场</strong><small>{bound.length ? `已绑定 ${bound.length} 个，他会一直记得这些故事的经过（约 900 字常驻）。` : '勾选后他一直记得这场戏；不勾也会在你提到时想起。'}</small></div><div className="persona-bound-group-list">{stories.map((story) => <button key={story.id} aria-pressed={bound.includes(story.id)} className={bound.includes(story.id) ? 'on' : ''} {...tap(() => toggle(story.id))}><span>{story.title || '未命名剧场'}</span><i>{bound.includes(story.id) ? '✓' : '＋'}</i></button>)}</div></div>
+      })()}
       <div className="persona-guest-memory">
         <div><strong>他在这扇窗口的记忆（{guest.memories.length}）</strong><small>只记他在场时的事，不进 {mainName} 的长期记忆。{pending ? `有 ${pending} 条新消息待整理。` : ''}</small></div>
         {guest.memories.slice().reverse().slice(0, 20).map((entry) => <div key={entry.id} className="persona-guest-memory-row"><span><b>{entry.title}</b>{entry.content}</span><button className="danger-link" aria-label={`删除记忆${entry.title}`} {...tap(() => onChange((current) => updateGuest(current, guest.id, { memories: (current.guests || []).find((item) => item.id === guest.id)?.memories.filter((item) => item.id !== entry.id) || [] })))}>删除</button></div>)}

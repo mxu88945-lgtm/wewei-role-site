@@ -37,3 +37,20 @@ describe('v256 客人的前世记忆', () => {
     expect(text(planPersonaRequest(persona, ask('你好'), deps()).messages)).not.toContain('前世记忆：谢衍')
   })
 })
+
+describe('v256 剧场线索与绑定剧场', () => {
+  it('asking about the theatre counts as asking about the past', () => {
+    const persona = withXie()
+    const plan = planPersonaRequest(persona, ask('谢衍，今晚我们在剧场排戏，你还记得吗'), deps(() => story))
+    expect(text(plan.messages)).toContain('谢衍的前世记忆·按需召回')
+  })
+
+  it('a bound theatre stays in his card', () => {
+    let persona = withXie()
+    persona = { ...persona, guests: persona.guests!.map((guest) => ({ ...guest, boundStoryIds: ['s1'] })) }
+    const seen: Array<readonly string[] | undefined> = []
+    const plan = planPersonaRequest(persona, ask('今天好冷'), deps(((id: string, bound?: readonly string[]) => { seen.push(bound); return { text: story, sources: [], characterIds: ['xie'], relatedConversationCount: 1, blocks: [{ conversationId: 's1', title: '澳洲花园', kind: '长剧情', source: 'summary', bound: true, text: story.slice(0, 400) }] } }) as never))
+    expect(seen[0]).toEqual(['s1'])
+    expect(text(plan.messages)).toContain('她特意让他记着的剧场')
+  })
+})

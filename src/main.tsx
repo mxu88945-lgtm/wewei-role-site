@@ -28,7 +28,7 @@ import './story-composer.css'
 import './memoryApiEnhancements'
 
 const APP_SCOPE = '/wewei-role-site/'
-const SERVICE_WORKER_RELEASE = '2026-11-15-guest-past-life-v256'
+const SERVICE_WORKER_RELEASE = '2026-11-15-guest-theater-v257'
 
 if ('serviceWorker' in navigator) {
   let reloadingForUpdate = false

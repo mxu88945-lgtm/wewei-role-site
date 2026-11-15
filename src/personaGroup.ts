@@ -26,6 +26,8 @@ export type PersonaGuest = {
   persona?: string
   /** 他自己的世界观（只在这扇人格窗口里，不改原卡）。 */
   world?: string
+  /** v256：角色卡客人绑定的剧场/剧本（她勾选的），这些故事的经过常驻在他的卡里（≤900 字）。 */
+  boundStoryIds?: string[]
   /** 他在这扇人格窗口里的记忆：只记他在场时的事，按他的视角。 */
   memories: PersonaMemoryEntry[]
   createdAt: number
@@ -78,6 +80,7 @@ export function normalizeGuests(value: unknown, normalizeMemory: (raw: unknown) 
       ...(str(raw.avatar).trim() ? { avatar: str(raw.avatar).trim() } : {}),
       ...(str(raw.persona).trim() ? { persona: str(raw.persona).slice(0, 8000) } : {}),
       ...(str(raw.world).trim() ? { world: str(raw.world).slice(0, 8000) } : {}),
+      ...(source === 'card' && Array.isArray(raw.boundStoryIds) && raw.boundStoryIds.some((id) => typeof id === 'string' && id) ? { boundStoryIds: [...new Set(raw.boundStoryIds.filter((id): id is string => typeof id === 'string' && Boolean(id)))].slice(0, 6) } : {}),
       memories: (Array.isArray(raw.memories) ? raw.memories : []).map(normalizeMemory).filter((item): item is PersonaMemoryEntry => Boolean(item)),
       createdAt: Number(raw.createdAt) || 0,
       updatedAt: Number(raw.updatedAt) || 0,
@@ -203,7 +206,7 @@ const memoryLines = (entries: readonly PersonaMemoryEntry[], max = GUEST_MEMORY_
 /** v256：角色卡客人的前世记忆指路（只在他确有过往记录时写进他的卡里）。 */
 export const guestPastLifePointer = (name: string, user: string) => `前世记忆：${name}和${user}在小手机交流或长剧情里有过往记录（那是过去的线上交流和一起写过的故事，不是此刻的身份与关系）。聊到相关的人、事或往事时，应用会在本轮附上【${name}的前世记忆】片段，只有${name}自己记得；没附上的细节不编造。`
 
-export function buildGroupSystemBlock(plan: Pick<GroupTurnPlan, 'mode' | 'guests'>, names: { char: string; user: string }, pastLifeGuests: ReadonlySet<string> = new Set()) {
+export function buildGroupSystemBlock(plan: Pick<GroupTurnPlan, 'mode' | 'guests'>, names: { char: string; user: string }, pastLifeGuests: ReadonlySet<string> = new Set(), boundStories: ReadonlyMap<string, string> = new Map()) {
   const allowed = [names.char, ...plan.guests.map((guest) => guest.name)]
   const cards = plan.guests.map((guest) => [
     `〔${guest.name}｜临时加入的客人〕`,
@@ -211,6 +214,7 @@ export function buildGroupSystemBlock(plan: Pick<GroupTurnPlan, 'mode' | 'guests
     guest.world && `${guest.name}的世界观：\n${guest.world}`,
     memoryLines(guest.memories) && `${guest.name}在这扇窗口里记得的事（只属于${guest.name}）：\n${memoryLines(guest.memories)}`,
     pastLifeGuests.has(guest.id) && guestPastLifePointer(guest.name, names.user),
+    boundStories.get(guest.id) && `${guest.name}和${names.user}一起演过、她特意让他记着的剧场/剧本（只有${guest.name}记得；是一起写过的故事，不是此刻）：\n${boundStories.get(guest.id)}`,
   ].filter(Boolean).join('\n')).join('\n\n')
   const pastNote = pastLifeGuests.size ? `（卡里写了「前世记忆」的客人例外：他记得和${names.user}的过往交流与一起写过的故事，可以自然认出她、想起往事；但原卡身份、职业和故事里的人物关系仍不自动成为此刻的关系，此刻的场景只从这扇窗口开始。）` : ''
   const mode = plan.mode === 'natural'
@@ -354,12 +358,13 @@ export function addGuest(persona: PersonaWindow, threadId: string, input: Omit<P
   return { persona: inviteGuest(withGuest, threadId, guest.id), guest }
 }
 
-export function updateGuest(persona: PersonaWindow, guestId: string, patch: Partial<Pick<PersonaGuest, 'name' | 'avatar' | 'persona' | 'world' | 'memories'>>, now = Date.now()): PersonaWindow {
+export function updateGuest(persona: PersonaWindow, guestId: string, patch: Partial<Pick<PersonaGuest, 'name' | 'avatar' | 'persona' | 'world' | 'memories' | 'boundStoryIds'>>, now = Date.now()): PersonaWindow {
   return { ...persona, guests: (persona.guests || []).map((guest) => {
     if (guest.id !== guestId) return guest
     const next: PersonaGuest = { ...guest, ...patch, updatedAt: now }
     if (patch.name !== undefined) next.name = patch.name.trim().slice(0, 40) || guest.name
     for (const key of ['avatar', 'persona', 'world'] as const) if (patch[key] !== undefined && !String(patch[key]).trim()) delete next[key]
+    if (patch.boundStoryIds !== undefined && !patch.boundStoryIds.length) delete next.boundStoryIds
     return next
   }) }
 }

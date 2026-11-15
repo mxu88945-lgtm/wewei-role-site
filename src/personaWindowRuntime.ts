@@ -99,7 +99,7 @@ export type PersonaRuntimeDeps = {
   /** v255 新动态：绑定的群聊/剧本里这扇窗口还没看过的新消息（只推一次，回复成功后游标前移）。 */
   freshFeed?: (cursor: Readonly<Record<string, number>> | undefined) => FreshFeed
   /** v256：角色卡客人自己的前世记忆（他和她在小手机/长剧情里的过往），按卡 id 取。 */
-  guestPastLife?: (characterId: string) => string | PastLifeResult
+  guestPastLife?: (characterId: string, boundStoryIds?: readonly string[]) => string | PastLifeResult
 }
 
 export type PersonaSemanticInput = { persona: PersonaWindow; thread: PersonaThread; history: PersonaMessage[]; pools: PersonaRecallPools; inContextKeys: Set<string>; query: string }
@@ -187,12 +187,14 @@ export type PersonaRecallPools = {
   /** v255：卡自带世界书里按需触发的条目（地点、配角…），给语义召回打分；key = loreKey。 */
   lore?: PastLifeChunk[]
   /** v256：在场的角色卡客人各自的前世记忆小段（key 加 guest 前缀，和主人格的分开计冷却）。 */
-  guests?: Array<{ guestId: string; name: string; chunks: PastLifeChunk[] }>
+  guests?: Array<{ guestId: string; name: string; chunks: PastLifeChunk[]; bound: string }>
 }
 
 /** v256：每位客人一轮最多带这么多字 / 段。 */
 export const GUEST_PAST_LIFE_BUDGET = 1200
 export const GUEST_PAST_LIFE_MAX_CHUNKS = 2
+/** v256：绑定剧场常驻在客人卡里的上限。 */
+export const GUEST_BOUND_STORY_MAX = 900
 
 /** v255：人格窗口里不常驻、靠触发的世界书条目（深度注入、概率条目不算）。 */
 export function personaTriggerableLore(book: { entries?: WorldBookEntry[] } | undefined): WorldBookEntry[] {
@@ -237,9 +239,18 @@ function guestPastLifePools(persona: PersonaWindow, deps: PersonaRuntimeDeps) {
   const guests = (thread.memberIds || []).map((id) => (persona.guests || []).find((guest) => guest.id === id))
     .filter((guest): guest is NonNullable<typeof guest> => Boolean(guest && guest.source === 'card' && guest.characterId && guest.characterId !== deps.character.id))
   return guests.flatMap((guest) => {
-    const chunks = (pastLifeChunksFrom(deps.guestPastLife!(guest.characterId!)) || []).map((chunk) => ({ ...chunk, key: `${guest.id}|${chunk.key}` }))
+    const all = (pastLifeChunksFrom(deps.guestPastLife!(guest.characterId!, guest.boundStoryIds)) || []).map((chunk) => ({ ...chunk, key: `${guest.id}|${chunk.key}` }))
     const name = resolveGuest(guest, deps.characters).name
-    return chunks.length ? [{ guestId: guest.id, name, chunks }] : []
+    // 绑定的剧场：按顺序常驻（≤900 字，取每段开头的经过和最后写到的地方），其余照旧按需召回。
+    let room = GUEST_BOUND_STORY_MAX
+    const stable: PastLifeChunk[] = []
+    const seen = new Map<string, number>()
+    const ranked = all.filter((item) => item.bound).map((chunk) => { const rank = seen.get(chunk.title) || 0; seen.set(chunk.title, rank + 1); return { chunk, rank } })
+      .sort((a, b) => a.rank - b.rank).map((row) => row.chunk)
+    for (const chunk of ranked) { if (chunk.text.length + 1 > room) continue; stable.push(chunk); room -= chunk.text.length + 1 }
+    const chunks = all.filter((chunk) => !stable.includes(chunk))
+    const bound = stable.map((chunk) => chunk.text).join('\n')
+    return all.length ? [{ guestId: guest.id, name, chunks, bound }] : []
   })
 }
 
@@ -347,7 +358,7 @@ export function planPersonaRequest(persona: PersonaWindow, history: PersonaMessa
     // v232：人物档案自己记——固定文字，只随开关变。
     ['people-tag', '人物档案说明', deps.peopleSelfRecord?.() && PEOPLE_TAG_PROMPT],
     // v234：成员、各自人设/世界观/窗口记忆、模式与输出格式——只随成员或模式变。
-    ['group', '群聊成员', group && buildGroupSystemBlock(group, names, new Set(guestPools.map((item) => item.guestId)))],
+    ['group', '群聊成员', group && buildGroupSystemBlock(group, names, new Set(guestPools.map((item) => item.guestId)), new Map(guestPools.filter((item) => item.bound).map((item) => [item.guestId, stripPersonaFormatInstructions(item.bound)])))],
     // Keep the core boundary in the FIRST system too (some relays drop later system messages).
     ['guard', '回复前确认', PERSONA_FINAL_GUARD],
   ]
