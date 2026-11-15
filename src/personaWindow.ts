@@ -168,6 +168,8 @@ export type PersonaWindow = {
   customGifts?: PersonaGift[]
   /** v231：让他自己做礼物，默认开（只存 false）。v233：关掉后 TA 既不自制也不 [送礼]。 */
   giftsEnabled?: boolean
+  /** v258：允许窗口主人在群聊里用 [请出:名字] 请客人离开，默认关（只存 true）。 */
+  hostKickEnabled?: boolean
   /** v234：拉进过这扇人格窗口的客人（卡 + 他自己的窗口记忆），请出后仍保留。 */
   guests?: PersonaGuest[]
 }
@@ -313,6 +315,7 @@ export function normalizePersonaState(value: unknown): PersonaWindowState {
       ...(raw.selfCardEnabled === false ? { selfCardEnabled: false } : {}),
       ...(normalizePersonaGifts(raw.customGifts).length ? { customGifts: normalizePersonaGifts(raw.customGifts) } : {}),
       ...(raw.giftsEnabled === false ? { giftsEnabled: false } : {}),
+      ...(raw.hostKickEnabled === true ? { hostKickEnabled: true } : {}),
       ...(normalizeGuests(raw.guests, normalizeMemory).length ? { guests: normalizeGuests(raw.guests, normalizeMemory) } : {}),
     })
   }

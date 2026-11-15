@@ -50,7 +50,7 @@ import { PERSONA_GIFT_STABLE_HISTORY, personaGiftRecallNote, addPersonaGift, bui
 import { withPromptCache } from './promptCache'
 import { foldPromptForRelay, stripTurnContext } from './promptTail'
 import { recordPromptUsage } from './promptUsage'
-import { addGuestMemories, buildGroupAfterTail, buildGroupSystemBlock, buildGroupTurnTail, guestMemoryExtractionPrompt, isGuestId, isGuestMessage, labelGroupContent, pendingGuestMessages, planGroupTurn, PERSONA_GROUP_SEGMENT_CAP, PERSONA_GUEST_MEMORY_EVERY, resolveGuest, speakerOf, splitGroupReply, type GroupTurnPlan } from './personaGroup'
+import { dismissGuest, parseGuestKicks, addGuestMemories, buildGroupAfterTail, buildGroupSystemBlock, buildGroupTurnTail, guestMemoryExtractionPrompt, isGuestId, isGuestMessage, labelGroupContent, pendingGuestMessages, planGroupTurn, PERSONA_GROUP_SEGMENT_CAP, PERSONA_GUEST_MEMORY_EVERY, resolveGuest, speakerOf, splitGroupReply, type GroupTurnPlan } from './personaGroup'
 
 /**
  * Generation, memory and compression for the 人格窗口. Module-level on purpose:
@@ -358,7 +358,7 @@ export function planPersonaRequest(persona: PersonaWindow, history: PersonaMessa
     // v232：人物档案自己记——固定文字，只随开关变。
     ['people-tag', '人物档案说明', deps.peopleSelfRecord?.() && PEOPLE_TAG_PROMPT],
     // v234：成员、各自人设/世界观/窗口记忆、模式与输出格式——只随成员或模式变。
-    ['group', '群聊成员', group && buildGroupSystemBlock(group, names, new Set(guestPools.map((item) => item.guestId)), new Map(guestPools.filter((item) => item.bound).map((item) => [item.guestId, stripPersonaFormatInstructions(item.bound)])))],
+    ['group', '群聊成员', group && buildGroupSystemBlock(group, names, new Set(guestPools.map((item) => item.guestId)), new Map(guestPools.filter((item) => item.bound).map((item) => [item.guestId, stripPersonaFormatInstructions(item.bound)])), persona.hostKickEnabled === true)],
     // Keep the core boundary in the FIRST system too (some relays drop later system messages).
     ['guard', '回复前确认', PERSONA_FINAL_GUARD],
   ]
@@ -580,6 +580,13 @@ export async function generatePersonaReply(personaId: string, deps: PersonaRunti
     if (selfEdit) setPersonaState((state) => updatePersona(state, personaId, (item) => setSelfCardSection(item, selfEdit.key, selfEdit.content, `他改了「${selfCardLabel(selfEdit.key)}」`)))
     // v207：他点了歌就切过去——每条回复只在生成完这一刻做一次，翻历史不会触发。
     if (songPick) autoPlaySongPick(`${threadId}:${replyId}:${now}`, songPick, useMusicStore.getState())
+    // v258：他在自己那段写了 [请出:名字]——只认在场客人，开关开着才生效；请出后后台整理那位客人的记忆。
+    const kicked = group && findPersona(personaId)?.hostKickEnabled === true ? parseGuestKicks(own, group.guests) : []
+    if (kicked.length) {
+      setPersonaState((state) => updatePersona(state, personaId, (item) => kicked.reduce((acc, guest) => dismissGuest(acc, threadId, guest.id), item)))
+      patchRuntime((current) => ({ ...current, peopleToasts: { ...current.peopleToasts, [personaId]: { text: `🚪 ${deps.character.name}把${kicked.map((guest) => guest.name).join('、')}请出去了`, seq: ++peopleToastSeq } } }))
+      for (const guest of kicked) setTimeout(() => { void extractGuestMemories(personaId, deps, { guestId: guest.id, threadId, every: 4 }) }, 3000)
+    }
     // v232：TA 记下的人——只认她最近两条消息里出现过的名字（recordPeople 里把关）。
     const recordPeople = deps.peopleSelfRecord?.() ? deps.recordPeople : undefined
     const personTags = recordPeople ? parsePersonTags(own) : []

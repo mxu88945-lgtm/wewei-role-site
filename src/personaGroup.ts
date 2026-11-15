@@ -206,7 +206,7 @@ const memoryLines = (entries: readonly PersonaMemoryEntry[], max = GUEST_MEMORY_
 /** v256：角色卡客人的前世记忆指路（只在他确有过往记录时写进他的卡里）。 */
 export const guestPastLifePointer = (name: string, user: string) => `前世记忆：${name}和${user}在小手机交流或长剧情里有过往记录（那是过去的线上交流和一起写过的故事，不是此刻的身份与关系）。聊到相关的人、事或往事时，应用会在本轮附上【${name}的前世记忆】片段，只有${name}自己记得；没附上的细节不编造。`
 
-export function buildGroupSystemBlock(plan: Pick<GroupTurnPlan, 'mode' | 'guests'>, names: { char: string; user: string }, pastLifeGuests: ReadonlySet<string> = new Set(), boundStories: ReadonlyMap<string, string> = new Map()) {
+export function buildGroupSystemBlock(plan: Pick<GroupTurnPlan, 'mode' | 'guests'>, names: { char: string; user: string }, pastLifeGuests: ReadonlySet<string> = new Set(), boundStories: ReadonlyMap<string, string> = new Map(), canKick = false) {
   const allowed = [names.char, ...plan.guests.map((guest) => guest.name)]
   const cards = plan.guests.map((guest) => [
     `〔${guest.name}｜临时加入的客人〕`,
@@ -231,7 +231,7 @@ ${mode}
 - 每段只写这个人自己的话和简短动作；不替别人说话，不替${names.user}发言、行动或决定。
 - 从角色卡拉来的客人是“借人不借戏”：原卡里的剧情、人物关系、恩怨和与${names.user}或任何人的过往一律不作数；原卡里的其他人物不在场，也不要提起。他是第一次走进这扇窗口，和在场的人原本素不相识，彼此的关系只从这扇窗口里发生的事开始（他自己的窗口记忆和【他的世界观】另有写明的除外）。${pastNote}
 - 客人各按自己的人设与世界观说话，只知道自己在场时发生的事；${names.char}的长期记忆、前世记忆和与${names.user}的私事，客人并不知道。
-- 礼物、人物档案、自我卡、点歌和任务卡只属于${names.char}，只能写在【${names.char}】那一段；客人段落里不要写这些标记（写了也会被丢掉）。客人想记住的事，可以在自己那段末尾写 [记忆:一句话]，只记进他自己的窗口记忆。`
+${canKick ? `- 请出：这里是${names.char}的地方。${names.char}真被某位客人惹烦、或客人越界、冒犯${names.user}时，可以在【${names.char}】那段末尾单独一行写 [请出:客人名字]，应用会请他离开（他的记忆保留，${names.user}随时能再拉回来）。先用话说清再请；别为一点小事请人，也不要每轮都请。客人不能请出任何人。\n` : ''}- 礼物、人物档案、自我卡、点歌和任务卡只属于${names.char}，只能写在【${names.char}】那一段；客人段落里不要写这些标记（写了也会被丢掉）。客人想记住的事，可以在自己那段末尾写 [记忆:一句话]，只记进他自己的窗口记忆。`
 }
 
 /** 【本轮背景】里的一句：这一轮谁说。 */
@@ -412,4 +412,16 @@ export const typedMentionTrigger = (previous: string, next: string) => next.leng
 export function insertMention(draft: string, name: string) {
   if (/[@＠]$/.test(draft)) return `${draft.slice(0, -1)}@${name} `
   return `${draft}${draft && !/\s$/.test(draft) ? ' ' : ''}@${name} `
+}
+
+
+/** v258：主人格那段里的 [请出:名字]，只认此刻在场的客人（名字全等），去重。 */
+export function parseGuestKicks(text: string, guests: readonly Pick<ResolvedGuest, 'id' | 'name'>[]) {
+  const out: Array<Pick<ResolvedGuest, 'id' | 'name'>> = []
+  for (const match of text.matchAll(/\[\s*请出\s*[:：]\s*([^\]\n]{1,40})\]/g)) {
+    const name = match[1].replace(/^[@＠]/, '').trim()
+    const guest = guests.find((item) => item.name.trim() === name)
+    if (guest && !out.some((item) => item.id === guest.id)) out.push(guest)
+  }
+  return out
 }

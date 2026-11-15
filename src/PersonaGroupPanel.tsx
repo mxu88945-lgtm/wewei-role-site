@@ -104,6 +104,7 @@ export default function PersonaGroupPanel({ persona, thread, characters, mainNam
   return <section className="persona-group-panel">
     <div className="persona-prompt-note"><strong>临时群聊</strong><p>把别的角色拉进这扇窗口，像长剧情一样一起接戏。{mainName} 始终在场；请出的客人卡和记忆都留着，拉回来还记得。只有 {mainName} 时，一切和平常一样。</p></div>
 
+    <div className="persona-toggle-row"><div><strong>允许 {mainName} 请出客人</strong><small>这里是 TA 的地方：真被惹烦时，TA 可以自己把客人请出去。客人的记忆保留，你随时能再拉回来。</small></div><button className={`switch ${persona.hostKickEnabled ? 'on' : ''}`} aria-label="允许请出客人" aria-pressed={persona.hostKickEnabled === true} {...tap(() => onChange((current) => { const next = { ...current }; if (current.hostKickEnabled) delete next.hostKickEnabled; else next.hostKickEnabled = true; return next }))}><span /></button></div>
     <p className="persona-settings-caption">回复方式</p>
     <div className="persona-group-modes" role="radiogroup" aria-label="回复方式">
       <button role="radio" aria-checked={mode === 'mention'} className={mode === 'mention' ? 'on' : ''} {...tap(() => setMode('mention'))}><strong>@ 点名</strong><small>你 @ 谁谁说，点几个按顺序各回一条；没 @ 就是 {mainName}</small></button>
