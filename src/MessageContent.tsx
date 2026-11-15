@@ -1,3 +1,4 @@
+import { hasMediaElement, observeLazyFrame } from './lazyFrames'
 import { memo, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
 import { stripTurnContext } from './promptTail'
 import DOMPurify from 'dompurify'
@@ -226,7 +227,20 @@ function SandboxHtml({ html, raw = false, paper = false, greetings, onSelectGree
   const [frameLoaded, setFrameLoaded] = useState(false)
   const [frameFailed, setFrameFailed] = useState(false)
   const greetingsKey = greetings ? JSON.stringify(greetings) : ''
+  // v246：只有靠近屏幕的卡片才挂 srcdoc，远处的卸载成同高占位（带音视频的不卸载）。
+  const shellRef = useRef<HTMLDivElement>(null)
+  const [active, setActive] = useState(() => typeof IntersectionObserver === 'undefined')
+  const keepAlive = useMemo(() => hasMediaElement(html), [html])
+  useLayoutEffect(() => {
+    const element = shellRef.current
+    if (!element) return
+    return observeLazyFrame(element, keepAlive, (next) => {
+      setActive(next)
+      if (!next) setFrameLoaded(false)
+    })
+  }, [keepAlive])
   const source = useMemo(() => {
+    if (!active) return ''
     // Rich character cards containing their own <style> are rendered in an iframe.
     // Run the same mixed-markup paragraphing used by safe inline HTML first, so a
     // long model-authored story does not collapse into one dense block just because
@@ -305,7 +319,7 @@ function SandboxHtml({ html, raw = false, paper = false, greetings, onSelectGree
       document.body.append(reporter)
     }
     return `<!doctype html>${document.documentElement.outerHTML}`
-  }, [html, raw, autoSize, greetingsKey, paper])
+  }, [html, raw, autoSize, greetingsKey, paper, active])
 
   const greetingsRef = useRef(greetings)
   const onSelectRef = useRef(onSelectGreeting)
@@ -314,6 +328,7 @@ function SandboxHtml({ html, raw = false, paper = false, greetings, onSelectGree
   useLayoutEffect(() => {
     setFrameLoaded(false)
     setFrameFailed(false)
+    if (!source) return
     const timeout = window.setTimeout(() => setFrameFailed(true), 8000)
     failTimeoutRef.current = timeout
     const receive = (event: MessageEvent) => {
@@ -341,9 +356,9 @@ function SandboxHtml({ html, raw = false, paper = false, greetings, onSelectGree
     setFrameFailed(false)
     setFrameKey((current) => current + 1)
   }
-  return <div className={`message-script-shell${frameFailed ? ' is-failed' : ''}`}>
+  return <div ref={shellRef} className={`message-script-shell${frameFailed ? ' is-failed' : ''}`}>
     {!frameLoaded && !frameFailed && <div className="message-script-state" role="status">正在加载卡片…</div>}
-    <iframe key={frameKey} ref={frameRef} className={`message-script-frame ${fullDocument && !raw ? 'full-document' : 'inline-script'}${raw ? ' fenced-page' : ''}`} title="角色卡互动内容" sandbox="allow-scripts" srcDoc={source} style={{ height }} onLoad={() => { if (failTimeoutRef.current !== null) window.clearTimeout(failTimeoutRef.current); failTimeoutRef.current = null; setFrameLoaded(true); setFrameFailed(false) }} onError={() => { if (failTimeoutRef.current !== null) window.clearTimeout(failTimeoutRef.current); failTimeoutRef.current = null; setFrameLoaded(false); setFrameFailed(true) }} />
+    {!source ? <div className={`message-script-frame message-script-placeholder ${fullDocument && !raw ? 'full-document' : 'inline-script'}${raw ? ' fenced-page' : ''}`} aria-hidden="true" style={{ height }} /> : <iframe key={frameKey} ref={frameRef} className={`message-script-frame ${fullDocument && !raw ? 'full-document' : 'inline-script'}${raw ? ' fenced-page' : ''}`} title="角色卡互动内容" sandbox="allow-scripts" srcDoc={source} style={{ height }} onLoad={() => { if (failTimeoutRef.current !== null) window.clearTimeout(failTimeoutRef.current); failTimeoutRef.current = null; setFrameLoaded(true); setFrameFailed(false) }} onError={() => { if (failTimeoutRef.current !== null) window.clearTimeout(failTimeoutRef.current); failTimeoutRef.current = null; setFrameLoaded(false); setFrameFailed(true) }} />}
     {frameFailed && <div className="message-script-fallback" role="alert">
       <strong>这张卡片暂时没有正常渲染</strong>
       <span>你可以重试，或先查看未执行脚本的纯文本内容。</span>

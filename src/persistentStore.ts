@@ -29,14 +29,16 @@ async function durableSetNow(key: string, value: unknown) {
     transaction.oncomplete = () => resolve()
     transaction.onabort = () => reject(transaction.error || new Error('数据保存失败'))
     transaction.onerror = () => reject(transaction.error)
-    const store = transaction.objectStore(STORE_NAME)
-    const readRequest = store.get(key)
-    readRequest.onsuccess = () => {
-      const previous = (readRequest.result as StoredValue<unknown> | undefined)?.value
-      try { if (JSON.stringify(previous) === JSON.stringify(value)) return } catch { /* Save normally. */ }
-      try { store.put({ value, savedAt: Date.now() }, key) } catch { transaction.abort() }
-    }
-  }).finally(() => database.close())
+    // v246：不再读回旧值再 JSON.stringify 两份比较（整库几 MB 时一次保存要多占三四份内存）；
+    // 同一个对象引用已写过就跳过，其它情况直接 put（只克隆一次）。
+    try { transaction.objectStore(STORE_NAME).put({ value, savedAt: Date.now() }, key) } catch { transaction.abort() }
+  }).then(() => { lastWritten.set(key, value) }).finally(() => database.close())
+}
+
+const lastWritten = new Map<string, unknown>()
+/** Remember a value just read from IndexedDB so writing the same reference back is skipped. */
+export function markDurableClean(key: string, value: unknown) {
+  if (value !== undefined) lastWritten.set(key, value)
 }
 
 export async function durableSnapshot(): Promise<Record<string, unknown>> {
@@ -74,6 +76,12 @@ export async function replaceDurableSnapshot(data: Record<string, unknown>) {
       for (const [key, value] of Object.entries(data)) store.put({ value, savedAt: Date.now() }, key)
     } catch { transaction.abort() }
   }).finally(() => database.close())
+}
+
+/** For immutable React state only: skip when this exact reference was the last thing read or written. */
+export function durableSetIfChanged(key: string, value: unknown) {
+  if (value !== undefined && lastWritten.get(key) === value && !pendingWrites.has(key)) return Promise.resolve()
+  return durableSet(key, value)
 }
 
 /** Serialize writes per key so an older, slower transaction cannot overwrite newer state. */

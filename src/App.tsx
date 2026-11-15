@@ -63,7 +63,7 @@ import { checkAndRepairTemporaryPlot, reviewTemporaryPlotReply } from './tempora
 import { resolveChatScrollTarget, resolveRelayoutScrollTop, type ChatScrollSnapshot } from './chatScroll'
 import { createApiChannel, isApiChannelComplete, normalizeApiChannels, resolveApiChannel, withApiModel, type ApiChannel } from './apiChannels'
 import { enabledPresetText, normalizePresetSections } from './presetConfig'
-import { durableGet, durableSet } from './persistentStore'
+import { durableGet, durableSet, durableSetIfChanged, markDurableClean } from './persistentStore'
 import { completeStatusBlock, containsHiddenReasoning, hasCompleteRoleplayBody, hasGroupIdentityLeak, moveStatusBlockToEnd, normalizeDirectorStatusOutput, sanitizeAssistantOutput, stripLeadingSpeakerLabels, stripStatusBlocksForStreaming } from './outputSanitizer'
 import { hasCompleteCoreMemoryPayload, isMemoryScanCurrent, planMemoryScan } from './memoryScan'
 import { archivedMemoriesForConversation, memoriesForConversation, replaceConversationMemories, restoreMemoryToRevision } from './memoryEngine'
@@ -299,14 +299,47 @@ const syncPwaThemeColor = (color: string) => {
   themeMeta.setAttribute('content', color)
   document.head.appendChild(themeMeta)
 }
+// v246：启动后前 8 秒（读库、首屏、对话窗口挂载的高峰）不写 IndexedDB，
+// 每个键只留最新值，之后一个一个错开写；切后台/关页面时立刻全部写入。
+const BOOT_QUIET_MS = 8000
+const BOOT_WRITE_GAP_MS = 350
+let bootWriteQueue: Map<string, unknown> | null = new Map()
+let bootWriteTimer: number | undefined
+const flushBootWrites = (all = false) => {
+  const queue = bootWriteQueue
+  if (!queue) return
+  bootWriteTimer = undefined
+  if (all) {
+    bootWriteQueue = null
+    for (const [key, value] of queue) writeDurableNow(key, value)
+    return
+  }
+  const next = queue.entries().next()
+  if (next.done) { bootWriteQueue = null; return }
+  queue.delete(next.value[0])
+  writeDurableNow(next.value[0], next.value[1])
+  bootWriteTimer = window.setTimeout(() => flushBootWrites(), BOOT_WRITE_GAP_MS)
+}
+if (typeof window !== 'undefined') {
+  window.addEventListener('pagehide', () => flushBootWrites(true))
+  document.addEventListener('visibilitychange', () => { if (document.hidden) flushBootWrites(true) })
+}
 const writeDurable = (key: string, value: unknown) => {
+  if (bootWriteQueue) {
+    bootWriteQueue.set(key, value)
+    if (bootWriteTimer === undefined) bootWriteTimer = window.setTimeout(() => flushBootWrites(), Math.max(0, BOOT_QUIET_MS - performance.now()))
+    return
+  }
+  writeDurableNow(key, value)
+}
+const writeDurableNow = (key: string, value: unknown) => {
   // Existing installs may still have a localStorage copy. Keep it as a fallback
   // until IndexedDB succeeds once, then remove the duplicate large payload.
   const hasLegacyCopy = localStorage.getItem(key) !== null
   if (hasLegacyCopy) {
     try { write(key, value) } catch (error) { console.warn('本地轻量储存已满，继续写入 IndexedDB', error) }
   }
-  void durableSet(key, value)
+  void durableSetIfChanged(key, value)
     .then(() => {
       try { localStorage.removeItem(key) } catch {
         // IndexedDB is already authoritative; a blocked legacy cleanup is harmless.
@@ -1024,12 +1057,15 @@ function App() {
       durableGet<UserIdentity[]>('weijing.identities'), durableGet<UserIdentity>('weijing.identity'), durableGet<MemoryConfigMap>('weijing.memoryConfigs'), durableGet<MemoryEntryMap>('weijing.memoryEntries'), durableGet<string>('weijing.chatBackground'), durableGet<ApiConfig>('weijing.globalMemoryApi'), durableGet<StoryProject[]>('weijing.storyProjects'), durableGet<PlotTemplate[]>('weijing.plotTemplates'), durableGet<ChatWallpapers>(WALLPAPERS_KEY), durableGet<ConversationTrashEntry<MemoryEntry>[]>('weijing.conversationTrash'),
     ]).then(([storedCharacters, storedConversations, storedIdentities, storedIdentity, storedConfigs, storedEntries, storedBackground, storedGlobalMemoryApi, storedStoryProjects, storedPlotTemplates, storedWallpapers, storedTrash]) => {
       if (cancelled) return
-      if (storedCharacters) setCharacters(storedCharacters.map(normalizeStoredCharacter))
+      if (storedCharacters) { const loaded = storedCharacters.map(normalizeStoredCharacter); markDurableClean('weijing.characters', loaded); setCharacters(loaded) }
       if (storedConversations) {
         const persistedCharacters = (storedCharacters?.length ? storedCharacters : read<Partial<Character>[]>('weijing.characters', [demoCharacter])).map(normalizeStoredCharacter)
-        setConversations(repairGuTingshenConversationStages(removeFailedTransportMessages(storedConversations), persistedCharacters).map((conversation) => recoverConversationDirector(conversation, persistedCharacters)))
+        const loaded = repairGuTingshenConversationStages(removeFailedTransportMessages(storedConversations), persistedCharacters).map((conversation) => recoverConversationDirector(conversation, persistedCharacters))
+        markDurableClean('weijing.conversations', loaded)
+        setConversations(loaded)
       }
-      if (storedIdentities?.length) setIdentities(storedIdentities)
+      markDurableClean('weijing.memoryEntries', storedEntries); markDurableClean('weijing.conversationTrash', storedTrash); markDurableClean('weijing.plotTemplates', storedPlotTemplates); markDurableClean('weijing.globalMemoryApi', storedGlobalMemoryApi)
+      if (storedIdentities?.length) { markDurableClean('weijing.identities', storedIdentities); setIdentities(storedIdentities) }
       else if (storedIdentity) setIdentities([{ ...storedIdentity, id: storedIdentity.id || 'persona-default' }])
       if (storedConfigs) setMemoryConfigs(migrateMemoryConfigs(storedConfigs))
       if (storedEntries) setMemoryEntries(storedEntries)
@@ -1041,10 +1077,13 @@ function App() {
       const loadedConversation = loadedExplicit?.kind === 'group' ? loadedExplicit : loadedConversations.find((item) => item.id === startup.activeConversationId && item.characterId === loadedCharacterId) || loadedConversations.filter((item) => item.characterId === loadedCharacterId).sort((a, b) => b.updatedAt - a.updatedAt)[0]
       const legacyFrost = loadedConversation ? read(conversationFrostKey(loadedConversation.id), loadedConversation.themeFrost ?? startup.chatBackgroundFrost) : startup.chatBackgroundFrost
       let loadedWallpapers = migrateLegacyWallpaper(storedWallpapers ?? read(WALLPAPERS_KEY, undefined), storedBackground ?? read('weijing.chatBackground', ''), wallpaperScopeKey(loadedConversation, loadedCharacterId), legacyFrost)
+      // v246：壁纸已在库里、没有旧版数据要迁移时，启动不再把整份壁纸（图片 data URL）原样写回一遍。
+      const wallpapersAlreadyStored = Boolean(storedWallpapers) && !storedBackground && !read('weijing.chatBackground', '') && read('weijing.themeWallpapersV1', false)
       if (!read('weijing.themeWallpapersV1', false)) {
         loadedWallpapers = migrateThemeWallpapers(loadedWallpapers, loadedConversations)
         try { write('weijing.themeWallpapersV1', true) } catch { /* Re-running the merge is harmless. */ }
       }
+      if (wallpapersAlreadyStored) markDurableClean(WALLPAPERS_KEY, loadedWallpapers)
       setChatWallpapers(loadedWallpapers)
       setWallpaperHydrationReady(true)
       if (!read('weijing.defaultThemePresetId', '')) {
@@ -1205,7 +1244,7 @@ function App() {
   useEffect(() => {
     if (!persistenceReady || !wallpaperHydrationReady) return
     let current = true
-    void durableSet(WALLPAPERS_KEY, chatWallpapers).then(() => {
+    void durableSetIfChanged(WALLPAPERS_KEY, chatWallpapers).then(() => {
       if (!current) return
       setWallpaperStorageError('')
       try { localStorage.removeItem(WALLPAPERS_KEY) } catch { /* Database copy is saved. */ }
@@ -5004,7 +5043,7 @@ function UpdateCard() {
     }
   }
 
-  return <section className="update-card"><strong>应用更新</strong><p>主动检查并拉取最新网页版本，不会删除角色、聊天记录或本地设置。</p><small>当前版本：v245 · 2026.11.15 修启动白屏/闪退：开场模板里的头像先缩小再放（原来一张大头像会复制 4 份）；出错时不再白屏，会显示「出错了 · 重新加载 / 安全模式」；连续两次没打开成功会自动进安全模式（不加载立绘、开场模板、歌词），顶部可一键退出。</small><button onClick={refresh} disabled={state === 'checking'}>{state === 'checking' ? '正在检查更新…' : state === 'error' ? '更新失败，点我重试' : '强制刷新到最新版'}</button></section>
+  return <section className="update-card"><strong>应用更新</strong><p>主动检查并拉取最新网页版本，不会删除角色、聊天记录或本地设置。</p><small>当前版本：v246 · 2026.11.15 启动减负：长对话里的美化卡片只加载屏幕附近的几张（最多 8 张同时在内存里，划走的变成占位，划回来再加载）；启动前 8 秒不写数据库、之后逐个错开写，保存时不再把整份聊天记录复制好几份比较。</small><button onClick={refresh} disabled={state === 'checking'}>{state === 'checking' ? '正在检查更新…' : state === 'error' ? '更新失败，点我重试' : '强制刷新到最新版'}</button></section>
 }
 
 function PersonaPage({ identities, selectedId, isBound, onSelect, onAdd, onDelete, onUpdate, onBack }: { identities: UserIdentity[]; selectedId: string; isBound: boolean; onSelect: (id: string) => void; onAdd: () => void; onDelete: (id: string) => void; onUpdate: (patch: Partial<UserIdentity>) => void; onBack: () => void }) {
