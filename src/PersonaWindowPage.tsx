@@ -27,7 +27,7 @@ import { pastLifeChunksFrom } from './personaPastLifeRecall'
 import { HISTORY_TOKEN_BUDGET } from './historyWindow'
 import { PersonaCompressionCard, PersonaMemoryInspection, PersonaRecallReceipt } from './PersonaMemoryInspection'
 import { canLockPersonaMemory, PERSONA_LOCKED_BUDGET } from './personaWindowMemory'
-import { activeThread, addPersonaThread, buildPersonaSetting, characterAliasIds, collectPastLifeMemory, conversationInvolvesCharacter, deletePersona, deletePersonaThread, deletePersonaMessage, disablePersona, editPersonaMessage, enablePersona, PERSONA_MEMORY_EVERY, PERSONA_WINDOW_PRESET, pendingPersonaMemoryCount, personaMemoryApi, renamePersonaThread, resolvePersonaApi, switchPersona, switchPersonaThread, updatePersona, updatePersonaThread, type PersonaMemoryEntry, type PersonaMessage, type PersonaWindow } from './personaWindow'
+import { activeThread, addPersonaThread, buildPersonaSetting, characterAliasIds, collectFreshFeed, collectPastLifeMemory, conversationInvolvesCharacter, deletePersona, deletePersonaThread, deletePersonaMessage, disablePersona, editPersonaMessage, enablePersona, PERSONA_MEMORY_EVERY, PERSONA_WINDOW_PRESET, pendingPersonaMemoryCount, personaMemoryApi, renamePersonaThread, resolvePersonaApi, switchPersona, switchPersonaThread, updatePersona, updatePersonaThread, type PersonaMemoryEntry, type PersonaMessage, type PersonaWindow } from './personaWindow'
 import { hydratePersonaStore, setPersonaState, usePersonaHydrated, usePersonaState } from './personaWindowStore'
 import { buildPersonaRequest, dismissPeopleToast, extractGuestMemories, extractPersonaMemory, generatePersonaReply, getPersonaRuntime, maybeCompressPersonaContext, setPersonaError, stopPersonaReply, subscribePersonaRuntime, type PersonaRuntimeDeps } from './personaWindowRuntime'
 
@@ -315,6 +315,7 @@ export default function PersonaWindowPage(props: Props) {
       historyTokenBudget: props.historyTokenBudget ?? HISTORY_TOKEN_BUDGET,
       // Read-only snapshot of this character's phone/story life, built per request.
       pastLife: () => collectPastLifeMemory({ character, characters, conversations, memoryEntries, userName: identity.name, boundGroupIds: persona?.boundGroupIds, boundConversationIds: persona?.boundConversationIds }),
+      freshFeed: (cursor) => collectFreshFeed({ character, characters, conversations, userName: identity.name, boundGroupIds: persona?.boundGroupIds, boundConversationIds: persona?.boundConversationIds, cursor }),
       globalWorldbook: props.globalWorldbook || '',
       setting: () => buildPersonaSetting({ character, characters, conversations, storyProjects: props.storyProjects || [] }),
       songList: () => useMusicStore.getState().tracks.map((track) => track.name),

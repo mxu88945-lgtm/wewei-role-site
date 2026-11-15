@@ -5061,7 +5061,7 @@ function UpdateCard() {
     }
   }
 
-  return <section className="update-card"><strong>应用更新</strong><p>主动检查并拉取最新网页版本，不会删除角色、聊天记录或本地设置。</p><small>当前版本：v254 · 2026.11.15 长剧情世界书更省：常驻里的世界、地点、配角条目只留一行摘要，聊到（关键词、标题或意思相近）才附全文并多记 3 轮；他本人、规则类和小世界书照旧整条；关键词默认只看最近 4 条</small><button onClick={refresh} disabled={state === 'checking'}>{state === 'checking' ? '正在检查更新…' : state === 'error' ? '更新失败，点我重试' : '强制刷新到最新版'}</button></section>
+  return <section className="update-card"><strong>应用更新</strong><p>主动检查并拉取最新网页版本，不会删除角色、聊天记录或本地设置。</p><small>当前版本：v255 · 2026.11.15 启动秒开：程序文件先用本地缓存，页面等网络最多 1.5 秒；独立窗口加「新动态」，群聊和剧本里他没看过的新消息推一次（≤800 字），看过就进召回库；卡里世界书关键词或意思相近任一命中就想起</small><button onClick={refresh} disabled={state === 'checking'}>{state === 'checking' ? '正在检查更新…' : state === 'error' ? '更新失败，点我重试' : '强制刷新到最新版'}</button></section>
 }
 
 function PersonaPage({ identities, selectedId, isBound, onSelect, onAdd, onDelete, onUpdate, onBack }: { identities: UserIdentity[]; selectedId: string; isBound: boolean; onSelect: (id: string) => void; onAdd: () => void; onDelete: (id: string) => void; onUpdate: (patch: Partial<UserIdentity>) => void; onBack: () => void }) {

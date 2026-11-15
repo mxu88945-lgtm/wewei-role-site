@@ -7,7 +7,9 @@ import { currentImageTurn, extractImageMemo, IMAGE_MEMO_PROMPT, planImageWire, w
 import { attachmentPromptIndices, attachmentPromptText, type ChatAttachment } from './chatAttachments'
 import { quotePromptPrefix } from './quoteReply'
 import { isApiChannelComplete } from './apiChannels'
-import { activeEntries } from './promptBuilder'
+import { activeEntries, LORE_SEMANTIC_MIN, loreKey, loreTitle } from './promptBuilder'
+import type { WorldBookEntry } from './characterCard'
+import type { FreshFeed } from './personaWindow'
 import { applyMacros } from './regexEngine'
 import { personaReplyText, stripPersonaFormatInstructions } from './personaWindowPresentation'
 import { parsePersonaTask, personaTaskStatus, PERSONA_TASK_PROMPT, taskIsActive } from './personaTasks'
@@ -94,6 +96,8 @@ export type PersonaRuntimeDeps = {
   /** v236：语义召回（设置 → API 连接 → 语义召回）。没开/失败/超时返回 null，自动回退到线索 + 关键词召回。
    * 只查这个人格自己的窗口（按旧文检索范围）、自己的长期记忆和本轮素材池，绝不跨人格、跨剧情对话。 */
   semanticRecall?: (input: PersonaSemanticInput) => Promise<PersonaSemanticHits | null>
+  /** v255 新动态：绑定的群聊/剧本里这扇窗口还没看过的新消息（只推一次，回复成功后游标前移）。 */
+  freshFeed?: (cursor: Readonly<Record<string, number>> | undefined) => FreshFeed
 }
 
 export type PersonaSemanticInput = { persona: PersonaWindow; thread: PersonaThread; history: PersonaMessage[]; pools: PersonaRecallPools; inContextKeys: Set<string>; query: string }
@@ -178,6 +182,22 @@ export type PersonaRecallPools = {
   setting: string
   globalWorldbook: string
   backgroundTitles: string[]
+  /** v255：卡自带世界书里按需触发的条目（地点、配角…），给语义召回打分；key = loreKey。 */
+  lore?: PastLifeChunk[]
+}
+
+/** v255：人格窗口里不常驻、靠触发的世界书条目（深度注入、概率条目不算）。 */
+export function personaTriggerableLore(book: { entries?: WorldBookEntry[] } | undefined): WorldBookEntry[] {
+  return (book?.entries || []).filter((entry) => entry.enabled && entry.content.trim() && !entry.constant
+    && !(Number(entry.extensions?.position) === 4 || entry.position === 'at_depth')
+    && !(entry.extensions?.useProbability && Number(entry.extensions.probability ?? 100) < 100))
+}
+
+export function personaLoreChunks(book: { entries?: WorldBookEntry[] } | undefined): PastLifeChunk[] {
+  return personaTriggerableLore(book).map((entry) => {
+    const title = loreTitle(entry)
+    return { key: loreKey(entry), label: `世界书｜${title}`, title, kind: '世界书', bound: false, names: [], text: `${title}\n${entry.content.trim().slice(0, 1200)}` }
+  })
 }
 
 export function personaRecallPools(persona: PersonaWindow, deps: PersonaRuntimeDeps): PersonaRecallPools {
@@ -199,6 +219,7 @@ export function personaRecallPools(persona: PersonaWindow, deps: PersonaRuntimeD
     setting: setting.length > BACKGROUND_STABLE_MAX ? '' : setting,
     globalWorldbook: globalWorldbook.length > BACKGROUND_STABLE_MAX ? '' : globalWorldbook,
     backgroundTitles: [...new Set(titles)],
+    lore: personaLoreChunks(personaCharacter(deps.character).characterBook),
   }
 }
 
@@ -229,7 +250,13 @@ export function planPersonaRequest(persona: PersonaWindow, history: PersonaMessa
   const steadyLore = (entry: (typeof loreEntries)[number]) => entry.constant && !(entry.extensions.useProbability && Number(entry.extensions.probability ?? 100) < 100)
   const lore = loreEntries.filter(steadyLore).map((entry) => entry.content).join('\n\n')
   let loreRoom = PERSONA_TRIGGERED_LORE_MAX
-  const triggeredLore = loreEntries.filter((entry) => !steadyLore(entry)).flatMap((entry) => {
+  // v255：两条路任一命中就带——关键词（人名地名这类硬词）或语义相近（她换了说法也能想起）。
+  const keywordContent = new Set(loreEntries.map((entry) => entry.content))
+  const chunkScores = options.semantic?.chunks
+  const semanticLore = chunkScores ? personaTriggerableLore(character.characterBook)
+    .filter((entry) => !keywordContent.has(entry.content) && (chunkScores.get(loreKey(entry)) ?? 0) >= LORE_SEMANTIC_MIN)
+    .sort((a, b) => (chunkScores.get(loreKey(b)) ?? 0) - (chunkScores.get(loreKey(a)) ?? 0)) : []
+  const triggeredLore = [...loreEntries.filter((entry) => !steadyLore(entry)), ...semanticLore].flatMap((entry) => {
     if (loreRoom <= 80) return []
     const text = clipPersonaText(entry.content, loreRoom)
     loreRoom -= text.length + 2
@@ -264,6 +291,8 @@ export function planPersonaRequest(persona: PersonaWindow, history: PersonaMessa
   const usedByPast = pastRecall?.text.length || 0
   const backgroundRecall = pools.background.length ? recallBackground(pools.background, { ...recallCommon, budget: Math.min(BACKGROUND_RECALL_BUDGET, recallRoom() - usedByEvicted - usedByPast), maxChunks: Math.min(BACKGROUND_RECALL_MAX_CHUNKS, itemRoom - itemsByEvicted - (pastRecall?.chunks.length || 0)) }) : null
   const memory = withEvictedRecall(withBackgroundRecall(withPastLifeRecall(baseMemory, pastRecall && { ...pastRecall, text: pastRecall.text && stripPersonaFormatInstructions(pastRecall.text) }), backgroundRecall && { ...backgroundRecall, text: backgroundRecall.text && stripPersonaFormatInstructions(backgroundRecall.text) }), evictedRecall)
+  // v255：新动态只在前世记忆开着、不是应用事件那轮时带。
+  const feed = persona.pastLifeEnabled !== false && !options.event ? deps.freshFeed?.(thread.feedCursor) : undefined
   const giftHistory = personaGiftHistory(persona.threads, thread)
   const group = planGroupTurn(persona, thread, history, { name: character.name, avatar: deps.character.avatar }, deps.characters)
   const guestHistory = !group && recent.some(isGuestMessage)
@@ -300,6 +329,7 @@ export function planPersonaRequest(persona: PersonaWindow, history: PersonaMessa
   // 每轮会变的：按最新消息召回的记忆、触发的世界书、任务倒计时、正在听的歌——
   // v210：不再是第二条 system（中转站常把它丢掉），而是接在最新一条用户消息正文后面（只在请求里）。
   const dynamicParts: PromptPart[] = [
+    ['fresh-feed', '新动态（群聊/剧本里没看过的新消息）', feed?.text && stripPersonaFormatInstructions(feed.text)],
     ['memory-turn', '本轮记忆召回（36 小时·原文·相关记忆·前世）', memory.dynamicText],
     ['gift-turn', '更早的礼物往来（聊到才带）', personaGiftRecallNote(giftHistory, scan)],
     ['lore-turn', '本轮触发的世界书', triggeredLore && `【本轮触发的世界书背景参考｜只读】\n${stripPersonaFormatInstructions(triggeredLore)}`],
@@ -351,7 +381,7 @@ export function planPersonaRequest(persona: PersonaWindow, history: PersonaMessa
   // v209/v210：Claude 加 cache_control（第一条 system + 最新用户消息前一条）；其它模型保持纯字符串。
   const historyChars = history2.reduce((sum, item) => sum + (typeof item.content === 'string' ? item.content.length : item.content.reduce((acc, part) => acc + (part.type === 'text' ? part.text.length : 0), 0)), 0)
   const parts = [...describeParts(systemParts, 'stable').flatMap((part) => part.key === 'card' ? describeParts(referenceParts, 'stable') : [part]), { key: 'history', label: `最近上下文（${history2.length} 条）`, where: 'context' as const, chars: historyChars }, ...describeParts(dynamicParts, 'turn')]
-  return { messages: withPromptCache(consolidatePersonaMessages(messages), deps.api), memory: { ...memory, audit: { ...memory.audit, parts } }, group, parts }
+  return { messages: withPromptCache(consolidatePersonaMessages(messages), deps.api), memory: { ...memory, audit: { ...memory.audit, parts } }, group, parts, feedCursor: feed?.cursor }
 }
 
 /**
@@ -531,7 +561,7 @@ export async function generatePersonaReply(personaId: string, deps: PersonaRunti
       const touched = updatePersona(state, personaId, (item) => { const memories = touchRecalledMemories(item.memories, plan.memory.recalledMemoryIds || [], done); return memories === item.memories ? item : { ...item, memories } })
       const withMemory = updatePersona(touched, personaId, (item) => guestSaves.reduce((acc, save) => addGuestMemories(acc, save.guestId, save.entries, mergePersonaMemories), saves.length || !guestSaves.length ? { ...item, memories: mergePersonaMemories(item.memories, saves) } : item))
       const withImage = memoTurnIds.size ? updatePersonaThread(withMemory, personaId, threadId, (item) => { const messages = withImageMemo(item.messages, (message) => memoTurnIds.has(message.id), imageMemo); return messages === item.messages ? item : { ...item, messages } }) : withMemory
-      return touch(updatePersonaThread(withImage, personaId, threadId, (item) => ({ ...commitPersonaRecallLedger(item, [...sources.keys(), ...plan.memory.pastLifeKeys], plan.memory.turn), ...(completedTask ? { tasks: item.tasks?.map((entry) => entry.id === completedTask.id ? { ...entry, reactedAt: done } : entry) } : task && !item.tasks?.some((existing) => taskIsActive(existing) && existing.text === task.text) ? { tasks: [...(item.tasks || []), task] } : {}), updatedAt: done })), done)
+      return touch(updatePersonaThread(withImage, personaId, threadId, (item) => ({ ...commitPersonaRecallLedger(item, [...sources.keys(), ...plan.memory.pastLifeKeys], plan.memory.turn), ...(plan.feedCursor ? { feedCursor: plan.feedCursor } : {}), ...(completedTask ? { tasks: item.tasks?.map((entry) => entry.id === completedTask.id ? { ...entry, reactedAt: done } : entry) } : task && !item.tasks?.some((existing) => taskIsActive(existing) && existing.text === task.text) ? { tasks: [...(item.tasks || []), task] } : {}), updatedAt: done })), done)
     })
     // v234：客人在场的新消息攒够了，就在后台按他的视角整理进他自己的窗口记忆。
     if (group) setTimeout(() => { void extractGuestMemories(personaId, deps, { threadId, every: PERSONA_GUEST_MEMORY_EVERY }) }, 2400)

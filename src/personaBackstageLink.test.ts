@@ -64,18 +64,18 @@ describe('v206 绑定剧本', () => {
   const memoryEntries: LongMemoryMap = { old: [{ id: 'm', content: '旧剧本里的长期记忆' }] }
   const conversations: Conversation[] = [
     { id: 'new', characterId: 'gu', title: '新剧本', messages: [], createdAt: 1, updatedAt: 90, contextSummary: '新剧本的经过' },
-    { id: 'old', characterId: 'gu', title: '旧剧本', messages: Array.from({ length: 12 }, (_, index) => ({ id: index + 1, role: index % 2 ? 'assistant' as const : 'user' as const, text: `第${index + 1}句` })), createdAt: 1, updatedAt: 10, contextSummary: '旧剧本的经过' },
+    { id: 'old', characterId: 'gu', title: '旧剧本', messages: Array.from({ length: 40 }, (_, index) => ({ id: index + 1, role: index % 2 ? 'assistant' as const : 'user' as const, text: `第${index + 1}句` })), createdAt: 1, updatedAt: 10, contextSummary: '旧剧本的经过' },
   ]
   it('puts bound stories first with summary and a longer excerpt', () => {
     const plain = collectPastLifeMemory({ character: gu, conversations, memoryEntries })
     expect(plain.text.indexOf('新剧本')).toBeLessThan(plain.text.indexOf('旧剧本'))
-    expect(plain.text).not.toContain('第3句')
+    expect(plain.text).not.toContain('第20句')
     const bound = collectPastLifeMemory({ character: gu, conversations, memoryEntries, boundConversationIds: ['old'] })
     expect(bound.text.indexOf('〔绑定的剧本｜长剧情｜旧剧本〕')).toBeGreaterThan(-1)
     expect(bound.text.indexOf('旧剧本')).toBeLessThan(bound.text.indexOf('新剧本'))
     expect(bound.text).toContain('旧剧本里的长期记忆')
     expect(bound.text).toContain('旧剧本的经过')
-    expect(bound.text).toContain('第3句')
+    expect(bound.text).toContain('第22句')
     expect(bound.sources[0].conversationId).toBe('old')
   })
   it('ignores bound ids that are phone chats or missing', () => {

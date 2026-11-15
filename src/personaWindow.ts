@@ -36,10 +36,10 @@ export const PERSONA_MEMORY_EVERY = 240
 /** 单次整理最多读这么多条，剩下的留给下一次。 */
 export const PERSONA_MEMORY_BATCH = 60
 export const PERSONA_MEMORY_LIMIT = 300
-export const PAST_LIFE_MAX_CHARS = 10000
-const PAST_LIFE_PER_CONVERSATION = 2600
+export const PAST_LIFE_MAX_CHARS = 16000
+const PAST_LIFE_PER_CONVERSATION = 3600
 /** 绑定的剧本：多给一点篇幅和更长的最近节选。 */
-const PAST_LIFE_PER_BOUND_STORY = 3400
+const PAST_LIFE_PER_BOUND_STORY = 4800
 /** 前世记忆里「幕后手记与戏外私聊」的上限（在总预算之内）。 */
 export const PAST_LIFE_BACKSTAGE_MAX_CHARS = 1500
 
@@ -118,6 +118,8 @@ export type PersonaThread = {
   replyMode?: PersonaReplyMode
   /** v234：每位客人在这扇窗口里已整理进他自己记忆的最后一条消息 id。 */
   guestMemoryThrough?: Record<string, number>
+  /** v255 新动态：每个群聊/剧本已经推给这扇窗口的最后一条消息 id。 */
+  feedCursor?: Record<string, number>
 }
 
 export type PersonaWindow = {
@@ -255,6 +257,7 @@ function normalizeThread(raw: Record<string, unknown>, fallbackId: string, index
     ...(isRecord(raw.recallLedger) ? { recallLedger: Object.fromEntries(Object.entries(raw.recallLedger).filter(([, turn]) => typeof turn === 'number' && Number.isSafeInteger(turn) && turn >= 0).sort((a, b) => Number(b[1]) - Number(a[1])).slice(0, 120)) as Record<string, number> } : {}),
     ...(Number.isSafeInteger(Number(raw.messageSequence)) && Number(raw.messageSequence) > 0 ? { messageSequence: Number(raw.messageSequence) } : {}),
     ...(Array.isArray(raw.tasks) ? { tasks: normalizePersonaTasks(raw.tasks) } : {}),
+    ...(isRecord(raw.feedCursor) ? { feedCursor: normalizeFeedCursor(raw.feedCursor) } : {}),
     ...normalizeThreadGroup(raw),
   }
 }
@@ -603,7 +606,7 @@ export type PastLifeBlock = { conversationId: string; title: string; kind: strin
 export type PastLifeResult = { text: string; sources: PastLifeSource[]; characterIds: string[]; relatedConversationCount: number; blocks?: PastLifeBlock[]; preamble?: string }
 
 const clip = (value: string, max: number) => value.length > max ? `${value.slice(0, Math.max(0, max - 1))}…` : value
-const PAST_LIFE_EXCERPT_LINES = 16
+const PAST_LIFE_EXCERPT_LINES = 30
 
 /** This card plus any card with exactly the same name (duplicates, re-imports, story copies). */
 export function characterAliasIds(character: Pick<Character, 'id' | 'name'>, characters: readonly Pick<Character, 'id' | 'name'>[] = []) {
@@ -757,13 +760,13 @@ export function collectPastLifeMemory({ character, conversations, memoryEntries,
       core.length ? `他记得的事：\n${core.join('\n')}` : '',
       long.length ? `那段日子：\n${long.join('\n')}` : '',
       summary ? `经过：\n${clip(summary, 1400)}` : '',
-      excerpt ? `最后写到的：\n${excerptLines.slice(-10).join('\n')}` : '',
+      excerpt ? `最后写到的：\n${excerptLines.slice(-20).join('\n')}` : '',
     ].filter(Boolean) : [
       castLine(conversation, ids, characters),
       core.length ? `他记得的事：\n${core.join('\n')}` : '',
       long.length ? `那段日子：\n${long.join('\n')}` : '',
       summary && remembered < 4 ? `经过：\n${clip(summary, 1200)}` : '',
-      excerpt ? `最后聊到的：\n${remembered ? excerptLines.slice(-4).join('\n') : (!summary ? excerpt : excerptLines.slice(-6).join('\n'))}` : '',
+      excerpt ? `最后聊到的：\n${remembered ? excerptLines.slice(-12).join('\n') : (!summary ? excerpt : excerptLines.slice(-16).join('\n'))}` : '',
     ].filter(Boolean)
     if (!parts.length) continue
     const kind = conversationKind(conversation)
@@ -938,3 +941,87 @@ export const PERSONA_WINDOW_PRESET = `【独立人格窗口｜相处规则】
 /** Repeated at the response boundary so nothing in the history can pull him back into an assistant voice. */
 export const PERSONA_FINAL_GUARD = `【回复前确认】你是名为{{char}}的 AI 人格，正在和{{user}}一对一交流。角色卡只是背景参考，不是当前剧情；不要自动套用原卡身份、关系或场景。自然接上本窗口最新交流，按本人格补充提示词表达，不用客服腔，不机械照演，不编造记忆，不反复索要已经提供的资料。
 旧回复如果曾把原卡场景当作当前事实，不必继续；只有{{user}}明确开剧情才临时进入虚构场景。不输出场景栏、状态栏、心理栏、HTML、代码块或结构标签，只写本次实际交流内容。`
+
+
+/* ---------------- v255 新动态 ---------------- */
+/** 新动态一轮最多带这么多字 / 行（只推一次，看过就进前世记忆召回库）。 */
+export const FRESH_FEED_MAX_CHARS = 800
+export const FRESH_FEED_MAX_LINES = 12
+/** 一段会话最多列几行（多的算「更早的没列」）。 */
+const FRESH_FEED_PER_CONVERSATION = 6
+/** 这扇窗口第一次看某段会话时，只推最近 6 小时内的（消息 id 就是创建时的毫秒时间）。 */
+export const FRESH_FEED_FIRST_WINDOW_MS = 6 * 60 * 60 * 1000
+/** 没绑定的会话：他在场、最近 24 小时更新过的才看，最多 4 段。 */
+const FRESH_FEED_RECENT_MS = 24 * 60 * 60 * 1000
+const FRESH_FEED_MAX_CONVERSATIONS = 4
+
+export function normalizeFeedCursor(raw: Record<string, unknown>): Record<string, number> {
+  return Object.fromEntries(Object.entries(raw).filter(([key, value]) => key && typeof value === 'number' && Number.isFinite(value) && value > 0).slice(0, 60)) as Record<string, number>
+}
+
+type FreshFeedInput = {
+  character: Pick<Character, 'id' | 'name'>
+  characters?: readonly Pick<Character, 'id' | 'name'>[]
+  conversations: readonly Conversation[]
+  boundGroupIds?: readonly string[]
+  boundConversationIds?: readonly string[]
+  cursor?: Readonly<Record<string, number>>
+  userName?: string
+  now?: number
+}
+export type FreshFeed = { text: string; cursor: Record<string, number>; count: number; omitted: number }
+
+const PENDING_REPLY = /^正在(?:回应|输入|思考)…?$/
+
+/**
+ * v255：新动态——绑定的群聊/剧本（没绑就用他在场、最近更新的会话）里，这扇窗口还没看过的新消息。
+ * 只推一次：发出成功后游标前移，之后这些话只在前世记忆召回库里（关键词或语义命中才想起）。纯函数。
+ */
+export function collectFreshFeed({ character, characters = [], conversations, boundGroupIds = [], boundConversationIds = [], cursor = {}, userName = '她', now = Date.now() }: FreshFeedInput): FreshFeed {
+  const ids = characterAliasIds(character, characters)
+  const bound = new Set([...boundGroupIds, ...boundConversationIds])
+  const pick = conversations.filter((conversation) => bound.has(conversation.id)
+    || ((now - (conversation.updatedAt || 0)) <= FRESH_FEED_RECENT_MS && conversationInvolvesCharacter(conversation, ids)))
+    .slice().sort((a, b) => (bound.has(b.id) ? 1 : 0) - (bound.has(a.id) ? 1 : 0) || (b.updatedAt || 0) - (a.updatedAt || 0))
+    .slice(0, Math.max(FRESH_FEED_MAX_CONVERSATIONS, bound.size))
+  const next: Record<string, number> = { ...cursor }
+  const nameOf = (message: { role: string; characterId?: string }) => message.role === 'user' ? userName
+    : !message.characterId || ids.includes(message.characterId) ? character.name
+      : characters.find((item) => item.id === message.characterId)?.name || '群友'
+  const blocks: Array<{ head: string; lines: string[]; newest: number }> = []
+  let count = 0, omitted = 0
+  for (const conversation of pick) {
+    const since = cursor[conversation.id] ?? now - FRESH_FEED_FIRST_WINDOW_MS
+    const usable = conversation.messages.filter((message) => !message.phoneNotice && message.finishReason !== 'error' && message.text?.trim() && !PENDING_REPLY.test(message.text.trim()))
+    const newest = usable.reduce((max, message) => Math.max(max, Number(message.id) || 0), 0)
+    if (newest) next[conversation.id] = Math.max(next[conversation.id] || 0, newest)
+    const fresh = usable.filter((message) => Number(message.id) > since)
+    if (!fresh.length) continue
+    const lines = fresh.slice(-FRESH_FEED_PER_CONVERSATION).map((message) => `${nameOf(message)}：${clip(messageText(message.text).replace(/\n+/g, ' '), 120)}`).filter((line) => !/：$/.test(line))
+    omitted += fresh.length - lines.length
+    count += lines.length
+    if (lines.length) blocks.push({ head: `〔${conversationKind(conversation)}｜${conversation.title || '未命名'}〕`, lines, newest })
+  }
+  if (!blocks.length) return { text: '', cursor: next, count: 0, omitted: 0 }
+  // 超出上限时先砍最旧那段的最早几行。
+  blocks.sort((a, b) => b.newest - a.newest)
+  const out: string[] = []
+  let used = 0, lineCount = 0
+  for (const block of blocks) {
+    const room = FRESH_FEED_MAX_LINES - lineCount
+    if (room <= 0 || used >= FRESH_FEED_MAX_CHARS) { omitted += block.lines.length; count -= block.lines.length; continue }
+    let lines = block.lines.slice(-room)
+    while (lines.length && used + block.head.length + lines.join('\n').length + 2 > FRESH_FEED_MAX_CHARS) lines = lines.slice(1)
+    omitted += block.lines.length - lines.length
+    count -= block.lines.length - lines.length
+    if (!lines.length) continue
+    out.push(`${block.head}\n${lines.join('\n')}`)
+    used += block.head.length + lines.join('\n').length + 2
+    lineCount += lines.length
+  }
+  if (!out.length) return { text: '', cursor: next, count: 0, omitted }
+  const text = `【新动态｜上次聊完之后，小手机和剧本里的新消息，只读】
+最新的在每段末尾。自然知道就好，不用逐条复述，也别说“我看到了推送”；小手机是线上交流，长剧情是你们一起写的故事，不是此刻。${omitted ? `（另有 ${omitted} 条更早的没列，提到时会想起来）` : ''}
+${out.join('\n')}`
+  return { text, cursor: next, count, omitted }
+}
