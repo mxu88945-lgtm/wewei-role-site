@@ -24,6 +24,7 @@ import PersonaAppearanceSettings, { type PersonaAppearanceControls } from './Per
 import { PersonaTaskCards, PersonaTaskPanel, PersonaTaskPin } from './PersonaTaskCards'
 import { PERSONA_TASK_PIN_LIMIT, createPersonaTask, taskIsActive, updatePersonaTask } from './personaTasks'
 import { pastLifeChunksFrom } from './personaPastLifeRecall'
+import { HISTORY_TOKEN_BUDGET } from './historyWindow'
 import { PersonaCompressionCard, PersonaMemoryInspection, PersonaRecallReceipt } from './PersonaMemoryInspection'
 import { canLockPersonaMemory, PERSONA_LOCKED_BUDGET } from './personaWindowMemory'
 import { activeThread, addPersonaThread, buildPersonaSetting, characterAliasIds, collectPastLifeMemory, conversationInvolvesCharacter, deletePersona, deletePersonaThread, deletePersonaMessage, disablePersona, editPersonaMessage, enablePersona, PERSONA_MEMORY_EVERY, PERSONA_WINDOW_PRESET, pendingPersonaMemoryCount, personaMemoryApi, renamePersonaThread, resolvePersonaApi, switchPersona, switchPersonaThread, updatePersona, updatePersonaThread, type PersonaMemoryEntry, type PersonaMessage, type PersonaWindow } from './personaWindow'
@@ -71,6 +72,8 @@ type Props = {
   maxTokens: number
   streaming: boolean
   memoryLength: number
+  /** v251：最近原文 token 上限（App 读 weijing.historyTokenBudget，默认 8200）。 */
+  historyTokenBudget?: number
   /** Same global worldbook as the main story chat. */
   globalWorldbook?: string
   storyProjects?: StoryProject[]
@@ -309,6 +312,7 @@ export default function PersonaWindowPage(props: Props) {
       maxTokens: props.maxTokens,
       streaming: props.streaming,
       memoryLength: props.memoryLength,
+      historyTokenBudget: props.historyTokenBudget ?? HISTORY_TOKEN_BUDGET,
       // Read-only snapshot of this character's phone/story life, built per request.
       pastLife: () => collectPastLifeMemory({ character, characters, conversations, memoryEntries, userName: identity.name, boundGroupIds: persona?.boundGroupIds, boundConversationIds: persona?.boundConversationIds }),
       globalWorldbook: props.globalWorldbook || '',
@@ -684,6 +688,7 @@ export default function PersonaWindowPage(props: Props) {
           thread,
           autoMemory: active.autoMemory !== false,
           memoryLength: props.memoryLength,
+          historyTokenBudget: props.historyTokenBudget ?? HISTORY_TOKEN_BUDGET,
           memoryApiReady: Boolean(deps && isApiChannelComplete(deps.memoryApi)),
           chatApiReady: Boolean(deps && isApiChannelComplete(deps.api)),
           running: Boolean(runtime.compressing[thread.id]),

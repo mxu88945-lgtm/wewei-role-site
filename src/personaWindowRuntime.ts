@@ -11,10 +11,11 @@ import { activeEntries } from './promptBuilder'
 import { applyMacros } from './regexEngine'
 import { personaReplyText, stripPersonaFormatInstructions } from './personaWindowPresentation'
 import { parsePersonaTask, personaTaskStatus, PERSONA_TASK_PROMPT, taskIsActive } from './personaTasks'
-import { AUTO_COMPRESSION_FAILURE_COOLDOWN_MS, planAutoContextCompression } from './contextCompression'
+import { AUTO_COMPRESSION_FAILURE_COOLDOWN_MS, planAutoContextCompression, planEvictionCompression } from './contextCompression'
+import { EVICTED_RECALL_BUDGET, EVICTED_RECALL_MAX_CHUNKS, evictedPool, evictedSemantic, recallEvicted, withEvictedRecall } from './evictedRecall'
 import { isPersonaCompressible, type PersonaCompressionFailure } from './personaCompressionStatus'
 import { loadCompressionFailures, saveCompressionFailures } from './personaCompressionFailureStore'
-import { PERSONA_TURN_RECALL_MAX_CHARS, PERSONA_TURN_RECALL_MAX_ITEMS, buildPersonaMemoryContext, clipPersonaText, personaRecentHistory, commitPersonaRecallLedger, parsePersonaMemoryTool, personaContinuityFallback, personaContinuitySourceUnchanged, personaContinuityTranscript, personaMemorySaves, PERSONA_MEMORY_TOOLS, readPersonaOriginal, searchPersonaHistory, type PersonaMemoryAudit, type PersonaRecallSource } from './personaWindowMemory'
+import { PERSONA_TURN_RECALL_MAX_CHARS, PERSONA_TURN_RECALL_MAX_ITEMS, buildPersonaMemoryContext, clipPersonaText, personaHistoryWindow, personaRecentHistory, commitPersonaRecallLedger, parsePersonaMemoryTool, personaContinuityFallback, personaContinuitySourceUnchanged, personaContinuityTranscript, personaMemorySaves, PERSONA_MEMORY_TOOLS, readPersonaOriginal, searchPersonaHistory, type PersonaMemoryAudit, type PersonaRecallSource } from './personaWindowMemory'
 import {
   nextPersonaMessageId,
   parsePersonaMemoryCandidates,
@@ -45,7 +46,7 @@ import { useMusicStore } from './musicStore'
 import { parsePersonTags, PEOPLE_TAG_PROMPT, type PersonTag } from './peopleProfiles'
 import { PERSONA_GIFT_STABLE_HISTORY, personaGiftRecallNote, addPersonaGift, buildPersonaGiftPrompt, extractPersonaAssistantGift, personaGiftHistory, personaGiftPromptText, personaGiftRecordLine, removePersonaGift, type PersonaGiftEvent } from './personaGifts'
 import { withPromptCache } from './promptCache'
-import { foldPromptForRelay } from './promptTail'
+import { foldPromptForRelay, stripTurnContext } from './promptTail'
 import { recordPromptUsage } from './promptUsage'
 import { addGuestMemories, buildGroupAfterTail, buildGroupSystemBlock, buildGroupTurnTail, guestMemoryExtractionPrompt, isGuestId, isGuestMessage, labelGroupContent, pendingGuestMessages, planGroupTurn, PERSONA_GROUP_SEGMENT_CAP, PERSONA_GUEST_MEMORY_EVERY, resolveGuest, speakerOf, splitGroupReply, type GroupTurnPlan } from './personaGroup'
 
@@ -63,6 +64,8 @@ export type PersonaRuntimeDeps = {
   maxTokens: number
   streaming: boolean
   memoryLength: number
+  /** v251：最近原文 token 上限（默认 8200；0 = 关闭封顶，只按「记忆长度」条数）。 */
+  historyTokenBudget?: number
   /** Built lazily, read-only, only when the persona's 前世记忆 switch is on.
    * v226：不再整段进稳定前缀，切小段后按最新消息按需召回；给 PastLifeResult 时用它的分段与来源标签。 */
   pastLife: () => string | PastLifeResult
@@ -211,7 +214,9 @@ export function planPersonaRequest(persona: PersonaWindow, history: PersonaMessa
   // v226：前世记忆只在开关开着时收集；切小段后按最新消息召回，命中的才接到动态尾巴。
   const pastLifeChunks = pools.pastLife
   // Reuse selection/image helpers, never the story prompt's roleplay / scene directives.
-  const recent = personaRecentHistory(history, thread, deps.memoryLength)
+  // v251：最近原文按 token 封顶（至少 10 轮完整交流）；滑出的那段走压缩提要（稳定区）+ 按需召回（尾巴）。
+  const historyWindow = personaHistoryWindow(history, thread, deps.memoryLength, deps.historyTokenBudget)
+  const recent = historyWindow.recent
   // v236：线索只看她最新一句 + 他上一条回复（不再扫整段最近历史，免得一提过就每轮都带）。
   const scan = cueScanText(history)
   // v209：常驻（constant、无概率）世界书条目进稳定前缀；按关键词/概率触发的随最近对话变化，放末尾动态提醒。
@@ -238,15 +243,21 @@ export function planPersonaRequest(persona: PersonaWindow, history: PersonaMessa
     ['background-pointer', '故事背景指路', backgroundPointer(pools.backgroundTitles)],
   ]
   const reference = referenceParts.map((part) => part[2]).filter((value): value is string => Boolean(value)).map(stripPersonaFormatInstructions).join('\n\n')
-  const baseMemory = buildPersonaMemoryContext(persona, thread, history, recent, { char: character.name, user: deps.user.name }, Date.now(), { semantic: options.semantic })
+  const baseMemory = buildPersonaMemoryContext(persona, thread, history, recent, { char: character.name, user: deps.user.name }, Date.now(), { semantic: options.semantic, evictedHandled: true })
   // v236：按需召回合计不超过上限——旧原文/相关记忆先占，前世、故事背景用剩下的。
   const recallRoom = () => Math.max(0, PERSONA_TURN_RECALL_MAX_CHARS - (baseMemory.recallChars || 0))
   const itemRoom = Math.max(0, PERSONA_TURN_RECALL_MAX_ITEMS - (baseMemory.recallItems || 0))
   const recallCommon = { history, aliases: persona.memoryAliases, charName: character.name, userName: deps.user.name, ledger: thread.recallLedger, turn: baseMemory.turn, semantic: options.semantic?.chunks }
-  const pastRecall = pastLifeChunks ? recallPastLife(pastLifeChunks, { ...recallCommon, budget: Math.min(PAST_LIFE_RECALL_BUDGET, recallRoom()), maxChunks: Math.min(PAST_LIFE_RECALL_MAX_CHUNKS, itemRoom) }) : null
+  // v251：滑出窗口、未进档案的原文——前世同款召回（专有线索/提示词/点名/冷却），最多 2 段约 1200 字，先占额度。
+  const evictedNames = { char: character.name, user: deps.user.name }
+  const pool = persona.recallEnabled === false ? null : evictedPool(historyWindow.evicted.map((message) => ({ id: message.id, role: message.role, speaker: message.role === 'user' ? evictedNames.user : isGuestMessage(message) ? `〔${message.speakerName || '客人'}〕` : evictedNames.char, text: message.role === 'assistant' ? personaReplyText(message.text) : stripTurnContext(message.text), createdAt: message.createdAt })))
+  const semanticMessages = options.semantic?.messages
+  const evictedRecall = pool && pool.chunks.length ? recallEvicted(pool, { ...recallCommon, semantic: semanticMessages ? evictedSemantic(pool, (id) => semanticMessages.get(`${thread.id}|${id}`)) : undefined, budget: Math.min(EVICTED_RECALL_BUDGET, recallRoom()), maxChunks: Math.min(EVICTED_RECALL_MAX_CHUNKS, itemRoom) }) : null
+  const usedByEvicted = evictedRecall?.text.length || 0, itemsByEvicted = evictedRecall?.chunks.length || 0
+  const pastRecall = pastLifeChunks ? recallPastLife(pastLifeChunks, { ...recallCommon, budget: Math.min(PAST_LIFE_RECALL_BUDGET, recallRoom() - usedByEvicted), maxChunks: Math.min(PAST_LIFE_RECALL_MAX_CHUNKS, itemRoom - itemsByEvicted) }) : null
   const usedByPast = pastRecall?.text.length || 0
-  const backgroundRecall = pools.background.length ? recallBackground(pools.background, { ...recallCommon, budget: Math.min(BACKGROUND_RECALL_BUDGET, recallRoom() - usedByPast), maxChunks: Math.min(BACKGROUND_RECALL_MAX_CHUNKS, itemRoom - (pastRecall?.chunks.length || 0)) }) : null
-  const memory = withBackgroundRecall(withPastLifeRecall(baseMemory, pastRecall && { ...pastRecall, text: pastRecall.text && stripPersonaFormatInstructions(pastRecall.text) }), backgroundRecall && { ...backgroundRecall, text: backgroundRecall.text && stripPersonaFormatInstructions(backgroundRecall.text) })
+  const backgroundRecall = pools.background.length ? recallBackground(pools.background, { ...recallCommon, budget: Math.min(BACKGROUND_RECALL_BUDGET, recallRoom() - usedByEvicted - usedByPast), maxChunks: Math.min(BACKGROUND_RECALL_MAX_CHUNKS, itemRoom - itemsByEvicted - (pastRecall?.chunks.length || 0)) }) : null
+  const memory = withEvictedRecall(withBackgroundRecall(withPastLifeRecall(baseMemory, pastRecall && { ...pastRecall, text: pastRecall.text && stripPersonaFormatInstructions(pastRecall.text) }), backgroundRecall && { ...backgroundRecall, text: backgroundRecall.text && stripPersonaFormatInstructions(backgroundRecall.text) }), evictedRecall)
   const giftHistory = personaGiftHistory(persona.threads, thread)
   const group = planGroupTurn(persona, thread, history, { name: character.name, avatar: deps.character.avatar }, deps.characters)
   const guestHistory = !group && recent.some(isGuestMessage)
@@ -430,7 +441,7 @@ export async function generatePersonaReply(personaId: string, deps: PersonaRunti
     // v236：语义召回先查（4 秒超时，失败就当没开）；结果只影响本轮【本轮背景】，不碰第一条 system。
     let semantic: PersonaSemanticHits | null = null
     if (deps.semanticRecall) {
-      const recentKeys = new Set(personaRecentHistory(history, planThread, deps.memoryLength).map((message) => `${threadId}|${message.id}`))
+      const recentKeys = new Set(personaRecentHistory(history, planThread, deps.memoryLength, deps.historyTokenBudget).map((message) => `${threadId}|${message.id}`))
       try { semantic = await deps.semanticRecall({ persona, thread: planThread, history, pools, inContextKeys: recentKeys, query: cueScanText(history) }) } catch { semantic = null }
       if (controller.signal.aborted) throw new DOMException('Aborted', 'AbortError')
     }
@@ -678,7 +689,11 @@ export async function maybeCompressPersonaContext(personaId: string, deps: Perso
   const lastFailure = runtime.compressionFailures[key]?.at
   if (lastFailure && Date.now() - lastFailure < AUTO_COMPRESSION_FAILURE_COOLDOWN_MS) return
   const compressedUntil = personaCompressedUntil(thread)
-  const plan = planAutoContextCompression(thread.messages, { compressedUntil, hasValidSummary: compressedUntil > 0, memoryLength: deps.memoryLength, isCompressible: isPersonaCompressible })
+  // v251：滑出最近原文、还没进档案的攒到 40 条就提前整理（不再等 240 条），保留的就是当前原文窗口。
+  const verbatim = personaRecentHistory(thread.messages, thread, deps.memoryLength, deps.historyTokenBudget)
+  const verbatimStart = verbatim.length ? thread.messages.findIndex((message) => message.id === verbatim[0].id) : thread.messages.length
+  const plan = (deps.historyTokenBudget ?? 1) > 0 && planEvictionCompression(thread.messages, { compressedUntil, hasValidSummary: compressedUntil > 0, verbatimStart: verbatimStart < 0 ? thread.messages.length : verbatimStart, isCompressible: isPersonaCompressible })
+    || planAutoContextCompression(thread.messages, { compressedUntil, hasValidSummary: compressedUntil > 0, memoryLength: deps.memoryLength, isCompressible: isPersonaCompressible })
   if (!plan) return
   const pending = plan.pendingMessages.slice(0, Math.max(1, 240 - plan.keepRecent))
   const targetThroughId = pending[pending.length - 1]?.id
@@ -687,7 +702,7 @@ export async function maybeCompressPersonaContext(personaId: string, deps: Perso
   const name = deps.character.name
   let summary = ''
   let fallback = false
-  setNotice(personaId, '已累积到 240 条，正在整理连续性档案…')
+  setNotice(personaId, `较早的 ${pending.length} 条原文正在整理进连续性档案…`)
   const transcript = personaContinuityTranscript(pending, { char: name, user: deps.user.name })
   const requestSummary = async (maxTokens: number) => {
     summary = ''

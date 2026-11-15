@@ -35,3 +35,10 @@
 - 防卡死：prepareChatImage 每张 20s 超时（报错文字直接显示）；persistentStore 打开 6s 超时+重开一次，写入 15s 超时，失败不堵同键后续保存（src/persistentStoreTimeout.test.ts）。
 - 字号：runtime-enhancements.css 的 `:where(h3, strong, b)` 15px 规则豁免整个 `.archive-heading` 与布丁胶囊、以及锁屏倒计时/状态时钟/红包金额/游戏图标/统计数字/未读角标等展示型大字；手机消息/学院/唱片名字改 calc(23px × 界面字号)。测试在 src/fontControls.test.ts。
 - 花费（只报告未改）：人格窗口/长剧情历史按「记忆长度」条数（默认 47）不设 token 上限，长回复时历史是顾祁砚（8200 token 预算）的 1.5–2.4 倍；默认 maxTokens 8000（顾祁砚 2048）。
+
+## v251（2026-11-15）最近原文按 token 封顶，滑出的不掉空白
+- 窗口：src/historyWindow.ts `selectHistoryWindow`。人格窗口（personaHistoryWindow）和长剧情（buildChatPrompt / storyHistoryWindow）共用：「记忆长度」仍是条数上限；条数内最近原文 ≤ 8200 token（estimateTokens 估算）；至少保留最近 10 轮完整交流，10 轮本身超预算时只从最旧几条长回复开头往后剪（留结尾+【…前半已省略，完整原文仍保留】），最新 4 条永不剪；预算有余往前补，最后一条装不下就剪开头。设置键 `weijing.historyTokenBudget`（默认 8200，0 = 回到只按条数），没做界面。小手机不变。
+- 不掉空白：①稳定区「滑出窗口的压缩提要」（evictedRecap，≤900 字，离窗口近的优先，替代旧的「原文衔接桥」）；②按需召回 src/evictedRecall.ts：滑出的消息按「一轮交流」切小段，用前世记忆同一个 recallPastLife（稀有度改 1/20、专有双字即可、只看她最新一句），每轮最多 2 段/1200 字，只进【本轮背景】尾巴，冷却 4 轮（人格窗口用 recallLedger；长剧情用 App 内存账本）。人格窗口里滑出那段不再走「旧原文」线（evictedHandled），已整理的旧原文照旧走它；③提前整理：档案边界后、窗口外的攒到 40 条（EVICTION_COMPRESSION_TRIGGER）就整理连续性档案，边界 = 当前原文窗口起点；老的 240 条规则留作兜底。连续性档案卡片按新口径显示「X / 40 条待整理」。
+- 人格窗口本窗连续性档案改为完整发送（≤2400 字，以前只发前 1200 字，最新后半会丢）；PERSONA_MEMORY_BUDGET 6400→8300。
+- 评测：src/historyWindowBench.test.ts（`MEASURE=1` 打印），v250 基线写在文件里；守护测试 src/historyWindow.test.ts、personaWindowMemoryRuntime.test.ts 末尾。
+- 风险：滑出提要在第一条 system 里、每轮会变——中转站支持缓存时第一条 system 不再命中缓存（她现在的中转站不支持，按原始输入计费）。短回复（条数先到 47）时每轮反而多约 1.5k token（完整档案 + 提要）。

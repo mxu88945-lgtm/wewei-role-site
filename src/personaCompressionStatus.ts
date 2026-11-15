@@ -1,4 +1,5 @@
-import { AUTO_COMPRESSION_FAILURE_COOLDOWN_MS, AUTO_COMPRESSION_KEEP_RECENT, AUTO_COMPRESSION_TRIGGER, planAutoContextCompression } from './contextCompression'
+import { AUTO_COMPRESSION_FAILURE_COOLDOWN_MS, AUTO_COMPRESSION_KEEP_RECENT, AUTO_COMPRESSION_TRIGGER, EVICTION_COMPRESSION_TRIGGER, planAutoContextCompression, planEvictionCompression } from './contextCompression'
+import { personaRecentHistory } from './personaWindowMemory'
 import { personaCompressedUntil, type PersonaMessage, type PersonaThread } from './personaWindow'
 
 /** 与 maybeCompressPersonaContext 完全相同的可整理过滤：有正文（v233：或带礼物）、不是失败回复。 */
@@ -41,6 +42,8 @@ export function personaCompressionStatus(input: {
   thread: Pick<PersonaThread, 'messages' | 'contextSummary' | 'compressedThroughId' | 'summaryFallback' | 'summaryUpdatedAt'>
   autoMemory: boolean
   memoryLength: number
+  /** v251：传了（>0）就按「滑出原文窗口、未进档案的条数 ≥ 40」显示与判断，和后台一致。 */
+  historyTokenBudget?: number
   memoryApiReady: boolean
   chatApiReady: boolean
   running: boolean
@@ -52,9 +55,16 @@ export function personaCompressionStatus(input: {
   const { thread } = input
   const compressedUntil = personaCompressedUntil(thread)
   const hasValidSummary = compressedUntil > 0
-  const outstanding = thread.messages.slice(hasValidSummary ? compressedUntil : 0).filter(isPersonaCompressible).length
-  const keepRecent = Math.max(AUTO_COMPRESSION_KEEP_RECENT, Math.floor(input.memoryLength || 0))
-  const plan = planAutoContextCompression(thread.messages, { compressedUntil, hasValidSummary, memoryLength: input.memoryLength, isCompressible: isPersonaCompressible })
+  const evictionMode = Boolean(input.historyTokenBudget && input.historyTokenBudget > 0)
+  const verbatim = evictionMode ? personaRecentHistory(thread.messages, thread, input.memoryLength, input.historyTokenBudget) : []
+  const found = verbatim.length ? thread.messages.findIndex((message) => message.id === verbatim[0].id) : -1
+  const verbatimStart = found < 0 ? thread.messages.length : found
+  const evictionPlan = evictionMode ? planEvictionCompression(thread.messages, { compressedUntil, hasValidSummary, verbatimStart, isCompressible: isPersonaCompressible }) : null
+  const outstanding = evictionMode
+    ? thread.messages.slice(hasValidSummary ? compressedUntil : 0, Math.max(hasValidSummary ? compressedUntil : 0, verbatimStart)).filter(isPersonaCompressible).length
+    : thread.messages.slice(hasValidSummary ? compressedUntil : 0).filter(isPersonaCompressible).length
+  const keepRecent = evictionMode ? thread.messages.length - verbatimStart : Math.max(AUTO_COMPRESSION_KEEP_RECENT, Math.floor(input.memoryLength || 0))
+  const plan = evictionPlan || planAutoContextCompression(thread.messages, { compressedUntil, hasValidSummary, memoryLength: input.memoryLength, isCompressible: isPersonaCompressible })
   const summary = thread.contextSummary?.trim() || ''
   const archive = summary ? { updatedAt: thread.summaryUpdatedAt, through: compressedUntil, fallback: Boolean(thread.summaryFallback), text: summary } : undefined
 
@@ -69,11 +79,11 @@ export function personaCompressionStatus(input: {
   }
   if (input.running) blockers.push({ kind: 'running', label: '正在整理连续性档案…' })
   else if (input.busy) blockers.push({ kind: 'busy', label: '正在回复或提炼记忆，结束后再整理' })
-  if (outstanding >= AUTO_COMPRESSION_TRIGGER && !plan) blockers.push({ kind: 'nothing', label: `要保留最近 ${keepRecent} 条原文，暂时没有可整理的旧消息` })
+  if (!evictionMode && outstanding >= AUTO_COMPRESSION_TRIGGER && !plan) blockers.push({ kind: 'nothing', label: `要保留最近 ${keepRecent} 条原文，暂时没有可整理的旧消息` })
 
   return {
     outstanding,
-    trigger: AUTO_COMPRESSION_TRIGGER,
+    trigger: evictionMode ? EVICTION_COMPRESSION_TRIGGER : AUTO_COMPRESSION_TRIGGER,
     total: thread.messages.length,
     keepRecent,
     archive,

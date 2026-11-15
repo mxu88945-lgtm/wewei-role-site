@@ -53,7 +53,8 @@ import { assignLibraryGroup, libraryPlacementDraft, preserveLibraryPlacement, au
 import { activeCharacterMemory, characterMemoryEntryFromConversation, characterMemoryExtractionPrompt, characterMemorySummaryProtocol, parseCharacterMemoryCandidates, splitCharacterMemorySummary } from './characterMemory'
 import { readCachedModels, saveCachedModels } from './modelListCache'
 import { ChatApiError, completeChat, fetchApiModels, testApiConnection, type ApiConfig, type ApiModel } from './chatApi'
-import { buildChatPrompt } from './promptBuilder'
+import { buildChatPrompt, storyHistoryWindow } from './promptBuilder'
+import { HISTORY_TOKEN_BUDGET } from './historyWindow'
 import { currentImageTurn, extractImageMemo, withImageMemo } from './imageMemo'
 import { foldPromptForRelay } from './promptTail'
 import { withPromptCache } from './promptCache'
@@ -85,7 +86,7 @@ import { normalizeStoryProjects, type StoryProject } from './storyProject'
 import { buildStoryProjectPrompt, selectConversationStoryProject } from './storyProjectPrompt'
 import { buildAutomaticContinuityInput, captureAssistantMessageIds, hasUnprocessedAssistantMessages, mergeAutomaticContinuity, parseAutomaticContinuityResponse } from './storyContinuity'
 import { buildReplyHelperMessages, cleanReplyHelperDraft, REPLY_HELPER_MAX_TOKENS } from './replyHelper'
-import { PHONE_COMPRESSION_KEEP_RECENT, PHONE_COMPRESSION_TRIGGER, canApplyContextCompression, planAutoContextCompression, planContextCompression, shouldStartAutoCompression, uncompressedMessages, type ContextCompressionPlan } from './contextCompression'
+import { EVICTION_COMPRESSION_TRIGGER, PHONE_COMPRESSION_KEEP_RECENT, PHONE_COMPRESSION_TRIGGER, planEvictionCompression, canApplyContextCompression, planAutoContextCompression, planContextCompression, shouldStartAutoCompression, uncompressedMessages, type ContextCompressionPlan } from './contextCompression'
 import { buildMessageQuote, prioritizeAddressed, quotedParticipantIds, withQuotePrefix, type MessageQuote } from './quoteReply'
 import { chatWindowAnchorIncluding, earlierChatMessageCount, earlierChatWindowAnchor, resolveChatWindowStart, trimmedChatWindowAnchor } from './chatWindow'
 import { findLatestActorContinuityAnchor, findLatestSceneContinuityAnchor } from './actorContinuity'
@@ -672,6 +673,10 @@ function App() {
   const [temperature, setTemperature] = useState(() => read('weijing.temperature', 0.95))
   const [topP, setTopP] = useState(() => read('weijing.topP', 0.9))
   const [memoryLength, setMemoryLength] = useState(() => read('weijing.memoryLength', 47))
+  // v251：最近原文 token 上限（人格窗口 + 长剧情）。没做界面：默认 8200；localStorage 设 0 可回到只按条数。
+  const [historyTokenBudget] = useState(() => read('weijing.historyTokenBudget', HISTORY_TOKEN_BUDGET))
+  // v251：长剧情「滑出窗口原文」按需召回的冷却账本（会话 id → 小段 key → 轮次），只在内存里。
+  const evictedRecallLedgerRef = useRef(new Map<string, Record<string, number>>())
   const [maxTokens, setMaxTokens] = useState(() => read('weijing.maxTokens', 8000))
   const [streaming, setStreaming] = useState(() => read('weijing.streaming', true))
   const [chatLayout, setChatLayout] = useState<'bubble' | 'flat'>(() => read('weijing.chatLayout', 'bubble'))
@@ -2874,7 +2879,7 @@ function App() {
       return [{ ...message, text }]
     })
     const hasValidContextSummary = Boolean(conversation.contextSummary && (conversation.contextSummaryRevision || 0) === (conversation.historyRevision || 0))
-    let promptStats = { memoryCount: 0, historyCount: 0 }
+    let promptStats: { memoryCount: number; historyCount: number; historyTokens?: number; evictedCount?: number; evictedKeys?: string[] } = { memoryCount: 0, historyCount: 0 }
     let promptMessages = buildChatPrompt({
       mode: isPhone ? 'phone' : 'story',
       onDiagnostics: (stats) => { promptStats = stats },
@@ -2900,6 +2905,9 @@ function App() {
       actorContinuityAnchor,
       memory: { entries: capturedMemories, injectPosition: capturedMemoryConfig.injectPosition, injectPrompt: capturedMemoryConfig.injectPrompt },
       memoryLength,
+      historyTokenBudget,
+      speakerName: (message) => message.role === 'user' ? identity.name : !isGroup || (message as Message).characterId === speaker.id ? speaker.name : `〔${messageCharacterName(message as Message, conversation)}〕`,
+      evictedRecall: isPhone || isDirector ? undefined : { ledger: evictedRecallLedgerRef.current.get(conversation.id), turn: nextMessages.filter((message) => message.role === 'user').length },
       contextSummary: hasValidContextSummary ? (isPhone ? conversation.contextSummary?.slice(0, 4000) : conversation.contextSummary) : undefined,
       semanticRecall: isPhone || isDirector ? undefined : requestOptions.semanticRecall,
       // Phone history is already a tail slice: its indices no longer match the saved transcript.
@@ -3108,11 +3116,18 @@ function App() {
       const isDirectorSpeaker = Boolean(conversation.directorCharacterId && speaker.id === conversation.directorCharacterId)
       const semanticRecall = conversation.phone || isDirectorSpeaker ? '' : await semanticRecallForConversation({
         conversation: { id: conversationId, messages: nextMessages },
-        inContextIds: new Set(nextMessages.slice(-Math.max(1, memoryLength)).map((message) => message.id)),
+        inContextIds: new Set(nextMessages.slice(storyHistoryWindow(nextMessages, { compressedUntil: conversation.compressedUntil, hasSummary: Boolean(conversation.contextSummary && (conversation.contextSummaryRevision || 0) === (conversation.historyRevision || 0)), memoryLength, tokenBudget: historyTokenBudget }).start).map((message) => message.id)),
         speakerName: (message) => message.role === 'user' ? identity.name : messageCharacterName(message as Message, conversation),
       })
       const prepared = prepareAssistantRequest(conversation, nextMessages, speaker, semanticRecall ? { ...requestOptions, semanticRecall } : requestOptions)
       const { promptStats, capturedCharacter, capturedMemoryConfig, isGroup, isDirector, statusTag, requiresCharacterStatus, groupNames, storedRelationshipStage } = prepared
+      // v251：这轮真的发出去了才记冷却（预览不记）。
+      if (promptStats.evictedKeys?.length) {
+        const ledger = { ...evictedRecallLedgerRef.current.get(conversationId) }
+        const turn = nextMessages.filter((message) => message.role === 'user').length
+        promptStats.evictedKeys.forEach((key) => { ledger[key] = turn })
+        evictedRecallLedgerRef.current.set(conversationId, Object.fromEntries(Object.entries(ledger).sort((a, b) => b[1] - a[1]).slice(0, 120)))
+      }
       let promptMessages = prepared.promptMessages
       const runCompletion = async () => {
         const requests = lastRequestsRef.current.get(conversationId) || new Map<string, RequestPreview>()
@@ -4256,11 +4271,20 @@ function App() {
     if (!conversation) return
     const revision = conversation.historyRevision || 0
     const hasValidSummary = Boolean(conversation.contextSummary && (conversation.contextSummaryRevision || 0) === revision)
-    const plan = planAutoContextCompression(conversation.messages, {
+    const isCompressible = (message: Message) => !message.phoneNotice && Boolean(modelVisibleMessageText(message).trim())
+    // v251：长剧情最近原文按 token 封顶后，滑出窗口、未进摘要的攒到 40 条就提前整理（边界 = 当前原文窗口起点）。
+    const evictionPlan = conversation.phone || historyTokenBudget <= 0 ? null : planEvictionCompression(conversation.messages, {
+      compressedUntil: conversation.compressedUntil,
+      hasValidSummary,
+      verbatimStart: storyHistoryWindow(conversation.messages, { compressedUntil: conversation.compressedUntil, hasSummary: hasValidSummary, memoryLength, tokenBudget: historyTokenBudget }).start,
+      isCompressible,
+      trigger: EVICTION_COMPRESSION_TRIGGER,
+    })
+    const plan = evictionPlan || planAutoContextCompression(conversation.messages, {
       compressedUntil: conversation.compressedUntil,
       hasValidSummary,
       memoryLength,
-      isCompressible: (message) => !message.phoneNotice && Boolean(modelVisibleMessageText(message).trim()),
+      isCompressible,
       ...(conversation.phone ? { trigger: PHONE_COMPRESSION_TRIGGER, keepRecent: PHONE_COMPRESSION_KEEP_RECENT } : {}),
     })
     const channel = apiRef.current
@@ -4559,7 +4583,7 @@ function App() {
     {backstageNotice && page === 'chat' && activeConversation?.id === backstageNotice.conversationId && <div className="persona-task-toast backstage-toast" role="status"><div><strong>📓 {backstageNotice.name}偷偷写了一篇幕后手记</strong></div><button {...taskToastTap(() => openBackstageNotes(backstageNotice.conversationId))}>去看看</button><button aria-label="关闭手记提示" {...taskToastTap(() => setBackstageNotice(null))}>×</button></div>}
     {taskDueNotices.length > 0 && <div className="persona-task-toast" role="status"><div><strong>⏰ 任务时间到了{taskDueNotices.length > 1 ? ` · 还有 ${taskDueNotices.length - 1} 项` : ''}</strong><small>{taskDueNotices[0].text}</small></div><button {...taskToastTap(() => { const due = taskDueNotices[0]; const persona = getPersonaState().personas.find((item) => item.id === due.personaId && item.enabled); if (persona && characters.some((item) => item.id === persona.characterId) && persona.threads.some((item) => item.id === due.threadId)) { setPersonaState((current) => switchPersonaThread(switchPersona(current, due.personaId), due.personaId, due.threadId)); if (page !== 'persona-window') navigate('persona-window') } setTaskDueNotices((current) => current.slice(1)) })}>查看</button><button aria-label="关闭任务到期提示" {...taskToastTap(() => setTaskDueNotices((current) => current.slice(1)))}>×</button></div>}
     <input ref={conversationTxtInputRef} className="hidden-file-input" type="file" accept="text/plain,.txt" onChange={(event) => { void importConversationTxt(event.target.files?.[0]) }} />
-    {page === 'persona-window' && <PersonaWindowPage characters={characters} conversations={conversations} memoryEntries={memoryEntries} identity={globalIdentity} api={api} apiChannels={apiChannels} memoryApiFor={(characterId) => { const config = memoryConfigs[characterId] || defaultMemoryConfig(); return config.useGlobalApi === false ? config.api : globalMemoryApi }} temperature={temperature} topP={topP} maxTokens={maxTokens} streaming={streaming} memoryLength={memoryLength} globalWorldbook={worldbook} storyProjects={storyProjects} appearanceControls={{ values: displayAppearance, themes: allThemes, wallpaper: displayWallpaper, ready: persistenceReady && wallpaperHydrationReady, upload: wallpaperUploads[wallpaperEditKey], error: wallpaperStorageError, onWallpaperChange: updateChatWallpaper, onWallpaperUpload: (file) => { void uploadChatWallpaper(file) }, onWallpaperReset: resetChatWallpaper }} themeMode={displayAppearance.theme.mode} chatLayout={chatLayout} onBack={goBack} />}
+    {page === 'persona-window' && <PersonaWindowPage characters={characters} conversations={conversations} memoryEntries={memoryEntries} identity={globalIdentity} api={api} apiChannels={apiChannels} memoryApiFor={(characterId) => { const config = memoryConfigs[characterId] || defaultMemoryConfig(); return config.useGlobalApi === false ? config.api : globalMemoryApi }} temperature={temperature} topP={topP} maxTokens={maxTokens} streaming={streaming} memoryLength={memoryLength} historyTokenBudget={historyTokenBudget} globalWorldbook={worldbook} storyProjects={storyProjects} appearanceControls={{ values: displayAppearance, themes: allThemes, wallpaper: displayWallpaper, ready: persistenceReady && wallpaperHydrationReady, upload: wallpaperUploads[wallpaperEditKey], error: wallpaperStorageError, onWallpaperChange: updateChatWallpaper, onWallpaperUpload: (file) => { void uploadChatWallpaper(file) }, onWallpaperReset: resetChatWallpaper }} themeMode={displayAppearance.theme.mode} chatLayout={chatLayout} onBack={goBack} />}
     {page === 'story-projects' && <StoryProjectManager projects={storyProjects} characters={characters} conversations={conversations} identities={identities} api={api} apiChannels={apiChannels} onBack={goBack} onChange={setStoryProjects} />}
     {(page === 'chat' || page === 'persona-window') && <WallpaperLayers key={wallpaperEditKey} wallpaper={displayWallpaper} avatar={displayAvatar} themeColor={displayAppearance.baseColor} />}
     {page === 'home' && <section className="home-dashboard">
@@ -5028,7 +5052,7 @@ function UpdateCard() {
     }
   }
 
-  return <section className="update-card"><strong>应用更新</strong><p>主动检查并拉取最新网页版本，不会删除角色、聊天记录或本地设置。</p><small>当前版本：v250 · 2026.11.15 前世记忆按需召回更准（提到疤、玉佩这类具体细节也能想起，闲聊不乱带）；连续性档案整理失败记录刷新后不丢；雾白来信/雾蓝长笺/暗夜流光的名字胶囊恢复大字</small><button onClick={refresh} disabled={state === 'checking'}>{state === 'checking' ? '正在检查更新…' : state === 'error' ? '更新失败，点我重试' : '强制刷新到最新版'}</button></section>
+  return <section className="update-card"><strong>应用更新</strong><p>主动检查并拉取最新网页版本，不会删除角色、聊天记录或本地设置。</p><small>当前版本：v251 · 2026.11.15 前世记忆按需召回更准（提到疤、玉佩这类具体细节也能想起，闲聊不乱带）；连续性档案整理失败记录刷新后不丢；雾白来信/雾蓝长笺/暗夜流光的名字胶囊恢复大字</small><button onClick={refresh} disabled={state === 'checking'}>{state === 'checking' ? '正在检查更新…' : state === 'error' ? '更新失败，点我重试' : '强制刷新到最新版'}</button></section>
 }
 
 function PersonaPage({ identities, selectedId, isBound, onSelect, onAdd, onDelete, onUpdate, onBack }: { identities: UserIdentity[]; selectedId: string; isBound: boolean; onSelect: (id: string) => void; onAdd: () => void; onDelete: (id: string) => void; onUpdate: (patch: Partial<UserIdentity>) => void; onBack: () => void }) {

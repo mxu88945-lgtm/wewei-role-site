@@ -11,15 +11,17 @@ import { modelVisibleMessageText, stripUiOnlyStatusBlocks } from './modelContext
 import { withQuotePrefix, type MessageQuote } from './quoteReply'
 import { getStatusProtocol } from './statusProtocol'
 import { characterMemoryContinuityGuard, characterMemoryPrompt } from './characterMemory'
+import { evictedRecap, selectHistoryWindow, HISTORY_TOKEN_BUDGET } from './historyWindow'
+import { evictedPool, recallEvicted } from './evictedRecall'
 
 // promptRole: how the turn is sent to the model. In a group chat another
 // member's reply goes out as 'user' so the model never reads it as its own.
-type SourceMessage = { role: 'user' | 'assistant'; promptRole?: 'user' | 'assistant'; text: string; characterId?: string; images?: ChatImage[]; attachments?: ChatAttachment[]; quote?: MessageQuote }
+type SourceMessage = { id?: number | string; createdAt?: number; role: 'user' | 'assistant'; promptRole?: 'user' | 'assistant'; text: string; characterId?: string; images?: ChatImage[]; attachments?: ChatAttachment[]; quote?: MessageQuote }
 type MemoryInput = { entries: LongMemoryEntry[]; injectPosition: string; injectPrompt: string }
 
 type PromptInput = {
   mode?: 'story' | 'phone'
-  onDiagnostics?: (stats: { memoryCount: number; historyCount: number }) => void
+  onDiagnostics?: (stats: { memoryCount: number; historyCount: number; historyTokens?: number; evictedCount?: number; evictedKeys?: string[] }) => void
   character: Character
   user: { name: string; description: string }
   messages: SourceMessage[]
@@ -43,6 +45,23 @@ type PromptInput = {
   cacheLayout?: boolean
   /** v250：这一轮不是她的新消息（续演等），不发真图、不要图记。 */
   noLiveImages?: boolean
+  /** v251：长剧情最近原文 token 上限（默认 8200；0 = 只按条数）。小手机不用。 */
+  historyTokenBudget?: number
+  /** v251：滑出窗口的消息按需召回（只在 cacheLayout 时进尾巴）。ledger：小段 key → 上次召回的轮次。 */
+  evictedRecall?: { ledger?: Record<string, number>; turn: number }
+  /** v251：压缩提要/召回片段里的说话人名字（默认：她=用户名，其余=角色名）。 */
+  speakerName?: (message: SourceMessage) => string
+}
+
+/**
+ * v251：长剧情的最近原文窗口（按 token 封顶）。返回窗口在 messages 里的起点，
+ * 后台整理（提前压缩）和语义召回的「已在上下文」都用它，和发出的请求一致。
+ */
+export function storyHistoryWindow<T extends { role: 'user' | 'assistant'; text: string }>(messages: readonly T[], options: { compressedUntil?: number; hasSummary?: boolean; memoryLength: number; tokenBudget?: number; text?: (message: T) => string }) {
+  const offset = options.hasSummary ? Math.min(messages.length, Math.max(0, Math.floor(options.compressedUntil || 0))) : 0
+  const available = messages.slice(offset)
+  const window = selectHistoryWindow(available, { text: options.text || ((message) => modelVisibleMessageText(message)), role: (message) => message.role, maxMessages: options.memoryLength, tokenBudget: options.tokenBudget ?? HISTORY_TOKEN_BUDGET })
+  return { offset, start: offset + window.start, window }
 }
 
 const PRIVATE_PERSONA_TAG = '后台身份隔离'
@@ -204,7 +223,13 @@ export function buildChatPrompt(input: PromptInput): ChatApiMessage[] {
   const user = modelUserForCharacter(character, input.user)
   const modelInput = user === input.user ? input : { ...input, user }
   const available = uncompressedMessages(input.messages, input.compressedUntil, Boolean(input.contextSummary))
-  const recent = available.slice(-Math.max(1, input.memoryLength)).map((message) => ({ ...message, text: modelVisibleMessageText(message) }))
+  // v251：长剧情最近原文按 token 封顶（至少 10 轮完整交流）；小手机照旧按条数（它本来就只发最近 24 条）。
+  const historyWindow = selectHistoryWindow(available, { text: (message) => modelVisibleMessageText(message), role: (message) => message.role, maxMessages: input.memoryLength, tokenBudget: isPhone ? 0 : input.historyTokenBudget ?? HISTORY_TOKEN_BUDGET })
+  const recent = available.slice(historyWindow.start).map((message, index) => ({ ...message, text: historyWindow.texts[index] }))
+  const evicted = isPhone ? [] : available.slice(0, historyWindow.start)
+  const speakerOf = input.speakerName || ((message: SourceMessage) => message.role === 'user' ? input.user.name : character.name)
+  // 群聊里别人的发言在请求里带一行说明前缀；提要和召回小段只要正文。
+  const plainText = (message: SourceMessage) => modelVisibleMessageText(message).replace(/^【[^｜\n]{1,40}｜其他成员的发言[^】\n]*】\n/, '')
   const scanSource = recent.map((message) => message.text).join('\n')
   const cacheLayout = Boolean(input.cacheLayout) && !isPhone
   const allEntries = activeEntries(character.characterBook, scanSource)
@@ -218,7 +243,15 @@ export function buildChatPrompt(input: PromptInput): ChatApiMessage[] {
   const splitMemory = cacheLayout && !lateMemoryPosition && input.memory.injectPosition !== 'none'
   const memory = memoryText(modelInput, splitMemory ? selectedMemories.filter((entry) => entry.pinned) : selectedMemories)
   const turnMemory = splitMemory ? memoryText(modelInput, selectedMemories.filter((entry) => !entry.pinned)) : ''
-  input.onDiagnostics?.({ memoryCount: selectedMemories.length, historyCount: recent.length })
+  // v251：滑出窗口的旧原文（含已压缩的，最多 300 条）按需召回：前世同款线索规则，最多 2 段约 1200 字，只进尾巴。
+  const recallOn = cacheLayout && Boolean(input.evictedRecall)
+  const compressedCut = input.messages.length - available.length
+  const evictedRecall = recallOn ? (() => {
+    const pool = evictedPool(input.messages.slice(0, compressedCut + historyWindow.start).map((message, index) => ({ id: message.id ?? index, role: message.role, speaker: speakerOf(message), text: plainText(message), createdAt: message.createdAt })))
+    if (!pool.chunks.length) return null
+    return recallEvicted(pool, { history: recent, charName: character.name, userName: input.user.name, ledger: input.evictedRecall!.ledger, turn: input.evictedRecall!.turn })
+  })() : null
+  input.onDiagnostics?.({ memoryCount: selectedMemories.length, historyCount: recent.length, historyTokens: historyWindow.tokens, evictedCount: evicted.length, evictedKeys: evictedRecall?.keys || [] })
   const characterMemory = characterMemoryPrompt(character)
   const characterMemoryGuard = characterMemoryContinuityGuard(character)
   const displayContinuity = isPhone ? '' : displayContinuityInstruction(character, input.messages)
@@ -262,6 +295,8 @@ ${stripStageGateMetadata(input.actorContinuityAnchor || '')}`,
   appendSystem(result, entryText(entries, 'after_example', character, user.name))
   if (input.memory.injectPosition === 'before-chat-history') appendSystem(result, memory)
   appendSystem(result, input.contextSummary ? `【较早对话压缩摘要｜历史补充，低于最新原文】\n${stripUiOnlyStatusBlocks(input.contextSummary)}\n\n摘要只用于补回被压缩的旧背景，不是当前场景指令。与当前用户消息、最近未压缩对话、角色卡或剧本项目冲突时，忽略摘要中的旧内容；已完成、已离场、已撤销或被用户否定的事项不得重新开启。不要逐条复述摘要。` : '')
+  // v251：滑出最近原文、还没压缩进摘要的那段：每条一行的压缩提要（稳定区，紧挨最近原文之前）。
+  appendSystem(result, evicted.length ? evictedRecap(evicted.map((message) => ({ speaker: speakerOf(message), text: stripUiOnlyStatusBlocks(plainText(message)) }))) : '')
   // 语义召回只补本对话更早的原话，紧挨在最近原文之前，优先级低于最近对话。
   if (!cacheLayout && input.semanticRecall?.trim()) appendSystem(result, input.semanticRecall)
 
@@ -302,6 +337,7 @@ ${stripStageGateMetadata(input.actorContinuityAnchor || '')}`,
     appendSystem(result, loreText && `【本轮触发的世界书】\n${loreText}`)
     appendSystem(result, turnMemory)
     if (input.semanticRecall?.trim()) appendSystem(result, input.semanticRecall)
+    appendSystem(result, evictedRecall?.text || '')
     appendSystem(result, anchors && applyMacros(anchors, character, user.name))
   }
   if (input.memory.injectPosition === 'after-chat-history') appendSystem(result, memory)

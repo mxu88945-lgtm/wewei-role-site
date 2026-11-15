@@ -126,7 +126,7 @@ export const PAST_LIFE_RARE_SPAN_MIN = 4
 /** v236：语义相似度达到这个值，就算没有提示词/关键词也能想起这一小段。 */
 export const PAST_LIFE_SEMANTIC_MIN = 0.55
 
-export function recallPastLife(chunks: readonly PastLifeChunk[], options: { history: PersonaMessage[]; aliases?: string; charName?: string; userName?: string; ledger?: Record<string, number>; turn?: number; budget?: number; maxChunks?: number; /** v236：语义召回命中（小段 key → 相似度）。 */ semantic?: ReadonlyMap<string, number>; /** v236：段首说明（故事背景用另一句）。 */ lead?: string }): PastLifeRecall {
+export function recallPastLife(chunks: readonly PastLifeChunk[], options: { history: PersonaMessage[]; aliases?: string; charName?: string; userName?: string; ledger?: Record<string, number>; turn?: number; budget?: number; maxChunks?: number; /** v236：语义召回命中（小段 key → 相似度）。 */ semantic?: ReadonlyMap<string, number>; /** v236：段首说明（故事背景用另一句）。 */ lead?: string; /** v251：专有线索的稀有门槛与字数门槛（滑出窗口的原文池更小、更日常，用更严的稀有度、更低的字数）。 */ rareShare?: number; rareSpanMin?: number }): PastLifeRecall {
   const poolChars = chunks.reduce((sum, chunk) => sum + chunk.text.length, 0)
   const empty: PastLifeRecall = { text: '', chunks: [], keys: [], candidates: 0, suppressed: 0, poolChunks: chunks.length, poolChars }
   const query = personaRecallQuery(options.history)
@@ -145,7 +145,8 @@ export function recallPastLife(chunks: readonly PastLifeChunk[], options: { hist
     return weight.get(token)!
   }
   const rawQuery = query.toLocaleLowerCase()
-  const rareLimit = Math.max(1, Math.ceil(chunks.length * RARE_SHARE))
+  const rareLimit = Math.max(1, Math.ceil(chunks.length * (options.rareShare ?? RARE_SHARE)))
+  const rareSpanMin = options.rareSpanMin ?? PAST_LIFE_RARE_SPAN_MIN
   const rareBigrams = [...primary].filter((token) => token.length === 2 && !SPOKEN.has(token) && df(token) <= rareLimit)
   /** 她这句里有多少个字落在这段的专有双字词上（重叠的只算一次；别名展开的词按 2 字算）。 */
   const rareSpan = (text: string) => {
@@ -175,7 +176,7 @@ export function recallPastLife(chunks: readonly PastLifeChunk[], options: { hist
     const vector = options.semantic?.get(chunk.key) || 0
     const vectorHit = vector >= PAST_LIFE_SEMANTIC_MIN
     // v249：问往事（提示词）时，点到一个专有词就够；没有提示词时要点到约 4 个字的专有线索。
-    const qualifies = vectorHit || titleHit || nameHit >= 6 || lexical >= 5 || rare >= PAST_LIFE_RARE_SPAN_MIN || (cue && (rare >= 2 || lexical >= 2 || (lexical >= 1 && (semantic > 0 || kindHit))))
+    const qualifies = vectorHit || titleHit || nameHit >= 6 || lexical >= 5 || rare >= rareSpanMin || (cue && (rare >= 2 || lexical >= 2 || (lexical >= 1 && (semantic > 0 || kindHit))))
     const score = lexical + contextual + semantic + rare * 2 + (titleHit ? 8 : 0) + nameHit + (kindHit ? 2 : 0) + (chunk.bound ? 2 : 0) + (vectorHit ? (vector - 0.45) * 20 : 0)
     return { chunk, score, qualifies }
   }).filter((row) => row.qualifies).sort((a, b) => b.score - a.score || Number(b.chunk.bound) - Number(a.chunk.bound))

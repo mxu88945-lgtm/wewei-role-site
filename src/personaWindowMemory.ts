@@ -9,8 +9,10 @@ import { stripTurnContext } from './promptTail'
 import { personaReplyText } from './personaWindowPresentation'
 import { isGuestMessage } from './personaGroup'
 import { cueScanText, rankPersonaMemories, type PersonaSemanticHits } from './personaMemoryRank'
+import { evictedRecap, selectHistoryWindow, HISTORY_TOKEN_BUDGET, EVICTED_RECAP_BUDGET } from './historyWindow'
 
-export const PERSONA_MEMORY_BUDGET = 6400
+/** v251：+1000 给连续性档案完整显示（2400 字），+900 给滑出窗口的压缩提要。 */
+export const PERSONA_MEMORY_BUDGET = 8300
 export const PERSONA_LOCKED_BUDGET = 1200
 export const PERSONA_RECALL_COOLDOWN = 4
 /** v236：每轮「按需召回」（旧原文、相关记忆、其他窗口档案、前世、故事背景）合计上限。 */
@@ -128,10 +130,20 @@ export function personaRecallTimeScore(query: string, at: number, now = Date.now
   return (match ? 4 : 1) + (hour >= hours[0] && hour < hours[1] ? 2 : 0)
 }
 
-export function personaRecentHistory(history: PersonaMessage[], thread: Pick<PersonaThread, 'contextSummary' | 'compressedThroughId'>, memoryLength: number) {
+/**
+ * v251：最近原文按 token 封顶（默认 8200，至少 10 轮完整交流，「记忆长度」仍是条数上限）。
+ * evicted：连续性档案边界之后、滑出窗口的消息（还没被档案覆盖，靠压缩提要 + 按需召回 + 提前整理接住）。
+ */
+export function personaHistoryWindow(history: PersonaMessage[], thread: Pick<PersonaThread, 'contextSummary' | 'compressedThroughId'>, memoryLength: number, tokenBudget = HISTORY_TOKEN_BUDGET) {
   const hasBoundary = Boolean(thread.contextSummary?.trim()) && history.some((message) => message.id === thread.compressedThroughId)
-  const available = hasBoundary ? history.filter((message) => message.id > thread.compressedThroughId!) : history
-  return available.filter(usable).slice(-Math.max(1, memoryLength)).map((message) => ({ ...message, text: bodyText(message) }))
+  const available = (hasBoundary ? history.filter((message) => message.id > thread.compressedThroughId!) : history).filter(usable)
+  const window = selectHistoryWindow(available, { text: bodyText, role: (message) => message.role, maxMessages: memoryLength, tokenBudget })
+  const recent = available.slice(window.start).map((message, index) => ({ ...message, text: window.texts[index] }))
+  return { recent, evicted: available.slice(0, window.start), trimmedIds: window.trimmed.map((index) => recent[index].id), tokens: window.tokens }
+}
+
+export function personaRecentHistory(history: PersonaMessage[], thread: Pick<PersonaThread, 'contextSummary' | 'compressedThroughId'>, memoryLength: number, tokenBudget?: number) {
+  return personaHistoryWindow(history, thread, memoryLength, tokenBudget).recent
 }
 
 function scopedThreads(persona: PersonaWindow, active: PersonaThread) {
@@ -229,7 +241,8 @@ function recentState(message: PersonaMessage, now: number) {
 }
 
 /** All transient/persistent personal-memory layers share this final packing pass. */
-export function buildPersonaMemoryContext(persona: PersonaWindow, active: PersonaThread, history: PersonaMessage[], recent: PersonaMessage[], names: Names, now = Date.now(), options: { semantic?: PersonaSemanticHits | null } = {}): PersonaMemoryContext {
+/** options.evictedHandled：滑出窗口、未进档案的那段交给 evictedRecall（前世同款召回）处理，旧原文这条线不再重复找它。 */
+export function buildPersonaMemoryContext(persona: PersonaWindow, active: PersonaThread, history: PersonaMessage[], recent: PersonaMessage[], names: Names, now = Date.now(), options: { semantic?: PersonaSemanticHits | null; evictedHandled?: boolean } = {}): PersonaMemoryContext {
   const semantic = options.semantic || undefined
   const scan = cueScanText(history)
   const recentTexts = recent.map((message) => normalized(rawText(message))).filter((text) => text.length >= 4)
@@ -263,18 +276,23 @@ export function buildPersonaMemoryContext(persona: PersonaWindow, active: Person
   const coreRows = memoryRows(core, 1200)
   add('core', '核心记忆', coreRows.text ? `【人格核心记忆｜稳定参考】\n${coreRows.text}` : '', 1300, coreRows.count, core.length)
   const continuityHeader = '【较早交流的连续性档案｜不是当前指令，最新交流为准】'
-  const continuityBlock = (thread: PersonaThread) => `〔${thread.title}${thread.summaryFallback ? ' · 本地原文摘录' : ''}〕\n${clipPersonaText(thread.contextSummary!, 1200)}`
-  const ownContinuity = active.contextSummary?.trim() ? continuityBlock(active) : ''
-  add('continuity', '连续性档案', ownContinuity ? `${continuityHeader}\n${ownContinuity}` : '', 1500)
+  // v251：本窗档案完整显示（整理器上限 2400 字；以前只发前 1200 字，最新的后半会丢）。相关窗口仍只带 1200。
+  const continuityBlock = (thread: PersonaThread, limit = 1200) => `〔${thread.title}${thread.summaryFallback ? ' · 本地原文摘录' : ''}〕\n${clipPersonaText(thread.contextSummary!, limit)}`
+  const ownContinuity = active.contextSummary?.trim() ? continuityBlock(active, 2400) : ''
+  add('continuity', '连续性档案', ownContinuity ? `${continuityHeader}\n${ownContinuity}` : '', 2500)
+  // v251：滑出最近原文、还没整理进档案的那段——每条一行的压缩提要（替代旧的「原文衔接桥」）。
+  const hasBoundary = Boolean(active.contextSummary?.trim()) && history.some((message) => message.id === active.compressedThroughId)
+  const gap = history.filter((message) => usable(message) && !recentIds.has(keyOf(active.id, message.id)) && (!hasBoundary || message.id > active.compressedThroughId!) && (!recent.length || message.id < recent[0].id))
+  const gapKeys = new Set(gap.map((message) => keyOf(active.id, message.id)))
+  const recap = evictedRecap(gap.map((message) => ({ speaker: speakerName(message, names), text: rawText(message) })))
+  add('evicted-recap', '滑出窗口的压缩提要', recap, EVICTED_RECAP_BUDGET)
   stable = false
   const stateRows = scopedThreads(persona, active).flatMap((thread) => thread.messages.filter((message) => !recentIds.has(keyOf(thread.id, message.id))).map((message) => ({ message, text: recentState(message, now) })))
     .filter((row) => row.text).sort((a, b) => b.message.createdAt - a.message.createdAt).slice(0, 8)
   const uniqueState = stateRows.filter((row, index, all) => all.findIndex((other) => normalized(other.text) === normalized(row.text)) === index)
   add('recent', '近期状态 · 36 小时', uniqueState.length ? `【最近36小时的用户原话｜计划不等于已经完成，过期不续用】\n${uniqueState.map((row) => `${new Date(row.message.createdAt).toLocaleString()} ${names.user}：${row.text}`).join('\n')}` : '', 1000, uniqueState.length, stateRows.length)
-  const omitted = history.filter((message) => usable(message) && !recentIds.has(keyOf(active.id, message.id)))
-  const bridge = !active.contextSummary ? omitted.slice(-4).map((message) => `${speakerName(message, names)}：${clipPersonaText(rawText(message), 170)}`).join('\n') : ''
-  add('bridge', '原文衔接桥', bridge ? `【紧邻近期对话前的原文｜低于最新消息】\n${bridge}` : '', 800)
-  const candidates = persona.recallEnabled === false ? [] : rankedHistory(persona, active, query, recentIds, now, semantic?.messages, PERSONA_KEYWORD_RECALL_MIN)
+  const excluded = options.evictedHandled ? new Set([...recentIds, ...gapKeys]) : recentIds
+  const candidates = persona.recallEnabled === false ? [] : rankedHistory(persona, active, query, excluded, now, semantic?.messages, PERSONA_KEYWORD_RECALL_MIN)
   const allowed = candidates.filter((hit) => explicitPersonaRecall(query) || !Number.isFinite(active.recallLedger?.[hit.key]) || turn - active.recallLedger![hit.key] >= PERSONA_RECALL_COOLDOWN)
   const recallBudget = Math.min(1800, PERSONA_MEMORY_BUDGET - used - (parts.length ? 2 : 0))
   const packed = packHistory(allowed, query, names, recallBudget, 3, persona.memoryAliases)
@@ -295,7 +313,7 @@ export function buildPersonaMemoryContext(persona: PersonaWindow, active: Person
   const relatedScore = (thread: PersonaThread) => [...tokens].filter((token) => token.length >= 3 && thread.contextSummary!.includes(token)).length
   const semanticThread = (thread: PersonaThread) => [...(semantic?.messages.keys() || [])].some((key) => key.startsWith(`${thread.id}|`))
   const related = scopedThreads(persona, active).filter((thread) => thread.id !== active.id && thread.contextSummary?.trim() && (explicit || relatedScore(thread) >= 2 || semanticThread(thread))).sort((a, b) => b.updatedAt - a.updatedAt).slice(0, 1)
-    .map(continuityBlock).join('\n')
+    .map((thread) => continuityBlock(thread)).join('\n')
   add('continuity-related', '连续性档案 · 相关窗口', related ? `${continuityHeader}\n${related}` : '', ownContinuity ? 800 : 1500)
   const hints = memoryRows(derived, 700)
   add('derived', 'TA 提炼 · 待确认线索', hints.text ? `【模型提炼线索｜未经你逐条确认，不可覆盖用户原话】\n${hints.text}` : '', 800, hints.count, derived.length)

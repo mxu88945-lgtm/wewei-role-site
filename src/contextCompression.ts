@@ -65,6 +65,27 @@ export function planAutoContextCompression<T>(
   return { keepRecent, previousUntil, targetUntil, pendingMessages }
 }
 
+/**
+ * v251：最近原文按 token 封顶后，窗口外、档案边界后的消息（滑出但未整理）攒到这么多条就提前整理，
+ * 目标边界 = 当前原文窗口起点。这样「没进档案、也不在原文里」的一段最长约 40 条，且始终有压缩提要和按需召回接着。
+ */
+export const EVICTION_COMPRESSION_TRIGGER = 40
+
+export function planEvictionCompression<T>(
+  messages: T[],
+  options: { compressedUntil?: number; hasValidSummary?: boolean; verbatimStart: number; isCompressible?: (message: T) => boolean; trigger?: number },
+): ContextCompressionPlan<T> | null {
+  const isCompressible = options.isCompressible || (() => true)
+  const previousUntil = options.hasValidSummary
+    ? Math.min(messages.length, Math.max(0, Math.floor(options.compressedUntil || 0)))
+    : 0
+  const targetUntil = Math.min(messages.length, Math.max(0, Math.floor(options.verbatimStart)))
+  if (targetUntil <= previousUntil) return null
+  const pendingMessages = messages.slice(previousUntil, targetUntil).filter(isCompressible)
+  if (pendingMessages.length < (options.trigger ?? EVICTION_COMPRESSION_TRIGGER)) return null
+  return { keepRecent: messages.length - targetUntil, previousUntil, targetUntil, pendingMessages }
+}
+
 export function shouldStartAutoCompression(input: {
   plan: unknown
   running: boolean

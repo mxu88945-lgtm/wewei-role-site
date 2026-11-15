@@ -5,6 +5,7 @@ import type { Character } from './characterCard'
 import { createPersonaWindow, deletePersonaMessage, emptyPersonaState, normalizePersonaState, type PersonaMessage, type PersonaWindow } from './personaWindow'
 import { getPersonaState, setPersonaState } from './personaWindowStore'
 import { generatePersonaReply, maybeCompressPersonaContext, stopPersonaReply, type PersonaRuntimeDeps } from './personaWindowRuntime'
+import { personaHistoryWindow } from './personaWindowMemory'
 import { createPersonaTask } from './personaTasks'
 import { loadCompressionFailures } from './personaCompressionFailureStore'
 
@@ -37,7 +38,7 @@ beforeEach(() => {
   persona = createPersonaWindow(`runtime-${++sequence}`)
   const character: Character = { id: persona.characterId, name: '虞山行', tagline: '', description: '寡言护短', personality: '', scenario: '', greeting: '', alternateGreetings: [], mesExample: '', systemPrompt: '', postHistoryInstructions: '', creatorNotes: '', creator: '', characterVersion: '', tags: [], regexScripts: [] }
   const api = { baseUrl: 'https://chat.test/v1', apiKey: 'test', modelName: 'chat' }
-  deps = { character, user: { name: '惟惟', description: '' }, api, memoryApi: { ...api, baseUrl: 'https://memory.test/v1', modelName: 'memory' }, temperature: 1, topP: 1, maxTokens: 2000, streaming: false, memoryLength: 40, pastLife: () => '' }
+  deps = { character, user: { name: '惟惟', description: '' }, api, memoryApi: { ...api, baseUrl: 'https://memory.test/v1', modelName: 'memory' }, temperature: 1, topP: 1, maxTokens: 2000, streaming: false, memoryLength: 40, historyTokenBudget: 0, pastLife: () => '' } // v251：这组测的是按条数的老规则（240 条）；token 封顶 + 提前整理见 historyWindow.test.ts
   setPersonaState(() => ({ ...emptyPersonaState(), activeId: persona.id, personas: [persona] }))
 })
 afterEach(() => { vi.clearAllTimers(); vi.useRealTimers() })
@@ -240,5 +241,36 @@ describe('人格分层记忆的实际运行流程 (v139)', () => {
     setPersonaState((state) => normalizePersonaState(JSON.parse(JSON.stringify(state))))
     await generatePersonaReply(persona.id, deps, { text: '第二条' })
     expect(current().threads[0].messages.map((message) => message.id)).toEqual([1, 3, 4])
+  })
+})
+
+describe('v251 token 封顶后的提前整理与按需召回（实际运行流程）', () => {
+  const long = (id: number, extra = '') => say(id, `${extra}${'他把茶推过去，说先暖暖手，又低声问她今天累不累，窗外的雨一直没停。'.repeat(25)}`)
+  const fillLong = (count: number, plant?: (id: number) => string) => setPersonaState((state) => ({ ...state, personas: state.personas.map((item) => ({ ...item, threads: [{ ...item.threads[0], messages: Array.from({ length: count }, (_, index) => long(index + 1, plant?.(index + 1))) }] })) }))
+
+  it('滑出原文窗口、未进档案的攒到 40 条就整理，边界停在原文窗口起点前', async () => {
+    const live = { ...deps, historyTokenBudget: 8200 }
+    fillLong(50)
+    await maybeCompressPersonaContext(persona.id, live)
+    expect(mock.calls).toHaveLength(0)
+    fillLong(70)
+    mock.replies.push('累计档案。')
+    await maybeCompressPersonaContext(persona.id, live)
+    expect(mock.calls).toHaveLength(1)
+    const thread = current().threads[0]
+    const window = personaHistoryWindow(thread.messages, { contextSummary: '', compressedThroughId: undefined }, 40, 8200)
+    expect(thread.compressedThroughId).toBe(window.recent[0].id - 1)
+    expect(thread.contextSummary).toBe('累计档案。')
+  })
+
+  it('请求里：最近原文不超过预算；滑出那段的专有词被问到时召回进尾巴，不进第一条 system', async () => {
+    const live = { ...deps, historyTokenBudget: 8200 }
+    fillLong(60, (id) => id === 5 ? '我把备用钥匙藏在门口那盆龟背竹底下了。' : '')
+    await generatePersonaReply(persona.id, live, { text: '龟背竹底下的东西还在吗' })
+    const request = mock.calls[0].messages
+    const text = (m: ChatApiMessage) => typeof m.content === 'string' ? m.content : m.content.map((p) => p.type === 'text' ? p.text : '').join('')
+    expect(text(request[0])).not.toContain('龟背竹')
+    expect(text(request[request.length - 1])).toContain('龟背竹')
+    expect(text(request[request.length - 1])).toContain('滑出窗口的较早原文')
   })
 })
