@@ -13,6 +13,7 @@ import { fetchLyricCandidates, isTimed, lyricIndexAt, parseLyrics, shiftLyrics, 
 import { isNoLyricsHint, LYRIC_PASTE_PLACEHOLDER, lyricPasteAction, staticLyricTexts } from './lyricPaste'
 import { findTrackByTitle, musicDel, musicGet, musicSet, musicTrackId, useMusicStore, type MusicCommand, type MusicTrack } from './musicStore'
 import './music.css'
+import { isSafeMode } from './safeMode'
 
 function fmt(sec: number): string {
   if (!isFinite(sec) || sec <= 0) return '0:00'
@@ -92,6 +93,7 @@ export default function MusicPlayer({ hideFloat = false }: { hideFloat?: boolean
   }
 
   async function loadLyrics(id: string) {
+    if (isSafeMode()) { setLyrics([]); setHint(''); return } // v245 安全模式不加载歌词
     const raw = await musicGet<string>(`lyric:${id}`).catch(() => null)
     setLyrics(raw ? shiftLyrics(parseLyrics(raw), getOffset(id)) : [])
     setOffsetView(getOffset(id))

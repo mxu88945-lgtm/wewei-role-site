@@ -82,3 +82,50 @@ export function loadAvatarThumbnail(src: string, size = AVATAR_THUMBNAIL_SIZE): 
 export function prewarmAvatarThumbnails(sources: Array<string | undefined | null>) {
   for (const src of sources) if (needsAvatarThumbnail(src)) void loadAvatarThumbnail(src)
 }
+
+/** v245：开场模板等大图位置用的预览图，保持原比例，最长边 OPENING_PREVIEW_MAX px。 */
+export const OPENING_PREVIEW_MAX = 640
+const previewReady = new Map<string, string>()
+const previewPending = new Map<string, Promise<string>>()
+
+/** 等比缩放后的尺寸（不放大）。 */
+export function fitWithin(width: number, height: number, max: number) {
+  const scale = Math.min(1, max / Math.max(width, height, 1))
+  return { width: Math.max(1, Math.round(width * scale)), height: Math.max(1, Math.round(height * scale)) }
+}
+
+export function peekAvatarPreview(src: string | undefined | null): string | undefined {
+  if (!src) return ''
+  if (!needsAvatarThumbnail(src)) return src
+  return previewReady.get(src)
+}
+
+/** 大头像缩成预览；做不出来就返回 ''（宁可不放图，也不把几 MB 原图塞进页面）。 */
+export function loadAvatarPreview(src: string, max = OPENING_PREVIEW_MAX): Promise<string> {
+  if (!needsAvatarThumbnail(src)) return Promise.resolve(src)
+  const cached = previewReady.get(src)
+  if (cached !== undefined) return Promise.resolve(cached)
+  const inFlight = previewPending.get(src)
+  if (inFlight) return inFlight
+  const job = (async () => {
+    const bitmap = await createImageBitmap(await (await fetch(src)).blob())
+    try {
+      const size = fitWithin(bitmap.width, bitmap.height, max)
+      const canvas = document.createElement('canvas')
+      canvas.width = size.width
+      canvas.height = size.height
+      const context = canvas.getContext('2d')
+      if (!context) return ''
+      context.drawImage(bitmap, 0, 0, size.width, size.height)
+      const out = canvas.toDataURL('image/jpeg', 0.85)
+      canvas.width = canvas.height = 0
+      return out.length < src.length ? out : ''
+    } finally { bitmap.close() }
+  })().catch(() => '').then((result) => {
+    previewReady.set(src, result)
+    previewPending.delete(src)
+    return result
+  })
+  previewPending.set(src, job)
+  return job
+}

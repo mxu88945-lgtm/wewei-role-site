@@ -9,6 +9,9 @@ import { extractFilmCard } from './filmBlock'
 import FilmCard from './FilmCard'
 import { autoPlayFilmSong } from './filmAutoplay'
 import { openingTemplateHtmlFor } from './openingTemplates'
+import { loadAvatarPreview, peekAvatarPreview } from './avatarThumbnail'
+import ErrorBoundary from './ErrorBoundary'
+import { isSafeMode } from './safeMode'
 
 function unwrapCodeFence(value: string) {
   return value
@@ -402,8 +405,22 @@ function MessageContent({ text: storedText, role, character, userName, layout = 
   const filmCard = film?.card ? <FilmCard card={film.card} avatar={character.avatar} characterId={character.id} speakerName={character.name} seed={`${character.id}|${film.card.sceneTitle}|${film.card.heart}|${film.card.zh}`} cardKey={messageId !== undefined ? `${character.id}|${messageId}` : undefined} isLatest={filmLatest} /> : null
   const content = renderMessageBody(rendered, role, layout, paper, streaming, greetings, onSelectGreeting)
   // v244：开场美化模板只挂在主聊天第一条开场白上方；正文仍是原样可读的纯文本。
-  const templateHtml = useMemo(() => openingTemplateHtmlFor(character, userName, { opening, role }), [character, userName, opening, role])
-  const withTemplate = templateHtml ? <><div className="message-opening-template"><SandboxHtml html={templateHtml} raw /></div>{content}</> : content
+  // v245：大头像先缩成预览图再放进模板（模板里头像出现 4 次，原图几 MB 会把 iOS 撑爆）；安全模式不加载模板。
+  const wantTemplate = opening && role === 'assistant' && Boolean(character.openingTemplate) && !isSafeMode()
+  const [avatarPreview, setAvatarPreview] = useState<string | undefined>(() => wantTemplate ? peekAvatarPreview(character.avatar) : '')
+  useEffect(() => {
+    if (!wantTemplate) return
+    const ready = peekAvatarPreview(character.avatar)
+    if (ready !== undefined) { setAvatarPreview(ready); return }
+    setAvatarPreview(undefined)
+    let alive = true
+    void loadAvatarPreview(character.avatar || '').then((url) => { if (alive) setAvatarPreview(url) })
+    return () => { alive = false }
+  }, [wantTemplate, character.avatar])
+  const templateHtml = useMemo(() => wantTemplate && avatarPreview !== undefined
+    ? openingTemplateHtmlFor({ name: character.name, avatar: avatarPreview, openingTemplate: character.openingTemplate }, userName, { opening, role })
+    : '', [wantTemplate, avatarPreview, character.name, character.openingTemplate, userName, opening, role])
+  const withTemplate = templateHtml ? <><ErrorBoundary name="开场模板"><div className="message-opening-template"><SandboxHtml html={templateHtml} raw /></div></ErrorBoundary>{content}</> : content
   return filmCard ? <>{withTemplate}{filmCard}</> : withTemplate
 }
 

@@ -1,3 +1,4 @@
+import ErrorBoundary from './ErrorBoundary'
 import { fitComposer } from './composerOverflow'
 import { ExpandCornersIcon } from './ExpandCornersIcon'
 import { useCallback, useEffect, useId, useLayoutEffect, useMemo, useRef, useState } from 'react'
@@ -4745,7 +4746,7 @@ function App() {
     {page === 'display-reply' && <><BackHeader title="显示与回复" onBack={goBack} action={<span className="saved-label">自动保存</span>} /><section className="settings-stack compact-settings display-reply-page"><div className="drawer-compact-group display-reply-card"><div className="drawer-section-title"><strong>消息显示</strong></div><div className="drawer-inline-setting"><span>布局方式</span><div className="mini-segment"><button className={chatLayout === 'bubble' ? 'active' : ''} onClick={() => setChatLayout('bubble')}>气泡</button><button className={chatLayout === 'flat' ? 'active' : ''} onClick={() => setChatLayout('flat')}>平铺</button></div></div><div className="drawer-color-setting"><label><span>正文</span><input type="color" value={chatTextColor} onChange={(event) => setChatTextColor(event.target.value)} /></label><label><span>旁白</span><input type="color" value={chatNarrationColor} onChange={(event) => setChatNarrationColor(event.target.value)} /></label><label><span>引用</span><input type="color" value={chatQuoteColor} onChange={(event) => setChatQuoteColor(event.target.value)} /></label></div></div><div className="drawer-compact-group display-reply-card"><div className="drawer-section-title"><strong>剧情美化</strong></div><div className="drawer-inline-setting film-card-setting"><span><b>剧情美化卡</b><small>所有角色通用：每条剧情回复底部多一张小卡（唱片机、胶片、人物档案、心声）。单人剧情和普通群聊生效，小手机不加。</small></span><button type="button" role="switch" aria-checked={filmCardEnabled} aria-label="剧情美化卡" className={`switch ${filmCardEnabled ? 'on' : ''}`} onClick={() => setFilmCardEnabled((on) => !on)}><span /></button></div></div><div className="drawer-compact-group display-reply-card"><div className="drawer-section-title"><strong>群聊回复</strong></div>{activeConversation?.kind === 'group' ? <div className="drawer-inline-setting reply-mode-row"><span>回复模式</span><strong>指定 @</strong></div> : <div className="display-reply-note">当前是单角色对话，消息会由当前角色直接回复。</div>}<div className="display-reply-note">群聊只会由你 @ 点名的角色发言；新增或删除成员不会改变这个规则。</div></div></section></>}
 
     {/* v200：剧情美化卡开着时，聊天页（非小手机）不显示音乐小浮窗；播放器本身不卸载，歌不停 */}
-    <MusicPlayer hideFloat={filmCardEnabled && page === 'chat' && !activeConversation?.phone} />
+    <ErrorBoundary name="播放器"><MusicPlayer hideFloat={filmCardEnabled && page === 'chat' && !activeConversation?.phone} /></ErrorBoundary>
     <FilmGalleryManager />
     {composerToolsOpen && <div className="composer-tools-layer" role="dialog" aria-modal="true" aria-label="更多功能">
       <button className="drawer-backdrop" aria-label="关闭更多功能" onClick={closeComposerTools} />
@@ -5003,7 +5004,7 @@ function UpdateCard() {
     }
   }
 
-  return <section className="update-card"><strong>应用更新</strong><p>主动检查并拉取最新网页版本，不会删除角色、聊天记录或本地设置。</p><small>当前版本：v244 · 2026.11.15 新增「开场美化模板 · 千禧粉 QQ空间」：信封、人物档案、迷你播放器、QQ消息和可以点进去的QQ空间，显示在第一条开场白上方，开场白正文不变。在卡片的「开场」页或 AI 工坊里选用，可一键换 紫灰 / 雾蓝 / 奶茶，也能直接跟工坊助手说“改成紫灰色”。</small><button onClick={refresh} disabled={state === 'checking'}>{state === 'checking' ? '正在检查更新…' : state === 'error' ? '更新失败，点我重试' : '强制刷新到最新版'}</button></section>
+  return <section className="update-card"><strong>应用更新</strong><p>主动检查并拉取最新网页版本，不会删除角色、聊天记录或本地设置。</p><small>当前版本：v245 · 2026.11.15 修启动白屏/闪退：开场模板里的头像先缩小再放（原来一张大头像会复制 4 份）；出错时不再白屏，会显示「出错了 · 重新加载 / 安全模式」；连续两次没打开成功会自动进安全模式（不加载立绘、开场模板、歌词），顶部可一键退出。</small><button onClick={refresh} disabled={state === 'checking'}>{state === 'checking' ? '正在检查更新…' : state === 'error' ? '更新失败，点我重试' : '强制刷新到最新版'}</button></section>
 }
 
 function PersonaPage({ identities, selectedId, isBound, onSelect, onAdd, onDelete, onUpdate, onBack }: { identities: UserIdentity[]; selectedId: string; isBound: boolean; onSelect: (id: string) => void; onAdd: () => void; onDelete: (id: string) => void; onUpdate: (patch: Partial<UserIdentity>) => void; onBack: () => void }) {

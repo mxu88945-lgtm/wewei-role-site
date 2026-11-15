@@ -48,6 +48,8 @@ import { periodStats, periodTurnNote } from './periodLog'
 import { applyPersonTags, peopleTurnNote, undoPersonTags } from './peopleProfiles'
 import PersonaGroupPanel from './PersonaGroupPanel'
 import PersonaSprite from './PersonaSprite'
+import ErrorBoundary from './ErrorBoundary'
+import { isSafeMode } from './safeMode'
 import { spriteAppearOf, spriteEnabled, spriteSetFor } from './personaSprite'
 import { setSpritePrefs, useSpriteState } from './personaSpriteStore'
 import MentionPicker from './MentionPicker'
@@ -817,7 +819,7 @@ export default function PersonaWindowPage(props: Props) {
     </div>
     {messages.length > 0 && !drawerOpen && !sidebarOpen && !viewerImage && (personaJump.up || personaJump.down) && <nav className={`persona-jump-controls${personaJump.visible ? ' visible' : ''}`} aria-label="快速浏览对话">{personaJump.up && <button aria-label="回到顶部" {...tap(() => scrollChat('top'))}>↑</button>}{personaJump.down && <button aria-label="跳到最新消息" {...tap(() => scrollChat('bottom'))}>↓</button>}</nav>}
     {activeTasks.length > 0 && !drawerOpen && !sidebarOpen && <PersonaTaskPin tasks={activeTasks} tap={tap} onOpen={() => { setSidebarOpen(false); setSettingsPanel('tasks'); setDrawerOpen(true) }} onDone={(id) => taskAction(id, 'done')} />}
-    {spriteSet && spriteOn && <PersonaSprite key={active.id} personaId={active.id} set={spriteSet} messages={messages} generating={generating} error={error} suppressed={menuMessageId !== null || plusOpen || mentionOpen || Boolean(viewerImage) || giftSheetOpen || drawerOpen || sidebarOpen} readText={(message) => personaReplyText(message.text)} isGuest={(message) => isGuestMessage(message as PersonaMessage)} />}
+    {spriteSet && spriteOn && !isSafeMode() && <ErrorBoundary name="立绘"><PersonaSprite key={active.id} personaId={active.id} set={spriteSet} messages={messages} generating={generating} error={error} suppressed={menuMessageId !== null || plusOpen || mentionOpen || Boolean(viewerImage) || giftSheetOpen || drawerOpen || sidebarOpen} readText={(message) => personaReplyText(message.text)} isGuest={(message) => isGuestMessage(message as PersonaMessage)} /></ErrorBoundary>}
     {plusOpen && <button type="button" className="persona-plus-scrim" aria-label="收起菜单" {...tap(() => setPlusOpen(false))} />}
     {giftSheetOpen && <PersonaGiftSheet roleName={activeCharacter.name} shelf={active.customGifts || []} history={personaGiftHistory(active.threads)} canRoleSend={active.giftsEnabled !== false} busy={generating} tap={tap}
       onSend={sendGift} onSave={saveGift} onRemove={removeGift} onRequest={requestGift} onClose={() => setGiftSheetOpen(false)} />}
