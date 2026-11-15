@@ -447,6 +447,21 @@ export function deletePersonaMessage(state: PersonaWindowState, personaId: strin
   })
 }
 
+/** v247：人格窗口里改写一条消息的正文（通常是 TA 的回复）。只换 text，礼物、图片、时间等其他字段原样保留；
+ *  之后的请求、记忆整理都读改过的正文。若这条已被压缩进连续性档案，作废旧档案，下次按新原文重新整理。 */
+export function editPersonaMessage(state: PersonaWindowState, personaId: string, threadId: string, messageId: number, text: string): PersonaWindowState {
+  return updatePersonaThread(state, personaId, threadId, (thread) => {
+    const target = thread.messages.find((message) => message.id === messageId)
+    if (!target || target.text === text) return thread
+    const invalidates = thread.compressedThroughId !== undefined && messageId <= thread.compressedThroughId
+    return {
+      ...thread,
+      messages: thread.messages.map((message) => message.id === messageId ? { ...message, text } : message),
+      ...(invalidates ? { contextSummary: undefined, compressedThroughId: undefined, summaryFallback: undefined, summaryUpdatedAt: undefined } : {}),
+    }
+  })
+}
+
 /** Memory reads and writes are always keyed by persona id; nothing here can reach another persona. */
 export function personaMemories(state: PersonaWindowState, personaId: string) {
   return state.personas.find((item) => item.id === personaId)?.memories || []

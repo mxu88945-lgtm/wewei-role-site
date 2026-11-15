@@ -110,7 +110,7 @@ import { FilmGalleryManager } from './FilmGallery'
 import { useMusicStore, currentMusicNote } from './musicStore'
 import { FILM_CARD_REMINDER, filmCardInstruction, stripFilmBlocks } from './filmBlock'
 import { autoPlayFilmSong } from './filmAutoplay'
-import { messageEditorSheetHeight } from './messageEditorSize'
+import { useMessageEditorHeight } from './useMessageEditorHeight'
 import { buildMusicNote } from './lyrics'
 import { isChatScoped, legacyDefaultThemeId, pickGlobalIdentity, pickIdentity, pickThemeId, repairLeakedGlobalPersona } from './chatScope'
 import { readPhoneIdentity, resolvePhoneIdentity, writePhoneIdentity, type PhoneIdentity } from './phoneIdentity'
@@ -545,29 +545,8 @@ function App() {
   const [phoneModesOpen, setPhoneModesOpen] = useState(false)
   const [messageEditor, setMessageEditor] = useState<MessageEditor | null>(null)
   // v204：编辑窗口按 visualViewport 算高度（键盘开着也占满可见区域）。
-  const [messageEditorHeight, setMessageEditorHeight] = useState<number | undefined>(undefined)
   const messageEditorOpen = Boolean(messageEditor)
-  useEffect(() => {
-    if (!messageEditorOpen) return
-    const vv = window.visualViewport
-    let frame = 0
-    const measure = () => {
-      frame = 0
-      const { height } = messageEditorSheetHeight(vv?.height ?? window.innerHeight, Math.max(window.innerHeight, document.documentElement.clientHeight, window.screen?.height || 0))
-      setMessageEditorHeight((current) => current === height ? current : height)
-    }
-    const schedule = () => { if (!frame) frame = window.requestAnimationFrame(measure) }
-    measure()
-    vv?.addEventListener('resize', schedule)
-    vv?.addEventListener('scroll', schedule)
-    window.addEventListener('resize', schedule)
-    return () => {
-      if (frame) window.cancelAnimationFrame(frame)
-      vv?.removeEventListener('resize', schedule)
-      vv?.removeEventListener('scroll', schedule)
-      window.removeEventListener('resize', schedule)
-    }
-  }, [messageEditorOpen])
+  const messageEditorHeight = useMessageEditorHeight(messageEditorOpen)
   const [phoneLock, setPhoneLockState] = useState<PhoneLockState | null>(() => { try { const value = JSON.parse(localStorage.getItem('weijing.phoneLock') || 'null') as PhoneLockState | null; return value && value.until > Date.now() ? value : null } catch { return null } })
   const setPhoneLock = (value: PhoneLockState | null) => { setPhoneLockState(value); try { if (value) localStorage.setItem('weijing.phoneLock', JSON.stringify(value)); else localStorage.removeItem('weijing.phoneLock') } catch { /* 存不下也不影响本次锁屏 */ } }
   const breakPhoneLock = () => {
@@ -5043,7 +5022,7 @@ function UpdateCard() {
     }
   }
 
-  return <section className="update-card"><strong>应用更新</strong><p>主动检查并拉取最新网页版本，不会删除角色、聊天记录或本地设置。</p><small>当前版本：v246 · 2026.11.15 启动减负：长对话里的美化卡片只加载屏幕附近的几张（最多 8 张同时在内存里，划走的变成占位，划回来再加载）；启动前 8 秒不写数据库、之后逐个错开写，保存时不再把整份聊天记录复制好几份比较。</small><button onClick={refresh} disabled={state === 'checking'}>{state === 'checking' ? '正在检查更新…' : state === 'error' ? '更新失败，点我重试' : '强制刷新到最新版'}</button></section>
+  return <section className="update-card"><strong>应用更新</strong><p>主动检查并拉取最新网页版本，不会删除角色、聊天记录或本地设置。</p><small>当前版本：v247 · 2026.11.15 人格窗口里 TA 的消息可以「编辑」改写了（••• 菜单里），用和主聊天一样的大编辑框，键盘弹出也不挡；改过的内容之后的对话和记忆都按新的来。</small><button onClick={refresh} disabled={state === 'checking'}>{state === 'checking' ? '正在检查更新…' : state === 'error' ? '更新失败，点我重试' : '强制刷新到最新版'}</button></section>
 }
 
 function PersonaPage({ identities, selectedId, isBound, onSelect, onAdd, onDelete, onUpdate, onBack }: { identities: UserIdentity[]; selectedId: string; isBound: boolean; onSelect: (id: string) => void; onAdd: () => void; onDelete: (id: string) => void; onUpdate: (patch: Partial<UserIdentity>) => void; onBack: () => void }) {

@@ -26,7 +26,7 @@ import { PERSONA_TASK_PIN_LIMIT, createPersonaTask, taskIsActive, updatePersonaT
 import { pastLifeChunksFrom } from './personaPastLifeRecall'
 import { PersonaCompressionCard, PersonaMemoryInspection, PersonaRecallReceipt } from './PersonaMemoryInspection'
 import { canLockPersonaMemory, PERSONA_LOCKED_BUDGET } from './personaWindowMemory'
-import { activeThread, addPersonaThread, buildPersonaSetting, characterAliasIds, collectPastLifeMemory, conversationInvolvesCharacter, deletePersona, deletePersonaThread, deletePersonaMessage, disablePersona, enablePersona, PERSONA_MEMORY_EVERY, PERSONA_WINDOW_PRESET, pendingPersonaMemoryCount, personaMemoryApi, renamePersonaThread, resolvePersonaApi, switchPersona, switchPersonaThread, updatePersona, updatePersonaThread, type PersonaMemoryEntry, type PersonaMessage, type PersonaWindow } from './personaWindow'
+import { activeThread, addPersonaThread, buildPersonaSetting, characterAliasIds, collectPastLifeMemory, conversationInvolvesCharacter, deletePersona, deletePersonaThread, deletePersonaMessage, disablePersona, editPersonaMessage, enablePersona, PERSONA_MEMORY_EVERY, PERSONA_WINDOW_PRESET, pendingPersonaMemoryCount, personaMemoryApi, renamePersonaThread, resolvePersonaApi, switchPersona, switchPersonaThread, updatePersona, updatePersonaThread, type PersonaMemoryEntry, type PersonaMessage, type PersonaWindow } from './personaWindow'
 import { hydratePersonaStore, setPersonaState, usePersonaHydrated, usePersonaState } from './personaWindowStore'
 import { buildPersonaRequest, dismissPeopleToast, extractGuestMemories, extractPersonaMemory, generatePersonaReply, getPersonaRuntime, maybeCompressPersonaContext, setPersonaError, stopPersonaReply, subscribePersonaRuntime, type PersonaRuntimeDeps } from './personaWindowRuntime'
 
@@ -37,6 +37,7 @@ import { memoryCues, memoryImportance } from './personaMemoryRank'
 import ArchiveHeading from './ArchiveHeading'
 import { PuddingCapsule, PuddingLetter } from './PuddingLetter'
 import { messageThemeLayout } from './chatThemeLayout'
+import { useMessageEditorHeight } from './useMessageEditorHeight'
 import './persona-window.css'
 import { ChannelOptions } from './ChannelOptions'
 import PersonaPeriodPanel from './PersonaPeriodPanel'
@@ -215,6 +216,9 @@ export default function PersonaWindowPage(props: Props) {
   const [attachmentBusy, setAttachmentBusy] = useState(false)
   const [viewerImage, setViewerImage] = useState<{ images: ChatImage[]; index: number } | null>(null)
   const [menuMessageId, setMenuMessageId] = useState<number | null>(null)
+  // v247：TA 的消息可直接改写（大编辑框，和主聊天「模型消息 · 编辑改写」同一套样式）。
+  const [replyEditor, setReplyEditor] = useState<{ personaId: string; threadId: string; messageId: number; text: string } | null>(null)
+  const replyEditorHeight = useMessageEditorHeight(Boolean(replyEditor))
   const [editingMessageId, setEditingMessageId] = useState<number | null>(null)
   const [quoteDraft, setQuoteDraft] = useState<{ messageId: number; author: string; text: string } | null>(null)
   const [windowAnchors, setWindowAnchors] = useState<Record<string, number | null>>({})
@@ -794,6 +798,7 @@ export default function PersonaWindowPage(props: Props) {
               <button {...tap(() => { void navigator.clipboard?.writeText(message.text).catch(() => undefined); setMenuMessageId(null) })}>复制</button>
               <button {...tap(() => { const author = message.role === 'user' ? (identity.name || '我') : name; const quoted = message.text.trim() || (message.attachments?.length ? `[文件：${message.attachments.map((item) => item.name).join('、')}]` : message.images?.length ? '[图片]' : message.gift ? `🎁 ${message.gift.name}` : ''); setQuoteDraft({ messageId: message.id, author, text: quoted.slice(0, 120) }); setMenuMessageId(null); textareaRef.current?.focus({ preventScroll: true }) })}>引用</button>
               {isUser && <><button disabled={generating || imageBusy || attachmentBusy} {...tap(() => resend(message))}>重新发送</button>{!message.gift && <button disabled={imageBusy || attachmentBusy} {...tap(() => editForResend(message))}>编辑后重发</button>}</>}
+              {!isUser && <button disabled={generating} {...tap(() => { setMenuMessageId(null); setReplyEditor({ personaId: active.id, threadId, messageId: message.id, text: message.text }) })}>编辑</button>}
               {!isUser && message.id === lastMessage?.id && <button disabled={generating} {...tap(() => { setMenuMessageId(null); regenerate() })}>重新生成</button>}
               <button className="danger" {...tap(() => { if (window.confirm('删除这条消息？')) setPersonaState((current) => deletePersonaMessage(current, active.id, threadId, message.id)); setMenuMessageId(null) })}>删除</button>
             </span>}
@@ -915,6 +920,7 @@ export default function PersonaWindowPage(props: Props) {
       </aside>
     </div>}
     {mentionOpen && groupOn && <MentionPicker members={[{ id: active.id, name: activeCharacter.name, avatar: activeCharacter.avatar }, ...guestsHere.map((guest) => ({ id: guest.id, name: guest.name, avatar: isImageAvatar(guest.avatar) ? guest.avatar : undefined }))]} everyone onPick={(picked) => { setMentionOpen(false); setDraft((current) => insertMention(current, picked)); textareaRef.current?.focus({ preventScroll: true }) }} onClose={() => setMentionOpen(false)} />}
+    {replyEditor && <div className="message-editor-layer persona-reply-editor-layer" role="dialog" aria-modal="true" aria-label="编辑模型消息"><button className="drawer-backdrop" aria-label="取消编辑" onClick={() => setReplyEditor(null)} /><form className="message-editor-sheet message-editor-tall" style={{ height: replyEditorHeight }} onSubmit={(event) => { event.preventDefault(); if (generating || !replyEditor.text.trim()) return; const edit = replyEditor; setPersonaState((current) => editPersonaMessage(current, edit.personaId, edit.threadId, edit.messageId, edit.text)); setReplyEditor(null) }}><header><div><small>模型消息</small><strong>编辑改写</strong></div><button type="button" aria-label="关闭编辑框" onClick={() => setReplyEditor(null)}>×</button></header><textarea autoFocus value={replyEditor.text} onChange={(event) => setReplyEditor({ ...replyEditor, text: event.target.value })} /><footer><button type="button" onClick={() => setReplyEditor(null)}>取消</button><button type="submit" className="primary" disabled={generating || !replyEditor.text.trim()}>保存修改</button></footer></form></div>}
     {viewerImage && <ChatImageViewer images={viewerImage.images} startIndex={viewerImage.index} onClose={() => setViewerImage(null)} />}
   </section>
 }
