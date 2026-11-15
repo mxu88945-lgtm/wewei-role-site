@@ -53,7 +53,8 @@ import { assignLibraryGroup, libraryPlacementDraft, preserveLibraryPlacement, au
 import { activeCharacterMemory, characterMemoryEntryFromConversation, characterMemoryExtractionPrompt, characterMemorySummaryProtocol, parseCharacterMemoryCandidates, splitCharacterMemorySummary } from './characterMemory'
 import { readCachedModels, saveCachedModels } from './modelListCache'
 import { ChatApiError, completeChat, fetchApiModels, testApiConnection, type ApiConfig, type ApiModel } from './chatApi'
-import { buildChatPrompt, storyHistoryWindow } from './promptBuilder'
+import { buildChatPrompt, coreMemoryChunks, storyHistoryWindow } from './promptBuilder'
+import { EVICTED_POOL_MAX } from './evictedRecall'
 import { HISTORY_TOKEN_BUDGET } from './historyWindow'
 import { currentImageTurn, extractImageMemo, withImageMemo } from './imageMemo'
 import { foldPromptForRelay } from './promptTail'
@@ -124,7 +125,7 @@ const renderBackstageText = (text: string) => splitBackstageActions(text).map((p
 
 type Page = 'home' | 'persona-window' | 'phone' | 'story-projects' | 'characters' | 'create' | 'character-workshop' | 'group-create' | 'director-template' | 'group-greeting-picker' | 'import-preview' | 'character-detail' | 'card-data' | 'card-worldbook' | 'card-regex' | 'card-memory' | 'greeting-picker' | 'chat' | 'more' | 'api' | 'reply-helper-api' | 'semantic-recall' | 'model' | 'settings' | 'trash' | 'appearance' | 'font' | 'display-reply' | 'identity' | 'worldbook' | 'theater-world' | 'temporary-plot' | 'story-scripts' | 'chat-search' | 'request-preview' | 'preset' | 'memory' | 'memory-api' | 'memory-list' | 'backstage-notes'
 type MessageEditor = { mode: 'assistant' | 'resend'; messageId: number; text: string }
-type AssistantRequestOptions = { /** 语义召回块（只来自本对话；关闭时不传） */ semanticRecall?: string; continueWithoutUser?: boolean; phoneNudge?: string; explicitlyMentioned?: boolean; replacement?: Message; rollbackConversation?: Conversation; contextOverride?: ConversationContextSnapshot }
+type AssistantRequestOptions = { /** 语义召回块（只来自本对话；关闭时不传） */ semanticRecall?: string; /** v252：语义原始分（滑出窗口原文 / 核心记忆较早条目的混合召回）。 */ semanticScores?: { messages: ReadonlyMap<number, number>; core: ReadonlyMap<string, number> }; continueWithoutUser?: boolean; phoneNudge?: string; explicitlyMentioned?: boolean; replacement?: Message; rollbackConversation?: Conversation; contextOverride?: ConversationContextSnapshot }
 type Drawer = 'left' | 'right'
 type HistoryEntry = { page: Page; reopenDrawer?: Drawer }
 type LegacySessionMap = Record<string, Message[]>
@@ -2907,7 +2908,7 @@ function App() {
       memoryLength,
       historyTokenBudget,
       speakerName: (message) => message.role === 'user' ? identity.name : !isGroup || (message as Message).characterId === speaker.id ? speaker.name : `〔${messageCharacterName(message as Message, conversation)}〕`,
-      evictedRecall: isPhone || isDirector ? undefined : { ledger: evictedRecallLedgerRef.current.get(conversation.id), turn: nextMessages.filter((message) => message.role === 'user').length },
+      evictedRecall: isPhone || isDirector ? undefined : { ledger: evictedRecallLedgerRef.current.get(conversation.id), turn: nextMessages.filter((message) => message.role === 'user').length, semantic: requestOptions.semanticScores?.messages, coreSemantic: requestOptions.semanticScores?.core },
       contextSummary: hasValidContextSummary ? (isPhone ? conversation.contextSummary?.slice(0, 4000) : conversation.contextSummary) : undefined,
       semanticRecall: isPhone || isDirector ? undefined : requestOptions.semanticRecall,
       // Phone history is already a tail slice: its indices no longer match the saved transcript.
@@ -3114,12 +3115,17 @@ function App() {
     try {
       // 语义召回：只在本对话里找意思相近的旧原话；关着时立刻得到 ''，失败/4 秒超时也得到 ''，不挡发送。
       const isDirectorSpeaker = Boolean(conversation.directorCharacterId && speaker.id === conversation.directorCharacterId)
-      const semanticRecall = conversation.phone || isDirectorSpeaker ? '' : await semanticRecallForConversation({
+      // v252：一轮只嵌她最新一句；滑出窗口那段（最多 300 条）交给混合召回（用这里的原始分），
+      // 旧原文块只补更深处的，不和滑出窗口的召回重复；核心记忆较早条目的小段也一起打分（向量算一次就存库）。
+      const recallWindowStart = storyHistoryWindow(nextMessages, { compressedUntil: conversation.compressedUntil, hasSummary: Boolean(conversation.contextSummary && (conversation.contextSummaryRevision || 0) === (conversation.historyRevision || 0)), memoryLength, tokenBudget: historyTokenBudget }).start
+      const semantic = conversation.phone || isDirectorSpeaker ? null : await semanticRecallForConversation({
         conversation: { id: conversationId, messages: nextMessages },
-        inContextIds: new Set(nextMessages.slice(storyHistoryWindow(nextMessages, { compressedUntil: conversation.compressedUntil, hasSummary: Boolean(conversation.contextSummary && (conversation.contextSummaryRevision || 0) === (conversation.historyRevision || 0)), memoryLength, tokenBudget: historyTokenBudget }).start).map((message) => message.id)),
+        inContextIds: new Set(nextMessages.slice(Math.max(0, recallWindowStart - EVICTED_POOL_MAX)).map((message) => message.id)),
         speakerName: (message) => message.role === 'user' ? identity.name : messageCharacterName(message as Message, conversation),
+        chunks: { namespace: `core:${conversationId}:${speaker.id}`, items: coreMemoryChunks({ ...speaker, characterMemory: memoriesForConversationCharacter(conversation, speaker) }) },
       })
-      const prepared = prepareAssistantRequest(conversation, nextMessages, speaker, semanticRecall ? { ...requestOptions, semanticRecall } : requestOptions)
+      const semanticOptions = semantic && (semantic.text || semantic.messageScores.size || semantic.chunkScores.size) ? { ...requestOptions, ...(semantic.text ? { semanticRecall: semantic.text } : {}), semanticScores: { messages: semantic.messageScores, core: semantic.chunkScores } } : requestOptions
+      const prepared = prepareAssistantRequest(conversation, nextMessages, speaker, semanticOptions)
       const { promptStats, capturedCharacter, capturedMemoryConfig, isGroup, isDirector, statusTag, requiresCharacterStatus, groupNames, storedRelationshipStage } = prepared
       // v251：这轮真的发出去了才记冷却（预览不记）。
       if (promptStats.evictedKeys?.length) {
@@ -5052,7 +5058,7 @@ function UpdateCard() {
     }
   }
 
-  return <section className="update-card"><strong>应用更新</strong><p>主动检查并拉取最新网页版本，不会删除角色、聊天记录或本地设置。</p><small>当前版本：v251 · 2026.11.15 前世记忆按需召回更准（提到疤、玉佩这类具体细节也能想起，闲聊不乱带）；连续性档案整理失败记录刷新后不丢；雾白来信/雾蓝长笺/暗夜流光的名字胶囊恢复大字</small><button onClick={refresh} disabled={state === 'checking'}>{state === 'checking' ? '正在检查更新…' : state === 'error' ? '更新失败，点我重试' : '强制刷新到最新版'}</button></section>
+  return <section className="update-card"><strong>应用更新</strong><p>主动检查并拉取最新网页版本，不会删除角色、聊天记录或本地设置。</p><small>当前版本：v252 · 2026.11.15 长剧情每轮更省：核心记忆较早条目只列要点、细节按需附上，长期记忆按最新一轮挑，尾巴重复规则只留一句；开了语义召回时，前世记忆与较早原文按「线索＋语义」一起判（问往事想得起，闲聊不多带）</small><button onClick={refresh} disabled={state === 'checking'}>{state === 'checking' ? '正在检查更新…' : state === 'error' ? '更新失败，点我重试' : '强制刷新到最新版'}</button></section>
 }
 
 function PersonaPage({ identities, selectedId, isBound, onSelect, onAdd, onDelete, onUpdate, onBack }: { identities: UserIdentity[]; selectedId: string; isBound: boolean; onSelect: (id: string) => void; onAdd: () => void; onDelete: (id: string) => void; onUpdate: (patch: Partial<UserIdentity>) => void; onBack: () => void }) {

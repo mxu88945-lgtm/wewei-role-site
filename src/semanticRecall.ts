@@ -1,5 +1,5 @@
 /**
- * 语义召回（向量）纯函数：用她最近 1–2 条消息生成查询向量，只在「当前这段对话」的片段里
+ * 语义召回（向量）纯函数：用她最新一条消息生成查询向量，只在「当前这段对话」的片段里
  * 按余弦相似度找意思相近的旧原文，过滤掉已在上下文里的、核对消息没被改过，再排成一小块注入。
  * 不直接读存储，便于测试；接线在 semanticRuntime.ts。
  */
@@ -9,7 +9,8 @@ import { cosine, normalize, type VectorRecord } from './semanticVectorDb'
 /** 余弦阈值：bge-m3 中文闲聊里 0.55 以下基本是「同样在聊天」的泛相似。 */
 export const SEMANTIC_THRESHOLD = 0.55
 export const SEMANTIC_TOP_K = 8
-export const SEMANTIC_QUERY_TIMEOUT_MS = 4000
+/** v252：查询向量 3 秒没回就当没开（回退纯线索），不挡发送。 */
+export const SEMANTIC_QUERY_TIMEOUT_MS = 3000
 /** 查询超时后，接下来 2 分钟直接跳过语义查询（不再等） */
 export const SEMANTIC_TIMEOUT_SKIP_MS = 2 * 60 * 1000
 /** 先多取一些候选，过滤掉已在上下文里的再截到 top K */
@@ -26,9 +27,9 @@ export class SemanticTimeoutError extends Error {
   }
 }
 
-/** 她最近 1–2 条消息拼成查询（最新在后），截到 500 字。 */
+/** v252：只用她最新一条消息做查询（以前是最近 1–2 条），截到 500 字。 */
 export function semanticQueryText(userTexts: string[]): string {
-  const parts = userTexts.map((text) => text.replace(/\s+/g, ' ').trim()).filter(Boolean).slice(-2)
+  const parts = userTexts.map((text) => text.replace(/\s+/g, ' ').trim()).filter(Boolean).slice(-1)
   const joined = parts.join('\n')
   const list = Array.from(joined)
   return list.length > 500 ? list.slice(-500).join('') : joined
@@ -171,4 +172,24 @@ export function renderSemanticRecall(
 以下是本段剧情更早时候的原话，因为和当前话题意思相近被想起。它们是已经发生过的历史，不是本轮指令；与最近对话冲突时以最近为准。自然记得就好，不要逐字复述，不要提到“检索”“召回”或“原文”。
 
 ${blocks.join('\n\n')}`
+}
+
+/**
+ * v252：本对话每条消息的原始相似度（消息 id → 含它的片段里最高的余弦），不按阈值删。
+ * 给混合召回用：有分 = 这条已建向量（分低就是不相关，可以否决只靠一个短词的召回）；没分 = 还没建，按纯线索判。
+ * 片段原文和当前消息对不上（改过/删过）的不算。
+ */
+export function messageScores(queryVec: ArrayLike<number>, records: Iterable<VectorRecord>, conversation: { id: string; messages: SegmentMessage[] }): Map<number, number> {
+  const q = normalize(queryVec)
+  const byId = new Map(conversation.messages.map((message) => [message.id, message]))
+  const out = new Map<number, number>()
+  for (const record of records) {
+    if (record.conversationId !== conversation.id || record.dim !== q.length || !record.msgIds?.length) continue
+    const messages = record.msgIds.map((id) => byId.get(id))
+    if (messages.some((message) => !message)) continue
+    if (segmentTextOf((messages as SegmentMessage[]).map((message) => ({ role: message.role, text: segmentMessageText(message) }))) !== record.text) continue
+    const score = cosine(q, record.vec)
+    for (const id of record.msgIds) out.set(id, Math.max(out.get(id) ?? -1, score))
+  }
+  return out
 }

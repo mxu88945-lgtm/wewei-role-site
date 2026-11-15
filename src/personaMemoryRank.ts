@@ -131,4 +131,4 @@ export function memorySemanticText(entry: Pick<PersonaMemoryEntry, 'cues' | 'tit
 }
 
 /** v236：语义召回本轮命中（只含这个人格自己的东西）。key：旧原文 threadId|messageId、记忆 id、前世/背景小段 key。 */
-export type PersonaSemanticHits = { messages: ReadonlyMap<string, number>; memories: ReadonlyMap<string, number>; chunks: ReadonlyMap<string, number> }
+export type PersonaSemanticHits = { messages: ReadonlyMap<string, number>; memories: ReadonlyMap<string, number>; /** v252：前世/故事背景小段的原始余弦（有向量的都给）。 */ chunks: ReadonlyMap<string, number>; /** v252：当前窗口每条消息的原始余弦（threadId|messageId），给滑出窗口的混合召回。 */ messageScores?: ReadonlyMap<string, number> }

@@ -123,10 +123,43 @@ const RARE_SHARE = .125
 /** 没有提示词时，她这句里要有至少这么多字落在专有线索上（如「手腕…道疤」「辣炒蛤蜊」），才算点到这段往事。 */
 export const PAST_LIFE_RARE_SPAN_MIN = 4
 
-/** v236：语义相似度达到这个值，就算没有提示词/关键词也能想起这一小段。 */
+/** v236：语义相似度达到这个值，就算没有提示词/关键词也能想起这一小段。（v252 起由 HYBRID_* 取代，只留作参考值。） */
 export const PAST_LIFE_SEMANTIC_MIN = 0.55
+/**
+ * v252 混合召回（语义召回开着、这段有向量时）：向量分和线索一起判。
+ * - 问往事（提示词）时，向量 ≥ HYBRID_CUE 就能想起（「上次你说你怕什么来着」→「怕打雷」这种字面差一截的）；
+ * - 不问往事时，向量 ≥ HYBRID_SOLO（0.7，比 v236 的 0.55 严）且至少一个词对上才算，普通闲聊不多带；
+ * - 只靠一个两字专有词（如「上班」）对上、没提示词时，还要向量 ≥ HYBRID_CONFIRM 证实是在说那件事，否则不带。
+ * 这段没有向量（没开语义、还没算好、查询失败/超时）时，完全按原来的线索规则。
+ */
+export const HYBRID_CUE = 0.55
+export const HYBRID_CONFIRM = 0.6
+/** 不问往事时，向量要非常像（≥0.7，v236 是 0.55）且至少有一个词对上，才算想起。 */
+export const HYBRID_SOLO = 0.7
 
-export function recallPastLife(chunks: readonly PastLifeChunk[], options: { history: PersonaMessage[]; aliases?: string; charName?: string; userName?: string; ledger?: Record<string, number>; turn?: number; budget?: number; maxChunks?: number; /** v236：语义召回命中（小段 key → 相似度）。 */ semantic?: ReadonlyMap<string, number>; /** v236：段首说明（故事背景用另一句）。 */ lead?: string; /** v251：专有线索的稀有门槛与字数门槛（滑出窗口的原文池更小、更日常，用更严的稀有度、更低的字数）。 */ rareShare?: number; rareSpanMin?: number }): PastLifeRecall {
+/**
+ * v252：一段素材里常有好几件事（几条记忆、几段对话），整段一个向量会被稀释。
+ * 打分时按「行」切成小单元（短行并到下一行，最长 200 字），段的分 = 单元里最高的那个；向量按单元算一次存库。
+ */
+export const SCORING_UNIT_MIN = 16
+export const SCORING_UNIT_MAX = 200
+export function chunkScoringUnits(chunk: Pick<PastLifeChunk, 'key' | 'text'>): Array<{ key: string; text: string }> {
+  const lines = chunk.text.split('\n').slice(1).map((line) => line.trim()).filter(Boolean)
+  const units: string[] = []
+  let current = ''
+  for (const line of lines) {
+    for (let at = 0; at < line.length; at += SCORING_UNIT_MAX) {
+      const piece = line.slice(at, at + SCORING_UNIT_MAX)
+      current = current ? `${current}\n${piece}` : piece
+      if (current.length >= SCORING_UNIT_MIN) { units.push(current.slice(0, SCORING_UNIT_MAX)); current = '' }
+    }
+  }
+  if (current && units.length) units[units.length - 1] = `${units[units.length - 1]}\n${current}`.slice(0, SCORING_UNIT_MAX + SCORING_UNIT_MIN)
+  else if (current) units.push(current)
+  return [...new Set(units)].map((text) => ({ key: `${chunk.key}#${hash(text)}`, text }))
+}
+
+export function recallPastLife(chunks: readonly PastLifeChunk[], options: { history: PersonaMessage[]; aliases?: string; charName?: string; userName?: string; ledger?: Record<string, number>; turn?: number; budget?: number; maxChunks?: number; /** v252：这段的语义相似度（小段 key → 余弦，有向量的都给，不按阈值删；没有的段按纯线索判）。 */ semantic?: ReadonlyMap<string, number>; /** v236：段首说明（故事背景用另一句）。 */ lead?: string; /** v251：专有线索的稀有门槛与字数门槛（滑出窗口的原文池更小、更日常，用更严的稀有度、更低的字数）。 */ rareShare?: number; rareSpanMin?: number }): PastLifeRecall {
   const poolChars = chunks.reduce((sum, chunk) => sum + chunk.text.length, 0)
   const empty: PastLifeRecall = { text: '', chunks: [], keys: [], candidates: 0, suppressed: 0, poolChunks: chunks.length, poolChars }
   const query = personaRecallQuery(options.history)
@@ -173,11 +206,19 @@ export function recallPastLife(chunks: readonly PastLifeChunk[], options: { hist
     const nameHit = named.some((name) => normalized(chunk.text).includes(name)) ? 6 : named.length ? 2 : 0
     const kindHit = cue && ((/群/.test(query) && /群/.test(chunk.kind)) || (/剧本|剧情|故事|戏里/.test(query) && /长剧情/.test(chunk.kind)) || (/幕后|戏外/.test(query) && /幕后/.test(chunk.kind)) || (/私聊/.test(query) && /私聊/.test(chunk.kind)))
     const semantic = lexical > 0 || cue ? semanticScore(query, chunk.text) : 0
-    const vector = options.semantic?.get(chunk.key) || 0
-    const vectorHit = vector >= PAST_LIFE_SEMANTIC_MIN
+    const vector = options.semantic?.get(chunk.key)
+    const hasVector = typeof vector === 'number' && Number.isFinite(vector)
     // v249：问往事（提示词）时，点到一个专有词就够；没有提示词时要点到约 4 个字的专有线索。
-    const qualifies = vectorHit || titleHit || nameHit >= 6 || lexical >= 5 || rare >= rareSpanMin || (cue && (rare >= 2 || lexical >= 2 || (lexical >= 1 && (semantic > 0 || kindHit))))
-    const score = lexical + contextual + semantic + rare * 2 + (titleHit ? 8 : 0) + nameHit + (kindHit ? 2 : 0) + (chunk.bound ? 2 : 0) + (vectorHit ? (vector - 0.45) * 20 : 0)
+    const strong = titleHit || nameHit >= 6 || (cue && (rare >= 2 || lexical >= 2 || (lexical >= 1 && (semantic > 0 || kindHit))))
+    const weak = lexical >= 5 || rare >= rareSpanMin
+    // v252：有向量时——只靠一个两字专有词（如「上班」）、又没问往事的，要向量证实（≥0.6）；
+    // 问往事时向量 ≥0.55 也能想起（字面差一截的）；不问往事要向量 ≥0.7 且至少一个词对上。
+    const loneShortWord = !cue && lexical < 5 && rare < 3
+    const qualifies = hasVector
+      ? strong || (weak && (!loneShortWord || vector >= HYBRID_CONFIRM)) || (cue ? vector >= HYBRID_CUE : vector >= HYBRID_SOLO && lexical >= 1)
+      : strong || weak
+    const vectorBonus = hasVector && vector >= HYBRID_CONFIRM ? (vector - 0.45) * 20 : 0
+    const score = lexical + contextual + semantic + rare * 2 + (titleHit ? 8 : 0) + nameHit + (kindHit ? 2 : 0) + (chunk.bound ? 2 : 0) + vectorBonus
     return { chunk, score, qualifies }
   }).filter((row) => row.qualifies).sort((a, b) => b.score - a.score || Number(b.chunk.bound) - Number(a.chunk.bound))
   const turn = options.turn ?? 0

@@ -11,13 +11,14 @@ import { memorySemanticText, type PersonaSemanticHits } from './personaMemoryRan
 import type { PersonaMessage, PersonaWindow } from './personaWindow'
 import type { PersonaSemanticInput } from './personaWindowRuntime'
 import { personaReplyText } from './personaWindowPresentation'
+import { chunkScoringUnits } from './personaPastLifeRecall'
 import { stripTurnContext } from './promptTail'
-import { backoffFor, runIndexPass, TRANSIENT_BACKOFF_MS } from './semanticIndex'
+import { backoffFor, CHUNK_KEY_PREFIX, runIndexPass, TRANSIENT_BACKOFF_MS } from './semanticIndex'
 import {
   SEMANTIC_CANDIDATES,
   SEMANTIC_QUERY_TIMEOUT_MS,
-  SEMANTIC_THRESHOLD,
   SEMANTIC_TIMEOUT_SKIP_MS,
+  messageScores,
   topSemantic,
   withTimeout,
   SEMANTIC_TOP_K,
@@ -25,7 +26,6 @@ import {
   renderSemanticRecall,
   selectTurnHits,
   semanticQueryText,
-  semanticSearch,
 } from './semanticRecall'
 
 export const SEMANTIC_CONFIG_KEY = 'weijing.semanticRecall'
@@ -98,6 +98,8 @@ export function resetSemanticRuntimeForTest(store?: VectorStore): void {
   cache = null
   personaCache = null
   chunkVectors.clear()
+  chunkNamespaces.clear()
+  warming = false
   querySkipUntil = 0
   backoffUntil = 0
   running = false
@@ -160,40 +162,53 @@ let querySkipUntil = 0
 
 export type ConversationRecallInput = {
   conversation: { id: string; messages: SegmentMessage[] }
-  /** 本轮会原样带进上下文的消息 id（不重复召回） */
+  /** 本轮会原样带进上下文的消息 id（不重复召回）。v252：也包括滑出窗口、交给混合召回处理的那段。 */
   inContextIds: Set<number>
   speakerName: (message: SegmentMessage) => string
   now?: number
+  /** v252：要打分的召回小段（如本会话角色核心记忆的较早条目），按 namespace 缓存向量。 */
+  chunks?: { namespace: string; items: Array<{ key: string; text: string }> }
+}
+
+/** v252：长剧情一轮的语义结果：深处旧原文块（滑出窗口那段之外）+ 每条消息的原始分（给滑出窗口的混合召回）+ 小段分。 */
+export type ConversationSemantic = { text: string; messageScores: Map<number, number>; chunkScores: Map<string, number> }
+export const EMPTY_CONVERSATION_SEMANTIC: ConversationSemantic = { text: '', messageScores: new Map(), chunkScores: new Map() }
+
+/** v252：查询向量——只嵌她最新一句；3 秒超时（之后 2 分钟直接跳过）。失败返回 null。 */
+async function embedQuery(channel: ApiChannel, model: string, text: string): Promise<Float32Array | null> {
+  try {
+    const vector = await withTimeout(async (signal) => (await embedTexts(channel, model, [text], signal))[0], SEMANTIC_QUERY_TIMEOUT_MS)
+    return vector?.length ? normalize(vector) : null
+  } catch (error) {
+    if (error instanceof SemanticTimeoutError) querySkipUntil = Date.now() + SEMANTIC_TIMEOUT_SKIP_MS
+    return null
+  }
 }
 
 /**
- * 当前对话的语义召回块。关着时立刻返回 ''、不发请求；
- * 失败或 4 秒超时也返回 ''（超时后 2 分钟内直接跳过，不再等）。
+ * 当前对话的语义召回。关着时立刻返回空、不发请求；失败或 3 秒超时也返回空（超时后 2 分钟内直接跳过）。
+ * v252：一轮只嵌一次她最新一句；旧原文块只放滑出窗口那段之外（更深处）的命中，不和滑出窗口的召回重复。
  */
-export async function semanticRecallForConversation(input: ConversationRecallInput): Promise<string> {
+export async function semanticRecallForConversation(input: ConversationRecallInput): Promise<ConversationSemantic> {
   try {
-    if (!isSemanticReady()) return ''
+    if (!isSemanticReady()) return EMPTY_CONVERSATION_SEMANTIC
     const now = input.now ?? Date.now()
-    if (querySkipUntil > now) return ''
+    if (querySkipUntil > now) return EMPTY_CONVERSATION_SEMANTIC
     const config = state.config
     const channel = semanticChannel(config)!
     const model = config.model.trim()
-    const userTexts = input.conversation.messages.filter((message) => message.role === 'user' && !message.phoneNotice).slice(-2).map((message) => message.text || '')
+    const userTexts = input.conversation.messages.filter((message) => message.role === 'user' && !message.phoneNotice).slice(-1).map((message) => message.text || '')
     const query = semanticQueryText(userTexts)
-    if (!query) return ''
-    const hits = await semanticSearch(query, {
-      conversationId: input.conversation.id,
-      embedQuery: async (text, signal) => (await embedTexts(channel, model, [text], signal))[0],
-      loadRecords: () => loadRecords(model, input.conversation.id),
-      topK: SEMANTIC_CANDIDATES,
-      onError: (error) => {
-        if (error instanceof SemanticTimeoutError) querySkipUntil = Date.now() + SEMANTIC_TIMEOUT_SKIP_MS
-      },
-    })
+    if (!query) return EMPTY_CONVERSATION_SEMANTIC
+    const [q, records] = await Promise.all([embedQuery(channel, model, query), loadRecords(model, input.conversation.id)])
+    if (!q) return EMPTY_CONVERSATION_SEMANTIC
+    const list = [...records]
+    const hits = topSemantic(q, list, { conversationId: input.conversation.id, topK: SEMANTIC_CANDIDATES })
     const selected = selectTurnHits(hits, input.conversation, input.inContextIds, SEMANTIC_TOP_K)
-    return renderSemanticRecall(selected, input.conversation, input.inContextIds, input.speakerName)
+    const chunkScores = input.chunks ? await scoreChunks(channel, model, input.chunks.namespace, input.chunks.items, q) : new Map<string, number>()
+    return { text: renderSemanticRecall(selected, input.conversation, input.inContextIds, input.speakerName), messageScores: messageScores(q, list, input.conversation), chunkScores }
   } catch {
-    return ''
+    return EMPTY_CONVERSATION_SEMANTIC
   }
 }
 
@@ -210,28 +225,81 @@ async function loadPersonaRecords(model: string, conversationId: string): Promis
   return list
 }
 
-/** 前世记忆 / 故事背景的小段会随剧情变，只在内存里存向量（按 模型|人格|小段 key），不进库、不参与清理。 */
+/**
+ * v252：召回小段（前世记忆、故事背景、核心记忆较早条目）的向量：算过一次就存进向量库（key 以 chunk| 开头，
+ * 对话 id = chunk:<namespace>），刷新页面也不用重嵌；内存里按 模型|namespace|小段 key 缓存。
+ * 小段换了内容 key 就变（内容哈希），旧的在下次补算时按 namespace 清掉。
+ */
 const chunkVectors = new Map<string, Float32Array>()
-const CHUNK_VECTOR_LIMIT = 3000
+const chunkNamespaces = new Set<string>()
+const CHUNK_VECTOR_LIMIT = 6000
+const CHUNK_WARM_MAX = 128
 let warming = false
+const chunkCacheKey = (model: string, namespace: string, key: string) => `${model}|${namespace}|${key}`
+const chunkRecordKey = (model: string, namespace: string, key: string) => `${CHUNK_KEY_PREFIX}${model}|${namespace}|${key}`
+const chunkConversation = (namespace: string) => `chunk:${namespace}`
 
-async function warmChunkVectors(channel: ApiChannel, model: string, personaId: string, chunks: Array<{ key: string; text: string }>) {
+async function loadChunkNamespace(model: string, namespace: string) {
+  const id = `${model}|${namespace}`
+  if (chunkNamespaces.has(id)) return
+  chunkNamespaces.add(id)
+  try {
+    const records = await vectorStore.forConversation(model, chunkConversation(namespace))
+    const prefix = chunkRecordKey(model, namespace, '')
+    for (const record of records) if (record.key.startsWith(prefix)) chunkVectors.set(chunkCacheKey(model, namespace, record.key.slice(prefix.length)), record.vec)
+  } catch { /* 库打不开：只用内存，下次再补 */ }
+}
+
+async function warmChunkVectors(channel: ApiChannel, model: string, namespace: string, chunks: Array<{ key: string; text: string }>) {
   if (warming) return
-  const missing = chunks.filter((chunk) => !chunkVectors.has(`${model}|${personaId}|${chunk.key}`)).slice(0, 64)
+  const missing = chunks.filter((chunk) => !chunkVectors.has(chunkCacheKey(model, namespace, chunk.key))).slice(0, CHUNK_WARM_MAX)
   if (!missing.length) return
   warming = true
   try {
     for (let index = 0; index < missing.length; index += 32) {
       const batch = missing.slice(index, index + 32)
-      const vectors = await embedWithTimeout(channel, model, batch.map((chunk) => chunk.text.slice(0, 1200)))
-      batch.forEach((chunk, at) => { if (vectors[at]) chunkVectors.set(`${model}|${personaId}|${chunk.key}`, normalize(vectors[at])) })
+      const vectors = await embedWithTimeout(channel, model, batch.map((chunk) => chunk.text.slice(0, 600)))
+      const records: VectorRecord[] = []
+      batch.forEach((chunk, at) => {
+        if (!vectors[at]?.length) return
+        const vec = normalize(vectors[at])
+        chunkVectors.set(chunkCacheKey(model, namespace, chunk.key), vec)
+        records.push({ key: chunkRecordKey(model, namespace, chunk.key), model, conversationId: chunkConversation(namespace), dim: vec.length, vec, text: '', msgIds: [], createdAt: Date.now() })
+      })
+      try { await vectorStore.put(records) } catch { /* 存不进库：这次会话内存里照用 */ }
       while (chunkVectors.size > CHUNK_VECTOR_LIMIT) chunkVectors.delete(chunkVectors.keys().next().value as string)
     }
+    // 这个 namespace 里已经不在素材里的旧小段，从库里清掉。
+    const current = new Set(chunks.map((chunk) => chunkRecordKey(model, namespace, chunk.key)))
+    const stored = await vectorStore.forConversation(model, chunkConversation(namespace)).catch(() => [] as VectorRecord[])
+    const stale = stored.map((record) => record.key).filter((key) => !current.has(key))
+    if (stale.length && chunks.length) await vectorStore.remove(stale).catch(() => undefined)
   } catch {
     /* 下次发送再补 */
   } finally {
     warming = false
   }
+}
+
+/**
+ * v252：小段的原始相似度 = 段里各「行单元」的最高分（有向量的都给）；没算过的单元在后台补上（下一轮就能用），这一轮不等。
+ * 只要段里有一个单元算好了就给分（其余单元下轮补齐）。
+ */
+async function scoreChunks(channel: ApiChannel, model: string, namespace: string, chunks: Array<{ key: string; text: string }>, q: Float32Array) {
+  await loadChunkNamespace(model, namespace)
+  const out = new Map<string, number>()
+  const units: Array<{ key: string; text: string }> = []
+  for (const chunk of chunks) {
+    let best: number | undefined
+    for (const unit of chunkScoringUnits(chunk)) {
+      units.push(unit)
+      const vec = chunkVectors.get(chunkCacheKey(model, namespace, unit.key))
+      if (vec && vec.length === q.length) best = Math.max(best ?? -1, cosine(q, vec))
+    }
+    if (best !== undefined) out.set(chunk.key, best)
+  }
+  void warmChunkVectors(channel, model, namespace, units)
+  return out
 }
 
 /**
@@ -252,13 +320,14 @@ export async function semanticRecallForPersona(input: PersonaSemanticInput): Pro
     const persona = input.persona
     const threads = persona.recallScope === 'thread' ? [input.thread] : persona.threads.map((thread) => thread.id === input.thread.id ? input.thread : thread)
     const memoryConv = `${PERSONA_MEMORY_NS}${persona.id}`
-    const [vector, threadRecords, memoryRecords] = await Promise.all([
-      withTimeout(async (signal) => (await embedTexts(channel, model, [query], signal))[0], SEMANTIC_QUERY_TIMEOUT_MS),
+    const [q, threadRecords, memoryRecords] = await Promise.all([
+      embedQuery(channel, model, query),
       Promise.all(threads.map((thread) => loadPersonaRecords(model, `${PERSONA_THREAD_NS}${thread.id}`))),
       loadPersonaRecords(model, memoryConv),
     ])
-    const q = normalize(vector)
+    if (!q) return null
     const messages = new Map<string, number>()
+    const scores = new Map<string, number>()
     threads.forEach((thread, index) => {
       const conversationId = `${PERSONA_THREAD_NS}${thread.id}`
       const inContext = new Set(thread.messages.filter((message) => input.inContextKeys.has(`${thread.id}|${message.id}`)).map((message) => message.id))
@@ -267,6 +336,8 @@ export async function semanticRecallForPersona(input: PersonaSemanticInput): Pro
       for (const hit of selectTurnHits(hits, conversation, inContext, 6)) {
         for (const id of hit.record.msgIds) if (!inContext.has(id)) messages.set(`${thread.id}|${id}`, Math.max(messages.get(`${thread.id}|${id}`) || 0, hit.score))
       }
+      // v252：滑出窗口的混合召回要每条消息的原始分（不按阈值删），只算当前窗口。
+      if (thread.id === input.thread.id) for (const [id, score] of messageScores(q, threadRecords[index], conversation)) scores.set(`${thread.id}|${id}`, score)
     })
     // 长期记忆：向量记录的原文要和当前这条记忆一字不差（改过的旧向量不算）。
     const byText = new Map(persona.memories.map((entry) => [memorySemanticText(entry), entry.id]))
@@ -275,18 +346,10 @@ export async function semanticRecallForPersona(input: PersonaSemanticInput): Pro
       const id = byText.get(hit.record.text)
       if (id) memories.set(id, hit.score)
     })
-    const pool = [...(input.pools.pastLife || []), ...input.pools.background]
-    const chunks = new Map<string, number>()
-    for (const chunk of pool) {
-      const vec = chunkVectors.get(`${model}|${persona.id}|${chunk.key}`)
-      if (!vec || vec.length !== q.length) continue
-      const score = cosine(q, vec)
-      if (score >= SEMANTIC_THRESHOLD) chunks.set(chunk.key, score)
-    }
-    // 没算过向量的小段在后台补上（下一轮就能用），这一轮不等。
-    void warmChunkVectors(channel, model, persona.id, pool)
+    // v252：前世记忆 / 故事背景小段给原始分，阈值和线索一起在 recallPastLife 里判（混合召回）。
+    const chunks = await scoreChunks(channel, model, persona.id, [...(input.pools.pastLife || []), ...input.pools.background], q)
     scheduleSemanticIndex(20_000)
-    return { messages, memories, chunks }
+    return { messages, memories, chunks, messageScores: scores }
   } catch (error) {
     if (error instanceof SemanticTimeoutError) querySkipUntil = Date.now() + SEMANTIC_TIMEOUT_SKIP_MS
     return null

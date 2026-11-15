@@ -10,9 +10,11 @@ import { uncompressedMessages } from './contextCompression'
 import { modelVisibleMessageText, stripUiOnlyStatusBlocks } from './modelContext'
 import { withQuotePrefix, type MessageQuote } from './quoteReply'
 import { getStatusProtocol } from './statusProtocol'
-import { characterMemoryContinuityGuard, characterMemoryPrompt } from './characterMemory'
+import { characterMemoryContinuityGuard, characterMemoryPrompt, planCharacterMemory, CORE_MEMORY_FULL_BUDGET } from './characterMemory'
 import { evictedRecap, selectHistoryWindow, HISTORY_TOKEN_BUDGET } from './historyWindow'
-import { evictedPool, recallEvicted } from './evictedRecall'
+import { evictedPool, evictedSemantic, recallEvicted, EVICTED_RARE_SHARE } from './evictedRecall'
+import { chunkPastLife, recallPastLife, type PastLifeChunk } from './personaPastLifeRecall'
+import type { PersonaMessage } from './personaWindow'
 
 // promptRole: how the turn is sent to the model. In a group chat another
 // member's reply goes out as 'user' so the model never reads it as its own.
@@ -48,7 +50,14 @@ type PromptInput = {
   /** v251：长剧情最近原文 token 上限（默认 8200；0 = 只按条数）。小手机不用。 */
   historyTokenBudget?: number
   /** v251：滑出窗口的消息按需召回（只在 cacheLayout 时进尾巴）。ledger：小段 key → 上次召回的轮次。 */
-  evictedRecall?: { ledger?: Record<string, number>; turn: number }
+  evictedRecall?: {
+    ledger?: Record<string, number>
+    turn: number
+    /** v252：语义召回开着时，每条消息的原始余弦（消息 id → 分）；滑出窗口的召回改成混合打分。 */
+    semantic?: ReadonlyMap<number | string, number>
+    /** v252：核心记忆较早条目小段的原始余弦（小段 key → 分）。 */
+    coreSemantic?: ReadonlyMap<string, number>
+  }
   /** v251：压缩提要/召回片段里的说话人名字（默认：她=用户名，其余=角色名）。 */
   speakerName?: (message: SourceMessage) => string
 }
@@ -214,6 +223,34 @@ export function isSteadyLoreEntry(entry: WorldBookEntry) {
   return entry.constant && !(entry.extensions.useProbability && Number(entry.extensions.probability ?? 100) < 100)
 }
 
+export const CORE_RECALL_HEADER = '【本会话角色核心记忆·较早条目原文｜按需附上】'
+const CORE_RECALL_LEAD = `${CORE_RECALL_HEADER}\n和这轮话题有关的较早核心记忆原文（档案里只列了要点）。结论以档案为准，不逐条复述。`
+export const CORE_RECALL_BUDGET = 1200
+export const CORE_RECALL_MAX_CHUNKS = 2
+/** 核心记忆条目很短、标题就是线索：不问往事时要点到 ≥3 字专有线索（人名、物件），一个日常两字词不够。 */
+export const CORE_RECALL_RARE_SPAN_MIN = 3
+/** v252：长剧情普通长期记忆（每轮按话题挑的那部分）的上限：以前 8 份/6000 字，按整段最近原文挑；现在按她最新一句 + 他上一条挑。 */
+export const STORY_TURN_MEMORY_MAX_CHARS = 3600
+export const STORY_TURN_MEMORY_MAX_ENTRIES = 4
+
+/** v252：核心记忆里只列了要点的较早条目，每条一段，进按需召回池（语义打分也用这些小段）。 */
+export function coreMemoryChunks(character: Character): PastLifeChunk[] {
+  const { indexed } = planCharacterMemory(character, CORE_MEMORY_FULL_BUDGET)
+  return chunkPastLife(indexed.map((entry) => ({ conversationId: '', title: entry.title, kind: '核心记忆', source: 'memory' as const, bound: false, text: `〔核心记忆｜${entry.title}〕\n${stripUiOnlyStatusBlocks(entry.content).trim()}` })))
+}
+
+/** v252：她最新一句 + 他上一条回复（线索扫描与普通记忆挑选用；不再扫整段最近原文）。 */
+function latestExchangeText(messages: readonly { role: string; text: string }[]) {
+  const lastUser = messages.map((message) => message.role).lastIndexOf('user')
+  if (lastUser < 0) return messages.slice(-1).map((message) => message.text).join('\n').slice(-1200)
+  const reply = messages.slice(0, lastUser).reverse().find((message) => message.role === 'assistant')
+  return [reply?.text.slice(-600) || '', messages[lastUser].text.slice(0, 1200)].filter(Boolean).join('\n')
+}
+
+/** v252：长剧情尾巴里的重复规则只留一句提醒（完整版在开头稳定区）。 */
+export const CONTEXT_PRIORITY_REMINDER = '【上下文优先级】按开头「上下文优先级」：最新用户消息与最近原文优先，旧摘要/长期记忆只作历史补充，已完成或已撤销的事不重开。'
+export const DISPLAY_CONTINUITY_REMINDER = '【角色消息美化连续性】按开头「角色消息美化连续性」：顶部场景结构 → 正文（自然分段）→ 末尾状态结构，标签都要写出并闭合，字段沿用上一轮具体值。'
+
 export function buildChatPrompt(input: PromptInput): ChatApiMessage[] {
   const isPhone = input.mode === 'phone'
   const agencyGuard = isPhone
@@ -236,7 +273,10 @@ export function buildChatPrompt(input: PromptInput): ChatApiMessage[] {
   // cacheLayout: only steady entries keep their card positions; triggered/probability/depth lore goes after the history.
   const entries = cacheLayout ? allEntries.filter((entry) => isSteadyLoreEntry(entry) && entryPosition(entry) !== 'at_depth') : allEntries
   const turnEntries = cacheLayout ? allEntries.filter((entry) => !entries.includes(entry)) : []
-  const selectedMemories = selectRelevantMemories(input.memory.entries, scanSource)
+  // v252：长剧情普通记忆按她最新一句 + 他上一条挑（整段最近原文的字词几乎每份记忆都对得上，等于每轮带满 6000 字）。
+  const selectedMemories = cacheLayout
+    ? selectRelevantMemories(input.memory.entries, latestExchangeText(recent.map((message) => ({ role: message.role, text: message.text }))), STORY_TURN_MEMORY_MAX_CHARS, STORY_TURN_MEMORY_MAX_ENTRIES)
+    : selectRelevantMemories(input.memory.entries, scanSource)
   // Same selection and budget; with cacheLayout core (pinned) memories stay in the prefix and the
   // relevance-picked ordinary ones move after the history. Late positions keep everything late.
   const lateMemoryPosition = input.memory.injectPosition === 'after-chat-history' || input.memory.injectPosition.startsWith('depth-')
@@ -249,10 +289,15 @@ export function buildChatPrompt(input: PromptInput): ChatApiMessage[] {
   const evictedRecall = recallOn ? (() => {
     const pool = evictedPool(input.messages.slice(0, compressedCut + historyWindow.start).map((message, index) => ({ id: message.id ?? index, role: message.role, speaker: speakerOf(message), text: plainText(message), createdAt: message.createdAt })))
     if (!pool.chunks.length) return null
-    return recallEvicted(pool, { history: recent, charName: character.name, userName: input.user.name, ledger: input.evictedRecall!.ledger, turn: input.evictedRecall!.turn })
+    const scores = input.evictedRecall!.semantic
+    return recallEvicted(pool, { history: recent, charName: character.name, userName: input.user.name, ledger: input.evictedRecall!.ledger, turn: input.evictedRecall!.turn, semantic: scores ? evictedSemantic(pool, (id) => scores.get(id)) : undefined })
   })() : null
-  input.onDiagnostics?.({ memoryCount: selectedMemories.length, historyCount: recent.length, historyTokens: historyWindow.tokens, evictedCount: evicted.length, evictedKeys: evictedRecall?.keys || [] })
-  const characterMemory = characterMemoryPrompt(character)
+  // v252：核心记忆较早条目（档案里只列要点）——同一套混合召回，最多 2 段约 1200 字，只进尾巴，和滑出原文共用冷却账本。
+  const coreChunks = recallOn ? coreMemoryChunks(character) : []
+  const coreRecall = coreChunks.length ? recallPastLife(coreChunks, { history: recent as unknown as PersonaMessage[], charName: character.name, userName: input.user.name, ledger: input.evictedRecall!.ledger, turn: input.evictedRecall!.turn, semantic: input.evictedRecall!.coreSemantic, budget: CORE_RECALL_BUDGET, maxChunks: CORE_RECALL_MAX_CHUNKS, lead: CORE_RECALL_LEAD, rareShare: EVICTED_RARE_SHARE, rareSpanMin: CORE_RECALL_RARE_SPAN_MIN }) : null
+  input.onDiagnostics?.({ memoryCount: selectedMemories.length, historyCount: recent.length, historyTokens: historyWindow.tokens, evictedCount: evicted.length, evictedKeys: [...(evictedRecall?.keys || []), ...(coreRecall?.keys || [])] })
+  // v252：长剧情核心记忆：较新/进行中整条，较早的只列要点（细节按需召回）；小手机和关了召回时照旧整份。
+  const characterMemory = characterMemoryPrompt(character, recallOn ? { fullBudget: CORE_MEMORY_FULL_BUDGET } : 12000)
   const characterMemoryGuard = characterMemoryContinuityGuard(character)
   const displayContinuity = isPhone ? '' : displayContinuityInstruction(character, input.messages)
   // 剧本场记、最新场景锚点、个人连续性：每轮都会变（cacheLayout 时放到对话之后）。
@@ -338,6 +383,7 @@ ${stripStageGateMetadata(input.actorContinuityAnchor || '')}`,
     appendSystem(result, turnMemory)
     if (input.semanticRecall?.trim()) appendSystem(result, input.semanticRecall)
     appendSystem(result, evictedRecall?.text || '')
+    appendSystem(result, coreRecall?.text || '')
     appendSystem(result, anchors && applyMacros(anchors, character, user.name))
   }
   if (input.memory.injectPosition === 'after-chat-history') appendSystem(result, memory)
@@ -351,8 +397,9 @@ ${stripStageGateMetadata(input.actorContinuityAnchor || '')}`,
   // Depth lore, long history, and card-specific post-history instructions can
   // dilute a display protocol placed only in the main prompt. Repeat it at the
   // response boundary so every turn preserves the opening scene/status shell.
-  appendSystem(result, CONTEXT_PRIORITY_GUARD)
-  appendSystem(result, displayContinuity)
+  // v252：长剧情（cacheLayout）尾巴只留一句提醒，完整规则已在开头稳定区；小手机/旧布局照旧整段重复。
+  appendSystem(result, cacheLayout ? CONTEXT_PRIORITY_REMINDER : CONTEXT_PRIORITY_GUARD)
+  appendSystem(result, cacheLayout && displayContinuity ? DISPLAY_CONTINUITY_REMINDER : displayContinuity)
   appendSystem(result, characterMemoryGuard)
   // Repeat the non-negotiable agency boundary last so depth lore, examples,
   // history, or post-history instructions cannot silently override it.

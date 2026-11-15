@@ -205,6 +205,11 @@ export function personaRecallPools(persona: PersonaWindow, deps: PersonaRuntimeD
 /** v236：本轮触发的（非常驻）世界书最多带这么多字。 */
 export const PERSONA_TRIGGERED_LORE_MAX = 1600
 
+/** v252：语义查询只嵌她最新一句（不再带他上一条回复）。 */
+function latestUserText(history: PersonaMessage[]) {
+  return [...history].reverse().find((message) => message.role === 'user' && message.text.trim() && message.finishReason !== 'error')?.text.slice(0, 1200) || ''
+}
+
 /** event：应用事件（如任务完成），v210 起作为最新一条用户消息发出，动态尾巴跟在它后面。
  * v236：semantic = 语义召回命中（没开/失败时不传，自动回退到线索 + 关键词）；pools 不传就现算。 */
 export function planPersonaRequest(persona: PersonaWindow, history: PersonaMessage[], deps: PersonaRuntimeDeps, thread: PersonaThread = activeThread(persona), options: { event?: string; semantic?: PersonaSemanticHits | null; pools?: PersonaRecallPools } = {}) {
@@ -251,7 +256,8 @@ export function planPersonaRequest(persona: PersonaWindow, history: PersonaMessa
   // v251：滑出窗口、未进档案的原文——前世同款召回（专有线索/提示词/点名/冷却），最多 2 段约 1200 字，先占额度。
   const evictedNames = { char: character.name, user: deps.user.name }
   const pool = persona.recallEnabled === false ? null : evictedPool(historyWindow.evicted.map((message) => ({ id: message.id, role: message.role, speaker: message.role === 'user' ? evictedNames.user : isGuestMessage(message) ? `〔${message.speakerName || '客人'}〕` : evictedNames.char, text: message.role === 'assistant' ? personaReplyText(message.text) : stripTurnContext(message.text), createdAt: message.createdAt })))
-  const semanticMessages = options.semantic?.messages
+  // v252：滑出窗口的混合召回用每条消息的原始分（旧调用方只给了阈值以上的 messages 时退回它）。
+  const semanticMessages = options.semantic?.messageScores || options.semantic?.messages
   const evictedRecall = pool && pool.chunks.length ? recallEvicted(pool, { ...recallCommon, semantic: semanticMessages ? evictedSemantic(pool, (id) => semanticMessages.get(`${thread.id}|${id}`)) : undefined, budget: Math.min(EVICTED_RECALL_BUDGET, recallRoom()), maxChunks: Math.min(EVICTED_RECALL_MAX_CHUNKS, itemRoom) }) : null
   const usedByEvicted = evictedRecall?.text.length || 0, itemsByEvicted = evictedRecall?.chunks.length || 0
   const pastRecall = pastLifeChunks ? recallPastLife(pastLifeChunks, { ...recallCommon, budget: Math.min(PAST_LIFE_RECALL_BUDGET, recallRoom() - usedByEvicted), maxChunks: Math.min(PAST_LIFE_RECALL_MAX_CHUNKS, itemRoom - itemsByEvicted) }) : null
@@ -442,7 +448,7 @@ export async function generatePersonaReply(personaId: string, deps: PersonaRunti
     let semantic: PersonaSemanticHits | null = null
     if (deps.semanticRecall) {
       const recentKeys = new Set(personaRecentHistory(history, planThread, deps.memoryLength, deps.historyTokenBudget).map((message) => `${threadId}|${message.id}`))
-      try { semantic = await deps.semanticRecall({ persona, thread: planThread, history, pools, inContextKeys: recentKeys, query: cueScanText(history) }) } catch { semantic = null }
+      try { semantic = await deps.semanticRecall({ persona, thread: planThread, history, pools, inContextKeys: recentKeys, query: latestUserText(history) }) } catch { semantic = null }
       if (controller.signal.aborted) throw new DOMException('Aborted', 'AbortError')
     }
     const plan = planPersonaRequest(persona, history, deps, planThread, { event, semantic, pools })

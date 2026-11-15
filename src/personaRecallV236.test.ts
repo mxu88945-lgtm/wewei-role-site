@@ -220,10 +220,12 @@ describe('前世记忆召回验证 (v236)', () => {
     expect(recall('你以前在群里是不是被起哄唱歌').chunks.length).toBeGreaterThan(0)
   })
 
-  it('a semantic hit recalls a chunk even with no cue words; caps hold', () => {
+  it('a semantic hit recalls a chunk without matching words when she asks about the past; caps hold', () => {
     const target = chunks.find((chunk) => chunk.text.includes('沈霁'))!
-    const hit = recall('想喝一杯酒', new Map([[target.key, .7]]))
+    const hit = recall('还记得那天你想喝一杯酒吗', new Map([[target.key, .7]]))
     expect(hit.chunks.map((chunk) => chunk.key)).toContain(target.key)
+    // v252：不问往事、一个词都没对上时，只靠向量不再拉旧段（v236 在 0.55 就会带），普通闲聊不多带。
+    expect(recall('想喝一杯酒', new Map([[target.key, .7]])).chunks).toEqual([])
     const all = recall('以前的故事', new Map(chunks.map((chunk) => [chunk.key, .9])))
     expect(all.chunks.length).toBeLessThanOrEqual(4)
     expect(all.text.length).toBeLessThanOrEqual(1800)

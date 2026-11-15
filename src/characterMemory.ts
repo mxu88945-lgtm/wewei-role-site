@@ -259,19 +259,67 @@ export function activeCharacterMemory(character: Character) {
     .sort((a, b) => (a.createdAt || 0) - (b.createdAt || 0))
 }
 
-export function characterMemoryPrompt(character: Character, maxChars = 12000) {
+/** v252：长剧情里核心记忆整条原文最多这么多字（进行中的优先，然后最新的）；更早的只列要点，细节按需召回。 */
+export const CORE_MEMORY_FULL_BUDGET = 3000
+/** v252：较早条目的要点行：每行最多这么多字，整段最多这么多字（再装不下的只留标题；标题也装不下的只靠按需召回）。 */
+export const CORE_MEMORY_INDEX_LINE = 60
+export const CORE_MEMORY_INDEX_BUDGET = 2200
+const CORE_INDEX_NOTE = '（以下较早的条目只列要点，结论照样有效；细节聊到时会在本轮附上原文）'
+
+const memoryHead = (entry: CharacterMemoryEntry) => `- 【${categoryLabels[entry.category] || '重要事实'}｜${statusLabels[entry.status] || '已确认'}】${entry.title}`
+const clipLine = (value: string, max: number) => { const chars = Array.from(value.replace(/\s+/g, ' ').trim()); return chars.length <= max ? chars.join('') : `${chars.slice(0, max - 1).join('')}…` }
+
+/**
+ * v252：哪些核心记忆整条发、哪些只列要点。进行中的永远整条；其余从最新往前装，装满 fullBudget 为止。
+ * 返回按时间顺序排好的 full（整条）与 indexed（只列要点，原文进按需召回池）。
+ */
+export function planCharacterMemory(character: Character, fullBudget = CORE_MEMORY_FULL_BUDGET) {
+  const entries = activeCharacterMemory(character).filter((entry) => stripUiOnlyStatusBlocks(entry.content).trim())
+  const cost = (entry: CharacterMemoryEntry) => memoryHead(entry).length + stripUiOnlyStatusBlocks(entry.content).trim().length + 3
+  const full = new Set<CharacterMemoryEntry>()
+  let used = 0
+  for (const entry of entries) if (entry.status === 'ongoing') { full.add(entry); used += cost(entry) }
+  for (const entry of entries.slice().reverse()) {
+    if (full.has(entry)) continue
+    if (used + cost(entry) > fullBudget) break
+    full.add(entry); used += cost(entry)
+  }
+  return { full: entries.filter((entry) => full.has(entry)), indexed: entries.filter((entry) => !full.has(entry)) }
+}
+
+/**
+ * maxChars：旧口径（整条原文依次装，超出的条目丢掉）。v252 长剧情传 { fullBudget }：
+ * 较新的/进行中的整条发，更早的每条只列一行要点（结论还在，细节按需召回），不再整份 12000 字每轮重发。
+ */
+export function characterMemoryPrompt(character: Character, maxChars: number | { fullBudget: number } = 12000) {
   const entries = activeCharacterMemory(character)
   if (!entries.length) return ''
 
   const lines: string[] = []
-  let used = 0
-  for (const entry of entries) {
-    const content = stripUiOnlyStatusBlocks(entry.content).trim()
-    if (!content) continue
-    const line = `- 【${categoryLabels[entry.category] || '重要事实'}｜${statusLabels[entry.status] || '已确认'}】${entry.title}\n  ${content}`
-    if (used + line.length > maxChars && lines.length) continue
-    lines.push(line)
-    used += line.length
+  if (typeof maxChars === 'number') {
+    let used = 0
+    for (const entry of entries) {
+      const content = stripUiOnlyStatusBlocks(entry.content).trim()
+      if (!content) continue
+      const line = `${memoryHead(entry)}\n  ${content}`
+      if (used + line.length > maxChars && lines.length) continue
+      lines.push(line)
+      used += line.length
+    }
+  } else {
+    const plan = planCharacterMemory(character, maxChars.fullBudget)
+    if (plan.indexed.length) {
+      // 先按要点行装；装不下时从最旧的开始改成只留标题，再装不下的最旧几条只靠召回。
+      const rows = plan.indexed.map((entry) => ({ title: memoryHead(entry), point: `${memoryHead(entry)}：${clipLine(stripUiOnlyStatusBlocks(entry.content), CORE_MEMORY_INDEX_LINE)}` }))
+      let total = rows.reduce((sum, row) => sum + row.point.length + 1, 0)
+      const shown = rows.map((row) => row.point)
+      for (let index = 0; index < rows.length && total > CORE_MEMORY_INDEX_BUDGET; index++) { total -= rows[index].point.length - rows[index].title.length; shown[index] = rows[index].title }
+      let start = 0
+      while (start < shown.length - 1 && total > CORE_MEMORY_INDEX_BUDGET) { total -= shown[start].length + 1; start++ }
+      lines.push(CORE_INDEX_NOTE, ...(start ? [`（更早 ${start} 条从略，聊到时会附上）`] : []), ...shown.slice(start))
+      if (plan.full.length) lines.push('（较新的与进行中的条目，原文如下）')
+    }
+    for (const entry of plan.full) lines.push(`${memoryHead(entry)}\n  ${stripUiOnlyStatusBlocks(entry.content).trim()}`)
   }
   if (!lines.length) return ''
 

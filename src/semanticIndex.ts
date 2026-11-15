@@ -46,6 +46,9 @@ export interface IndexResult {
 
 const defaultSleep = (ms: number) => new Promise<void>((resolve) => setTimeout(resolve, ms))
 
+/** v252：召回小段向量在库里的 key 前缀（不参与片段清理）。 */
+export const CHUNK_KEY_PREFIX = 'chunk|'
+
 export async function runIndexPass(
   segments: Segment[],
   model: string,
@@ -89,7 +92,8 @@ export async function runIndexPass(
 
   // 全部建完：清理已不存在的片段（删掉/改写的消息、删掉的对话）
   const current = new Set(segments.map((segment) => segment.key))
-  const stale = [...existing].filter((key) => !current.has(key))
+  // v252：前世/故事背景/核心记忆小段的向量（chunk| 开头）由召回时自己维护，不算过期片段。
+  const stale = [...existing].filter((key) => !current.has(key) && !key.startsWith(CHUNK_KEY_PREFIX))
   // 一个片段都没有时不清理：多半是数据还没读出来，别把已建好的向量当成过期删掉。
   if (stale.length && segments.length && opts.prune !== false) {
     try {

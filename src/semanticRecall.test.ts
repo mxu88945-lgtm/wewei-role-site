@@ -162,8 +162,8 @@ describe('topSemantic / semanticSearch', () => {
     expect(topSemantic([1, 0], records, { conversationId: 'c1', topK: 1 })).toHaveLength(1)
   })
 
-  it('semanticQueryText uses only the last 1–2 messages', () => {
-    expect(semanticQueryText(['一', '二', '三'])).toBe('二\n三')
+  it('v252: semanticQueryText uses only her latest message', () => {
+    expect(semanticQueryText(['一', '二', '三'])).toBe('三')
   })
 
   it('returns [] after the 4s timeout and reports a SemanticTimeoutError', async () => {
@@ -242,7 +242,8 @@ describe('runtime', () => {
     registerSemanticSources({ conversations: () => conversations, channels: () => [channel] })
     expect(isSemanticReady()).toBe(false)
     const block = await semanticRecallForConversation({ conversation: conversations[0], inContextIds: new Set([3]), speakerName: () => 'x' })
-    expect(block).toBe('')
+    expect(block.text).toBe('')
+    expect(block.messageScores.size).toBe(0)
     scheduleSemanticIndex(0)
     await new Promise((r) => setTimeout(r, 10))
     expect(fetchMock).not.toHaveBeenCalled()
@@ -270,7 +271,9 @@ describe('runtime', () => {
     expect(bodies[0].model).toBe('BAAI/bge-m3')
     expect(new Set([...store.data.values()].map((r) => r.conversationId))).toEqual(new Set(['c1', 'c2']))
 
-    const block = await semanticRecallForConversation({ conversation: conversations[0], inContextIds: new Set([3, 4]), speakerName: (msg) => msg.role === 'user' ? '她' : '他' })
+    const { text: block, messageScores } = await semanticRecallForConversation({ conversation: conversations[0], inContextIds: new Set([3, 4]), speakerName: (msg) => msg.role === 'user' ? '她' : '他' })
+    // v252：每条已建向量的消息都有原始分（给滑出窗口的混合召回）
+    expect(messageScores.size).toBeGreaterThan(0)
     expect(block).toContain('她：「我小时候养过一只橘猫，叫团子。')
     expect(block.match(/养过一只橘猫/g)).toHaveLength(1)
   })
@@ -283,10 +286,10 @@ describe('runtime', () => {
     registerSemanticSources({ conversations: () => conversations, channels: () => [channel] })
     updateSemanticConfig({ enabled: true })
     const first = semanticRecallForConversation({ conversation: conversations[0], inContextIds: new Set(), speakerName: () => 'x' })
-    await vi.advanceTimersByTimeAsync(4001)
-    await expect(first).resolves.toBe('')
+    await vi.advanceTimersByTimeAsync(3001)
+    expect((await first).text).toBe('')
     expect(fetchMock).toHaveBeenCalledTimes(1)
-    await expect(semanticRecallForConversation({ conversation: conversations[0], inContextIds: new Set(), speakerName: () => 'x' })).resolves.toBe('')
+    expect((await semanticRecallForConversation({ conversation: conversations[0], inContextIds: new Set(), speakerName: () => 'x' })).text).toBe('')
     expect(fetchMock).toHaveBeenCalledTimes(1)
   })
 })
