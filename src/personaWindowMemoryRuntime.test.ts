@@ -6,6 +6,7 @@ import { createPersonaWindow, deletePersonaMessage, emptyPersonaState, normalize
 import { getPersonaState, setPersonaState } from './personaWindowStore'
 import { generatePersonaReply, maybeCompressPersonaContext, stopPersonaReply, type PersonaRuntimeDeps } from './personaWindowRuntime'
 import { createPersonaTask } from './personaTasks'
+import { loadCompressionFailures } from './personaCompressionFailureStore'
 
 type Options = { api: ApiConfig; messages: ChatApiMessage[]; maxTokens: number; signal: AbortSignal; onDelta: (delta: string) => void }
 type Reply = string | Error | ((options: Options) => Promise<void>)
@@ -18,6 +19,10 @@ vi.mock('./chatApi', () => ({ completeChat: vi.fn(async (options: Options) => {
   else options.onDelta(reply)
   return { finishReason: 'stop' }
 }) }))
+
+// v249：node 环境没有 localStorage，给一个内存版，好验证失败记录确实落盘。
+const store = new Map<string, string>()
+vi.stubGlobal('localStorage', { getItem: (key: string) => store.get(key) ?? null, setItem: (key: string, value: string) => { store.set(key, value) }, removeItem: (key: string) => { store.delete(key) }, key: () => null, length: 0, clear: () => store.clear() })
 
 let sequence = 0
 let persona: PersonaWindow
@@ -93,12 +98,15 @@ describe('人格分层记忆的实际运行流程 (v139)', () => {
     mock.replies.push(new Error('relay unavailable'))
     await maybeCompressPersonaContext(persona.id, deps)
     expect(current().threads[0].compressedThroughId).toBeUndefined()
+    // v249：失败记录写进 localStorage，刷新后冷却照样生效。
+    expect(loadCompressionFailures()[persona.threads[0].id]?.message).toBe('relay unavailable')
     await maybeCompressPersonaContext(persona.id, deps)
     expect(mock.calls).toHaveLength(1)
     await vi.advanceTimersByTimeAsync(30 * 60 * 1000 + 1)
     mock.replies.push('恢复后的档案')
     await maybeCompressPersonaContext(persona.id, deps)
     expect(mock.calls).toHaveLength(2)
+    expect(loadCompressionFailures()[persona.threads[0].id]).toBeUndefined()
   })
 
   it('a source deleted in flight cannot be committed as a fresh continuity archive', async () => {

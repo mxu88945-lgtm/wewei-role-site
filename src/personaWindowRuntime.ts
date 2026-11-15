@@ -12,6 +12,7 @@ import { personaReplyText, stripPersonaFormatInstructions } from './personaWindo
 import { parsePersonaTask, personaTaskStatus, PERSONA_TASK_PROMPT, taskIsActive } from './personaTasks'
 import { AUTO_COMPRESSION_FAILURE_COOLDOWN_MS, planAutoContextCompression } from './contextCompression'
 import { isPersonaCompressible, type PersonaCompressionFailure } from './personaCompressionStatus'
+import { loadCompressionFailures, saveCompressionFailures } from './personaCompressionFailureStore'
 import { PERSONA_TURN_RECALL_MAX_CHARS, PERSONA_TURN_RECALL_MAX_ITEMS, buildPersonaMemoryContext, clipPersonaText, personaRecentHistory, commitPersonaRecallLedger, parsePersonaMemoryTool, personaContinuityFallback, personaContinuitySourceUnchanged, personaContinuityTranscript, personaMemorySaves, PERSONA_MEMORY_TOOLS, readPersonaOriginal, searchPersonaHistory, type PersonaMemoryAudit, type PersonaRecallSource } from './personaWindowMemory'
 import {
   nextPersonaMessageId,
@@ -107,10 +108,10 @@ type RuntimeSnapshot = {
   memoryAudits: Record<string, PersonaMemoryAudit>
   /** v225：后台连续性整理，按窗口（thread）id。 */
   compressing: Record<string, boolean>
-  /** v225：上次整理失败的时间与原因（30 分钟冷却），按窗口 id；成功后清掉。 */
+  /** v225：上次整理失败的时间与原因（30 分钟冷却），按窗口 id；成功后清掉。v249 起存 localStorage，刷新不丢。 */
   compressionFailures: Record<string, PersonaCompressionFailure>
 }
-let runtime: RuntimeSnapshot = { generating: {}, memoryBusy: {}, errors: {}, notices: {}, peopleToasts: {}, memoryAudits: {}, compressing: {}, compressionFailures: {} }
+let runtime: RuntimeSnapshot = { generating: {}, memoryBusy: {}, errors: {}, notices: {}, peopleToasts: {}, memoryAudits: {}, compressing: {}, compressionFailures: loadCompressionFailures() }
 const runtimeListeners = new Set<() => void>()
 const controllers = new Map<string, AbortController>()
 
@@ -134,6 +135,7 @@ const setCompressionFailure = (threadId: string, failure: PersonaCompressionFail
   const compressionFailures = { ...current.compressionFailures }
   if (failure) compressionFailures[threadId] = failure
   else delete compressionFailures[threadId]
+  saveCompressionFailures(compressionFailures)
   return { ...current, compressionFailures }
 })
 let peopleToastSeq = 0

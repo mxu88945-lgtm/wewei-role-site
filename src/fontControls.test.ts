@@ -70,6 +70,15 @@ describe('v227 the 布丁来信 (dog) theme follows the 外观与文字 sliders'
     expect(file('runtime-enhancements.css')).toMatch(/:where\(h3, strong, b\)[^{]*:not\(\.pudding-capsule-name\)/)
   })
 
+  it('v249: letter / mistnote / nightglow name capsules escape the 15px strong rule and use ~23px scaled by 界面字号', () => {
+    const strongRule = rules(file('runtime-enhancements.css')).find(([selector]) => selector.includes(':where(h3, strong, b)'))
+    for (const theme of ['letter', 'mistnote', 'nightglow']) {
+      expect(strongRule?.[0]).toContain(`:not(.archive-${theme} .archive-name)`)
+      const own = rules(file(`theme-${theme}.css`)).find(([selector]) => selector === `.theme-${theme} .archive-${theme} .archive-name`)
+      expect(own?.[1]).toContain('font-size: calc(23px * var(--ui-font-scale, 1))')
+    }
+  })
+
   it('makes the preview box use the chat font size (no inherit !important on the box itself)', () => {
     const preview = rules(file('runtime-enhancements.css')).filter(([selector]) => selector.split(',').map((part) => part.trim()).includes('.chat-font-preview'))
     expect(preview.length).toBe(1)

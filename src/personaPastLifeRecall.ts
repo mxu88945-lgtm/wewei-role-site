@@ -116,6 +116,13 @@ function recallContext(history: PersonaMessage[]) {
   return before.map((message) => clipPersonaText(message.text, 300)).join('\n')
 }
 
+/** v249：常见口语双字，就算素材里少见也不算「专有」线索。 */
+const SPOKEN = new Set(['你说', '我说', '说你', '说我', '他说', '来着', '一块', '一道', '一个', '那道', '那次', '那天', '那件', '那家', '这次', '后来', '时候', '是谁', '为什么', '怎么', '没有', '不是', '就是', '真的', '好像', '有没', '有点', '还疼', '还在', '还有', '最近', '今天', '明天', '现在', '一起', '他们', '你们', '我们', '的事', '了吗', '的你', '你的', '我的', '给我', '送我', '送过', '你送', '我要', '要去', '去哪', '答应', '说好', '约定', '喜欢', '想念', '记得']) // 情感/承诺类动词交给 semanticScore 的话题分
+/** v249：素材里很少出现（不超过约 1/8 的小段）的词，算这段的专有线索。 */
+const RARE_SHARE = .125
+/** 没有提示词时，她这句里要有至少这么多字落在专有线索上（如「手腕…道疤」「辣炒蛤蜊」），才算点到这段往事。 */
+export const PAST_LIFE_RARE_SPAN_MIN = 4
+
 /** v236：语义相似度达到这个值，就算没有提示词/关键词也能想起这一小段。 */
 export const PAST_LIFE_SEMANTIC_MIN = 0.55
 
@@ -137,8 +144,24 @@ export function recallPastLife(chunks: readonly PastLifeChunk[], options: { hist
     if (!weight.has(token)) weight.set(token, (token.length > 2 ? 2 : 1) * (chunks.length >= 3 && df(token) / chunks.length > .34 ? .34 : 1))
     return weight.get(token)!
   }
+  const rawQuery = query.toLocaleLowerCase()
+  const rareLimit = Math.max(1, Math.ceil(chunks.length * RARE_SHARE))
+  const rareBigrams = [...primary].filter((token) => token.length === 2 && !SPOKEN.has(token) && df(token) <= rareLimit)
+  /** 她这句里有多少个字落在这段的专有双字词上（重叠的只算一次；别名展开的词按 2 字算）。 */
+  const rareSpan = (text: string) => {
+    const covered = new Set<number>()
+    let extra = 0
+    for (const token of rareBigrams) {
+      if (!text.includes(token)) continue
+      let at = rawQuery.indexOf(token)
+      if (at < 0) { extra += 2; continue }
+      while (at >= 0) { covered.add(at); covered.add(at + 1); at = rawQuery.indexOf(token, at + 1) }
+    }
+    return covered.size + extra
+  }
   const scored = chunks.map((chunk, index) => {
     const text = lowered[index]
+    const rare = rareSpan(text)
     const lexical = [...primary].reduce((sum, token) => sum + (text.includes(token) ? tokenWeight(token) : 0), 0)
     const contextual = Math.min(2, context.reduce((sum, token) => sum + (text.includes(token) ? tokenWeight(token) / 2 : 0), 0))
     const title = normalized(chunk.title)
@@ -151,8 +174,9 @@ export function recallPastLife(chunks: readonly PastLifeChunk[], options: { hist
     const semantic = lexical > 0 || cue ? semanticScore(query, chunk.text) : 0
     const vector = options.semantic?.get(chunk.key) || 0
     const vectorHit = vector >= PAST_LIFE_SEMANTIC_MIN
-    const qualifies = vectorHit || titleHit || nameHit >= 6 || lexical >= 5 || (cue && (lexical >= 2 || (lexical >= 1 && (semantic > 0 || kindHit))))
-    const score = lexical + contextual + semantic + (titleHit ? 8 : 0) + nameHit + (kindHit ? 2 : 0) + (chunk.bound ? 2 : 0) + (vectorHit ? (vector - 0.45) * 20 : 0)
+    // v249：问往事（提示词）时，点到一个专有词就够；没有提示词时要点到约 4 个字的专有线索。
+    const qualifies = vectorHit || titleHit || nameHit >= 6 || lexical >= 5 || rare >= PAST_LIFE_RARE_SPAN_MIN || (cue && (rare >= 2 || lexical >= 2 || (lexical >= 1 && (semantic > 0 || kindHit))))
+    const score = lexical + contextual + semantic + rare * 2 + (titleHit ? 8 : 0) + nameHit + (kindHit ? 2 : 0) + (chunk.bound ? 2 : 0) + (vectorHit ? (vector - 0.45) * 20 : 0)
     return { chunk, score, qualifies }
   }).filter((row) => row.qualifies).sort((a, b) => b.score - a.score || Number(b.chunk.bound) - Number(a.chunk.bound))
   const turn = options.turn ?? 0

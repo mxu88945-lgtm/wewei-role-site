@@ -29,7 +29,7 @@
 .theme-nightglow .archive-nightglow .archive-cover { width: 100%; height: 100%; display: grid; place-items: center; overflow: hidden; border-radius: 1px; color: #7a5a50; background: #efe6e0; font: 22px/1 Georgia,serif; }
 .theme-nightglow .archive-nightglow .archive-cover img { width: 100%; height: 100%; object-fit: cover; }
 .theme-nightglow .archive-nightglow .archive-heading-copy { min-width: 0; margin: 0 0 2px; }
-.theme-nightglow .archive-nightglow .archive-name { display: block; color: #231c19; font-size: 19px; line-height: 1.2; font-weight: 800; letter-spacing: .04em; overflow-wrap: anywhere; }
+.theme-nightglow .archive-nightglow .archive-name { display: block; color: #231c19; font-size: calc(23px * var(--ui-font-scale, 1)); line-height: 1.2; font-weight: 800; letter-spacing: .04em; overflow-wrap: anywhere; }
 .theme-nightglow .archive-nightglow .archive-body { box-sizing: border-box; width: 100%; min-width: 0; padding: 0 2px; border: 0; background: transparent; box-shadow: none; color: var(--chat-text-color,#2b2522); line-height: 2; text-align: left; }
 .theme-nightglow .archive-nightglow .archive-body :is(.message-content,.message-content-flat,.message-flat-body,.message-content-rich) { width: 100%; max-width: 100%; padding: 0; border: 0; border-radius: 0; background: transparent; box-shadow: none; color: inherit; line-height: inherit; }
 .theme-nightglow .archive-nightglow .archive-body :is(.message-story-paragraph,p) { margin: 0 0 1.15em; line-height: 2; }

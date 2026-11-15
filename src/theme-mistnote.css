@@ -26,7 +26,7 @@
 .theme-mistnote .archive-mistnote .archive-cover { width: 100%; height: 100%; display: grid; place-items: center; overflow: hidden; border-radius: 50%; color: #607987; background: linear-gradient(145deg,#edf3f5,#d3e0e6); font: 23px/1 Georgia,serif; }
 .theme-mistnote .archive-mistnote .archive-cover img { width: 100%; height: 100%; object-fit: cover; }
 .theme-mistnote .archive-mistnote .archive-heading-copy { min-width: 0; margin: 13px 0 0 15px; }
-.theme-mistnote .archive-mistnote .archive-name { display: block; color: #34434c; font-size: 22px; line-height: 1.18; font-weight: 800; overflow-wrap: anywhere; }
+.theme-mistnote .archive-mistnote .archive-name { display: block; color: #34434c; font-size: calc(23px * var(--ui-font-scale, 1)); line-height: 1.18; font-weight: 800; overflow-wrap: anywhere; }
 .theme-mistnote .archive-mistnote .archive-heading-copy > small { display: block; margin-top: 5px; color: #71838e; font-size: 10px; letter-spacing: .12em; }
 .theme-mistnote .archive-mistnote .archive-heading-copy > p { margin: 5px 0 0; color: #7b8991; font-size: 11px; line-height: 1.55; }
 .theme-mistnote .archive-mistnote .archive-body { box-sizing: border-box; width: 100%; min-width: 0; margin-top: 14px; padding: 20px 20px 18px; border: 1px solid rgba(111,136,151,.2); border-radius: 24px; background: rgba(251,252,252,.94); box-shadow: 0 13px 30px rgba(59,80,92,.08); font-size: var(--chat-font-size,16px); line-height: 2; text-align: left; overflow-wrap: anywhere; }
