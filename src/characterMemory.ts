@@ -8,6 +8,7 @@ import {
   type CharacterMemoryStatus,
 } from './characterCard'
 import { stripUiOnlyStatusBlocks } from './modelContext'
+import { CoverageIndex } from './memoryDedupe'
 
 const categoryLabels = Object.fromEntries(CHARACTER_MEMORY_CATEGORY_OPTIONS.map((item) => [item.value, item.label])) as Record<string, string>
 const statusLabels = Object.fromEntries(CHARACTER_MEMORY_STATUS_OPTIONS.map((item) => [item.value, item.label])) as Record<string, string>
@@ -65,7 +66,8 @@ export const characterMemoryExtractionPrompt = `【角色卡核心记忆自动�
 输出必须是一个 JSON 对象，不要 Markdown 代码围栏、解释或其他文字：
 {"memories":[{"title":"简短标题","content":"用一两句话写已经发生的事实及其结果","category":"event|task|truth|relationship|fact","status":"confirmed|completed"}]}
 
-每一条都必须是独立事实；不要把多个未确认线索拼成真相。已有角色私有记忆只用于查重和识别状态更新，不要重复输出完全相同的事实。`
+每一条都必须是独立事实；不要把多个未确认线索拼成真相。已有角色私有记忆只用于查重和识别状态更新，不要重复输出完全相同的事实。
+分工：长剧情里还会同时发「较早对话压缩摘要」（剧情线）和「长期记忆总结」（每段经过与细节）。核心记忆只写结论——谁、什么事、结果/当前状态，一两句；不要照抄总结里的时间铺垫、场景和动作细节。同一件事有了新进展，写一条新的结论，不要把旧条目原样再输出一遍。`
 
 export const characterMemorySummaryProtocol = `【角色卡核心记忆同次提炼协议】
 在完成普通长期记忆总结后，再在正文末尾追加一个机器读取区块。普通总结仍按前面的长期记忆格式输出；不要把下面这个区块的 JSON 内容混进普通总结正文。
@@ -74,6 +76,7 @@ export const characterMemorySummaryProtocol = `【角色卡核心记忆同次提
 禁止写入猜测、怀疑、传闻、线索、计划、未完成事项、进行中事项、角色不知道的幕后信息，以及模型自行补写的动机、日期、结局。
 每条状态只能是 confirmed 或 completed；没有符合条件的内容就返回空数组。
 已有角色私有记忆只用于查重和识别旧状态更新，不要重复输出完全相同的事实。
+分工：核心记忆只写结论（谁、什么事、结果/当前状态，一两句），时间铺垫与细节留在上面的普通总结里，不要照抄总结原句。
 
 区块必须严格放在普通总结最后，且只包含一个 JSON 对象，不要 Markdown 围栏、解释或其他文字：
 <character_core_memories>
@@ -265,6 +268,7 @@ export const CORE_MEMORY_FULL_BUDGET = 3000
 export const CORE_MEMORY_INDEX_LINE = 60
 export const CORE_MEMORY_INDEX_BUDGET = 2200
 const CORE_INDEX_NOTE = '（以下较早的条目只列要点，结论照样有效；细节聊到时会在本轮附上原文）'
+const CORE_INDEX_NOTE_TITLED = '（以下较早的条目只列要点，结论照样有效；只有标题的，经过已写在上文压缩摘要里；细节聊到时会在本轮附上原文）'
 
 const memoryHead = (entry: CharacterMemoryEntry) => `- 【${categoryLabels[entry.category] || '重要事实'}｜${statusLabels[entry.status] || '已确认'}】${entry.title}`
 const clipLine = (value: string, max: number) => { const chars = Array.from(value.replace(/\s+/g, ' ').trim()); return chars.length <= max ? chars.join('') : `${chars.slice(0, max - 1).join('')}…` }
@@ -272,26 +276,54 @@ const clipLine = (value: string, max: number) => { const chars = Array.from(valu
 /**
  * v252：哪些核心记忆整条发、哪些只列要点。进行中的永远整条；其余从最新往前装，装满 fullBudget 为止。
  * 返回按时间顺序排好的 full（整条）与 indexed（只列要点，原文进按需召回池）。
+ * v253 coveredBy（本请求里一定会发的压缩摘要）：非进行中的条目，内容已被摘要完整覆盖的 → titled（只留标题行，原文进召回池）；
+ * 被更新的同内容条目（加摘要）覆盖的 → omitted（不列，那条更新的就是它的另一份）。判定见 memoryDedupe（保守：有一个新字就不算覆盖）。
  */
-export function planCharacterMemory(character: Character, fullBudget = CORE_MEMORY_FULL_BUDGET) {
+export function planCharacterMemory(character: Character, fullBudget = CORE_MEMORY_FULL_BUDGET, coveredBy?: string) {
   const entries = activeCharacterMemory(character).filter((entry) => stripUiOnlyStatusBlocks(entry.content).trim())
-  const cost = (entry: CharacterMemoryEntry) => memoryHead(entry).length + stripUiOnlyStatusBlocks(entry.content).trim().length + 3
+  const contentOf = (entry: CharacterMemoryEntry) => stripUiOnlyStatusBlocks(entry.content).trim()
+  const cost = (entry: CharacterMemoryEntry) => memoryHead(entry).length + contentOf(entry).length + 3
+  const titled = new Set<CharacterMemoryEntry>()
+  const omitted = new Set<CharacterMemoryEntry>()
+  if (coveredBy !== undefined) {
+    const summary = new CoverageIndex(coveredBy)
+    const combined = new CoverageIndex(coveredBy)
+    // 进行中的永远整条；只有被更新的进行中同内容条目盖住时才不列（那条就是它的另一份）。
+    for (const entry of entries.slice().reverse()) {
+      if (entry.status !== 'ongoing') continue
+      if (combined.covers(contentOf(entry))) omitted.add(entry)
+      else combined.add(contentOf(entry))
+    }
+    for (const entry of entries.slice().reverse()) {
+      if (entry.status === 'ongoing') continue
+      const content = contentOf(entry)
+      if (summary.covers(content)) titled.add(entry)
+      else if (combined.covers(content)) omitted.add(entry)
+      else combined.add(content)
+    }
+  }
+  const candidates = entries.filter((entry) => !titled.has(entry) && !omitted.has(entry))
   const full = new Set<CharacterMemoryEntry>()
   let used = 0
-  for (const entry of entries) if (entry.status === 'ongoing') { full.add(entry); used += cost(entry) }
-  for (const entry of entries.slice().reverse()) {
+  for (const entry of candidates) if (entry.status === 'ongoing') { full.add(entry); used += cost(entry) }
+  for (const entry of candidates.slice().reverse()) {
     if (full.has(entry)) continue
     if (used + cost(entry) > fullBudget) break
     full.add(entry); used += cost(entry)
   }
-  return { full: entries.filter((entry) => full.has(entry)), indexed: entries.filter((entry) => !full.has(entry)) }
+  return {
+    full: entries.filter((entry) => full.has(entry)),
+    indexed: candidates.filter((entry) => !full.has(entry)),
+    titled: entries.filter((entry) => titled.has(entry)),
+    omitted: entries.filter((entry) => omitted.has(entry)),
+  }
 }
 
 /**
  * maxChars：旧口径（整条原文依次装，超出的条目丢掉）。v252 长剧情传 { fullBudget }：
  * 较新的/进行中的整条发，更早的每条只列一行要点（结论还在，细节按需召回），不再整份 12000 字每轮重发。
  */
-export function characterMemoryPrompt(character: Character, maxChars: number | { fullBudget: number } = 12000) {
+export function characterMemoryPrompt(character: Character, maxChars: number | { fullBudget: number; coveredBy?: string } = 12000) {
   const entries = activeCharacterMemory(character)
   if (!entries.length) return ''
 
@@ -307,16 +339,18 @@ export function characterMemoryPrompt(character: Character, maxChars: number | {
       used += line.length
     }
   } else {
-    const plan = planCharacterMemory(character, maxChars.fullBudget)
-    if (plan.indexed.length) {
-      // 先按要点行装；装不下时从最旧的开始改成只留标题，再装不下的最旧几条只靠召回。
-      const rows = plan.indexed.map((entry) => ({ title: memoryHead(entry), point: `${memoryHead(entry)}：${clipLine(stripUiOnlyStatusBlocks(entry.content), CORE_MEMORY_INDEX_LINE)}` }))
+    const plan = planCharacterMemory(character, maxChars.fullBudget, maxChars.coveredBy)
+    const titled = new Set(plan.titled)
+    const listed = entries.filter((entry) => plan.indexed.includes(entry) || titled.has(entry))
+    if (listed.length) {
+      // 先按要点行装；装不下时从最旧的开始改成只留标题，再装不下的最旧几条只靠召回。v253：摘要里已有的只留标题。
+      const rows = listed.map((entry) => ({ title: memoryHead(entry), point: titled.has(entry) ? memoryHead(entry) : `${memoryHead(entry)}：${clipLine(stripUiOnlyStatusBlocks(entry.content), CORE_MEMORY_INDEX_LINE)}` }))
       let total = rows.reduce((sum, row) => sum + row.point.length + 1, 0)
       const shown = rows.map((row) => row.point)
       for (let index = 0; index < rows.length && total > CORE_MEMORY_INDEX_BUDGET; index++) { total -= rows[index].point.length - rows[index].title.length; shown[index] = rows[index].title }
       let start = 0
       while (start < shown.length - 1 && total > CORE_MEMORY_INDEX_BUDGET) { total -= shown[start].length + 1; start++ }
-      lines.push(CORE_INDEX_NOTE, ...(start ? [`（更早 ${start} 条从略，聊到时会附上）`] : []), ...shown.slice(start))
+      lines.push(titled.size ? CORE_INDEX_NOTE_TITLED : CORE_INDEX_NOTE, ...(start ? [`（更早 ${start} 条从略，聊到时会附上）`] : []), ...shown.slice(start))
       if (plan.full.length) lines.push('（较新的与进行中的条目，原文如下）')
     }
     for (const entry of plan.full) lines.push(`${memoryHead(entry)}\n  ${stripUiOnlyStatusBlocks(entry.content).trim()}`)

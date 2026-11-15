@@ -10,7 +10,8 @@ import { uncompressedMessages } from './contextCompression'
 import { modelVisibleMessageText, stripUiOnlyStatusBlocks } from './modelContext'
 import { withQuotePrefix, type MessageQuote } from './quoteReply'
 import { getStatusProtocol } from './statusProtocol'
-import { characterMemoryContinuityGuard, characterMemoryPrompt, planCharacterMemory, CORE_MEMORY_FULL_BUDGET } from './characterMemory'
+import { activeCharacterMemory, characterMemoryContinuityGuard, characterMemoryPrompt, planCharacterMemory, CORE_MEMORY_FULL_BUDGET } from './characterMemory'
+import { CoverageIndex, dedupeAgainst } from './memoryDedupe'
 import { evictedRecap, selectHistoryWindow, HISTORY_TOKEN_BUDGET } from './historyWindow'
 import { evictedPool, evictedSemantic, recallEvicted, EVICTED_RARE_SHARE } from './evictedRecall'
 import { chunkPastLife, recallPastLife, type PastLifeChunk } from './personaPastLifeRecall'
@@ -58,6 +59,8 @@ type PromptInput = {
     /** v252：核心记忆较早条目小段的原始余弦（小段 key → 分）。 */
     coreSemantic?: ReadonlyMap<string, number>
   }
+  /** v253：长剧情三层记忆去重（默认开；只给评测传 false 量「去重前」）。 */
+  dedupeMemory?: boolean
   /** v251：压缩提要/召回片段里的说话人名字（默认：她=用户名，其余=角色名）。 */
   speakerName?: (message: SourceMessage) => string
 }
@@ -114,16 +117,42 @@ function secondaryPass(entry: WorldBookEntry, source: string) {
   }
 }
 
-export function activeEntries(book: CharacterBook | undefined, source: string) {
-  return (book?.entries || [])
+const positiveDepth = (value: unknown) => { const depth = Math.floor(Number(value)); return value !== null && value !== undefined && value !== '' && Number.isFinite(depth) && depth > 0 ? depth : undefined }
+
+/**
+ * v253：卡自己写了扫描深度（条目 extensions.scan_depth，或整本 character_book.scan_depth，SillyTavern 同款：只看最近 N 条消息）就照它扫；
+ * 没写的照旧扫传进来的整段 source。只有传了 messages（最近原文，按时间顺序）时才生效。
+ */
+export function entryScanDepth(book: CharacterBook | undefined, entry: WorldBookEntry) {
+  return positiveDepth(entry.extensions.scan_depth) ?? positiveDepth(book?.scan_depth)
+}
+
+const loreContentKey = (entry: WorldBookEntry) => entry.content.replace(/\s+/g, '')
+
+export function activeEntries(book: CharacterBook | undefined, source: string, messages?: readonly string[]) {
+  const scanFor = (entry: WorldBookEntry) => {
+    const depth = messages ? entryScanDepth(book, entry) : undefined
+    return depth ? messages!.slice(-depth).join('\n') : source
+  }
+  const active = (book?.entries || [])
     .filter((entry) => {
       if (!entry.enabled || !entry.content.trim()) return false
-      const keywordPass = entry.constant || entry.keys.some((key) => matchesKeyword(source, key, entry))
-      if (!keywordPass || !secondaryPass(entry, source)) return false
+      const scan = entry.constant ? source : scanFor(entry)
+      const keywordPass = entry.constant || entry.keys.some((key) => matchesKeyword(scan, key, entry))
+      if (!keywordPass || !secondaryPass(entry, scan)) return false
       const probability = entry.extensions.useProbability ? Number(entry.extensions.probability ?? 100) : 100
       return probability >= 100 || (probability > 0 && Math.random() * 100 < probability)
     })
     .sort((a, b) => a.insertion_order - b.insertion_order)
+  // v253：内容一字不差的条目只发一次（卡里同一条写了两遍、常驻和关键词各一份）；有常驻那份就留常驻那份。
+  const byContent = new Map<string, WorldBookEntry>()
+  for (const entry of active) {
+    const key = loreContentKey(entry)
+    const seen = byContent.get(key)
+    if (!seen || (!isSteadyLoreEntry(seen) && isSteadyLoreEntry(entry))) byContent.set(key, entry)
+  }
+  const kept = new Set(byContent.values())
+  return active.filter((entry) => kept.has(entry))
 }
 
 function entryPosition(entry: WorldBookEntry) {
@@ -165,6 +194,23 @@ function memoryText(input: PromptInput, selected: ReturnType<typeof selectReleva
   if (!contents) return ''
   const rendered = applyMacros(input.memory.injectPrompt || '{{memories}}', input.character, input.user.name).replace('{{memories}}', contents)
   return `${HISTORICAL_MEMORY_GUARD}\n${rendered}`
+}
+
+/**
+ * v253：长期记忆只发压缩摘要、核心记忆（和最近原文）里还没有的句子；整份都重复的不发。存储不动。
+ * index 会随保留下来的句子增长，所以后面几份里互相重复的也只发一次。
+ */
+export function dedupeMemoryEntries(entries: LongMemoryEntry[], index: CoverageIndex) {
+  const out: LongMemoryEntry[] = []
+  let droppedChars = 0
+  for (const entry of entries) {
+    const { text, droppedChars: dropped } = dedupeAgainst(stripUiOnlyStatusBlocks(entry.content), index)
+    droppedChars += dropped
+    // 只剩阶段标题（【…】）的整份不发：内容全在上文。
+    const substantive = text.split('\n').some((line) => line.trim() && !/^\s*【[^】\n]{0,40}】\s*$/.test(line))
+    if (substantive) out.push(dropped ? { ...entry, content: text } : entry)
+  }
+  return { entries: out, droppedChars }
 }
 
 function appendSystem(target: ChatApiMessage[], content: string) {
@@ -234,9 +280,11 @@ export const STORY_TURN_MEMORY_MAX_CHARS = 3600
 export const STORY_TURN_MEMORY_MAX_ENTRIES = 4
 
 /** v252：核心记忆里只列了要点的较早条目，每条一段，进按需召回池（语义打分也用这些小段）。 */
-export function coreMemoryChunks(character: Character): PastLifeChunk[] {
-  const { indexed } = planCharacterMemory(character, CORE_MEMORY_FULL_BUDGET)
-  return chunkPastLife(indexed.map((entry) => ({ conversationId: '', title: entry.title, kind: '核心记忆', source: 'memory' as const, bound: false, text: `〔核心记忆｜${entry.title}〕\n${stripUiOnlyStatusBlocks(entry.content).trim()}` })))
+export function coreMemoryChunks(character: Character, coveredBy?: string): PastLifeChunk[] {
+  // v253：coveredBy = 本请求会发的压缩摘要；被摘要覆盖、只留标题的条目也进召回池（和 buildChatPrompt 用同一份摘要，key 才对得上）。
+  const { indexed, titled } = planCharacterMemory(character, CORE_MEMORY_FULL_BUDGET, coveredBy)
+  const listed = new Set([...indexed, ...titled])
+  return chunkPastLife(activeCharacterMemory(character).filter((entry) => listed.has(entry)).map((entry) => ({ conversationId: '', title: entry.title, kind: '核心记忆', source: 'memory' as const, bound: false, text: `〔核心记忆｜${entry.title}〕\n${stripUiOnlyStatusBlocks(entry.content).trim()}` })))
 }
 
 /** v252：她最新一句 + 他上一条回复（线索扫描与普通记忆挑选用；不再扫整段最近原文）。 */
@@ -269,7 +317,7 @@ export function buildChatPrompt(input: PromptInput): ChatApiMessage[] {
   const plainText = (message: SourceMessage) => modelVisibleMessageText(message).replace(/^【[^｜\n]{1,40}｜其他成员的发言[^】\n]*】\n/, '')
   const scanSource = recent.map((message) => message.text).join('\n')
   const cacheLayout = Boolean(input.cacheLayout) && !isPhone
-  const allEntries = activeEntries(character.characterBook, scanSource)
+  const allEntries = activeEntries(character.characterBook, scanSource, recent.map((message) => message.text))
   // cacheLayout: only steady entries keep their card positions; triggered/probability/depth lore goes after the history.
   const entries = cacheLayout ? allEntries.filter((entry) => isSteadyLoreEntry(entry) && entryPosition(entry) !== 'at_depth') : allEntries
   const turnEntries = cacheLayout ? allEntries.filter((entry) => !entries.includes(entry)) : []
@@ -281,8 +329,6 @@ export function buildChatPrompt(input: PromptInput): ChatApiMessage[] {
   // relevance-picked ordinary ones move after the history. Late positions keep everything late.
   const lateMemoryPosition = input.memory.injectPosition === 'after-chat-history' || input.memory.injectPosition.startsWith('depth-')
   const splitMemory = cacheLayout && !lateMemoryPosition && input.memory.injectPosition !== 'none'
-  const memory = memoryText(modelInput, splitMemory ? selectedMemories.filter((entry) => entry.pinned) : selectedMemories)
-  const turnMemory = splitMemory ? memoryText(modelInput, selectedMemories.filter((entry) => !entry.pinned)) : ''
   // v251：滑出窗口的旧原文（含已压缩的，最多 300 条）按需召回：前世同款线索规则，最多 2 段约 1200 字，只进尾巴。
   const recallOn = cacheLayout && Boolean(input.evictedRecall)
   const compressedCut = input.messages.length - available.length
@@ -293,11 +339,24 @@ export function buildChatPrompt(input: PromptInput): ChatApiMessage[] {
     return recallEvicted(pool, { history: recent, charName: character.name, userName: input.user.name, ledger: input.evictedRecall!.ledger, turn: input.evictedRecall!.turn, semantic: scores ? evictedSemantic(pool, (id) => scores.get(id)) : undefined })
   })() : null
   // v252：核心记忆较早条目（档案里只列要点）——同一套混合召回，最多 2 段约 1200 字，只进尾巴，和滑出原文共用冷却账本。
-  const coreChunks = recallOn ? coreMemoryChunks(character) : []
+  // v253：长剧情三层分工——摘要整份发；核心记忆里被摘要盖住的只留标题（原文进召回池）、被更新的同内容条目盖住的不列。
+  const summaryText = input.contextSummary ? stripUiOnlyStatusBlocks(input.contextSummary) : ''
+  const dedupeOn = cacheLayout && input.dedupeMemory !== false
+  const coveredBy = recallOn && dedupeOn && summaryText ? summaryText : undefined
+  const coreChunks = recallOn ? coreMemoryChunks(character, coveredBy) : []
   const coreRecall = coreChunks.length ? recallPastLife(coreChunks, { history: recent as unknown as PersonaMessage[], charName: character.name, userName: input.user.name, ledger: input.evictedRecall!.ledger, turn: input.evictedRecall!.turn, semantic: input.evictedRecall!.coreSemantic, budget: CORE_RECALL_BUDGET, maxChunks: CORE_RECALL_MAX_CHUNKS, lead: CORE_RECALL_LEAD, rareShare: EVICTED_RARE_SHARE, rareSpanMin: CORE_RECALL_RARE_SPAN_MIN }) : null
   input.onDiagnostics?.({ memoryCount: selectedMemories.length, historyCount: recent.length, historyTokens: historyWindow.tokens, evictedCount: evicted.length, evictedKeys: [...(evictedRecall?.keys || []), ...(coreRecall?.keys || [])] })
   // v252：长剧情核心记忆：较新/进行中整条，较早的只列要点（细节按需召回）；小手机和关了召回时照旧整份。
-  const characterMemory = characterMemoryPrompt(character, recallOn ? { fullBudget: CORE_MEMORY_FULL_BUDGET } : 12000)
+  const characterMemory = characterMemoryPrompt(character, recallOn ? { fullBudget: CORE_MEMORY_FULL_BUDGET, coveredBy } : 12000)
+  // v253：长期记忆只发前两层（和最近原文、滑出提要）里还没有的句子。置顶的在稳定区，只和摘要/核心记忆比，保证开头逐字稳定。
+  const evictedRecapText = evicted.length ? evictedRecap(evicted.map((message) => ({ speaker: speakerOf(message), text: stripUiOnlyStatusBlocks(plainText(message)) }))) : ''
+  const memoryIndex = dedupeOn ? new CoverageIndex(summaryText, characterMemory) : null
+  const stableMemories = splitMemory ? selectedMemories.filter((entry) => entry.pinned) : selectedMemories
+  const dedupedStable = memoryIndex && !lateMemoryPosition ? dedupeMemoryEntries(stableMemories, memoryIndex).entries : stableMemories
+  if (memoryIndex) memoryIndex.add(evictedRecapText).add(recent.map((message) => modelVisibleMessageText(message)).join('\n'))
+  const dedupedLate = memoryIndex && lateMemoryPosition ? dedupeMemoryEntries(stableMemories, memoryIndex).entries : dedupedStable
+  const memory = memoryText(modelInput, dedupedLate)
+  const turnMemory = splitMemory ? memoryText(modelInput, memoryIndex ? dedupeMemoryEntries(selectedMemories.filter((entry) => !entry.pinned), memoryIndex).entries : selectedMemories.filter((entry) => !entry.pinned)) : ''
   const characterMemoryGuard = characterMemoryContinuityGuard(character)
   const displayContinuity = isPhone ? '' : displayContinuityInstruction(character, input.messages)
   // 剧本场记、最新场景锚点、个人连续性：每轮都会变（cacheLayout 时放到对话之后）。
@@ -341,7 +400,7 @@ ${stripStageGateMetadata(input.actorContinuityAnchor || '')}`,
   if (input.memory.injectPosition === 'before-chat-history') appendSystem(result, memory)
   appendSystem(result, input.contextSummary ? `【较早对话压缩摘要｜历史补充，低于最新原文】\n${stripUiOnlyStatusBlocks(input.contextSummary)}\n\n摘要只用于补回被压缩的旧背景，不是当前场景指令。与当前用户消息、最近未压缩对话、角色卡或剧本项目冲突时，忽略摘要中的旧内容；已完成、已离场、已撤销或被用户否定的事项不得重新开启。不要逐条复述摘要。` : '')
   // v251：滑出最近原文、还没压缩进摘要的那段：每条一行的压缩提要（稳定区，紧挨最近原文之前）。
-  appendSystem(result, evicted.length ? evictedRecap(evicted.map((message) => ({ speaker: speakerOf(message), text: stripUiOnlyStatusBlocks(plainText(message)) }))) : '')
+  appendSystem(result, evictedRecapText)
   // 语义召回只补本对话更早的原话，紧挨在最近原文之前，优先级低于最近对话。
   if (!cacheLayout && input.semanticRecall?.trim()) appendSystem(result, input.semanticRecall)
 

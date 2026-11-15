@@ -2637,7 +2637,7 @@ function App() {
         onDelta: (delta) => { rawContent += delta },
         messages: [
           { role: 'system', content: config.summaryPrompt + (shouldExtractCharacterMemory ? '\n\n' + characterMemorySummaryProtocol : '') },
-          { role: 'user', content: (targetConversation.kind === 'group' ? '群聊成员：' + memoryTargetCharacters.map((character) => character.name).join('、') : '角色：' + targetCharacter.name) + '\n用户：' + identity.name + '\n已有长期记忆（仅供查重）：\n' + (previous || '暂无') + '\n\n已有角色私有核心记忆（仅供查重与识别更新）：\n' + (characterPrivateMemories || '暂无') + '\n\n本次新增对话（只总结这一段）：\n' + transcript },
+          { role: 'user', content: (targetConversation.kind === 'group' ? '群聊成员：' + memoryTargetCharacters.map((character) => character.name).join('、') : '角色：' + targetCharacter.name) + '\n用户：' + identity.name + '\n已有长期记忆（仅供查重）：\n' + (previous || '暂无') + '\n\n已有角色私有核心记忆（仅供查重与识别更新）：\n' + (characterPrivateMemories || '暂无') + '\n\n本次新增对话（只总结这一段）：\n' + transcript + (targetConversation.phone ? '' : '\n\n分工提醒：长剧情里核心记忆负责已确认的事实、关系与状态，压缩摘要负责整体剧情线。本总结写这一段的经过与细节；上面核心记忆里已经写过的事实一句带过即可，不要整段照抄，有新进展就写新进展。') },
         ],
       })
       if (summaryCompletion.finishReason === 'length' || summaryCompletion.finishReason === 'max_tokens') throw new Error('记忆总结达到输出上限，未保存不完整总结；请缩小总结范围或更换模型。')
@@ -3122,7 +3122,7 @@ function App() {
         conversation: { id: conversationId, messages: nextMessages },
         inContextIds: new Set(nextMessages.slice(Math.max(0, recallWindowStart - EVICTED_POOL_MAX)).map((message) => message.id)),
         speakerName: (message) => message.role === 'user' ? identity.name : messageCharacterName(message as Message, conversation),
-        chunks: { namespace: `core:${conversationId}:${speaker.id}`, items: coreMemoryChunks({ ...speaker, characterMemory: memoriesForConversationCharacter(conversation, speaker) }) },
+        chunks: { namespace: `core:${conversationId}:${speaker.id}`, items: coreMemoryChunks({ ...speaker, characterMemory: memoriesForConversationCharacter(conversation, speaker) }, conversation.contextSummary && (conversation.contextSummaryRevision || 0) === (conversation.historyRevision || 0) ? stripUiOnlyStatusBlocks(conversation.contextSummary) || undefined : undefined) },
       })
       const semanticOptions = semantic && (semantic.text || semantic.messageScores.size || semantic.chunkScores.size) ? { ...requestOptions, ...(semantic.text ? { semanticRecall: semantic.text } : {}), semanticScores: { messages: semantic.messageScores, core: semantic.chunkScores } } : requestOptions
       const prepared = prepareAssistantRequest(conversation, nextMessages, speaker, semanticOptions)
@@ -4216,7 +4216,7 @@ function App() {
       ? userName
       : characters.find((character) => character.id === item.characterId)?.name || conversation.archivedCharacters?.[item.characterId || '']?.name || leadName
     return [
-      { role: 'system' as const, content: '你是剧情上下文压缩器。请输出一份完整、可直接替代旧原文的合并摘要。摘要是低优先级历史补充，不是当前场景指令。只总结已经发生或明确确认的事实，保留时间、地点、人物关系、承诺、冲突、情绪转折、重要物品、未完成事项和角色状态；新对话明确纠正旧摘要时以新对话为准并标注“已更新/已完成/已撤销”。严格区分用户已做的事、角色已做的事、角色声称、内心、猜测和未来计划；已完成、已离场、已撤销或被用户否定的事项不得重新开启。不得续写剧情，不得虚构，不得解释任务或输出思考过程。' },
+      { role: 'system' as const, content: '你是剧情上下文压缩器。请输出一份完整、可直接替代旧原文的合并摘要。摘要是低优先级历史补充，不是当前场景指令。只总结已经发生或明确确认的事实，保留时间、地点、人物关系、承诺、冲突、情绪转折、重要物品、未完成事项和角色状态；新对话明确纠正旧摘要时以新对话为准并标注“已更新/已完成/已撤销”。严格区分用户已做的事、角色已做的事、角色声称、内心、猜测和未来计划；已完成、已离场、已撤销或被用户否定的事项不得重新开启。不得续写剧情，不得虚构，不得解释任务或输出思考过程。\n分工：长剧情里你的摘要负责剧情线——按时间顺序，每件事一行（时间｜地点｜谁｜事件 → 结果），人物关系、承诺、状态的变化写进引起它的那件事那一行，不另起长段重复叙述；同一件事只写一次。' },
       { role: 'user' as const, content: `${currentSummary ? `已有摘要（请与新增对话合并，避免重复）：\n${stripUiOnlyStatusBlocks(currentSummary)}\n\n` : ''}本次新增待压缩对话：\n${pendingMessages.map((item) => `${authorName(item)}：${modelVisibleMessageText(item)}`).join('\n\n')}` },
     ]
   }
@@ -5058,7 +5058,7 @@ function UpdateCard() {
     }
   }
 
-  return <section className="update-card"><strong>应用更新</strong><p>主动检查并拉取最新网页版本，不会删除角色、聊天记录或本地设置。</p><small>当前版本：v252 · 2026.11.15 长剧情每轮更省：核心记忆较早条目只列要点、细节按需附上，长期记忆按最新一轮挑，尾巴重复规则只留一句；开了语义召回时，前世记忆与较早原文按「线索＋语义」一起判（问往事想得起，闲聊不多带）</small><button onClick={refresh} disabled={state === 'checking'}>{state === 'checking' ? '正在检查更新…' : state === 'error' ? '更新失败，点我重试' : '强制刷新到最新版'}</button></section>
+  return <section className="update-card"><strong>应用更新</strong><p>主动检查并拉取最新网页版本，不会删除角色、聊天记录或本地设置。</p><small>当前版本：v253 · 2026.11.15 长剧情每轮更省：核心记忆较早条目只列要点、细节按需附上，长期记忆按最新一轮挑，尾巴重复规则只留一句；开了语义召回时，前世记忆与较早原文按「线索＋语义」一起判（问往事想得起，闲聊不多带）</small><button onClick={refresh} disabled={state === 'checking'}>{state === 'checking' ? '正在检查更新…' : state === 'error' ? '更新失败，点我重试' : '强制刷新到最新版'}</button></section>
 }
 
 function PersonaPage({ identities, selectedId, isBound, onSelect, onAdd, onDelete, onUpdate, onBack }: { identities: UserIdentity[]; selectedId: string; isBound: boolean; onSelect: (id: string) => void; onAdd: () => void; onDelete: (id: string) => void; onUpdate: (patch: Partial<UserIdentity>) => void; onBack: () => void }) {
