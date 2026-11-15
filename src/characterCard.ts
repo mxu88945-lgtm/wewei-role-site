@@ -1,3 +1,4 @@
+import { normalizeOpeningTemplate, type OpeningTemplate } from './openingTemplates'
 import { normalizeRegexScript } from './regexPolicy'
 import { normalizeDirectorTemplateConfig, type DirectorTemplateConfig } from './directorTemplate'
 
@@ -165,6 +166,8 @@ export type Character = {
   libraryGroupSource?: 'manual' | 'auto'
   /** 她手动选择“不分组”后，自动识别不再把这张卡塞回去。 */
   libraryGroupOptOut?: boolean
+  /** v244 开场美化模板（可换色）；旧卡没有此字段。 */
+  openingTemplate?: OpeningTemplate
   rawCard?: Record<string, unknown>
 }
 
@@ -229,6 +232,7 @@ export function characterCardV3Payload(character: Character): RawCard {
         regex_scripts: character.regexScripts,
         ...(character.beautificationProtocol?.trim() ? { beautification_protocol: character.beautificationProtocol } : {}),
         ...(character.characterMemory?.length ? { weijing_character_memory: character.characterMemory } : {}),
+        ...(character.openingTemplate ? { weijing_opening_template: character.openingTemplate } : {}),
       },
     },
   }
@@ -257,6 +261,7 @@ export function characterCardV2Payload(character: Character): RawCard {
         regex_scripts: character.regexScripts,
         ...(character.beautificationProtocol?.trim() ? { beautification_protocol: character.beautificationProtocol } : {}),
         ...(character.characterMemory?.length ? { weijing_character_memory: character.characterMemory } : {}),
+        ...(character.openingTemplate ? { weijing_opening_template: character.openingTemplate } : {}),
       },
     },
   }
@@ -564,6 +569,7 @@ export async function importCharacterCard(file: File): Promise<Character> {
     libraryGroup: libraryGroup || undefined,
     libraryRole,
     libraryGroupSource: libraryGroup ? 'manual' : undefined,
+    openingTemplate: normalizeOpeningTemplate(extensions.weijing_opening_template),
     rawCard,
   })
 }
@@ -959,6 +965,7 @@ export function normalizeStoredCharacter(character: Partial<Character>): Charact
     libraryRole: isLibraryRole(character.libraryRole) ? character.libraryRole : undefined,
     libraryGroupSource: character.libraryGroupSource === 'auto' || character.libraryGroupSource === 'manual' ? character.libraryGroupSource : undefined,
     libraryGroupOptOut: character.libraryGroupOptOut === true,
+    openingTemplate: normalizeOpeningTemplate(character.openingTemplate),
     rawCard: character.rawCard,
   }
 }

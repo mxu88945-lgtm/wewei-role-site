@@ -10,6 +10,8 @@ import {
 } from './characterWorkshop'
 import './character-workshop.css'
 import { ChannelOptions } from './ChannelOptions'
+import OpeningTemplateEditor from './OpeningTemplateEditor'
+import { buildOpeningTemplateFillPrompt, createOpeningTemplate, parseOpeningTemplateFill } from './openingTemplates'
 
 // Long briefs: collapsed boxes stay a comfortable fixed height and scroll inside;
 // expanded boxes grow to show the whole text (v180).
@@ -160,6 +162,40 @@ export default function CharacterWorkshop({ channels, characters = [], defaultCh
   const copilotEndRef = useRef<HTMLDivElement | null>(null)
   const copilotImageInputRef = useRef<HTMLInputElement | null>(null)
   const channel = channels.find((item) => item.id === channelId) || channels[0]
+  const [openingFillState, setOpeningFillState] = useState<'idle' | 'filling'>('idle')
+  const [openingFillError, setOpeningFillError] = useState('')
+  const openingFillControllerRef = useRef<AbortController | null>(null)
+
+  const fillOpeningTemplate = async () => {
+    if (!result || openingFillState !== 'idle') return
+    if (!channel?.apiKey.trim() || !channel.modelName.trim()) { setOpeningFillError('当前 API 渠道还没有可用的密钥或模型，请先去 API 设置。'); return }
+    openingFillControllerRef.current?.abort()
+    const controller = new AbortController()
+    openingFillControllerRef.current = controller
+    const revision = generationRevisionRef.current
+    setOpeningFillState('filling'); setOpeningFillError('')
+    let raw = ''
+    try {
+      await completeChat({
+        api: channel,
+        messages: [
+          { role: 'system', content: '你只输出严格有效的 JSON，不使用 Markdown，不添加解释。' },
+          { role: 'user', content: buildOpeningTemplateFillPrompt(result) },
+        ],
+        temperature: .8, topP: .9, maxTokens: 2500, streaming: false, signal: controller.signal,
+        onDelta: (delta) => { raw += delta },
+      })
+      if (revision !== generationRevisionRef.current || controller.signal.aborted) return
+      const data = parseOpeningTemplateFill(raw)
+      setCopilotUndoSnapshot(result)
+      setResult((current) => current ? { ...current, openingTemplate: { ...(current.openingTemplate || createOpeningTemplate()), data } } : current)
+      setOpeningFillState('idle')
+    } catch (cause) {
+      setOpeningFillState('idle')
+      if (controller.signal.aborted) return
+      setOpeningFillError(workshopRequestError(cause, channel, '填写模板内容失败，请重试。'))
+    }
+  }
 
   useEffect(() => {
     const persistedMessages = copilotMessages.slice(-MAX_PERSISTED_COPILOT_MESSAGES).map(({ images: _images, ...message }) => message)
@@ -571,6 +607,12 @@ export default function CharacterWorkshop({ channels, characters = [], defaultCh
           <TextArea label="开场白" rows={10} value={result.greeting} onChange={(greeting) => patchResult({ greeting })} />
           <TextArea label="开场白美化协议（每轮回复都要遵守）" rows={12} value={result.beautificationProtocol} onChange={(beautificationProtocol) => patchResult({ beautificationProtocol })} />
           <div className="workshop-field-hint">这是给模型的原始文本规则，不是正则模板。默认顺序是 &lt;scene&gt; 场景栏 → 剧情正文 → &lt;gts_status&gt; 状态栏；即使关闭正则，标签也应该保持可读。</div>
+          <OpeningTemplateEditor value={result.openingTemplate} onChange={(openingTemplate) => setResult((current) => {
+            if (!current) return current
+            const next = { ...current, openingTemplate }
+            if (!openingTemplate) delete next.openingTemplate
+            return next
+          })} onAiFill={fillOpeningTemplate} onStopAi={() => openingFillControllerRef.current?.abort()} aiBusy={openingFillState === 'filling'} aiError={openingFillError} />
           <button
             type="button"
             className="workshop-inline-assistant"

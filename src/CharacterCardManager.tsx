@@ -9,6 +9,7 @@ import {
   type RegexScript,
   type WorldBookEntry,
 } from './characterCard'
+import OpeningTemplateEditor from './OpeningTemplateEditor'
 
 export type CharacterCardSection = 'overview' | 'greetings' | 'worldbook' | 'regex' | 'memory'
 type LongCharacterField = 'description' | 'personality' | 'scenario' | 'systemPrompt' | 'postHistoryInstructions' | 'beautificationProtocol' | 'mesExample' | 'creatorNotes'
@@ -185,6 +186,8 @@ export default function CharacterCardManager({ character, onChange, onBack, init
       <MetadataArea label="主开场白" value={character.greeting} onOpenFull={() => setFullEditorField('greeting')} />
       {character.alternateGreetings.map((greeting, index) => <article className="metadata-editor" key={index}><div className="editor-heading"><strong>备用开场 {index + 1}</strong><button className="danger-link" onClick={() => patch({ alternateGreetings: character.alternateGreetings.filter((_, itemIndex) => itemIndex !== index) })}>删除</button></div><textarea rows={8} value={greeting} onChange={(event) => patch({ alternateGreetings: character.alternateGreetings.map((item, itemIndex) => itemIndex === index ? event.target.value : item) })} /></article>)}
       <button className="secondary-button" onClick={() => patch({ alternateGreetings: [...character.alternateGreetings, ''] })}>＋ 添加备用开场</button>
+      <OpeningTemplateEditor value={character.openingTemplate} onChange={(openingTemplate) => patch({ openingTemplate })} />
+      <small className="opening-template-note">想让 AI 按人物写信、说说和歌单：去「AI 角色卡工坊」读取这张卡，点「让 AI 按人物填内容」。和他的对话里，第一条开场白上方就会出现这页。</small>
     </div>}
 
     {section === 'worldbook' && <div className="metadata-stack">

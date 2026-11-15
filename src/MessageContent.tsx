@@ -8,6 +8,7 @@ import { buildStatusFallback, getStatusProtocol } from './statusProtocol'
 import { extractFilmCard } from './filmBlock'
 import FilmCard from './FilmCard'
 import { autoPlayFilmSong } from './filmAutoplay'
+import { openingTemplateHtmlFor } from './openingTemplates'
 
 function unwrapCodeFence(value: string) {
   return value
@@ -351,7 +352,7 @@ function SandboxHtml({ html, raw = false, paper = false, greetings, onSelectGree
   </div>
 }
 
-function MessageContent({ text: storedText, role, character, userName, layout = 'bubble', streaming = false, greetings, onSelectGreeting, noStatus = false, paper = false, messageId, filmAutoplay = false, filmLatest = false }: { text: string; role: 'user' | 'assistant'; character: Character; userName: string; layout?: 'bubble' | 'flat'; streaming?: boolean; noStatus?: boolean; paper?: MessageTheme; messageId?: string | number; filmAutoplay?: boolean; filmLatest?: boolean } & SceneHooks) {
+function MessageContent({ text: storedText, role, character, userName, layout = 'bubble', streaming = false, greetings, onSelectGreeting, noStatus = false, paper = false, messageId, filmAutoplay = false, filmLatest = false, opening = false }: { text: string; opening?: boolean; role: 'user' | 'assistant'; character: Character; userName: string; layout?: 'bubble' | 'flat'; streaming?: boolean; noStatus?: boolean; paper?: MessageTheme; messageId?: string | number; filmAutoplay?: boolean; filmLatest?: boolean } & SceneHooks) {
   // v210：请求专用的【本轮背景】标记永远不显示（只在发出的请求里加，这里兜底）。
   const text = stripTurnContext(storedText)
   // v204：同一个挂着的消息从「流式中」变成「流式结束」那一刻，补一次剧情卡自动切歌（autoPlayFilmSong 自己去重）。
@@ -400,7 +401,10 @@ function MessageContent({ text: storedText, role, character, userName, layout = 
 
   const filmCard = film?.card ? <FilmCard card={film.card} avatar={character.avatar} characterId={character.id} speakerName={character.name} seed={`${character.id}|${film.card.sceneTitle}|${film.card.heart}|${film.card.zh}`} cardKey={messageId !== undefined ? `${character.id}|${messageId}` : undefined} isLatest={filmLatest} /> : null
   const content = renderMessageBody(rendered, role, layout, paper, streaming, greetings, onSelectGreeting)
-  return filmCard ? <>{content}{filmCard}</> : content
+  // v244：开场美化模板只挂在主聊天第一条开场白上方；正文仍是原样可读的纯文本。
+  const templateHtml = useMemo(() => openingTemplateHtmlFor(character, userName, { opening, role }), [character, userName, opening, role])
+  const withTemplate = templateHtml ? <><div className="message-opening-template"><SandboxHtml html={templateHtml} raw /></div>{content}</> : content
+  return filmCard ? <>{withTemplate}{filmCard}</> : withTemplate
 }
 
 function renderMessageBody(rendered: string, role: 'user' | 'assistant', layout: 'bubble' | 'flat', paper: MessageTheme, streaming: boolean, greetings: SceneHooks['greetings'], onSelectGreeting: SceneHooks['onSelectGreeting']) {

@@ -278,6 +278,8 @@ button { cursor: pointer; }
 .message-script-frame.fenced-page { max-height: 4000px; }
 .message-script-shell.is-failed { padding: 12px; }
 .message-script-shell.is-failed .message-script-frame { display: none; }
+.message-opening-template { margin: 0 0 12px; }
+.message-opening-template .message-script-shell { background: transparent; }
 .message-script-fallback { display: grid; gap: 7px; padding: 15px; border: 1px solid rgba(126,93,147,.16); border-radius: 15px; color: #5d5363; background: rgba(255,255,255,.74); font-size: 12px; line-height: 1.55; }
 .message-script-fallback strong { color: #574462; font-size: 13px; }
 .message-script-fallback span { color: #8c8192; }

@@ -367,6 +367,7 @@ function exportableCharacter(character: Character) {
         ...(character.beautificationProtocol?.trim() ? { beautification_protocol: character.beautificationProtocol } : {}),
         ...(character.characterMemory?.length ? { weijing_character_memory: character.characterMemory } : {}),
         ...((character.libraryGroup || character.libraryRole) ? { weijing_library: { group: character.libraryGroup, role: character.libraryRole } } : {}),
+        ...(character.openingTemplate ? { weijing_opening_template: character.openingTemplate } : {}),
       },
     },
   }
@@ -4474,7 +4475,7 @@ function App() {
     const phaseStartedAt = streaming && activeConversation ? phaseStartedAtRef.current.get(`${activeConversation.id}|${message.id}`) : undefined
     // v218：布丁来信在小手机里也用名字胶囊 + 小信封；其他档案主题仍只用于主剧情。
     const archiveTheme = chatTheme === 'pudding' ? 'pudding' : !activeConversation?.phone && (chatTheme === 'academy' || chatTheme === 'vinyl' || chatTheme === 'mobile' || chatTheme === 'letter' || chatTheme === 'mistnote' || chatTheme === 'nightglow') ? chatTheme : null
-    const textContent = phaseStartedAt !== undefined ? <PhaseElapsed label={displayText} startedAt={phaseStartedAt} /> : displayText ? <MessageContent text={displayText} role={message.role} character={messageCharacter} noStatus={Boolean(activeConversation?.phone)} paper={archiveTheme || (activeConversation?.phone ? false : chatTheme === 'scrapbook' ? 'scrapbook' : chatTheme === 'paper')} userName={identity.name} layout={archiveTheme ? 'flat' : chatLayout} streaming={streaming} greetings={openingGreetings} onSelectGreeting={selectOpening} messageId={message.id} filmAutoplay={filmAutoplay} filmLatest={filmLatest} /> : null
+    const textContent = phaseStartedAt !== undefined ? <PhaseElapsed label={displayText} startedAt={phaseStartedAt} /> : displayText ? <MessageContent text={displayText} role={message.role} character={messageCharacter} noStatus={Boolean(activeConversation?.phone)} paper={archiveTheme || (activeConversation?.phone ? false : chatTheme === 'scrapbook' ? 'scrapbook' : chatTheme === 'paper')} userName={identity.name} layout={archiveTheme ? 'flat' : chatLayout} streaming={streaming} greetings={openingGreetings} onSelectGreeting={selectOpening} messageId={message.id} filmAutoplay={filmAutoplay} filmLatest={filmLatest} opening={isOpening && !activeConversation?.phone} /> : null
     const quoteExists = Boolean(message.quote && messages.some((item) => String(item.id) === message.quote!.messageId))
     const quoteBlock = isUser && message.quote && activeConversation?.phone ? <button type="button" className={`phone-message-quote${quoteExists ? '' : ' missing'}`} aria-label={quoteExists ? `跳到被引用的消息：${message.quote.author}` : '被引用的消息已不在'} disabled={!quoteExists} onClick={() => jumpToQuoted(message.quote!.messageId)}><b>{message.quote.author}：</b>{message.quote.text}</button> : null
     const body = imageGrid ? <>{imageGrid}{textContent}</> : textContent
@@ -5002,7 +5003,7 @@ function UpdateCard() {
     }
   }
 
-  return <section className="update-card"><strong>应用更新</strong><p>主动检查并拉取最新网页版本，不会删除角色、聊天记录或本地设置。</p><small>当前版本：v243 · 2026.11.14 一起听歌时，带时间轴会滚动的歌，主聊天和人格窗口里的他现在也能看到整首歌词（最多约 600 字），同时知道正唱到哪句。你自己粘的纯文本歌词也一样整段给。</small><button onClick={refresh} disabled={state === 'checking'}>{state === 'checking' ? '正在检查更新…' : state === 'error' ? '更新失败，点我重试' : '强制刷新到最新版'}</button></section>
+  return <section className="update-card"><strong>应用更新</strong><p>主动检查并拉取最新网页版本，不会删除角色、聊天记录或本地设置。</p><small>当前版本：v244 · 2026.11.15 新增「开场美化模板 · 千禧粉 QQ空间」：信封、人物档案、迷你播放器、QQ消息和可以点进去的QQ空间，显示在第一条开场白上方，开场白正文不变。在卡片的「开场」页或 AI 工坊里选用，可一键换 紫灰 / 雾蓝 / 奶茶，也能直接跟工坊助手说“改成紫灰色”。</small><button onClick={refresh} disabled={state === 'checking'}>{state === 'checking' ? '正在检查更新…' : state === 'error' ? '更新失败，点我重试' : '强制刷新到最新版'}</button></section>
 }
 
 function PersonaPage({ identities, selectedId, isBound, onSelect, onAdd, onDelete, onUpdate, onBack }: { identities: UserIdentity[]; selectedId: string; isBound: boolean; onSelect: (id: string) => void; onAdd: () => void; onDelete: (id: string) => void; onUpdate: (patch: Partial<UserIdentity>) => void; onBack: () => void }) {

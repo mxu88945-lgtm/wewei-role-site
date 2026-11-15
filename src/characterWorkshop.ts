@@ -1,5 +1,6 @@
 import { normalizeStoredCharacter, type Character, type CharacterBook, type RegexScript, type WorldBookEntry } from './characterCard'
 import { normalizeRegexPlacement, normalizeRegexScript } from './regexPolicy'
+import { applyOpeningTemplatePatch, normalizeOpeningTemplate, parseOpeningTemplatePatch, type OpeningTemplate, type OpeningTemplatePatch } from './openingTemplates'
 
 export type CharacterWorkshopBrief = {
   concept: string
@@ -28,6 +29,8 @@ export type CharacterWorkshopDraft = {
   tags: string[]
   worldbook: Array<{ title: string; keywords: string[]; content: string; constant?: boolean }>
   regexScripts: RegexScript[]
+  /** v244 开场美化模板（可选；旧草稿没有） */
+  openingTemplate?: OpeningTemplate
 }
 
 export type WorkshopCopilotMessage = {
@@ -39,7 +42,7 @@ export type WorkshopCopilotMessage = {
 
 export type WorkshopCopilotPatch = {
   summary: string
-  fields?: Partial<Omit<CharacterWorkshopDraft, 'worldbook' | 'regexScripts'>>
+  fields?: Partial<Omit<CharacterWorkshopDraft, 'worldbook' | 'regexScripts' | 'openingTemplate'>>
   worldbook?: {
     upsert?: CharacterWorkshopDraft['worldbook']
     removeTitles?: string[]
@@ -48,6 +51,8 @@ export type WorkshopCopilotPatch = {
     upsert?: Array<Partial<RegexScript> & { id?: string; scriptName?: string }>
     removeIds?: string[]
   }
+  /** v244：开场美化模板的换色 / 改内容 / 移除 */
+  openingTemplate?: OpeningTemplatePatch
 }
 
 export type WorkshopCopilotResponse = {
@@ -206,7 +211,8 @@ export function buildWorkshopCopilotPrompt({ draft, request, messages, memory, p
    - 原文太长、一个栏目放不下时，按主题拆进多个字段或多条世界书（如家族、组织、地理、历史、势力、规则、重要 NPC 各自成条），每条都保留原文细节，而不是删减。
    - 世界书 content 用自然完整的陈述句写清设定本身，像设定集正文，不写成“关键词：xxx”式的短句堆叠。
    - 原文没写到的地方可以补，但补写的内容不得与原文冲突，也不得替用户确认关键事实。
-13. 回复要像长期合作的工坊客服，简洁说明做了什么和为什么，不要假装已经写入；用户会在界面确认后写入。对话回复可以简洁，写入 fields 的人物档案必须详细完整。
+13. 开场美化模板（openingTemplate）：惟境内置“千禧粉 QQ空间”互动开场页，显示在第一条开场白上方，开场白正文不受影响。用户说“换成紫灰色”“颜色淡一点”“开场美化换个颜色”“改信里的话”“说说改一下”“去掉开场模板”时，用 patch.openingTemplate 改：theme 六个颜色 primary(主色) secondary(辅色) accent(点缀) paper(纸面) ink(文字) bg(底色) 必须是 #rrggbb 合法十六进制，只给要改的几项，并保证 ink 与 paper/bg 对比清楚；data 只给要改的字段（letter、englishName、age、personality、intro、signature、notice、mood、chats[{time,text}]、songs[{title,artist}]、musicDiary、posts[{time,text,likes,comment}]、albumCaption、friendGroups[{name,count}]、friendTags[]、pronoun），用角色口吻写，称呼对方写 {{user}}，绝不替 {{user}} 说话或行动；草稿还没有模板而用户要加时给 "id":"y2k-pink"；要移除时给 "id":"none"。草稿已有 openingTemplate 时，用户只说“改成某某色”而没提气泡/状态栏/正则，指的就是开场模板配色；同时提到气泡才另改正则。模板颜色绝不要写进正则。
+14. 回复要像长期合作的工坊客服，简洁说明做了什么和为什么，不要假装已经写入；用户会在界面确认后写入。对话回复可以简洁，写入 fields 的人物档案必须详细完整。
 
 只输出一个严格 JSON 对象，不要代码围栏：
 {
@@ -215,10 +221,11 @@ export function buildWorkshopCopilotPrompt({ draft, request, messages, memory, p
     "summary":"本次改动摘要",
     "fields":{"greeting":"只放确实要修改的完整新值"},
     "worldbook":{"upsert":[{"title":"条目名","keywords":["词"],"content":"完整正文","constant":false}],"removeTitles":[]},
-    "regexScripts":{"upsert":[{"id":"修改已有项时才填","scriptName":"名称","findRegex":"/(...)/gi","replaceString":"安全 HTML/CSS","placement":[2],"disabled":false,"markdownOnly":false,"promptOnly":false,"runOnEdit":true}],"removeIds":[]}
+    "regexScripts":{"upsert":[{"id":"修改已有项时才填","scriptName":"名称","findRegex":"/(...)/gi","replaceString":"安全 HTML/CSS","placement":[2],"disabled":false,"markdownOnly":false,"promptOnly":false,"runOnEdit":true}],"removeIds":[]},
+    "openingTemplate":{"theme":{"primary":"#8d7aa6"},"data":{"mood":"..."}}
   }
 }
-fields、worldbook、regexScripts 中不需要的部分直接省略。
+fields、worldbook、regexScripts、openingTemplate 中不需要的部分直接省略。
 
 长期记忆摘要：
 ${memory?.trim() || '暂无'}
@@ -304,8 +311,10 @@ export function parseWorkshopCopilotResponse(raw: string): WorkshopCopilotRespon
   const fields = parseCopilotFields(patchSource.fields)
   const worldbook = parseWorldbookPatch(patchSource.worldbook)
   const regexScripts = parseRegexPatch(patchSource.regexScripts)
-  if (!fields && !worldbook && !regexScripts) return { reply, patch: null }
-  return { reply, patch: { summary: text(patchSource.summary) || '更新角色卡草稿', fields, worldbook, regexScripts } }
+  const { patch: openingTemplate, invalidColors } = parseOpeningTemplatePatch(patchSource.openingTemplate)
+  const replyText = invalidColors.length ? `${reply}\n（有 ${invalidColors.length} 个颜色不是合法的十六进制色值，已忽略：${invalidColors.join('、')}）` : reply
+  if (!fields && !worldbook && !regexScripts && !openingTemplate) return { reply: replyText, patch: null }
+  return { reply: replyText, patch: { summary: text(patchSource.summary) || '更新角色卡草稿', fields, worldbook, regexScripts, ...(openingTemplate ? { openingTemplate } : {}) } }
 }
 
 export function applyWorkshopCopilotPatch(draft: CharacterWorkshopDraft, patch: WorkshopCopilotPatch): CharacterWorkshopDraft {
@@ -334,7 +343,13 @@ export function applyWorkshopCopilotPatch(draft: CharacterWorkshopDraft, patch: 
     })
     else regexScripts.push(normalizeWorkshopRegexScript({ ...freshRegex(), ...entry, id: crypto.randomUUID() }))
   }
-  return { ...draft, ...(patch.fields || {}), worldbook, regexScripts }
+  const next: CharacterWorkshopDraft = { ...draft, ...(patch.fields || {}), worldbook, regexScripts }
+  if (patch.openingTemplate) {
+    const openingTemplate = applyOpeningTemplatePatch(draft.openingTemplate, patch.openingTemplate)
+    if (openingTemplate) next.openingTemplate = openingTemplate
+    else delete next.openingTemplate
+  }
+  return next
 }
 
 export function describeWorkshopCopilotPatch(patch: WorkshopCopilotPatch) {
@@ -343,6 +358,13 @@ export function describeWorkshopCopilotPatch(patch: WorkshopCopilotPatch) {
   const regexCount = (patch.regexScripts?.upsert?.length || 0) + (patch.regexScripts?.removeIds?.length || 0)
   if (worldCount) items.push(`世界书 ${worldCount} 项`)
   if (regexCount) items.push(`正则/UI ${regexCount} 项`)
+  const opening = patch.openingTemplate
+  if (opening?.id === 'none') items.push('移除开场美化模板')
+  else if (opening) {
+    if (opening.theme) items.push(`开场模板配色 ${Object.keys(opening.theme).length} 项`)
+    if (opening.data) items.push(`开场模板内容 ${Object.keys(opening.data).length} 项`)
+    if (!opening.theme && !opening.data) items.push('启用开场美化模板')
+  }
   return items
 }
 
@@ -503,6 +525,7 @@ export function workshopDraftFromCharacter(character: Character): CharacterWorks
       constant: entry.constant === true,
     })),
     regexScripts: (character.regexScripts || []).map(normalizeWorkshopRegexScript),
+    ...(character.openingTemplate ? { openingTemplate: normalizeOpeningTemplate(character.openingTemplate) } : {}),
   }
 }
 
@@ -635,6 +658,7 @@ export function enhancedCopyFromDraft(base: Character, draft: CharacterWorkshopD
     characterBook: entries.length ? { ...(base.characterBook || { name: `${draft.name} · 世界书` }), entries } : undefined,
     beautificationProtocol: draft.beautificationProtocol,
     regexScripts: draft.regexScripts.map(normalizeWorkshopRegexScript),
+    openingTemplate: draft.openingTemplate,
     rawCard: undefined,
     characterMemory: undefined,
   })
