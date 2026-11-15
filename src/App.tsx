@@ -54,6 +54,7 @@ import { activeCharacterMemory, characterMemoryEntryFromConversation, characterM
 import { readCachedModels, saveCachedModels } from './modelListCache'
 import { ChatApiError, completeChat, fetchApiModels, testApiConnection, type ApiConfig, type ApiModel } from './chatApi'
 import { buildChatPrompt } from './promptBuilder'
+import { currentImageTurn, extractImageMemo, withImageMemo } from './imageMemo'
 import { foldPromptForRelay } from './promptTail'
 import { withPromptCache } from './promptCache'
 import { recordPromptUsage } from './promptUsage'
@@ -2905,6 +2906,8 @@ function App() {
       compressedUntil: !isPhone && hasValidContextSummary ? conversation.compressedUntil : undefined,
       // v210：长剧情（含普通群聊）走提示词缓存布局；小手机不动。
       cacheLayout: !isPhone,
+      // v250：续演 / 自动活跃不是她的新一轮，不重发图片。
+      noLiveImages: Boolean(requestOptions.continueWithoutUser),
     })
     const storedRelationshipStage: RelationshipStage | 0 = capturedCharacter.name === '顾霆深' && !isPhone
       ? Math.max(conversation.relationshipStages?.[capturedCharacter.id] || 0, highestRelationshipStage(nextMessages, capturedCharacter.id) || 0) as RelationshipStage
@@ -3355,9 +3358,12 @@ function App() {
       if (filmCardEnabled && !conversation.phone && !isDirector) autoPlayFilmSong(assistantMessage.id, finalOutput)
       if (phoneLockCommand && !phoneLockDenied) setPhoneLock({ until: Date.now() + phoneLockCommand.minutes * 60000, startedAt: Date.now(), byId: speaker.id, byName: speaker.name, reason: phoneLockCommand.reason })
       const completedMessage = requestOptions.replacement ? appendReplyAlternative(requestOptions.replacement, generatedMessage) : generatedMessage
+      // v250 图记：他看完本轮新图写的 [图记:…]（界面已剥掉）存到她那张图上；之后的请求只带这一行。
+      const imageMemo = requestOptions.continueWithoutUser ? '' : extractImageMemo(output)
+      const memoTurnIds = imageMemo ? new Set(currentImageTurn(nextMessages).map((index) => nextMessages[index].id)) : null
       setConversations((current) => current.map((item) => item.id === conversationId ? {
         ...(plotApplied ? consumeTemporaryPlot(item, capturedTemporaryPlot, conversation.historyRevision || 0) : item),
-        messages: item.messages.map((message) => message.id === assistantMessage.id ? completedMessage : message),
+        messages: (memoTurnIds ? withImageMemo(item.messages, (message) => memoTurnIds.has(message.id), imageMemo) : item.messages).map((message) => message.id === assistantMessage.id ? completedMessage : message),
         relationshipStages: nextRelationshipStage ? { ...(item.relationshipStages || {}), [capturedCharacter.id]: nextRelationshipStage } : item.relationshipStages,
         backstageNotebook: backstageNoteText ? addBackstageNote(item.backstageNotebook, speaker.id, backstageNoteText, Date.now()) : item.backstageNotebook,
         updatedAt: Date.now(),
@@ -5022,7 +5028,7 @@ function UpdateCard() {
     }
   }
 
-  return <section className="update-card"><strong>应用更新</strong><p>主动检查并拉取最新网页版本，不会删除角色、聊天记录或本地设置。</p><small>当前版本：v249 · 2026.11.15 前世记忆按需召回更准（提到疤、玉佩这类具体细节也能想起，闲聊不乱带）；连续性档案整理失败记录刷新后不丢；雾白来信/雾蓝长笺/暗夜流光的名字胶囊恢复大字</small><button onClick={refresh} disabled={state === 'checking'}>{state === 'checking' ? '正在检查更新…' : state === 'error' ? '更新失败，点我重试' : '强制刷新到最新版'}</button></section>
+  return <section className="update-card"><strong>应用更新</strong><p>主动检查并拉取最新网页版本，不会删除角色、聊天记录或本地设置。</p><small>当前版本：v250 · 2026.11.15 前世记忆按需召回更准（提到疤、玉佩这类具体细节也能想起，闲聊不乱带）；连续性档案整理失败记录刷新后不丢；雾白来信/雾蓝长笺/暗夜流光的名字胶囊恢复大字</small><button onClick={refresh} disabled={state === 'checking'}>{state === 'checking' ? '正在检查更新…' : state === 'error' ? '更新失败，点我重试' : '强制刷新到最新版'}</button></section>
 }
 
 function PersonaPage({ identities, selectedId, isBound, onSelect, onAdd, onDelete, onUpdate, onBack }: { identities: UserIdentity[]; selectedId: string; isBound: boolean; onSelect: (id: string) => void; onAdd: () => void; onDelete: (id: string) => void; onUpdate: (patch: Partial<UserIdentity>) => void; onBack: () => void }) {

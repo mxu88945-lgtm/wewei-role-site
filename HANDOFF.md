@@ -29,3 +29,9 @@
 - 如果主聊天以后也出现同样问题，到 chatApi / buildChatPrompt 去合并多条 system 消息。
 - 设定里提到"美化/格式要求/html/css"的世界书条目，会被人格窗口当作显示规则跳过。如果她觉得少了设定，查这里。
 - 没有任何一项做过真机视觉验证。
+
+## v250（2026-11-15）图记 / 发图防卡死 / 档案头字号
+- 图片：真图只在发出那一轮（含重新生成）发给主模型；那一轮【本轮背景】里加一句请他写 `[图记:≤40字]`（src/imageMemo.ts，界面含流式由 sanitizeAssistantOutput 剥掉），图记存在 `ChatImage.memo`。之后的请求只带「【此前发过的图片：图记】」（无图记：「【此前发过的图片】」）。她回指旧图（那张图/刚才的图/照片/图里/之前发的，或说到某条图记里的连续 3 字）时，只把最近一张匹配的原图临时附进这一轮（最多 1 张）。续演/自动活跃/应用事件那轮不发图。历史按条数取，带图不挤历史。测试：src/imageMemo.test.ts。
+- 防卡死：prepareChatImage 每张 20s 超时（报错文字直接显示）；persistentStore 打开 6s 超时+重开一次，写入 15s 超时，失败不堵同键后续保存（src/persistentStoreTimeout.test.ts）。
+- 字号：runtime-enhancements.css 的 `:where(h3, strong, b)` 15px 规则豁免整个 `.archive-heading` 与布丁胶囊、以及锁屏倒计时/状态时钟/红包金额/游戏图标/统计数字/未读角标等展示型大字；手机消息/学院/唱片名字改 calc(23px × 界面字号)。测试在 src/fontControls.test.ts。
+- 花费（只报告未改）：人格窗口/长剧情历史按「记忆长度」条数（默认 47）不设 token 上限，长回复时历史是顾祁砚（8200 token 预算）的 1.5–2.4 倍；默认 maxTokens 8000（顾祁砚 2048）。

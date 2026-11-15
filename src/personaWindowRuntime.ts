@@ -2,7 +2,8 @@ import type { ApiConfig, ChatApiMessage } from './chatApi'
 import { completeChat } from './chatApi'
 import type { Character } from './characterCard'
 import type { ChatImage } from './chatImages'
-import { imagePromptIndices, userContentWithImages } from './chatImages'
+import { userContentWithImages } from './chatImages'
+import { currentImageTurn, extractImageMemo, IMAGE_MEMO_PROMPT, planImageWire, withImageMemo } from './imageMemo'
 import { attachmentPromptIndices, attachmentPromptText, type ChatAttachment } from './chatAttachments'
 import { quotePromptPrefix } from './quoteReply'
 import { isApiChannelComplete } from './apiChannels'
@@ -277,6 +278,8 @@ export function planPersonaRequest(persona: PersonaWindow, history: PersonaMessa
     ['guard', '回复前确认', PERSONA_FINAL_GUARD],
   ]
   const system = joinParts(systemParts)
+  // v250 图记：真图只在本轮（含重新生成）发；旧图只留图记一行；她回指旧图时临时附回 1 张原图。应用事件那轮不发图。
+  const imageWire = planImageWire(recent, history, { noLiveImages: Boolean(options.event) })
   // 每轮会变的：按最新消息召回的记忆、触发的世界书、任务倒计时、正在听的歌——
   // v210：不再是第二条 system（中转站常把它丢掉），而是接在最新一条用户消息正文后面（只在请求里）。
   const dynamicParts: PromptPart[] = [
@@ -288,12 +291,12 @@ export function planPersonaRequest(persona: PersonaWindow, history: PersonaMessa
     ['people', '人物档案召回', deps.people?.(peopleScanTexts(recent)).trim()],
     ['task-status', '任务状态', personaTaskStatus(thread.tasks)],
     ['now-playing', '正在听的歌', deps.nowPlaying?.().trim()],
+    ['image-memo', '图记提示（本轮新图）', imageWire.wantsMemo && IMAGE_MEMO_PROMPT],
     ['guard-turn', '回复前确认', PERSONA_FINAL_GUARD],
     // v234：这一轮谁说（每轮变，所以放尾巴）。
     ['group-turn', '本轮谁说', group ? buildGroupTurnTail(group) : guestHistory ? buildGroupAfterTail(names) : ''],
   ]
   const dynamic = joinParts(dynamicParts)
-  const imageTurns = imagePromptIndices(recent)
   const attachmentTurns = attachmentPromptIndices(recent)
   const labelled = new Set<ChatApiMessage>()
   const turns = recent.map((item, index): ChatApiMessage => {
@@ -308,7 +311,8 @@ export function planPersonaRequest(persona: PersonaWindow, history: PersonaMessa
         labelled.add(turn)
         return turn
       }
-      return { role: item.role, content: item.role === 'user' ? userContentWithImages(content, item.images, imageTurns.has(index)) : content }
+      const recalled = imageWire.recall?.index === index ? imageWire.recall.image : null
+      return { role: item.role, content: item.role === 'user' ? userContentWithImages(content, item.images, imageWire.live.has(index), recalled) : content }
     })
       .filter((item) => Array.isArray(item.content) || String(item.content).trim())
   // 同一轮几个人接的话合成一条 assistant（只合并带【名字】的，旧的一对一历史不动）。
@@ -498,6 +502,9 @@ export async function generatePersonaReply(personaId: string, deps: PersonaRunti
       if (saved.length) patchRuntime((current) => ({ ...current, peopleToasts: { ...current.peopleToasts, [personaId]: { text: `👥 记进人物档案：${saved.join('、')}`, seq: ++peopleToastSeq } } }))
     }
     const done = Date.now()
+    // v250 图记：他看完本轮新图写的 [图记:…]（界面已剥掉）存到她那张图上；之后的请求只带这一行。
+    const imageMemo = completedTask ? '' : extractImageMemo(own)
+    const memoTurnIds = new Set(imageMemo ? currentImageTurn(history).map((index) => history[index].id) : [])
     const lastUserId = history.filter((message) => message.role === 'user').slice(-1)[0]?.id
     const sourceIds = [lastUserId, mainReplyId].filter((id): id is number => id !== undefined)
     const saves = personaMemorySaves(own, threadId, sourceIds, done)
@@ -506,7 +513,8 @@ export async function generatePersonaReply(personaId: string, deps: PersonaRunti
       // v236 再巩固：本轮真正带进去的记忆刷新「上次想起」和次数（内容不变，稳定前缀不受影响）。
       const touched = updatePersona(state, personaId, (item) => { const memories = touchRecalledMemories(item.memories, plan.memory.recalledMemoryIds || [], done); return memories === item.memories ? item : { ...item, memories } })
       const withMemory = updatePersona(touched, personaId, (item) => guestSaves.reduce((acc, save) => addGuestMemories(acc, save.guestId, save.entries, mergePersonaMemories), saves.length || !guestSaves.length ? { ...item, memories: mergePersonaMemories(item.memories, saves) } : item))
-      return touch(updatePersonaThread(withMemory, personaId, threadId, (item) => ({ ...commitPersonaRecallLedger(item, [...sources.keys(), ...plan.memory.pastLifeKeys], plan.memory.turn), ...(completedTask ? { tasks: item.tasks?.map((entry) => entry.id === completedTask.id ? { ...entry, reactedAt: done } : entry) } : task && !item.tasks?.some((existing) => taskIsActive(existing) && existing.text === task.text) ? { tasks: [...(item.tasks || []), task] } : {}), updatedAt: done })), done)
+      const withImage = memoTurnIds.size ? updatePersonaThread(withMemory, personaId, threadId, (item) => { const messages = withImageMemo(item.messages, (message) => memoTurnIds.has(message.id), imageMemo); return messages === item.messages ? item : { ...item, messages } }) : withMemory
+      return touch(updatePersonaThread(withImage, personaId, threadId, (item) => ({ ...commitPersonaRecallLedger(item, [...sources.keys(), ...plan.memory.pastLifeKeys], plan.memory.turn), ...(completedTask ? { tasks: item.tasks?.map((entry) => entry.id === completedTask.id ? { ...entry, reactedAt: done } : entry) } : task && !item.tasks?.some((existing) => taskIsActive(existing) && existing.text === task.text) ? { tasks: [...(item.tasks || []), task] } : {}), updatedAt: done })), done)
     })
     // v234：客人在场的新消息攒够了，就在后台按他的视角整理进他自己的窗口记忆。
     if (group) setTimeout(() => { void extractGuestMemories(personaId, deps, { threadId, every: PERSONA_GUEST_MEMORY_EVERY }) }, 2400)

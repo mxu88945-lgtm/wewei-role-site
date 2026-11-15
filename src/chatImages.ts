@@ -1,33 +1,36 @@
+import { archivedImageText, imageWireContent } from './imageMemo'
 import type { ChatApiContentPart } from './chatApi'
 
 /** A picture the user sent in chat. Stored inline (compressed JPEG) inside the
  *  message, which lives in IndexedDB — never in localStorage. */
-export type ChatImage = { id: string; dataUrl: string; width: number; height: number; fromVideo?: boolean }
+export type ChatImage = { id: string; dataUrl: string; width: number; height: number; fromVideo?: boolean; /** v250 图记：他看图那一轮写下的 ≤40 字描述；之后的请求只带这一行，不再带原图。 */ memo?: string }
 
 export const CHAT_IMAGE_MAX_SIDE = 1280
 export const CHAT_IMAGE_QUALITY = 0.8
 export const CHAT_IMAGE_LIMIT = 4
-/** Only the newest few image-bearing user turns carry pixels to the model; older
- *  ones become a short text marker so long chats don't resend every photo. */
-export const CHAT_IMAGE_PROMPT_TURNS = 2
+/** v250：一张图最多等这么久解码/压缩（iOS 上 HEIC 偶尔既不 onload 也不 onerror，发送键会一直转）。 */
+export const CHAT_IMAGE_PREPARE_TIMEOUT_MS = 20_000
 
 export function fitImageSize(width: number, height: number, maxSide = CHAT_IMAGE_MAX_SIDE) {
   const scale = Math.min(1, maxSide / Math.max(width || 1, height || 1))
   return { width: Math.max(1, Math.round((width || 1) * scale)), height: Math.max(1, Math.round((height || 1) * scale)) }
 }
 
-const loadImage = (file: File) => new Promise<HTMLImageElement>((resolve, reject) => {
+const loadImage = (file: File, timeoutMs = CHAT_IMAGE_PREPARE_TIMEOUT_MS) => new Promise<HTMLImageElement>((resolve, reject) => {
   const url = URL.createObjectURL(file)
   const image = new Image()
-  image.onload = () => { URL.revokeObjectURL(url); resolve(image) }
-  image.onerror = () => { URL.revokeObjectURL(url); reject(new Error(`“${file.name || '图片'}”无法读取，换一张试试。`)) }
+  let settled = false
+  const finish = (action: () => void) => { if (settled) return; settled = true; clearTimeout(timer); URL.revokeObjectURL(url); action() }
+  const timer = setTimeout(() => finish(() => { image.onload = null; image.onerror = null; image.src = ''; reject(new Error(`“${file.name || '图片'}”处理超时（${Math.round(timeoutMs / 1000)} 秒），换一张或截个图再发。`)) }), timeoutMs)
+  image.onload = () => finish(() => resolve(image))
+  image.onerror = () => finish(() => reject(new Error(`“${file.name || '图片'}”无法读取，换一张试试。`)))
   image.src = url
 })
 
-export async function prepareChatImage(file: File): Promise<ChatImage> {
+export async function prepareChatImage(file: File, timeoutMs = CHAT_IMAGE_PREPARE_TIMEOUT_MS): Promise<ChatImage> {
   if (file.type && !file.type.startsWith('image/')) throw new Error(`“${file.name}”不是图片。`)
   if (file.size > 25 * 1024 * 1024) throw new Error(`“${file.name}”超过 25MB，请先裁小一点。`)
-  const image = await loadImage(file)
+  const image = await loadImage(file, timeoutMs)
   const size = fitImageSize(image.naturalWidth, image.naturalHeight)
   const canvas = document.createElement('canvas')
   canvas.width = size.width; canvas.height = size.height
@@ -89,31 +92,10 @@ export async function prepareChatVideo(file: File, maxFrames = CHAT_VIDEO_MAX_FR
     URL.revokeObjectURL(url)
   }
 }
-/** Text the model sees for an image turn that is too old to resend. */
-export function imagePlaceholder(images: ChatImage[]): string {
-  const count = images.length
-  const fromVideo = images.some((image) => image.fromVideo)
-  if (fromVideo) return `[用户发送了一段视频（已抽帧 ${count} 张）]`
-  return count > 1 ? `[用户发送了 ${count} 张图片]` : '[用户发送了一张图片]'
-}
+/** Text the model sees for an image turn that is too old to resend (v250: one 图记 line per picture). */
+export const imagePlaceholder = archivedImageText
 
-export function userContentWithImages(text: string, images: ChatImage[] | undefined, includePixels: boolean): string | ChatApiContentPart[] {
-  if (!images?.length) return text
-  if (!includePixels) return [imagePlaceholder(images), text].filter(Boolean).join('\n')
-  const fromVideo = images.some((image) => image.fromVideo)
-  const hint = fromVideo ? '（用户发送了一段视频，以下是按时间顺序抽取的画面，请结合视频内容自然回应。）' : '（用户发送了图片，请结合图片内容自然回应。）'
-  return [
-    { type: 'text', text: text || hint },
-    ...images.map((image): ChatApiContentPart => ({ type: 'image_url', image_url: { url: image.dataUrl, detail: 'auto' } })),
-  ]
-}
-
-/** Indices (into messages) of the newest image-bearing user turns that should carry pixels. */
-export function imagePromptIndices(messages: { role: string; images?: ChatImage[] }[], turns = CHAT_IMAGE_PROMPT_TURNS) {
-  const picked = new Set<number>()
-  for (let index = messages.length - 1; index >= 0 && picked.size < turns; index--) {
-    const message = messages[index]
-    if (message.role === 'user' && message.images?.length) picked.add(index)
-  }
-  return picked
+/** v250：live = 本轮真图；否则只留图记一行。recalled = 她回指时临时附回的那一张原图。 */
+export function userContentWithImages(text: string, images: ChatImage[] | undefined, includePixels: boolean, recalled?: ChatImage | null): string | ChatApiContentPart[] {
+  return imageWireContent(text, images, includePixels, recalled)
 }

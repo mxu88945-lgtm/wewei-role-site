@@ -101,8 +101,11 @@
 }
 
 /* v227：布丁来信胶囊上的名字是主题自己的大字（theme-pudding.css 里按界面字号缩放），不被这里压成 15px。
-   v249：雾白来信 / 雾蓝长笺 / 暗夜流光 档案头上的名字胶囊同理（各自主题里约 23px 按界面字号缩放）。 */
-.phone-canvas :where(h3, strong, b):not(.message-content *):not(.chat-font-preview *):not(.pudding-capsule-name):not(.archive-letter .archive-name):not(.archive-mistnote .archive-name):not(.archive-nightglow .archive-name) {
+   v249：雾白来信 / 雾蓝长笺 / 暗夜流光 档案头上的名字胶囊同理（各自主题里约 23px 按界面字号缩放）。
+   v250：整个档案头（.archive-heading：所有主题的名字胶囊、唱片 kicker、雾白来信封面上的数字）都由主题自己定字号字重；
+   另外几处「字就是图案」的大数字/角标（锁屏倒计时、状态小组件时钟与天气、红包金额、游戏图标、统计数字、未读角标等）也不再被压成 15px。
+   这条规则只管普通界面里的小标题/加粗字。特异度保持高于 .wx-info-mode > b 之类的 !important 规则。 */
+.phone-canvas :where(h3, strong, b):not(.message-content *):not(.chat-font-preview *):not(:is(.archive-heading, .pudding-capsule) *):not(:is(.pudding-capsule-name, .phone-lock-timer, .phone-unread, .phone-status-time strong, .phone-status-weather b, .red-packet-amount b, .phone-game-kinds b, .phone-game-hands b, .film-gallery-add b, .setting-value b, .conversation-stats-grid strong)) {
   font-size: calc(15px * var(--ui-font-scale, 1)) !important;
   font-weight: var(--ui-heading-font-weight, 600) !important;
 }

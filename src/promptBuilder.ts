@@ -1,6 +1,7 @@
 import type { Character, CharacterBook, WorldBookEntry } from './characterCard'
 import type { ChatApiMessage } from './chatApi'
-import { imagePromptIndices, userContentWithImages, type ChatImage } from './chatImages'
+import { userContentWithImages, type ChatImage } from './chatImages'
+import { IMAGE_MEMO_PROMPT, planImageWire } from './imageMemo'
 import { attachmentPromptIndices, attachmentPromptText, type ChatAttachment } from './chatAttachments'
 import { applyMacros, applyRegexScripts, stripPresentationalHtmlForPrompt } from './regexEngine'
 import { selectRelevantMemories, type LongMemoryEntry } from './memoryEngine'
@@ -40,6 +41,8 @@ type PromptInput = {
    * 一律放到对话之后，由发送前的 foldPromptForRelay 并进最新一条用户消息。小手机不开。
    */
   cacheLayout?: boolean
+  /** v250：这一轮不是她的新消息（续演等），不发真图、不要图记。 */
+  noLiveImages?: boolean
 }
 
 const PRIVATE_PERSONA_TAG = '后台身份隔离'
@@ -262,7 +265,9 @@ ${stripStageGateMetadata(input.actorContinuityAnchor || '')}`,
   // 语义召回只补本对话更早的原话，紧挨在最近原文之前，优先级低于最近对话。
   if (!cacheLayout && input.semanticRecall?.trim()) appendSystem(result, input.semanticRecall)
 
-  const imageTurns = imagePromptIndices(recent)
+  // v250 图记：真图只在本轮（含重新生成）发；旧图只留图记一行；她回指旧图时临时附回 1 张原图。
+  // 续演（continueWithoutUser）不是她的新一轮，不再重发图片。
+  const imageWire = planImageWire(recent, input.messages, { noLiveImages: input.noLiveImages })
   const attachmentTurns = attachmentPromptIndices(recent)
   const history = recent.map<ChatApiMessage>((message, index) => {
     const scripted = applyRegexScripts(
@@ -277,7 +282,8 @@ ${stripStageGateMetadata(input.actorContinuityAnchor || '')}`,
     const quotedText = message.role === 'user' ? withQuotePrefix(scripted, message.quote) : scripted
     const attachmentText = message.role === 'user' ? attachmentPromptText(message.attachments, attachmentTurns.has(index)) : ''
     const text = [quotedText, attachmentText].filter(Boolean).join('\n\n')
-    return { role: message.promptRole || message.role, content: message.role === 'user' ? userContentWithImages(text, message.images, imageTurns.has(index)) : text }
+    const recalled = imageWire.recall?.index === index ? imageWire.recall.image : null
+    return { role: message.promptRole || message.role, content: message.role === 'user' ? userContentWithImages(text, message.images, imageWire.live.has(index), recalled) : text }
   }).filter((message) => Array.isArray(message.content) || String(message.content).trim())
   result.push(...history)
 
@@ -288,6 +294,8 @@ ${stripStageGateMetadata(input.actorContinuityAnchor || '')}`,
     result.splice(Math.max(0, result.length - depth), 0, { role, content: applyMacros(entry.content, character, user.name) })
   }
 
+  // 只在带新图、还没图记的那一轮加一句（cacheLayout 时并进【本轮背景】；小手机是末尾一条 system）。
+  if (imageWire.wantsMemo) appendSystem(result, IMAGE_MEMO_PROMPT)
   if (cacheLayout) {
     // 每轮会变的部分，顺序：触发的世界书 → 按最近对话挑的记忆 → 语义召回 → 剧本场记与锚点（离回复最近）。
     const loreText = turnEntries.map((entry) => applyMacros(entry.content, character, user.name)).join('\n\n')

@@ -1,5 +1,6 @@
 import { stripFilmBlocks } from './filmBlock'
 import { stripTurnContext } from './promptTail'
+import { stripImageMemo } from './imageMemo'
 
 const STATUS_INSTRUCTION_MARKER = /(?:#\s*)?注意[:：]?\s*(?:非常重要[！!]?|请严格按照以上格式输出)|必须在每次输出后回复的末尾|参考状态栏输出状态栏|状态栏格式要求如上|请严格遵守以上格式|禁止缺少任何符号\s*[（(]包括空格与换行|(?:获得|倒扣)\s*\d+w?\s*美元.*赛博小费/i
 const STORY_START = /(?:<plot>\s*)?(?:```\s*)?(?:⏰|🕰️)\s*时间/i
@@ -96,7 +97,8 @@ export function containsHiddenReasoning(value: string, director = false) {
 }
 
 export function sanitizeAssistantOutput(value: string, options: { director?: boolean } = {}) {
-  let output = stripTaggedReasoning(stripTurnContext(value))
+  // v250：[图记:…] 只给应用看（存到那张图上），界面、历史、记忆都不显示；流式时半截也藏。
+  let output = stripTaggedReasoning(stripTurnContext(stripImageMemo(value)))
   const opening = output.slice(0, 2600)
   if (options.director && looksLikeDirectorReasoning(opening)) {
     const start = directorStoryStart(output)

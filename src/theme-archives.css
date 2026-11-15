@@ -20,7 +20,7 @@
 .archive-academy .archive-portrait { position: absolute; left: 16px; top: -35px; width: 70px; height: 88px; padding: 5px 5px 16px; background: #fff; box-shadow: 0 5px 12px #443e3540; transform: rotate(-7deg); }
 .archive-academy .archive-cover { color: #735c4c; background: #e6e2d9; font: 26px Georgia, serif; }
 .archive-academy .archive-portrait::after { content: '99'; position: absolute; bottom: 1px; left: 0; right: 0; text-align: center; color: #65594f; font: italic 12px Georgia, serif; }
-.archive-academy .archive-name { color: #ac353d; font-family: 'Kaiti SC', STKaiti, KaiTi, 'Songti SC', serif; font-size: clamp(24px, 5vw, 33px); line-height: 1.2; }
+.archive-academy .archive-name { color: #ac353d; font-family: 'Kaiti SC', STKaiti, KaiTi, 'Songti SC', serif; font-size: calc(23px * var(--ui-font-scale, 1)); line-height: 1.2; }
 .archive-academy.user .archive-name { color: #28558a; }
 .archive-academy .archive-grade { position: absolute; right: 12px; top: 10px; display: grid; place-items: center; width: 48px; height: 48px; border: 2px solid #ba3e43; border-radius: 50%; color: #ba3e43; font: italic 30px/1 'Kaiti SC', Georgia, serif; transform: rotate(-12deg); }
 .archive-academy.user .archive-grade { color: #3d8b58; border-color: #3d8b58; }
@@ -38,7 +38,7 @@
 .archive-vinyl .archive-disc { position: absolute; right: -4px; top: 2px; width: 82px; height: 82px; border-radius: 50%; border: 1px solid #5a7d88; background: repeating-radial-gradient(circle, transparent 0 3px, #60828c44 4px, transparent 5px), radial-gradient(circle, #bbd0d4 0 3%, #214956 4% 18%, #557d89 19% 23%, #153d4d 24% 65%, #2d5663 68% 70%); box-shadow: 2px 5px 10px #23465326; }
 .archive-vinyl .archive-heading-copy { flex: 1; border-left: 1px solid #7b9aa680; padding-left: 12px; }
 .archive-vinyl .archive-heading-copy small { display: block; color: #557987; font: 9px/1.4 -apple-system, sans-serif; letter-spacing: .13em; }
-.archive-vinyl .archive-name { margin: 6px 0; color: #315868; font-family: 'Songti SC', Georgia, serif; font-size: 24px; line-height: 1.2; }
+.archive-vinyl .archive-name { margin: 6px 0; color: #315868; font-family: 'Songti SC', Georgia, serif; font-size: calc(23px * var(--ui-font-scale, 1)); line-height: 1.2; }
 .archive-vinyl .archive-heading-copy em { display: block; color: #7a929d; font: italic 11px/1.4 Georgia, serif; }
 .archive-vinyl .archive-track { display: flex; align-items: center; gap: 8px; margin-top: 9px; font: 8px/1 Georgia, serif; letter-spacing: .1em; color: #557987; }
 .archive-vinyl .archive-track i { flex: 1; height: 1px; background: linear-gradient(90deg, #658694 0 58%, #c9d5d9 58%); }
@@ -74,7 +74,7 @@ html:is([data-theme-key="academy"], [data-theme-key="vinyl"]) body:not(.rp-chat-
 .archive-mobile .archive-portrait { position: relative; width: 64px; height: 64px; flex: 0 0 64px; margin: 0; padding: 0; border-radius: 50%; overflow: hidden; background: #f4f4f6; }
 .archive-mobile .archive-cover { border-radius: 50%; color: #7e7e87; font-size: 26px; }
 .archive-mobile .archive-disc { display: none; }
-.archive-mobile .archive-name { color: #19191d; font: 650 23px/1.4 -apple-system,'PingFang SC',sans-serif; }
+.archive-mobile .archive-name { color: #19191d; font: 650 calc(23px * var(--ui-font-scale, 1))/1.4 -apple-system,'PingFang SC',sans-serif; }
 .archive-mobile .archive-heading-copy small { display: block; margin-top: 4px; color: #93939b; font-size: 12px; letter-spacing: .06em; }
 .archive-mobile .archive-body { line-height: 1.95; text-align: left; }
 .archive-mobile .archive-body :is(.message-quote,.chat-quote) {display: table !important;width: fit-content !important;max-width: 100% !important;margin: 10px 0 !important;padding: 8px 13px !important;color: #34343b !important;background: linear-gradient(120deg,#f2f2f5,#e5e5ea) !important;border: 1px solid #dddde3 !important;border-radius: 17px !important;box-shadow: 0 3px 10px #29293606 !important;line-height: 1.7 !important;overflow-wrap: anywhere !important;text-align: left !important;box-decoration-break: clone !important;-webkit-box-decoration-break: clone !important; }
@@ -86,7 +86,7 @@ html:is([data-theme-key="academy"], [data-theme-key="vinyl"]) body:not(.rp-chat-
 .theme-mobile { --theme-accent: #777781; --theme-accent-strong: #55555f; --theme-accent-end: #9999a3; --theme-accent-soft: #f1f1f4; --theme-accent-soft-strong: #e7e7ec; --theme-accent-text: #55555f; --theme-accent-shadow: #30303d12; --composer-dock-rgb: 250,250,252; }
 .theme-mobile .chat-page:not(.phone-chat) .composer { background: #ffffffed; border: 1px solid #eeeef2; border-radius: 24px; box-shadow: 0 5px 18px #30303d08; }
 .theme-choice-grid button.mobile i { background: linear-gradient(135deg,#fff 50%,#e5e5eb 50%) !important; border: 1px solid #e1e1e7; border-radius: 9px; }
-@media(max-width:380px) { .archive-row.archive-mobile { padding: 16px 16px 20px !important; border-radius: 23px !important; } .archive-mobile .archive-heading { gap: 14px; } .archive-mobile .archive-name { font-size: 21px; } .archive-mobile .archive-portrait { width: 56px; height: 56px; flex-basis: 56px; } }
+@media(max-width:380px) { .archive-row.archive-mobile { padding: 16px 16px 20px !important; border-radius: 23px !important; } .archive-mobile .archive-heading { gap: 14px; } .archive-mobile .archive-name { font-size: calc(21px * var(--ui-font-scale, 1)); } .archive-mobile .archive-portrait { width: 56px; height: 56px; flex-basis: 56px; } }
 
 .archive-mobile.user .archive-body :is(.message-plain-text,.bubble) { display: block; width: fit-content; max-width: 100%; margin-left: auto !important; margin-right: 0 !important; padding: 10px 14px !important; border: 1px solid #dddde3 !important; border-radius: 17px !important; background: linear-gradient(120deg,#f2f2f5,#e5e5ea) !important; text-align: left !important; }
 .archive-mobile.user .archive-body .message-quote { display: inline; margin: 0; padding: 0; border: 0; border-radius: 0; background: transparent; box-shadow: none; }
