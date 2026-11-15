@@ -200,14 +200,19 @@ const memoryLines = (entries: readonly PersonaMemoryEntry[], max = GUEST_MEMORY_
  * 第一条 system 的稳定部分：成员、各自人设/世界观/窗口记忆、模式与输出格式。
  * 只随成员、模式、客人卡或客人记忆变化；每轮谁说放【本轮背景】。
  */
-export function buildGroupSystemBlock(plan: Pick<GroupTurnPlan, 'mode' | 'guests'>, names: { char: string; user: string }) {
+/** v256：角色卡客人的前世记忆指路（只在他确有过往记录时写进他的卡里）。 */
+export const guestPastLifePointer = (name: string, user: string) => `前世记忆：${name}和${user}在小手机交流或长剧情里有过往记录（那是过去的线上交流和一起写过的故事，不是此刻的身份与关系）。聊到相关的人、事或往事时，应用会在本轮附上【${name}的前世记忆】片段，只有${name}自己记得；没附上的细节不编造。`
+
+export function buildGroupSystemBlock(plan: Pick<GroupTurnPlan, 'mode' | 'guests'>, names: { char: string; user: string }, pastLifeGuests: ReadonlySet<string> = new Set()) {
   const allowed = [names.char, ...plan.guests.map((guest) => guest.name)]
   const cards = plan.guests.map((guest) => [
     `〔${guest.name}｜临时加入的客人〕`,
     guest.persona && (guest.fromCard ? `人设（借自原角色卡，只取性格、说话方式、外貌与身份气质）：\n${guest.persona}` : `人设：\n${guest.persona}`),
     guest.world && `${guest.name}的世界观：\n${guest.world}`,
     memoryLines(guest.memories) && `${guest.name}在这扇窗口里记得的事（只属于${guest.name}）：\n${memoryLines(guest.memories)}`,
+    pastLifeGuests.has(guest.id) && guestPastLifePointer(guest.name, names.user),
   ].filter(Boolean).join('\n')).join('\n\n')
+  const pastNote = pastLifeGuests.size ? `（卡里写了「前世记忆」的客人例外：他记得和${names.user}的过往交流与一起写过的故事，可以自然认出她、想起往事；但原卡身份、职业和故事里的人物关系仍不自动成为此刻的关系，此刻的场景只从这扇窗口开始。）` : ''
   const mode = plan.mode === 'natural'
     ? `【回复模式｜自然接话】由你判断这一轮谁自然接话：可以只有一个人，也可以几个人接戏，每轮最多 ${PERSONA_GROUP_NATURAL_CAP} 段；没话说的人不必硬说，不要每人轮流发言。`
     : `【回复模式｜@ 点名】${names.user}在消息里 @ 谁，就只由谁回复；@ 了几个人就按 @ 的顺序各写一段；没有 @ 时由${names.char}回复。本轮名单写在【本轮背景】里。`
@@ -220,7 +225,7 @@ ${mode}
 【群聊回复格式】
 - 每位发言人单独一段，段首另起一行写【名字】，名字只能是：${allowed.join('、')}。这个标记只给应用看，会被隐藏，不会显示给她。
 - 每段只写这个人自己的话和简短动作；不替别人说话，不替${names.user}发言、行动或决定。
-- 从角色卡拉来的客人是“借人不借戏”：原卡里的剧情、人物关系、恩怨和与${names.user}或任何人的过往一律不作数；原卡里的其他人物不在场，也不要提起。他是第一次走进这扇窗口，和在场的人原本素不相识，彼此的关系只从这扇窗口里发生的事开始（他自己的窗口记忆和【他的世界观】另有写明的除外）。
+- 从角色卡拉来的客人是“借人不借戏”：原卡里的剧情、人物关系、恩怨和与${names.user}或任何人的过往一律不作数；原卡里的其他人物不在场，也不要提起。他是第一次走进这扇窗口，和在场的人原本素不相识，彼此的关系只从这扇窗口里发生的事开始（他自己的窗口记忆和【他的世界观】另有写明的除外）。${pastNote}
 - 客人各按自己的人设与世界观说话，只知道自己在场时发生的事；${names.char}的长期记忆、前世记忆和与${names.user}的私事，客人并不知道。
 - 礼物、人物档案、自我卡、点歌和任务卡只属于${names.char}，只能写在【${names.char}】那一段；客人段落里不要写这些标记（写了也会被丢掉）。客人想记住的事，可以在自己那段末尾写 [记忆:一句话]，只记进他自己的窗口记忆。`
 }

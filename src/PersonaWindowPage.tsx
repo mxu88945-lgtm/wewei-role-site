@@ -315,6 +315,7 @@ export default function PersonaWindowPage(props: Props) {
       historyTokenBudget: props.historyTokenBudget ?? HISTORY_TOKEN_BUDGET,
       // Read-only snapshot of this character's phone/story life, built per request.
       pastLife: () => collectPastLifeMemory({ character, characters, conversations, memoryEntries, userName: identity.name, boundGroupIds: persona?.boundGroupIds, boundConversationIds: persona?.boundConversationIds }),
+      guestPastLife: (characterId) => { const guest = characters.find((item) => item.id === characterId); return guest ? collectPastLifeMemory({ character: guest, characters, conversations, memoryEntries, userName: identity.name }) : '' },
       freshFeed: (cursor) => collectFreshFeed({ character, characters, conversations, userName: identity.name, boundGroupIds: persona?.boundGroupIds, boundConversationIds: persona?.boundConversationIds, cursor }),
       globalWorldbook: props.globalWorldbook || '',
       setting: () => buildPersonaSetting({ character, characters, conversations, storyProjects: props.storyProjects || [] }),

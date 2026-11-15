@@ -347,7 +347,7 @@ export async function semanticRecallForPersona(input: PersonaSemanticInput): Pro
       if (id) memories.set(id, hit.score)
     })
     // v252：前世记忆 / 故事背景小段给原始分，阈值和线索一起在 recallPastLife 里判（混合召回）。
-    const chunks = await scoreChunks(channel, model, persona.id, [...(input.pools.pastLife || []), ...input.pools.background, ...(input.pools.lore || [])], q)
+    const chunks = await scoreChunks(channel, model, persona.id, [...(input.pools.pastLife || []), ...input.pools.background, ...(input.pools.lore || []), ...(input.pools.guests || []).flatMap((item) => item.chunks)], q)
     scheduleSemanticIndex(20_000)
     return { messages, memories, chunks, messageScores: scores }
   } catch (error) {

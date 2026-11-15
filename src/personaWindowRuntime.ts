@@ -98,6 +98,8 @@ export type PersonaRuntimeDeps = {
   semanticRecall?: (input: PersonaSemanticInput) => Promise<PersonaSemanticHits | null>
   /** v255 新动态：绑定的群聊/剧本里这扇窗口还没看过的新消息（只推一次，回复成功后游标前移）。 */
   freshFeed?: (cursor: Readonly<Record<string, number>> | undefined) => FreshFeed
+  /** v256：角色卡客人自己的前世记忆（他和她在小手机/长剧情里的过往），按卡 id 取。 */
+  guestPastLife?: (characterId: string) => string | PastLifeResult
 }
 
 export type PersonaSemanticInput = { persona: PersonaWindow; thread: PersonaThread; history: PersonaMessage[]; pools: PersonaRecallPools; inContextKeys: Set<string>; query: string }
@@ -184,7 +186,13 @@ export type PersonaRecallPools = {
   backgroundTitles: string[]
   /** v255：卡自带世界书里按需触发的条目（地点、配角…），给语义召回打分；key = loreKey。 */
   lore?: PastLifeChunk[]
+  /** v256：在场的角色卡客人各自的前世记忆小段（key 加 guest 前缀，和主人格的分开计冷却）。 */
+  guests?: Array<{ guestId: string; name: string; chunks: PastLifeChunk[] }>
 }
+
+/** v256：每位客人一轮最多带这么多字 / 段。 */
+export const GUEST_PAST_LIFE_BUDGET = 1200
+export const GUEST_PAST_LIFE_MAX_CHUNKS = 2
 
 /** v255：人格窗口里不常驻、靠触发的世界书条目（深度注入、概率条目不算）。 */
 export function personaTriggerableLore(book: { entries?: WorldBookEntry[] } | undefined): WorldBookEntry[] {
@@ -220,7 +228,19 @@ export function personaRecallPools(persona: PersonaWindow, deps: PersonaRuntimeD
     globalWorldbook: globalWorldbook.length > BACKGROUND_STABLE_MAX ? '' : globalWorldbook,
     backgroundTitles: [...new Set(titles)],
     lore: personaLoreChunks(personaCharacter(deps.character).characterBook),
+    guests: persona.pastLifeEnabled !== false && deps.guestPastLife ? guestPastLifePools(persona, deps) : [],
   }
+}
+
+function guestPastLifePools(persona: PersonaWindow, deps: PersonaRuntimeDeps) {
+  const thread = activeThread(persona)
+  const guests = (thread.memberIds || []).map((id) => (persona.guests || []).find((guest) => guest.id === id))
+    .filter((guest): guest is NonNullable<typeof guest> => Boolean(guest && guest.source === 'card' && guest.characterId && guest.characterId !== deps.character.id))
+  return guests.flatMap((guest) => {
+    const chunks = (pastLifeChunksFrom(deps.guestPastLife!(guest.characterId!)) || []).map((chunk) => ({ ...chunk, key: `${guest.id}|${chunk.key}` }))
+    const name = resolveGuest(guest, deps.characters).name
+    return chunks.length ? [{ guestId: guest.id, name, chunks }] : []
+  })
 }
 
 /** v236：本轮触发的（非常驻）世界书最多带这么多字。 */
@@ -295,6 +315,14 @@ export function planPersonaRequest(persona: PersonaWindow, history: PersonaMessa
   const feed = persona.pastLifeEnabled !== false && !options.event ? deps.freshFeed?.(thread.feedCursor) : undefined
   const giftHistory = personaGiftHistory(persona.threads, thread)
   const group = planGroupTurn(persona, thread, history, { name: character.name, avatar: deps.character.avatar }, deps.characters)
+  // v256：在场的角色卡客人各自的前世记忆——指路写进他的卡（稳定），提到/意思相近才附片段（尾巴，每人 ≤1200 字）。
+  const guestPools = group ? (pools.guests || []).filter((item) => group.guests.some((guest) => guest.id === item.guestId)) : []
+  const guestRecalls = guestPools.map((item) => {
+    const lead = `【${item.name}的前世记忆·按需召回｜只属于${item.name}，只读】\n${item.name}和${deps.user.name}过往的片段（小手机是过往线上交流；长剧情是一起写过的故事，不是此刻）。只有${item.name}记得，${character.name}不知道；自然想起即可，不逐条复述。`
+    return recallPastLife(item.chunks, { ...recallCommon, charName: item.name, budget: GUEST_PAST_LIFE_BUDGET, maxChunks: GUEST_PAST_LIFE_MAX_CHUNKS, lead })
+  })
+  const guestPastText = guestRecalls.map((recall) => recall.text).filter(Boolean).map(stripPersonaFormatInstructions).join('\n\n')
+  const guestPastKeys = guestRecalls.flatMap((recall) => recall.keys)
   const guestHistory = !group && recent.some(isGuestMessage)
   const names = { char: character.name, user: deps.user.name }
   // v209 稳定前缀：只放两轮之间不变的内容（人设、规则、长期/锁定记忆、本窗连续性档案、歌单），
@@ -319,7 +347,7 @@ export function planPersonaRequest(persona: PersonaWindow, history: PersonaMessa
     // v232：人物档案自己记——固定文字，只随开关变。
     ['people-tag', '人物档案说明', deps.peopleSelfRecord?.() && PEOPLE_TAG_PROMPT],
     // v234：成员、各自人设/世界观/窗口记忆、模式与输出格式——只随成员或模式变。
-    ['group', '群聊成员', group && buildGroupSystemBlock(group, names)],
+    ['group', '群聊成员', group && buildGroupSystemBlock(group, names, new Set(guestPools.map((item) => item.guestId)))],
     // Keep the core boundary in the FIRST system too (some relays drop later system messages).
     ['guard', '回复前确认', PERSONA_FINAL_GUARD],
   ]
@@ -329,6 +357,7 @@ export function planPersonaRequest(persona: PersonaWindow, history: PersonaMessa
   // 每轮会变的：按最新消息召回的记忆、触发的世界书、任务倒计时、正在听的歌——
   // v210：不再是第二条 system（中转站常把它丢掉），而是接在最新一条用户消息正文后面（只在请求里）。
   const dynamicParts: PromptPart[] = [
+    ['guest-past-life', '客人的前世记忆（按需）', guestPastText],
     ['fresh-feed', '新动态（群聊/剧本里没看过的新消息）', feed?.text && stripPersonaFormatInstructions(feed.text)],
     ['memory-turn', '本轮记忆召回（36 小时·原文·相关记忆·前世）', memory.dynamicText],
     ['gift-turn', '更早的礼物往来（聊到才带）', personaGiftRecallNote(giftHistory, scan)],
@@ -381,7 +410,7 @@ export function planPersonaRequest(persona: PersonaWindow, history: PersonaMessa
   // v209/v210：Claude 加 cache_control（第一条 system + 最新用户消息前一条）；其它模型保持纯字符串。
   const historyChars = history2.reduce((sum, item) => sum + (typeof item.content === 'string' ? item.content.length : item.content.reduce((acc, part) => acc + (part.type === 'text' ? part.text.length : 0), 0)), 0)
   const parts = [...describeParts(systemParts, 'stable').flatMap((part) => part.key === 'card' ? describeParts(referenceParts, 'stable') : [part]), { key: 'history', label: `最近上下文（${history2.length} 条）`, where: 'context' as const, chars: historyChars }, ...describeParts(dynamicParts, 'turn')]
-  return { messages: withPromptCache(consolidatePersonaMessages(messages), deps.api), memory: { ...memory, audit: { ...memory.audit, parts } }, group, parts, feedCursor: feed?.cursor }
+  return { messages: withPromptCache(consolidatePersonaMessages(messages), deps.api), memory: { ...memory, audit: { ...memory.audit, parts } }, group, parts, feedCursor: feed?.cursor, guestPastKeys }
 }
 
 /**
@@ -561,7 +590,7 @@ export async function generatePersonaReply(personaId: string, deps: PersonaRunti
       const touched = updatePersona(state, personaId, (item) => { const memories = touchRecalledMemories(item.memories, plan.memory.recalledMemoryIds || [], done); return memories === item.memories ? item : { ...item, memories } })
       const withMemory = updatePersona(touched, personaId, (item) => guestSaves.reduce((acc, save) => addGuestMemories(acc, save.guestId, save.entries, mergePersonaMemories), saves.length || !guestSaves.length ? { ...item, memories: mergePersonaMemories(item.memories, saves) } : item))
       const withImage = memoTurnIds.size ? updatePersonaThread(withMemory, personaId, threadId, (item) => { const messages = withImageMemo(item.messages, (message) => memoTurnIds.has(message.id), imageMemo); return messages === item.messages ? item : { ...item, messages } }) : withMemory
-      return touch(updatePersonaThread(withImage, personaId, threadId, (item) => ({ ...commitPersonaRecallLedger(item, [...sources.keys(), ...plan.memory.pastLifeKeys], plan.memory.turn), ...(plan.feedCursor ? { feedCursor: plan.feedCursor } : {}), ...(completedTask ? { tasks: item.tasks?.map((entry) => entry.id === completedTask.id ? { ...entry, reactedAt: done } : entry) } : task && !item.tasks?.some((existing) => taskIsActive(existing) && existing.text === task.text) ? { tasks: [...(item.tasks || []), task] } : {}), updatedAt: done })), done)
+      return touch(updatePersonaThread(withImage, personaId, threadId, (item) => ({ ...commitPersonaRecallLedger(item, [...sources.keys(), ...plan.memory.pastLifeKeys, ...plan.guestPastKeys], plan.memory.turn), ...(plan.feedCursor ? { feedCursor: plan.feedCursor } : {}), ...(completedTask ? { tasks: item.tasks?.map((entry) => entry.id === completedTask.id ? { ...entry, reactedAt: done } : entry) } : task && !item.tasks?.some((existing) => taskIsActive(existing) && existing.text === task.text) ? { tasks: [...(item.tasks || []), task] } : {}), updatedAt: done })), done)
     })
     // v234：客人在场的新消息攒够了，就在后台按他的视角整理进他自己的窗口记忆。
     if (group) setTimeout(() => { void extractGuestMemories(personaId, deps, { threadId, every: PERSONA_GUEST_MEMORY_EVERY }) }, 2400)
