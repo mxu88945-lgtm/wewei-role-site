@@ -1,4 +1,4 @@
-import type { ApiConfig, ChatApiMessage } from './chatApi'
+import type { ApiConfig, ChatApiContentPart, ChatApiMessage } from './chatApi'
 import { completeChat } from './chatApi'
 import type { Character } from './characterCard'
 import type { ChatImage } from './chatImages'
@@ -50,7 +50,7 @@ import { PERSONA_GIFT_STABLE_HISTORY, personaGiftRecallNote, addPersonaGift, bui
 import { withPromptCache } from './promptCache'
 import { foldPromptForRelay, stripTurnContext } from './promptTail'
 import { recordPromptUsage } from './promptUsage'
-import { addAlbumPhotos, applyLockPhotoTags, parseAlbumCode, parseLockPhotoTags, addPrivateNotes, afterReplyBody, agencyPrompt, albumIndexLine, albumTurnLine, bodyTurnLine, parseAlbumTags, formatLeft, hasResumeTag, PAUSE_APPEAL_GAP_MS, parseBodyTag, parsePauseTag, parseRoomTags, parseShareTitles, pauseActive, pauseAppealTail } from './personaAgency'
+import { addAlbumPhotos, applyLockPhotoTags, parseAlbumCode, parseLockPhotoTags, addPrivateNotes, afterReplyBody, agencyPrompt, albumIndexLine, albumPeekResult, albumTurnLine, parseAlbumPeek, pickAlbumPeek, bodyTurnLine, parseAlbumTags, formatLeft, hasResumeTag, PAUSE_APPEAL_GAP_MS, parseBodyTag, parsePauseTag, parseRoomTags, parseShareTitles, pauseActive, pauseAppealTail } from './personaAgency'
 import { dismissGuest, parseGuestKicks, addGuestMemories, buildGroupAfterTail, buildGroupSystemBlock, buildGroupTurnTail, guestMemoryExtractionPrompt, isGuestId, isGuestMessage, labelGroupContent, pendingGuestMessages, planGroupTurn, PERSONA_GROUP_SEGMENT_CAP, PERSONA_GUEST_MEMORY_EVERY, resolveGuest, speakerOf, splitGroupReply, type GroupTurnPlan } from './personaGroup'
 
 /**
@@ -566,6 +566,14 @@ export async function generatePersonaReply(personaId: string, deps: PersonaRunti
       })
       if (controller.signal.aborted) throw new DOMException('Aborted', 'AbortError')
       if (flushTimer !== null) { clearTimeout(flushTimer); flushTimer = null }
+      // v270：翻相册——当场把原图递给他（和本地检索共用这两次额外机会）。
+      const peekKey = round < 2 && persona.privateRoomEnabled === true ? parseAlbumPeek(output) : null
+      if (peekKey !== null) {
+        const photos = pickAlbumPeek(findPersona(personaId)?.album, peekKey)
+        request.push({ role: 'assistant', content: output }, { role: 'user', content: photos.length ? [{ type: 'text', text: albumPeekResult(photos, peekKey) }, ...photos.map((photo): ChatApiContentPart => ({ type: 'image_url', image_url: { url: photo.dataUrl, detail: 'auto' } }))] : albumPeekResult(photos, peekKey) })
+        writeStream('')
+        continue
+      }
       const action = parsePersonaMemoryTool(output)
       if (!action) break
       if (round === 2) { output = '我刚才查了两次，还没有找到足够的原话证据，这个细节我先不乱说。'; break }

@@ -70,3 +70,22 @@ describe('v269 album index + home→chat scroll', () => {
     expect(page).toContain('[messages, view, threadId, homeOpen]')
   })
 })
+
+describe('v270 album peek', () => {
+  it('parses [翻相册] and picks matching originals, his locked ones included', async () => {
+    const { parseAlbumPeek, pickAlbumPeek, albumPeekResult } = await import('./personaAgency')
+    expect(parseAlbumPeek('我翻翻 [翻相册:海边]')).toBe('海边')
+    expect(parseAlbumPeek('[翻相册]')).toBe('')
+    expect(parseAlbumPeek('没有')).toBeNull()
+    const album = [...addAlbumPhotos([], [img('x')], ['海边日落'], 'char', 1), ...addAlbumPhotos([], [img('y')], ['秘密'], 'char', 1, true)]
+    expect(pickAlbumPeek(album, '海边').map((p) => p.caption)).toEqual(['海边日落'])
+    expect(pickAlbumPeek(album, '秘密')[0].locked).toBe(true)
+    expect(pickAlbumPeek(album, '').map((p) => p.caption)).toEqual(['海边日落'])
+    expect(albumPeekResult([], '猫')).toContain('没找到')
+    expect(personaReplyText('[翻相册:海边]')).toBe('')
+  })
+  it('hands the original images to him inside the same turn', () => {
+    const runtime = readFileSync(new URL('./personaWindowRuntime.ts', import.meta.url), 'utf8')
+    expect(runtime).toContain("image_url: { url: photo.dataUrl, detail: 'auto' }")
+  })
+})

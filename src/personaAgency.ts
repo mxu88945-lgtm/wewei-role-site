@@ -202,7 +202,7 @@ export function addAlbumPhotos(album: readonly PersonaAlbumPhoto[] | undefined, 
   return next.slice(-ALBUM_MAX)
 }
 
-export const ALBUM_PROMPT = `【隐私室相册】隐私室里还有一本相册。{{user}}这轮发来的照片你想留着，就在回复末尾写 [存相册:一句话]（这句话是你给这张照片写的说明）；不想留就不写。她也会往你的相册里放照片，应用会告诉你。相册里有一格上锁的，密码由你定：想藏起来的写 [存相册:一句话|锁]，已有的用 [锁照片:说明里的词] / [解锁照片:说明里的词] 挪进挪出；用 [相册密码:4到12位] 设或改密码。密码只有你知道，她会来问、来哄，给不给、什么时候给，都由你。`
+export const ALBUM_PROMPT = `【隐私室相册】隐私室里还有一本相册。{{user}}这轮发来的照片你想留着，就在回复末尾写 [存相册:一句话]（这句话是你给这张照片写的说明）；不想留就不写。她也会往你的相册里放照片，应用会告诉你。相册里有一格上锁的，密码由你定：想藏起来的写 [存相册:一句话|锁]，已有的用 [锁照片:说明里的词] / [解锁照片:说明里的词] 挪进挪出；用 [相册密码:4到12位] 设或改密码。想看哪张的原图，就只写 [翻相册:说明里的词]（不写词 = 最近几张），应用会当场把原图递给你，你看完再回应。密码只有你知道，她会来问、来哄，给不给、什么时候给，都由你。`
 
 /** 她新放、TA 还没看过的照片——一行说明进尾巴；有上锁的照片时带上他自己的密码（只有他看得到）。 */
 export function albumTurnLine(album: readonly PersonaAlbumPhoto[] | undefined, code?: string) {
@@ -221,5 +221,19 @@ export function albumIndexLine(album: readonly PersonaAlbumPhoto[] | undefined, 
   if (!all.length || !ALBUM_MENTION.test(userText)) return ''
   const open = all.filter((item) => !item.locked).slice(-20).map((item) => `${item.by === 'user' ? '她放的' : '你收的'}「${item.caption || '没写说明'}」`)
   const locked = all.filter((item) => item.locked).slice(-20).map((item) => `「${item.caption || '没写说明'}」`)
-  return `【你的相册｜只读】你随时能翻自己的相册。${open.length ? `平时那页：${open.join('、')}。` : ''}${locked.length ? `上锁那格（只有你看得到）：${locked.join('、')}。` : ''}`
+  return `【你的相册｜只读】你随时能翻自己的相册（想看原图写 [翻相册:词]）。${open.length ? `平时那页：${open.join('、')}。` : ''}${locked.length ? `上锁那格（只有你看得到）：${locked.join('、')}。` : ''}`
+}
+
+/** v270：他想看原图就写 [翻相册:说明里的词]（不写词 = 最近几张）。应用当场把原图递给他，他看完再回应。 */
+const ALBUM_PEEK_TAG = /\[\s*翻相册\s*(?:[:：]\s*([^\]\n]{0,40}))?\]/
+export const parseAlbumPeek = (text: string): string | null => { const match = text.match(ALBUM_PEEK_TAG); return match ? (match[1] || '').trim() : null }
+export function pickAlbumPeek(album: readonly PersonaAlbumPhoto[] | undefined, key: string, max = 3): PersonaAlbumPhoto[] {
+  const all = [...(album || [])].reverse()
+  if (!key || /^(全部|最近|所有)$/.test(key)) return all.filter((item) => !item.locked).slice(0, max)
+  const words = key.split(/[\s,，、|｜]+/).filter(Boolean)
+  return all.filter((item) => words.some((word) => item.caption.includes(word))).slice(0, max)
+}
+export function albumPeekResult(photos: readonly PersonaAlbumPhoto[], key: string) {
+  if (!photos.length) return `【应用｜翻相册，不是用户的新话】相册里没找到和「${key}」对得上的照片。照实回应她，别编照片内容。`
+  return `【应用｜你翻开了相册，不是用户的新话】下面是你翻到的原图（${photos.map((item) => `${item.locked ? '上锁那格的' : ''}「${item.caption || '没写说明'}」`).join('、')}）。看着图本身接着回应她刚才的话；别再写 [翻相册]。`
 }
