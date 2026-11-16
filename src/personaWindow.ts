@@ -709,7 +709,7 @@ export function collectPastLifeMemory({ character, conversations, memoryEntries,
   const backstage = includeBackstage
     ? buildBackstagePersonaMemory(conversations.filter((conversation) => !conversation.phone && conversation.backstageNotebook), ids, userName, Math.min(PAST_LIFE_BACKSTAGE_MAX_CHARS, Math.max(0, maxChars - 400)))
     : { text: '', count: 0 }
-  const backstageBlock = backstage.text ? `〔幕后手记与戏外私聊〕\n这是他在长剧情幕后手记里写的真心话和你们戏外的私聊（不是戏里的剧情），最新在前：\n${backstage.text}` : ''
+  const backstageBlock = backstage.text ? `〔幕后手记与戏外私聊〕\n这是${character.name}本人在长剧情幕后手记里写的真心话和你们戏外的私聊（不是戏里的剧情，只有${character.name}知道），最新在前：\n${backstage.text}` : ''
   let reserve = backstageBlock.length ? backstageBlock.length + 2 : 0
   const push = (block: string, source: Omit<PastLifeSource, 'chars'>, bound = false, names: string[] = []) => {
     if (used + reserve >= maxChars) return false

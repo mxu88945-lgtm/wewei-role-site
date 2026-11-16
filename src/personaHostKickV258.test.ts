@@ -25,3 +25,10 @@ describe('v258 请出客人', () => {
     expect(state.personas.find((p) => p.id === 'p2')?.hostKickEnabled).toBeUndefined()
   })
 })
+
+describe('v259 幕后手记只属于主人格', () => {
+  it('group rule fences backstage from guests', () => {
+    const plan = { mode: 'natural' as const, guests: [{ id: 'guest-a', name: '顾墨', main: false, persona: '', world: '', memories: [] }] }
+    expect(buildGroupSystemBlock(plan, { char: '谢聿衡', user: '惟惟' })).toContain('〔幕后手记与戏外私聊〕只是谢聿衡本人')
+  })
+})
