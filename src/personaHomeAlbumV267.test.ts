@@ -55,3 +55,18 @@ describe('v268 message time in the footer', () => {
     expect(app).toContain('<time className="message-time">{phoneTimeLabel(at)}</time>')
   })
 })
+
+describe('v269 album index + home→chat scroll', () => {
+  it('shows him his album index only when she mentions the album', async () => {
+    const { albumIndexLine } = await import('./personaAgency')
+    const album = [...addAlbumPhotos([], [img('x')], ['海边'], 'char', 1), ...addAlbumPhotos([], [img('y')], ['秘密'], 'char', 1, true)]
+    expect(albumIndexLine(album, '今天吃什么')).toBe('')
+    const line = albumIndexLine(album, '你相册里都有啥')
+    expect(line).toContain('「海边」')
+    expect(line).toContain('上锁那格')
+  })
+  it('jumps to the newest message when leaving the home page', () => {
+    expect(page).toContain('}, [homeOpen])')
+    expect(page).toContain('[messages, view, threadId, homeOpen]')
+  })
+})

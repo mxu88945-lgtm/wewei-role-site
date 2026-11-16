@@ -50,7 +50,7 @@ import { PERSONA_GIFT_STABLE_HISTORY, personaGiftRecallNote, addPersonaGift, bui
 import { withPromptCache } from './promptCache'
 import { foldPromptForRelay, stripTurnContext } from './promptTail'
 import { recordPromptUsage } from './promptUsage'
-import { addAlbumPhotos, applyLockPhotoTags, parseAlbumCode, parseLockPhotoTags, addPrivateNotes, afterReplyBody, agencyPrompt, albumTurnLine, bodyTurnLine, parseAlbumTags, formatLeft, hasResumeTag, PAUSE_APPEAL_GAP_MS, parseBodyTag, parsePauseTag, parseRoomTags, parseShareTitles, pauseActive, pauseAppealTail } from './personaAgency'
+import { addAlbumPhotos, applyLockPhotoTags, parseAlbumCode, parseLockPhotoTags, addPrivateNotes, afterReplyBody, agencyPrompt, albumIndexLine, albumTurnLine, bodyTurnLine, parseAlbumTags, formatLeft, hasResumeTag, PAUSE_APPEAL_GAP_MS, parseBodyTag, parsePauseTag, parseRoomTags, parseShareTitles, pauseActive, pauseAppealTail } from './personaAgency'
 import { dismissGuest, parseGuestKicks, addGuestMemories, buildGroupAfterTail, buildGroupSystemBlock, buildGroupTurnTail, guestMemoryExtractionPrompt, isGuestId, isGuestMessage, labelGroupContent, pendingGuestMessages, planGroupTurn, PERSONA_GROUP_SEGMENT_CAP, PERSONA_GUEST_MEMORY_EVERY, resolveGuest, speakerOf, splitGroupReply, type GroupTurnPlan } from './personaGroup'
 
 /**
@@ -389,6 +389,7 @@ export function planPersonaRequest(persona: PersonaWindow, history: PersonaMessa
     ['image-memo', '图记提示（本轮新图）', imageWire.wantsMemo && IMAGE_MEMO_PROMPT],
     ['body', '身体状态', persona.bodyStateEnabled === true && bodyTurnLine(persona.bodyState)],
     ['album', '相册新照片', persona.privateRoomEnabled === true && albumTurnLine(persona.album, persona.albumCode)],
+    ['album-index', '相册目录（她提到相册时）', persona.privateRoomEnabled === true && albumIndexLine(persona.album, [...history].reverse().find((message) => message.role === 'user')?.text || '')],
     ['pause', '暂停中·申请继续', persona.pauseEnabled === true && pauseActive(thread.pause) && [...history].reverse().find((message) => message.role === 'user')?.pauseAppeal ? pauseAppealTail(thread.pause) : ''],
     ['guard-turn', '回复前确认', PERSONA_FINAL_GUARD],
     // v234：这一轮谁说（每轮变，所以放尾巴）。

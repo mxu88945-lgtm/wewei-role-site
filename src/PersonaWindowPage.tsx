@@ -374,7 +374,18 @@ export default function PersonaWindowPage(props: Props) {
       return
     }
     if (stickRef.current) list.scrollTop = list.scrollHeight
-  }, [messages, view, threadId])
+  }, [messages, view, threadId, homeOpen])
+
+  // v269：从 TA 的主页进聊天，消息列表是新挂上的——直接落到最新一条（图片晚加载再补一次）。
+  useLayoutEffect(() => {
+    if (homeOpen) return
+    stickRef.current = true
+    const toBottom = () => { const list = listRef.current; if (list && stickRef.current) list.scrollTop = list.scrollHeight }
+    toBottom()
+    const frame = requestAnimationFrame(toBottom)
+    const late = window.setTimeout(toBottom, 260)
+    return () => { cancelAnimationFrame(frame); window.clearTimeout(late) }
+  }, [homeOpen])
 
   useEffect(() => { stickRef.current = true; setPersonaJump({ up: false, down: false, visible: false }) }, [threadId])
   useEffect(() => { setMemoryLimit(30) }, [active?.id])

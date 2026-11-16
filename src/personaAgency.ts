@@ -213,3 +213,13 @@ export function albumTurnLine(album: readonly PersonaAlbumPhoto[] | undefined, c
   if (!fresh.length) return lockLine
   return (lockLine ? `${lockLine}\n` : '') + `【相册｜应用事件】{{user}}往你隐私室的相册里放了 ${fresh.length} 张照片${fresh.some((item) => item.caption) ? `：${fresh.map((item) => item.caption ? `「${item.caption}」` : '一张没写说明的').join('、')}` : ''}。看你想不想提，不必每张都说。`
 }
+
+/** v269：她这轮提到相册/照片时，把相册目录（只有说明，不带图）给他翻一眼。平时不带，省 token。 */
+export const ALBUM_MENTION = /相册|照片|相片|合照|那张图/
+export function albumIndexLine(album: readonly PersonaAlbumPhoto[] | undefined, userText: string) {
+  const all = album || []
+  if (!all.length || !ALBUM_MENTION.test(userText)) return ''
+  const open = all.filter((item) => !item.locked).slice(-20).map((item) => `${item.by === 'user' ? '她放的' : '你收的'}「${item.caption || '没写说明'}」`)
+  const locked = all.filter((item) => item.locked).slice(-20).map((item) => `「${item.caption || '没写说明'}」`)
+  return `【你的相册｜只读】你随时能翻自己的相册。${open.length ? `平时那页：${open.join('、')}。` : ''}${locked.length ? `上锁那格（只有你看得到）：${locked.join('、')}。` : ''}`
+}
