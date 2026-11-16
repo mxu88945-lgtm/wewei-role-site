@@ -1,5 +1,6 @@
 import { useRef, useState } from 'react'
 import ChatImageViewer from './ChatImageViewer'
+import type { PersonaDiaryEntry } from './personaDiary'
 import type { PersonaTap } from './PersonaTaskCards'
 import { canAskNote, currentBody, formatLeft, pauseActive, type PersonaAlbumPhoto, type PersonaBodyState, type PersonaPause, type PersonaPrivateNote } from './personaAgency'
 
@@ -10,12 +11,13 @@ function Toggle({ title, note, on, onToggle, tap }: { title: string; note: strin
 }
 
 /** v261：TA 的小天地——暂停的权利、隐私室、身体状态（各一个开关，默认关）。 */
-export default function PersonaAgencyPanel({ name, flags, pause, room, album = [], albumCode, body, busy, onToggle, onAsk, onAddPhotos, onRemovePhoto, tap }: {
+export default function PersonaAgencyPanel({ name, flags, pause, room, album = [], diary = [], albumCode, body, busy, onToggle, onAsk, onAddPhotos, onRemovePhoto, tap }: {
   name: string
   flags: { pause: boolean; room: boolean; body: boolean }
   pause?: PersonaPause
   room: PersonaPrivateNote[]
   album?: PersonaAlbumPhoto[]
+  diary?: PersonaDiaryEntry[]
   albumCode?: string
   onAddPhotos?: (files: FileList) => void
   onRemovePhoto?: (id: string) => void
@@ -57,6 +59,17 @@ export default function PersonaAgencyPanel({ name, flags, pause, room, album = [
       </div>)}
       {!list.length && <p className="persona-empty">还空着。{name}想偷偷写点什么时会放在这里。</p>}
     </div>}
+    {/* v277：他自己的小日记，常开 */}
+    <div className="persona-gift-shelf persona-room-list persona-diary" aria-label="日记">
+      <div className="persona-album-head"><strong>📔 {name}的日记</strong><small>{diary.length ? `${diary.length} 篇 · 上锁的只看得到标题` : 'TA 想写的时候会写'}</small></div>
+      {[...diary].reverse().map((entry) => <div key={entry.id} className="persona-room-row">
+        <button type="button" className="persona-room-title" aria-expanded={entry.locked ? undefined : open === entry.id} {...tap(() => { if (!entry.locked) setOpen((current) => current === entry.id ? null : entry.id) })}>
+          <span aria-hidden="true">{entry.locked ? '🔒' : '📝'}</span><strong>{entry.title}</strong><small>{entry.day.slice(5).replace('-', '/')}</small>
+        </button>
+        {!entry.locked && open === entry.id && <p className="persona-room-text persona-diary-text">{entry.text}</p>}
+      </div>)}
+      {!diary.length && <p className="persona-empty">还没写。{name}有想记下的事，会在回你的时候顺手写一篇。</p>}
+    </div>
     {/* v272：相册常开，不跟隐私室开关走 */}
     <div className="persona-album" aria-label="相册">
       <div className="persona-album-head"><strong>📷 相册</strong><small>{name}能把你发的照片收进来，你也能放</small><button type="button" {...tap(() => fileRef.current?.click())}>＋ 放照片</button></div>

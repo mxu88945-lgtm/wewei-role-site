@@ -8,6 +8,7 @@
  * - 「前世记忆」只读：从同一角色在小手机与长剧情里已有的记忆/摘要拼出一段
  *   有上限的参考资料，单独标注后注入。
  */
+import { normalizeDiary, type PersonaDiaryEntry } from './personaDiary'
 import type { Character, CharacterBook, CharacterMemoryEntry, WorldBookEntry } from './characterCard'
 import type { StoryProject } from './storyProject'
 import { stripPresentationalHtmlForPrompt } from './regexEngine'
@@ -188,6 +189,8 @@ export type PersonaWindow = {
   /** v267 相册上锁那格的密码，他自己设（[相册密码:…]）。 */
   albumCode?: string
   bodyState?: PersonaBodyState
+  /** v277 他自己的小日记（常开）。 */
+  diary?: PersonaDiaryEntry[]
   /** v234：拉进过这扇人格窗口的客人（卡 + 他自己的窗口记忆），请出后仍保留。 */
   guests?: PersonaGuest[]
 }
@@ -342,6 +345,7 @@ export function normalizePersonaState(value: unknown): PersonaWindowState {
       ...(normalizeAlbum(raw.album).length ? { album: normalizeAlbum(raw.album) } : {}),
       ...(typeof raw.albumCode === 'string' && raw.albumCode.trim() ? { albumCode: raw.albumCode.trim().slice(0, 12) } : {}),
       ...(normalizeBodyState(raw.bodyState) ? { bodyState: normalizeBodyState(raw.bodyState) } : {}),
+      ...(normalizeDiary(raw.diary).length ? { diary: normalizeDiary(raw.diary) } : {}),
       ...(normalizeGuests(raw.guests, normalizeMemory).length ? { guests: normalizeGuests(raw.guests, normalizeMemory) } : {}),
     })
   }

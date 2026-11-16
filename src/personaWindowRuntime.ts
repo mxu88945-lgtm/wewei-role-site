@@ -1,3 +1,4 @@
+import { DIARY_PROMPT, addDiaryEntries, diaryTurnLine, localDay, parseDiaryTags } from './personaDiary'
 import type { ApiConfig, ChatApiContentPart, ChatApiMessage } from './chatApi'
 import { completeChat } from './chatApi'
 import type { Character } from './characterCard'
@@ -368,6 +369,8 @@ export function planPersonaRequest(persona: PersonaWindow, history: PersonaMessa
     // Keep the core boundary in the FIRST system too (some relays drop later system messages).
     // v261 TA 的小天地：固定文字，只随开关变。
     ['agency', '暂停·隐私室·身体状态说明', agencyPrompt({ pause: persona.pauseEnabled === true, room: persona.privateRoomEnabled === true, body: persona.bodyStateEnabled === true, album: true })],
+    // v277 他自己的小日记：固定文字，常开。
+    ['diary', '他的日记说明', DIARY_PROMPT],
     ['guard', '回复前确认', PERSONA_FINAL_GUARD],
   ]
   const system = joinParts(systemParts)
@@ -390,6 +393,7 @@ export function planPersonaRequest(persona: PersonaWindow, history: PersonaMessa
     ['body', '身体状态', persona.bodyStateEnabled === true && bodyTurnLine(persona.bodyState)],
     ['album', '相册新照片', albumTurnLine(persona.album, persona.albumCode)],
     ['album-index', '相册目录（她提到相册时）', albumIndexLine(persona.album, [...history].reverse().find((message) => message.role === 'user')?.text || '')],
+    ['diary-turn', '日记（晚上没写/聊到日记）', diaryTurnLine(persona.diary, [...history].reverse().find((message) => message.role === 'user')?.text || '', Date.now(), history.filter((message) => message.role === 'user' && localDay(message.createdAt || 0) === localDay(Date.now())).length)],
     ['pause', '暂停中·申请继续', persona.pauseEnabled === true && pauseActive(thread.pause) && [...history].reverse().find((message) => message.role === 'user')?.pauseAppeal ? pauseAppealTail(thread.pause) : ''],
     ['guard-turn', '回复前确认', PERSONA_FINAL_GUARD],
     // v234：这一轮谁说（每轮变，所以放尾巴）。
@@ -637,14 +641,18 @@ export async function generatePersonaReply(personaId: string, deps: PersonaRunti
       const lastUserImages = albumCaps.length ? ([...history].reverse().find((message) => message.role === 'user')?.images || []).filter((image) => !image.fromVideo) : []
       if (lastUserImages.length) toasts.push(`📷 ${deps.character.name}把你发的${lastUserImages.length > 1 ? ` ${lastUserImages.length} 张图` : '照片'}收进了相册${albumLock ? '，还上了锁' : ''}`)
       const albumUnseen = (live.album || []).some((item) => item.by === 'user' && !item.seen)
-      if (resume || newPause || notes.length || asked || body || lastUserImages.length || albumUnseen || newCode || lockTags.length) setPersonaState((state) => updatePersona(state, personaId, (item) => {
+      // v277 日记：常开，只认主人格那段。
+      const diaryEntries = parseDiaryTags(own)
+      diaryEntries.forEach((entry) => toasts.push(`📔 ${deps.character.name}写了一篇日记《${entry.title}》${entry.locked ? '，上了锁' : ''}`))
+      if (resume || newPause || notes.length || asked || body || lastUserImages.length || albumUnseen || newCode || lockTags.length || diaryEntries.length) setPersonaState((state) => updatePersona(state, personaId, (item) => {
         let album = lastUserImages.length ? addAlbumPhotos(item.album, lastUserImages, albumCaps, 'char', agencyNow, albumLock) : item.album
         if (lockTags.length && album) album = applyLockPhotoTags(album, lockTags)
         if (albumUnseen && album) album = album.map((photo) => photo.by === 'user' && !photo.seen ? { ...photo, seen: true } : photo)
         let room = notes.length ? addPrivateNotes(item.privateRoom, notes, agencyNow) : item.privateRoom
         if (asked && room) room = room.map((note) => note.id === asked.id ? { ...note, askedAt: agencyNow, ...(shared ? { shared: true } : { declinedAt: agencyNow }) } : note)
         const threads = resume || newPause ? item.threads.map((entry) => { if (entry.id !== threadId) return entry; const next = { ...entry }; if (newPause) next.pause = newPause; else delete next.pause; return next }) : item.threads
-        return { ...item, threads, ...(room ? { privateRoom: room } : {}), ...(body ? { bodyState: body } : {}), ...(album ? { album } : {}), ...(newCode ? { albumCode: newCode } : {}) }
+        const diary = diaryEntries.length ? addDiaryEntries(item.diary, diaryEntries, agencyNow) : item.diary
+        return { ...item, threads, ...(diary ? { diary } : {}), ...(room ? { privateRoom: room } : {}), ...(body ? { bodyState: body } : {}), ...(album ? { album } : {}), ...(newCode ? { albumCode: newCode } : {}) }
       }))
       if (toasts.length) patchRuntime((current) => ({ ...current, peopleToasts: { ...current.peopleToasts, [personaId]: { text: toasts.join(' · '), seq: ++peopleToastSeq } } }))
     }
