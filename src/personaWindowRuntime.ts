@@ -210,6 +210,10 @@ export function personaLoreChunks(book: { entries?: WorldBookEntry[] } | undefin
   })
 }
 
+export function withoutBackstageWhenGuests(chunks: PastLifeChunk[] | null, guestsPresent: boolean) {
+  return chunks && guestsPresent ? chunks.filter((chunk) => chunk.kind !== '幕后手记' && !chunk.label.startsWith('幕后手记')) : chunks
+}
+
 export function personaRecallPools(persona: PersonaWindow, deps: PersonaRuntimeDeps): PersonaRecallPools {
   const setting = deps.setting?.().trim() || ''
   const globalWorldbook = deps.globalWorldbook?.trim() || ''
@@ -224,7 +228,8 @@ export function personaRecallPools(persona: PersonaWindow, deps: PersonaRuntimeD
     titles.push('全局世界书')
   }
   return {
-    pastLife: persona.pastLifeEnabled !== false ? pastLifeChunksFrom(deps.pastLife()) : null,
+    // v260：有客人在场时，主人格的幕后手记与戏外私聊整块不进请求——客人和他共用一条提示词，写规则也挡不住「看见」。
+    pastLife: persona.pastLifeEnabled !== false ? withoutBackstageWhenGuests(pastLifeChunksFrom(deps.pastLife()), (activeThread(persona).memberIds || []).length > 0) : null,
     background: chunkPastLife(blocks),
     setting: setting.length > BACKGROUND_STABLE_MAX ? '' : setting,
     globalWorldbook: globalWorldbook.length > BACKGROUND_STABLE_MAX ? '' : globalWorldbook,

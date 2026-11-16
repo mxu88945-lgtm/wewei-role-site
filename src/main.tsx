@@ -28,7 +28,7 @@ import './story-composer.css'
 import './memoryApiEnhancements'
 
 const APP_SCOPE = '/wewei-role-site/'
-const SERVICE_WORKER_RELEASE = '2026-11-16-backstage-fence-v259'
+const SERVICE_WORKER_RELEASE = '2026-11-16-backstage-hide-v260'
 
 if ('serviceWorker' in navigator) {
   let reloadingForUpdate = false

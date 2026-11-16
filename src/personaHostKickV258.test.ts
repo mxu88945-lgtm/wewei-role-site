@@ -32,3 +32,15 @@ describe('v259 幕后手记只属于主人格', () => {
     expect(buildGroupSystemBlock(plan, { char: '谢聿衡', user: '惟惟' })).toContain('〔幕后手记与戏外私聊〕只是谢聿衡本人')
   })
 })
+
+describe('v260 客人在场时不带幕后手记', () => {
+  it('drops backstage chunks only when guests are present', async () => {
+    const { withoutBackstageWhenGuests } = await import('./personaWindowRuntime')
+    const chunks = [
+      { key: 'a', label: '幕后手记与戏外私聊', title: '幕后手记与戏外私聊', kind: '幕后手记', bound: false, names: [], text: 'x' },
+      { key: 'b', label: '剧场｜夜', title: '夜', kind: '长剧情', bound: false, names: [], text: 'y' },
+    ]
+    expect(withoutBackstageWhenGuests(chunks, true).map((c) => c.key)).toEqual(['b'])
+    expect(withoutBackstageWhenGuests(chunks, false)).toHaveLength(2)
+  })
+})
