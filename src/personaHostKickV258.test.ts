@@ -40,7 +40,7 @@ describe('v260 客人在场时不带幕后手记', () => {
       { key: 'a', label: '幕后手记与戏外私聊', title: '幕后手记与戏外私聊', kind: '幕后手记', bound: false, names: [], text: 'x' },
       { key: 'b', label: '剧场｜夜', title: '夜', kind: '长剧情', bound: false, names: [], text: 'y' },
     ]
-    expect(withoutBackstageWhenGuests(chunks, true).map((c) => c.key)).toEqual(['b'])
+    expect(withoutBackstageWhenGuests(chunks, true)?.map((c) => c.key)).toEqual(['b'])
     expect(withoutBackstageWhenGuests(chunks, false)).toHaveLength(2)
   })
 })
