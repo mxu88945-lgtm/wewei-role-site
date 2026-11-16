@@ -549,3 +549,14 @@ html[data-kb] .persona-sprite-tab { display: none; }
 .persona-room-ask:disabled { opacity: .5; }
 .persona-room-text { grid-column: 1 / -1; margin: 4px 0 0; color: #6f6176; font-size: 13px; line-height: 1.7; white-space: pre-wrap; }
 .persona-pause-hint span { white-space: normal; }
+
+/* v262 状态栏 */
+.persona-status-bar { justify-self: center; align-self: center; display: flex; align-items: center; justify-content: center; gap: 8px; min-width: 0; max-width: 100%; padding: 5px 10px; border: 1px solid var(--theme-accent-soft, rgba(125,104,141,.18)); border-radius: 999px; background: rgba(255,255,255,.92); box-shadow: 0 4px 14px rgba(62,43,75,.10); color: #6f6176; font: inherit; font-size: 11px; line-height: 1; }
+.persona-status-meter { display: inline-flex; align-items: center; gap: 4px; flex: none; }
+.persona-status-meter i { font-style: normal; font-size: 11px; }
+.persona-status-meter b { position: relative; display: block; width: 34px; height: 5px; overflow: hidden; border-radius: 3px; background: rgba(125,104,141,.14); }
+.persona-status-meter em { position: absolute; inset: 0 auto 0 0; border-radius: 3px; background: var(--theme-accent-text, #9a7fb0); transition: width .4s ease; }
+.persona-status-meter.sleepy em { background: #8fa3c8; }
+.persona-status-meter small { min-width: 14px; font-size: 10px; font-variant-numeric: tabular-nums; color: #9a939e; }
+.persona-status-note, .persona-status-pause { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.persona-status-pause { flex: none; color: #7d688d; font-weight: 600; }

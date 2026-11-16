@@ -50,7 +50,7 @@ import { periodStats, periodTurnNote } from './periodLog'
 import { applyPersonTags, peopleTurnNote, undoPersonTags } from './peopleProfiles'
 import PersonaGroupPanel from './PersonaGroupPanel'
 import PersonaAgencyPanel from './PersonaAgencyPanel'
-import { formatLeft, pauseActive, roomAskEvent, type PersonaPrivateNote } from './personaAgency'
+import { currentBody, formatLeft, pauseActive, roomAskEvent, type PersonaPrivateNote } from './personaAgency'
 import PersonaSprite from './PersonaSprite'
 import ErrorBoundary from './ErrorBoundary'
 import { isSafeMode } from './safeMode'
@@ -276,11 +276,12 @@ export default function PersonaWindowPage(props: Props) {
   // v261：TA 暂停这扇窗口时，每 30 秒刷新一下剩余时间，到点自动恢复。
   const [agencyTick, setAgencyTick] = useState(0)
   const pausedNow = Boolean(active?.pauseEnabled && thread && pauseActive(thread.pause, Date.now() + agencyTick * 0))
+  const bodyOn = active?.bodyStateEnabled === true
   useEffect(() => {
-    if (!pausedNow) return
-    const timer = window.setInterval(() => setAgencyTick((value) => value + 1), 30_000)
+    if (!pausedNow && !bodyOn) return
+    const timer = window.setInterval(() => setAgencyTick((value) => value + 1), pausedNow ? 30_000 : 60_000)
     return () => window.clearInterval(timer)
-  }, [pausedNow])
+  }, [pausedNow, bodyOn])
   const error = thread ? runtime.errors[thread.id] || '' : ''
   const notice = active ? runtime.notices[active.id] || '' : ''
   // v232：「👥 记进人物档案：X」轻提示，3 秒后自己收起。
@@ -638,7 +639,16 @@ export default function PersonaWindowPage(props: Props) {
   const header = <header className="chat-header persona-header">
     <button className="icon-button persona-back" aria-label={view === 'chat' && active ? '打开聊天侧栏' : viewReturn === 'settings' ? '返回设置' : active ? '返回聊天' : '返回首页'} aria-expanded={view === 'chat' && active ? sidebarOpen : undefined} {...tap(() => { setSwitcherOpen(false); if (view !== 'chat' && active) { if (viewReturn === 'settings') { setViewReturn(null); setView('chat'); setSettingsPanel('home'); setDrawerOpen(true) } else setView('chat') } else if (active) openSidebar(); else onBack() })}>{view === 'chat' && active ? <svg width="23" height="23" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.7" strokeLinecap="round" aria-hidden="true"><path d="M4 7h16M4 12h12M4 17h8" /></svg> : '‹'}</button>
     {/* v230：顶栏中间不再放头像/名字/切换入口，切换人格移到 ••• 设置页 */}
-    <span className="persona-header-spacer" aria-hidden="true" />
+    {view === 'chat' && active && activeCharacter && (bodyOn || pausedNow) ? (() => {
+      // v262 状态栏：精力、困意两条小进度 + 他写的一句；暂停时显示倒计时。点一下打开「TA 的小天地」。
+      const body = bodyOn ? currentBody(active.bodyState) : null
+      return <button type="button" className={`persona-status-bar${pausedNow ? ' paused' : ''}`} aria-label={`${activeCharacter.name}的状态`} {...tap(() => { setSidebarOpen(false); setSettingsPanel('agency'); setDrawerOpen(true) })}>
+        {pausedNow && thread?.pause && <span className="persona-status-pause">🌙 暂停中 · {formatLeft(thread.pause.until - Date.now())}</span>}
+        {body && <><span className="persona-status-meter" title="精力"><i aria-hidden="true">⚡</i><b><em style={{ width: `${body.energy}%` }} /></b><small>{body.energy}</small></span>
+          <span className="persona-status-meter sleepy" title="困意"><i aria-hidden="true">💤</i><b><em style={{ width: `${body.sleepy}%` }} /></b><small>{body.sleepy}</small></span>
+          {body.note && !pausedNow && <span className="persona-status-note">{body.note}</span>}</>}
+      </button>
+    })() : <span className="persona-header-spacer" aria-hidden="true" />}
     {view === 'chat' && active ? <button className="more-button" aria-label="窗口与设置" aria-expanded={drawerOpen} {...tap(() => { setSwitcherOpen(false); setSidebarOpen(false); setSettingsPanel('home'); setDrawerOpen(true) })}>•••</button> : <button className="more-button" aria-label="返回聊天" {...tap(() => { setSwitcherOpen(false); setView('chat') })}>✓</button>}
   </header>
 
