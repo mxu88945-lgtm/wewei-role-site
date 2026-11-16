@@ -560,3 +560,11 @@ html[data-kb] .persona-sprite-tab { display: none; }
 .persona-status-meter small { min-width: 14px; font-size: 10px; font-variant-numeric: tabular-nums; color: #9a939e; }
 .persona-status-note, .persona-status-pause { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .persona-status-pause { flex: none; color: #7d688d; font-weight: 600; }
+
+/* v263：输入框改一行小胶囊（照 Hark）：字在左，＋ 和发送在右；多行时按钮贴底。群聊成员条单独一行在上面。 */
+.chat-page.persona-window-page > .composer.persona-composer { grid-template-columns: minmax(0, 1fr) 36px 44px; grid-template-areas: "thumbs thumbs thumbs" "note note note" "tools tools tools" "input plus send"; align-items: end; column-gap: 2px; padding: 5px 6px 5px 14px; border-radius: 26px !important; }
+.chat-page.persona-window-page > .composer.persona-composer > textarea { padding: 7px 4px 5px 2px; min-height: 36px; }
+.chat-page.persona-window-page > .composer.persona-composer > .composer-plus { width: 36px; height: 36px; margin: 0; font-size: 24px; }
+.chat-page.persona-window-page > .composer.persona-composer > .send-button { width: 42px; height: 36px; margin: 0; font-size: 18px; }
+.chat-page.persona-window-page > .composer.persona-composer > .persona-member-strip { margin: 0 0 4px; }
+.theme-pudding .chat-page.persona-window-page > .composer.persona-composer > textarea { background-position: 2px center; background-size: 30px auto; padding-left: 38px; }
