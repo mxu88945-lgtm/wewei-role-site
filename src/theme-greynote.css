@@ -43,7 +43,11 @@
 .theme-greynote .archive-greynote .message-action-row { justify-content: flex-start; margin-top: 10px; }
 .theme-greynote .archive-greynote.user .archive-heading { flex-direction: row-reverse; }
 .theme-greynote .archive-greynote.user .archive-heading-copy { text-align: right; }
-.theme-greynote .archive-greynote.user .archive-body { background: #fbfafa; }
+.theme-greynote .archive-greynote.user .archive-body { width: fit-content; min-width: 190px; max-width: 100%; margin-left: auto; background: #fbfafa; }
 .theme-greynote .archive-greynote.user .archive-body :is(.message-content,.message-content-flat,.message-flat-body,.message-content-rich) { width: fit-content; max-width: 100%; margin-left: auto; text-align: left; }
 .theme-greynote .archive-greynote.user .message-action-row { justify-content: flex-end; }
+/* v266：首页图标——白底细灰边小方块，图标线条用淡玫瑰色，不换贴纸。 */
+.theme-greynote .home-entrances .home-icon { color: #a0656d; border: 1px solid #e2e1df; background: #fff; box-shadow: 0 4px 12px rgba(60,58,56,.06); }
+.theme-greynote .home-entrances .home-icon > svg { width: 24px; height: 24px; stroke-width: 1.6; }
+.theme-greynote .home-entrances > button { border: 1px solid #e7e6e4; background: rgba(255,255,255,.72); box-shadow: 0 6px 18px rgba(60,58,56,.04); }
 @media (max-width: 430px) { .theme-greynote .archive-greynote.user { width: 92%; } .theme-greynote .archive-greynote .archive-body { padding: 16px 17px; } }

@@ -29,7 +29,7 @@ import './story-composer.css'
 import './memoryApiEnhancements'
 
 const APP_SCOPE = '/wewei-role-site/'
-const SERVICE_WORKER_RELEASE = '2026-11-16-greynote-theme-v265'
+const SERVICE_WORKER_RELEASE = '2026-11-16-greynote-fit-v266'
 
 if ('serviceWorker' in navigator) {
   let reloadingForUpdate = false

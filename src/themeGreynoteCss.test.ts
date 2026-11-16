@@ -22,3 +22,10 @@ describe('v265 浅灰信笺 theme', () => {
     expect(css).toContain('.archive-greynote.user .archive-heading { flex-direction: row-reverse; }')
   })
 })
+
+describe('v266 浅灰信笺 fixes', () => {
+  it('user letter shrinks to its text and home icons get their own plain set', () => {
+    expect(css).toContain('.archive-greynote.user .archive-body { width: fit-content; min-width: 190px; max-width: 100%; margin-left: auto;')
+    expect(css).toContain('.theme-greynote .home-entrances .home-icon { color: #a0656d; border: 1px solid #e2e1df; background: #fff;')
+  })
+})
