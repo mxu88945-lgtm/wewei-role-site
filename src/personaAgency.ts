@@ -138,7 +138,7 @@ export const ROOM_PROMPT = `【隐私室】{{char}}有一间只属于自己的�
 export const BODY_PROMPT = `【身体状态】【本轮背景】会给你此刻的精力和困意（0–100），它们随聊天和时间变（久聊会累、深夜会困、歇一阵会恢复）。让它自然影响你，不必报数字；觉得状态明显变了，可以在回复末尾写 [状态:精力 数字|困意 数字|一句话]。`
 
 export function agencyPrompt(flags: { pause?: boolean; room?: boolean; body?: boolean }) {
-  return [flags.pause && PAUSE_PROMPT, flags.room && ROOM_PROMPT, flags.body && BODY_PROMPT].filter(Boolean).join('\n')
+  return [flags.pause && PAUSE_PROMPT, flags.room && ROOM_PROMPT, flags.room && ALBUM_PROMPT, flags.body && BODY_PROMPT].filter(Boolean).join('\n')
 }
 
 export function pauseAppealTail(pause: PersonaPause, now = Date.now()) {
@@ -150,3 +150,66 @@ export function roomAskEvent(note: PersonaPrivateNote, userName: string) {
 }
 
 export const canAskNote = (note: PersonaPrivateNote, now = Date.now()) => !note.shared && !(note.declinedAt && now - note.declinedAt < PRIVATE_ASK_COOLDOWN_MS)
+
+/**
+ * v267 隐私室相册：TA 可以把她这轮发来的图收进去（[存相册:一句话]），她也能直接放。
+ * 只存在本地（压缩后的图），最多 40 张；她新放的照片下一轮用一行告诉 TA（只给说明，不发原图），回完就算看过。
+ */
+export type PersonaAlbumPhoto = { id: string; dataUrl: string; width: number; height: number; caption: string; by: 'char' | 'user'; at: number; seen?: boolean; locked?: boolean }
+export const ALBUM_MAX = 40
+export const ALBUM_CAPTION_MAX = 60
+
+export function normalizeAlbum(raw: unknown): PersonaAlbumPhoto[] {
+  if (!Array.isArray(raw)) return []
+  return raw.filter(isRecord).map((item): PersonaAlbumPhoto | null => {
+    const dataUrl = String(item.dataUrl || '')
+    if (!/^data:image\//.test(dataUrl) && !/^https:\/\//.test(dataUrl)) return null
+    return { id: String(item.id || `album-${item.at || 0}`), dataUrl, width: Number(item.width) || 0, height: Number(item.height) || 0, caption: String(item.caption || '').trim().slice(0, ALBUM_CAPTION_MAX), by: item.by === 'user' ? 'user' : 'char', at: Number(item.at) || 0, ...(item.seen === true ? { seen: true } : {}), ...(item.locked === true ? { locked: true } : {}) }
+  }).filter((item): item is PersonaAlbumPhoto => Boolean(item)).slice(-ALBUM_MAX)
+}
+
+const ALBUM_TAG = /\[\s*存相册\s*(?:[:：]\s*([^\]\n]{0,80}))?\]/g
+/** [存相册:说明] 或 [存相册:说明|锁]（锁 = 放进上锁的那一格）。 */
+export const parseAlbumTags = (text: string) => [...text.matchAll(ALBUM_TAG)].map((match) => {
+  const parts = (match[1] || '').split(/[|｜]/).map((part) => part.trim())
+  const locked = parts.length > 1 && /^(锁|上锁|加锁|lock)$/i.test(parts[parts.length - 1])
+  return { caption: (locked ? parts.slice(0, -1) : parts).join(' ').slice(0, ALBUM_CAPTION_MAX), locked }
+})
+const ALBUM_CODE_TAG = /\[\s*相册密码\s*[:：]\s*([^\]\s|｜]{4,12})\s*\]/
+/** [相册密码:xxxx]（4–12 位，不含空格）——他设或改密码。 */
+export const parseAlbumCode = (text: string) => text.match(ALBUM_CODE_TAG)?.[1] || null
+const LOCK_PHOTO_TAG = /\[\s*(锁照片|解锁照片)\s*[:：]\s*([^\]\n]{1,40})\]/g
+/** [锁照片:说明里的词] / [解锁照片:说明里的词]——把已有的照片挪进或挪出上锁那格。 */
+export const parseLockPhotoTags = (text: string) => [...text.matchAll(LOCK_PHOTO_TAG)].map((match) => ({ lock: match[1] === '锁照片', key: match[2].trim() }))
+export function applyLockPhotoTags(album: readonly PersonaAlbumPhoto[], tags: { lock: boolean; key: string }[]): PersonaAlbumPhoto[] {
+  return album.map((photo) => {
+    const tag = [...tags].reverse().find((item) => item.key && photo.caption.includes(item.key))
+    if (!tag) return photo
+    const next = { ...photo }
+    if (tag.lock) next.locked = true; else delete next.locked
+    return next
+  })
+}
+
+/** 把图放进相册（同一张图不重复放）。captions 按顺序配给图，不够就用最后一句。 */
+export function addAlbumPhotos(album: readonly PersonaAlbumPhoto[] | undefined, images: readonly { id: string; dataUrl: string; width: number; height: number }[], captions: string[], by: 'char' | 'user', now: number, locked = false): PersonaAlbumPhoto[] {
+  const next = [...(album || [])]
+  images.forEach((image, index) => {
+    if (next.some((item) => item.id === `album-${image.id}`)) return
+    const caption = (captions[index] ?? captions[captions.length - 1] ?? '').slice(0, ALBUM_CAPTION_MAX)
+    next.push({ id: `album-${image.id}`, dataUrl: image.dataUrl, width: image.width, height: image.height, caption, by, at: now, ...(by === 'char' ? { seen: true } : {}), ...(locked && by === 'char' ? { locked: true } : {}) })
+  })
+  return next.slice(-ALBUM_MAX)
+}
+
+export const ALBUM_PROMPT = `【隐私室相册】隐私室里还有一本相册。{{user}}这轮发来的照片你想留着，就在回复末尾写 [存相册:一句话]（这句话是你给这张照片写的说明）；不想留就不写。她也会往你的相册里放照片，应用会告诉你。相册里有一格上锁的，密码由你定：想藏起来的写 [存相册:一句话|锁]，已有的用 [锁照片:说明里的词] / [解锁照片:说明里的词] 挪进挪出；用 [相册密码:4到12位] 设或改密码。密码只有你知道，她会来问、来哄，给不给、什么时候给，都由你。`
+
+/** 她新放、TA 还没看过的照片——一行说明进尾巴；有上锁的照片时带上他自己的密码（只有他看得到）。 */
+export function albumTurnLine(album: readonly PersonaAlbumPhoto[] | undefined, code?: string) {
+  const all = album || []
+  const lockedCount = all.filter((item) => item.locked).length
+  const lockLine = lockedCount ? (code ? `【相册上锁｜只有你知道】上锁那格有 ${lockedCount} 张，密码是「${code}」。别主动说出口，除非你决定给她。` : `【相册上锁｜应用】上锁那格有 ${lockedCount} 张，但你还没设密码，她打不开；想设就写 [相册密码:…]。`) : ''
+  const fresh = all.filter((item) => item.by === 'user' && !item.seen).slice(-5)
+  if (!fresh.length) return lockLine
+  return (lockLine ? `${lockLine}\n` : '') + `【相册｜应用事件】{{user}}往你隐私室的相册里放了 ${fresh.length} 张照片${fresh.some((item) => item.caption) ? `：${fresh.map((item) => item.caption ? `「${item.caption}」` : '一张没写说明的').join('、')}` : ''}。看你想不想提，不必每张都说。`
+}

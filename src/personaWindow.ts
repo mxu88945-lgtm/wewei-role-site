@@ -11,7 +11,7 @@
 import type { Character, CharacterBook, CharacterMemoryEntry, WorldBookEntry } from './characterCard'
 import type { StoryProject } from './storyProject'
 import { stripPresentationalHtmlForPrompt } from './regexEngine'
-import { normalizeBodyState, normalizePause, normalizePrivateRoom, type PersonaBodyState, type PersonaPause, type PersonaPrivateNote } from './personaAgency'
+import { normalizeBodyState, normalizePause, normalizePrivateRoom, normalizeAlbum, type PersonaAlbumPhoto, type PersonaBodyState, type PersonaPause, type PersonaPrivateNote } from './personaAgency'
 import type { ChatImage } from './chatImages'
 import { CHAT_ATTACHMENT_LIMIT, CHAT_ATTACHMENT_MAX_CHARS, type ChatAttachment } from './chatAttachments'
 import type { Conversation } from './conversationLifecycle'
@@ -183,6 +183,10 @@ export type PersonaWindow = {
   privateRoomEnabled?: boolean
   bodyStateEnabled?: boolean
   privateRoom?: PersonaPrivateNote[]
+  /** v267 隐私室相册。 */
+  album?: PersonaAlbumPhoto[]
+  /** v267 相册上锁那格的密码，他自己设（[相册密码:…]）。 */
+  albumCode?: string
   bodyState?: PersonaBodyState
   /** v234：拉进过这扇人格窗口的客人（卡 + 他自己的窗口记忆），请出后仍保留。 */
   guests?: PersonaGuest[]
@@ -335,6 +339,8 @@ export function normalizePersonaState(value: unknown): PersonaWindowState {
       ...(raw.privateRoomEnabled === true ? { privateRoomEnabled: true } : {}),
       ...(raw.bodyStateEnabled === true ? { bodyStateEnabled: true } : {}),
       ...(normalizePrivateRoom(raw.privateRoom).length ? { privateRoom: normalizePrivateRoom(raw.privateRoom) } : {}),
+      ...(normalizeAlbum(raw.album).length ? { album: normalizeAlbum(raw.album) } : {}),
+      ...(typeof raw.albumCode === 'string' && raw.albumCode.trim() ? { albumCode: raw.albumCode.trim().slice(0, 12) } : {}),
       ...(normalizeBodyState(raw.bodyState) ? { bodyState: normalizeBodyState(raw.bodyState) } : {}),
       ...(normalizeGuests(raw.guests, normalizeMemory).length ? { guests: normalizeGuests(raw.guests, normalizeMemory) } : {}),
     })

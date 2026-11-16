@@ -50,7 +50,7 @@ import { PERSONA_GIFT_STABLE_HISTORY, personaGiftRecallNote, addPersonaGift, bui
 import { withPromptCache } from './promptCache'
 import { foldPromptForRelay, stripTurnContext } from './promptTail'
 import { recordPromptUsage } from './promptUsage'
-import { addPrivateNotes, afterReplyBody, agencyPrompt, bodyTurnLine, formatLeft, hasResumeTag, PAUSE_APPEAL_GAP_MS, parseBodyTag, parsePauseTag, parseRoomTags, parseShareTitles, pauseActive, pauseAppealTail } from './personaAgency'
+import { addAlbumPhotos, applyLockPhotoTags, parseAlbumCode, parseLockPhotoTags, addPrivateNotes, afterReplyBody, agencyPrompt, albumTurnLine, bodyTurnLine, parseAlbumTags, formatLeft, hasResumeTag, PAUSE_APPEAL_GAP_MS, parseBodyTag, parsePauseTag, parseRoomTags, parseShareTitles, pauseActive, pauseAppealTail } from './personaAgency'
 import { dismissGuest, parseGuestKicks, addGuestMemories, buildGroupAfterTail, buildGroupSystemBlock, buildGroupTurnTail, guestMemoryExtractionPrompt, isGuestId, isGuestMessage, labelGroupContent, pendingGuestMessages, planGroupTurn, PERSONA_GROUP_SEGMENT_CAP, PERSONA_GUEST_MEMORY_EVERY, resolveGuest, speakerOf, splitGroupReply, type GroupTurnPlan } from './personaGroup'
 
 /**
@@ -388,6 +388,7 @@ export function planPersonaRequest(persona: PersonaWindow, history: PersonaMessa
     ['now-playing', '正在听的歌', deps.nowPlaying?.().trim()],
     ['image-memo', '图记提示（本轮新图）', imageWire.wantsMemo && IMAGE_MEMO_PROMPT],
     ['body', '身体状态', persona.bodyStateEnabled === true && bodyTurnLine(persona.bodyState)],
+    ['album', '相册新照片', persona.privateRoomEnabled === true && albumTurnLine(persona.album, persona.albumCode)],
     ['pause', '暂停中·申请继续', persona.pauseEnabled === true && pauseActive(thread.pause) && [...history].reverse().find((message) => message.role === 'user')?.pauseAppeal ? pauseAppealTail(thread.pause) : ''],
     ['guard-turn', '回复前确认', PERSONA_FINAL_GUARD],
     // v234：这一轮谁说（每轮变，所以放尾巴）。
@@ -617,11 +618,24 @@ export async function generatePersonaReply(personaId: string, deps: PersonaRunti
       const shared = asked ? parseShareTitles(own).length > 0 : false
       if (asked) toasts.push(shared ? `🔓 ${deps.character.name}给你看了《${asked.title}》` : `🔒 ${deps.character.name}还不想给你看《${asked.title}》`)
       const body = live.bodyStateEnabled === true ? afterReplyBody(live.bodyState, parseBodyTag(own), agencyNow) : undefined
-      if (resume || newPause || notes.length || asked || body) setPersonaState((state) => updatePersona(state, personaId, (item) => {
+      // v267 相册：他写了 [存相册:…] 就收她这轮发来的图；她新放的照片这轮已经告诉他，算看过。
+      const albumTags = live.privateRoomEnabled === true ? parseAlbumTags(own) : []
+      const albumCaps = albumTags.map((tag) => tag.caption)
+      const albumLock = albumTags.some((tag) => tag.locked)
+      const newCode = live.privateRoomEnabled === true ? parseAlbumCode(own) : null
+      const lockTags = live.privateRoomEnabled === true ? parseLockPhotoTags(own) : []
+      if (newCode) toasts.push(`🔐 ${deps.character.name}${live.albumCode ? '换了' : '设了'}相册密码`)
+      const lastUserImages = albumCaps.length ? ([...history].reverse().find((message) => message.role === 'user')?.images || []).filter((image) => !image.fromVideo) : []
+      if (lastUserImages.length) toasts.push(`📷 ${deps.character.name}把你发的${lastUserImages.length > 1 ? ` ${lastUserImages.length} 张图` : '照片'}收进了相册${albumLock ? '，还上了锁' : ''}`)
+      const albumUnseen = live.privateRoomEnabled === true && (live.album || []).some((item) => item.by === 'user' && !item.seen)
+      if (resume || newPause || notes.length || asked || body || lastUserImages.length || albumUnseen || newCode || lockTags.length) setPersonaState((state) => updatePersona(state, personaId, (item) => {
+        let album = lastUserImages.length ? addAlbumPhotos(item.album, lastUserImages, albumCaps, 'char', agencyNow, albumLock) : item.album
+        if (lockTags.length && album) album = applyLockPhotoTags(album, lockTags)
+        if (albumUnseen && album) album = album.map((photo) => photo.by === 'user' && !photo.seen ? { ...photo, seen: true } : photo)
         let room = notes.length ? addPrivateNotes(item.privateRoom, notes, agencyNow) : item.privateRoom
         if (asked && room) room = room.map((note) => note.id === asked.id ? { ...note, askedAt: agencyNow, ...(shared ? { shared: true } : { declinedAt: agencyNow }) } : note)
         const threads = resume || newPause ? item.threads.map((entry) => { if (entry.id !== threadId) return entry; const next = { ...entry }; if (newPause) next.pause = newPause; else delete next.pause; return next }) : item.threads
-        return { ...item, threads, ...(room ? { privateRoom: room } : {}), ...(body ? { bodyState: body } : {}) }
+        return { ...item, threads, ...(room ? { privateRoom: room } : {}), ...(body ? { bodyState: body } : {}), ...(album ? { album } : {}), ...(newCode ? { albumCode: newCode } : {}) }
       }))
       if (toasts.length) patchRuntime((current) => ({ ...current, peopleToasts: { ...current.peopleToasts, [personaId]: { text: toasts.join(' · '), seq: ++peopleToastSeq } } }))
     }

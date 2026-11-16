@@ -25,7 +25,7 @@ import { PersonaTaskCards, PersonaTaskPanel, PersonaTaskPin } from './PersonaTas
 import { PERSONA_TASK_PIN_LIMIT, createPersonaTask, taskIsActive, updatePersonaTask } from './personaTasks'
 import { pastLifeChunksFrom } from './personaPastLifeRecall'
 import { HISTORY_TOKEN_BUDGET } from './historyWindow'
-import { PersonaCompressionCard, PersonaMemoryInspection, PersonaRecallReceipt } from './PersonaMemoryInspection'
+import { PersonaCompressionCard, PersonaMemoryInspection } from './PersonaMemoryInspection'
 import { canLockPersonaMemory, PERSONA_LOCKED_BUDGET } from './personaWindowMemory'
 import { activeThread, addPersonaThread, buildPersonaSetting, characterAliasIds, collectFreshFeed, collectPastLifeMemory, conversationInvolvesCharacter, deletePersona, deletePersonaThread, deletePersonaMessage, disablePersona, editPersonaMessage, enablePersona, PERSONA_MEMORY_EVERY, PERSONA_WINDOW_PRESET, pendingPersonaMemoryCount, personaMemoryApi, renamePersonaThread, resolvePersonaApi, switchPersona, switchPersonaThread, updatePersona, updatePersonaThread, type PersonaMemoryEntry, type PersonaMessage, type PersonaWindow } from './personaWindow'
 import { hydratePersonaStore, setPersonaState, usePersonaHydrated, usePersonaState } from './personaWindowStore'
@@ -50,7 +50,8 @@ import { periodStats, periodTurnNote } from './periodLog'
 import { applyPersonTags, peopleTurnNote, undoPersonTags } from './peopleProfiles'
 import PersonaGroupPanel from './PersonaGroupPanel'
 import PersonaAgencyPanel from './PersonaAgencyPanel'
-import { currentBody, formatLeft, pauseActive, roomAskEvent, type PersonaPrivateNote } from './personaAgency'
+import PersonaHome from './PersonaHome'
+import { addAlbumPhotos, currentBody, formatLeft, pauseActive, roomAskEvent, type PersonaPrivateNote } from './personaAgency'
 import PersonaSprite from './PersonaSprite'
 import ErrorBoundary from './ErrorBoundary'
 import { isSafeMode } from './safeMode'
@@ -206,6 +207,8 @@ export default function PersonaWindowPage(props: Props) {
   // 从设置页进记忆/管理时记住，返回键要回到设置页而不是直接回聊天
   const [viewReturn, setViewReturn] = useState<'settings' | null>(null)
   const [switcherOpen, setSwitcherOpen] = useState(false)
+  // v267：进人格窗口先到 TA 的小主页；点「继续聊天」才进对话。
+  const [homeOpen, setHomeOpen] = useState(true)
   // v233：输入框 ＋ 菜单（图片或文件 / 礼物）和礼物图鉴
   const [plusOpen, setPlusOpen] = useState(false)
   const [giftSheetOpen, setGiftSheetOpen] = useState(false)
@@ -269,6 +272,7 @@ export default function PersonaWindowPage(props: Props) {
   const tap = useOneTap()
   const trackCount = useMusicStore((music) => music.tracks.length)
   const setMusicSheetOpen = useMusicStore((music) => music.setSheetOpen)
+  const nowPlayingTitle = useMusicStore((music) => (music.now?.playing ? music.tracks.find((track) => track.id === music.activeId)?.name || '' : ''))
 
   const thread = active ? activeThread(active) : undefined
   const threadId = thread?.id || ''
@@ -628,6 +632,19 @@ export default function PersonaWindowPage(props: Props) {
 
   const avatarOf = (character: Character | undefined, size = '') => <span className={`persona-avatar ${size}`}>{character?.avatar ? <img src={character.avatar} alt="" /> : (character?.name || '?').slice(-1)}</span>
 
+  const addAlbumFiles = async (files: FileList) => {
+    if (!active) return
+    const personaId = active.id
+    const images: ChatImage[] = []
+    for (const file of Array.from(files).slice(0, 9)) {
+      try { images.push(await prepareChatImage(file)) } catch (error) { window.alert(error instanceof Error ? error.message : '这张图读不了') }
+    }
+    if (!images.length) return
+    const caption = (window.prompt(images.length > 1 ? `给这 ${images.length} 张照片写一句说明（可以不写）` : '给这张照片写一句说明（可以不写）', '') || '').trim()
+    const now = Date.now()
+    setPersonaState((current) => updatePersona(current, personaId, (item) => ({ ...item, album: addAlbumPhotos(item.album, images, [caption], 'user', now) })))
+  }
+
   const openSidebar = () => {
     setDrawerOpen(false)
     setSwitcherOpen(false)
@@ -804,6 +821,19 @@ export default function PersonaWindowPage(props: Props) {
   const spriteSet = spriteSetFor(activeCharacter.name)
   const spriteOn = spriteEnabled(spriteSet, spritePrefs[active.id])
   const lastMessage = messages[messages.length - 1]
+  if (homeOpen && !drawerOpen) {
+    const lastAssistant = [...messages].reverse().find((message) => message.role === 'assistant' && message.text.trim())
+    return <section className="chat-page persona-window-page persona-home-page">
+      <PersonaHome name={activeCharacter.name} avatar={activeCharacter.avatar} userName={identity.name} tap={tap}
+        lastLine={lastAssistant ? personaReplyText(lastAssistant.text).replace(/\s+/g, ' ').slice(0, 46) : ''}
+        roomOn={active.privateRoomEnabled === true} album={active.album || []} body={bodyOn ? active.bodyState || null : null} pause={active.pauseEnabled ? thread?.pause : undefined}
+        songTitle={nowPlayingTitle}
+        onBack={onBack} onChat={() => setHomeOpen(false)}
+        onAlbum={() => { setSettingsPanel('agency'); setDrawerOpen(true) }}
+        onAgency={() => { setSettingsPanel('agency'); setDrawerOpen(true) }}
+        onMusic={() => setMusicSheetOpen(true)} />
+    </section>
+  }
   return <section className={`chat-page persona-window-page${activeTasks.length ? ' has-task-pin' : ''}`} style={activeTasks.length ? { '--persona-task-pin-rows': Math.min(activeTasks.length, PERSONA_TASK_PIN_LIMIT) + (activeTasks.length > PERSONA_TASK_PIN_LIMIT ? 0.5 : 0) } as CSSProperties : undefined}>{header}{switcher}
     {error && <div className="chat-error" role="alert"><button className="chat-error-action" {...tap(() => setPersonaError(threadId, ''))}><span>连接提示</span>{error}</button><button className="chat-error-close" aria-label="关闭提示" {...tap(() => setPersonaError(threadId, ''))}>×</button></div>}
     {peopleToast && <div className="persona-task-toast persona-people-toast" role="status"><div><strong>{peopleToast.text}</strong></div><button {...tap(() => { dismissPeopleToast(active.id); setSidebarOpen(false); setSettingsPanel('lifePeople'); setDrawerOpen(true) })}>看看</button><button aria-label="关闭人物档案提示" {...tap(() => dismissPeopleToast(active.id))}>×</button></div>}
@@ -853,7 +883,7 @@ export default function PersonaWindowPage(props: Props) {
           {!isUser && message.gift && !streamingNow ? <PersonaGiftCard gift={message.gift} from={activeCharacter.name} to={identity.name || '你'} /> : null}
           {!isUser && message.songPick && !streamingNow ? <PersonaSongChip title={message.songPick} tap={tap} /> : null}
           {!isUser && message.selfCardEdit && !streamingNow ? <button type="button" className="persona-selfcard-chip" {...tap(() => { setSidebarOpen(false); setSettingsPanel('selfCard'); setDrawerOpen(true) })}>✎ 他改了自己的「{selfCardLabel(message.selfCardEdit)}」</button> : null}
-          {!isUser && message.recallSources?.length ? <PersonaRecallReceipt sources={message.recallSources} persona={active} /> : null}
+          {/* v267：她不想在聊天里看到「已召回 N 条旧原文」，回执不再显示（召回照常进提示词）。 */}
           {!isUser && tasksByMessage.has(message.id) && <PersonaTaskCards tasks={tasksByMessage.get(message.id)!} busy={generating} onAction={taskAction} onReact={taskReact} tap={tap} />}
         </div>
       })}
@@ -911,7 +941,9 @@ export default function PersonaWindowPage(props: Props) {
           {drawerOpen && settingsPanel === 'gifts' && <PersonaGiftsPanel name={activeCharacter.name} gifts={active.customGifts || []} enabled={active.giftsEnabled !== false} tap={tap} onOpenCatalog={() => { setDrawerOpen(false); setGiftSheetOpen(true) }}
             onToggle={() => setPersonaState((current) => updatePersona(current, active.id, (item) => { const next = { ...item }; if (item.giftsEnabled === false) delete next.giftsEnabled; else next.giftsEnabled = false; return next }))}
             onRemove={removeGift} />}
-          {drawerOpen && settingsPanel === 'agency' && thread && <PersonaAgencyPanel name={activeCharacter.name} flags={{ pause: active.pauseEnabled === true, room: active.privateRoomEnabled === true, body: active.bodyStateEnabled === true }} pause={thread.pause} room={active.privateRoom || []} body={active.bodyState} busy={generating} tap={tap}
+          {drawerOpen && settingsPanel === 'agency' && thread && <PersonaAgencyPanel name={activeCharacter.name} flags={{ pause: active.pauseEnabled === true, room: active.privateRoomEnabled === true, body: active.bodyStateEnabled === true }} pause={thread.pause} room={active.privateRoom || []} album={active.album || []} albumCode={active.albumCode} body={active.bodyState} busy={generating} tap={tap}
+            onAddPhotos={(files) => { void addAlbumFiles(files) }}
+            onRemovePhoto={(id) => setPersonaState((current) => updatePersona(current, active.id, (item) => ({ ...item, album: (item.album || []).filter((photo) => photo.id !== id) })))}
             onToggle={(key) => setPersonaState((current) => updatePersona(current, active.id, (item) => {
               const field = key === 'pause' ? 'pauseEnabled' : key === 'room' ? 'privateRoomEnabled' : 'bodyStateEnabled'
               const next = { ...item }
@@ -961,7 +993,7 @@ export default function PersonaWindowPage(props: Props) {
             {active.systemPrompt?.trim() && <button className="danger-link" {...tap(() => { if (window.confirm(`清空给「${activeCharacter.name}」的补充提示词？默认相处规则、对话和记忆都会保留。`)) setPersonaState((current) => updatePersona(current, active.id, (item) => ({ ...item, systemPrompt: '' }))) })}>清空补充，使用默认规则</button>}
           </section>}
         </div>
-        {sidebarOpen && <nav className="persona-history-footer" aria-label="人格窗口导航"><div className="persona-history-actions"><button type="button" className="persona-circle-btn" aria-label="回到惟镜首页" title="回到惟镜首页" {...tap(onBack)}><svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><path d="M3 10.5 12 3l9 7.5" /><path d="M5 9.5V21h14V9.5" /></svg></button><button type="button" className="persona-circle-btn" aria-label="管理人格" title="管理人格" {...tap(() => { setSidebarOpen(false); setViewReturn(null); setView('manage') })}><svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="3" /><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 1 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 1 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 1 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 1 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1Z" /></svg></button><button type="button" className="persona-circle-btn" aria-label="新聊天" title="新聊天" {...tap(() => { setPersonaState((current) => addPersonaThread(current, active.id)); setSidebarOpen(false); setPendingImages([]); setPendingAttachments([]); setMenuMessageId(null); setRenaming(null) })}><svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><path d="M12 20h9" /><path d="M16.5 3.5a2.12 2.12 0 0 1 3 3L7 19l-4 1 1-4Z" /></svg></button></div></nav>}
+        {sidebarOpen && <nav className="persona-history-footer" aria-label="人格窗口导航"><div className="persona-history-actions"><button type="button" className="persona-circle-btn" aria-label="TA 的主页" title="TA 的主页" {...tap(() => { setSidebarOpen(false); setHomeOpen(true) })}><svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><rect x="3.5" y="3.5" width="7" height="7" rx="2" /><rect x="13.5" y="3.5" width="7" height="7" rx="2" /><rect x="3.5" y="13.5" width="7" height="7" rx="2" /><rect x="13.5" y="13.5" width="7" height="7" rx="2" /></svg></button><button type="button" className="persona-circle-btn" aria-label="回到惟镜首页" title="回到惟镜首页" {...tap(onBack)}><svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><path d="M3 10.5 12 3l9 7.5" /><path d="M5 9.5V21h14V9.5" /></svg></button><button type="button" className="persona-circle-btn" aria-label="管理人格" title="管理人格" {...tap(() => { setSidebarOpen(false); setViewReturn(null); setView('manage') })}><svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="3" /><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 1 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 1 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 1 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 1 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1Z" /></svg></button><button type="button" className="persona-circle-btn" aria-label="新聊天" title="新聊天" {...tap(() => { setPersonaState((current) => addPersonaThread(current, active.id)); setSidebarOpen(false); setPendingImages([]); setPendingAttachments([]); setMenuMessageId(null); setRenaming(null) })}><svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><path d="M12 20h9" /><path d="M16.5 3.5a2.12 2.12 0 0 1 3 3L7 19l-4 1 1-4Z" /></svg></button></div></nav>}
       </aside>
     </div>}
     {mentionOpen && groupOn && <MentionPicker members={[{ id: active.id, name: activeCharacter.name, avatar: activeCharacter.avatar }, ...guestsHere.map((guest) => ({ id: guest.id, name: guest.name, avatar: isImageAvatar(guest.avatar) ? guest.avatar : undefined }))]} everyone onPick={(picked) => { setMentionOpen(false); setDraft((current) => insertMention(current, picked)); textareaRef.current?.focus({ preventScroll: true }) }} onClose={() => setMentionOpen(false)} />}
