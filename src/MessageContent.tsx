@@ -214,7 +214,7 @@ export function richRenderFallback(value: string) {
 
 type SceneHooks = { greetings?: string[]; onSelectGreeting?: (index: number, text: string) => void }
 
-type MessageTheme = boolean | 'scrapbook' | 'academy' | 'vinyl' | 'mobile' | 'letter' | 'mistnote' | 'nightglow' | 'pudding'
+type MessageTheme = boolean | 'scrapbook' | 'academy' | 'vinyl' | 'mobile' | 'letter' | 'mistnote' | 'nightglow' | 'pudding' | 'greynote'
 function SandboxHtml({ html, raw = false, paper = false, greetings, onSelectGreeting }: { html: string; raw?: boolean; paper?: MessageTheme } & SceneHooks) {
   const frameRef = useRef<HTMLIFrameElement>(null)
   const tokenRef = useRef(`render-${crypto.randomUUID()}`)
@@ -274,6 +274,11 @@ function SandboxHtml({ html, raw = false, paper = false, greetings, onSelectGree
     if (paper === 'nightglow' && !raw) {
       const style = document.createElement('style')
       style.textContent = `@import url('https://fontsapi.zeoseven.com/256/main/result.css');html,body{background:transparent!important;color:#2b2522!important;font-family:'Huiwen-mincho','Songti SC','STSong','Noto Serif SC',serif;line-height:2;text-align:left}p,.message-story-paragraph{margin:0 0 1.15em!important;line-height:2!important;text-align:left!important}p:last-child,.message-story-paragraph:last-child{margin-bottom:0!important}.message-quote,.chat-quote{display:inline!important;margin:0!important;padding:0 1px!important;border:0!important;border-radius:0!important;box-shadow:none!important;background:none!important;color:#a8383c!important;-webkit-text-fill-color:#a8383c!important;font-weight:500!important;filter:none!important;box-decoration-break:clone;-webkit-box-decoration-break:clone}section,[class*="status-card"],[class*="scene-card"],[class*="private"],details{margin:18px 0!important;padding:16px 18px!important;background:rgba(255,255,255,.82)!important;color:#4a3f3a!important;border:1px solid #e8dfd8!important;border-left:3px solid #c9a69c!important;border-radius:14px!important;box-shadow:none!important}`
+      document.head.append(style)
+    }
+    if (paper === 'greynote' && !raw) {
+      const style = document.createElement('style')
+      style.textContent = `html,body{background:transparent!important;color:#3a3836!important;font-family:-apple-system,'PingFang SC',sans-serif;line-height:2;text-align:left}p,.message-story-paragraph{margin:0 0 1.1em!important;line-height:2!important;text-align:left!important}p:last-child,.message-story-paragraph:last-child{margin-bottom:0!important}.message-quote,.chat-quote{display:inline!important;margin:0!important;padding:0!important;border:0!important;border-radius:0!important;background:none!important;box-shadow:none!important;color:#a0656d!important;font-weight:600!important;line-height:inherit!important}section,[class*=status-card],[class*=scene-card],[class*=private],details{margin:18px 0!important;padding:14px 16px!important;background:#f6f5f4!important;color:#55524f!important;border:0!important;border-radius:14px!important;box-shadow:none!important}`
       document.head.append(style)
     }
     if (paper === 'mistnote' && !raw) {

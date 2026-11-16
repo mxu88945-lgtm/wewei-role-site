@@ -1,0 +1,49 @@
+/* 浅灰信笺（v265）：浅灰底 + 白信纸气泡。只留一条细分割线、淡玫瑰对白、带白边细灰线的头像；没有蕾丝、贴纸、纹理。 */
+.phone-canvas.theme-greynote {
+  --theme-accent: #8c8a88;
+  --theme-accent-strong: #6f6c6a;
+  --theme-accent-end: #b3aeab;
+  --theme-accent-soft: #ececeb;
+  --theme-accent-soft-strong: #e1e0df;
+  --theme-accent-text: #5a5755;
+  --theme-accent-shadow: rgba(60,58,56,.10);
+  --composer-dock-rgb: 241,241,240;
+  background: #f1f1f0;
+  color: #3a3836;
+}
+.theme-choice-grid button.greynote i { border: 1px solid #d9d8d6; border-radius: 11px; background: linear-gradient(145deg,#f1f1f0 0 52%,#ffffff 53% 76%,#b9898f 77%); }
+.theme-greynote .chat-header::before { background: rgba(241,241,240,.92); }
+.theme-greynote .composer { border: 1px solid #e0dfdd; border-radius: 28px; background: rgba(255,255,255,.95); box-shadow: 0 8px 22px rgba(60,58,56,.07); }
+.theme-greynote .composer-plus { color: #6f6c6a; background: #eeedec; }
+.theme-greynote .send-button { color: #fff; background: #8c8a88; box-shadow: 0 5px 14px rgba(60,58,56,.14); }
+.theme-greynote .message-list { gap: 26px; }
+.theme-greynote .archive-greynote { box-sizing: border-box; width: 100%; min-width: 0; align-self: stretch; color: var(--chat-text-color,#3a3836); }
+.theme-greynote .archive-greynote.user { width: min(90%,430px); margin-left: auto; align-self: flex-end; }
+/* 头像：白边 + 细灰线，一圈就够。名字在旁边，一行小字副标题。 */
+.theme-greynote .archive-greynote .archive-heading { display: flex; align-items: center; gap: 14px; min-height: 0; padding: 0 4px; border: 0; background: none; box-shadow: none; }
+.theme-greynote .archive-greynote .archive-portrait { flex: 0 0 auto; width: 64px; height: 64px; padding: 4px; border: 1px solid #d6d5d3; border-radius: 50%; background: #fff; box-shadow: 0 4px 12px rgba(60,58,56,.08); }
+.theme-greynote .archive-greynote .archive-disc { display: none; }
+.theme-greynote .archive-greynote .archive-cover { width: 100%; height: 100%; display: grid; place-items: center; overflow: hidden; border-radius: 50%; color: #8c8a88; background: #eeedec; font: 22px/1 Georgia,'Songti SC',serif; }
+.theme-greynote .archive-greynote .archive-cover img { width: 100%; height: 100%; object-fit: cover; }
+.theme-greynote .archive-greynote .archive-heading-copy { min-width: 0; }
+.theme-greynote .archive-greynote .archive-name { display: block; color: #3a3836; font-size: calc(23px * var(--ui-font-scale, 1)); line-height: 1.2; font-weight: 700; overflow-wrap: anywhere; }
+.theme-greynote .archive-greynote .archive-heading-copy > small { display: block; margin-top: 4px; color: #a3a09d; font: italic 11px/1.3 Georgia,serif; letter-spacing: .08em; }
+/* 信纸：白底细边，顶部一条带小标题的分割线。 */
+.theme-greynote .archive-greynote .archive-body { box-sizing: border-box; width: 100%; min-width: 0; margin-top: 12px; padding: 18px 20px 18px; border: 1px solid #e5e4e2; border-radius: 20px; background: #fff; box-shadow: 0 6px 18px rgba(60,58,56,.05); font-size: var(--chat-font-size,16px); line-height: 2; text-align: left; overflow-wrap: anywhere; }
+.theme-greynote .archive-greynote .archive-body::before { content: 'Mon Chéri'; display: flex; align-items: center; gap: 12px; margin: 0 0 14px; color: #b9898f; font: italic 13px/1 Georgia,'Times New Roman',serif; letter-spacing: .06em; }
+.theme-greynote .archive-greynote .archive-body::before { background: linear-gradient(#e2d4d6,#e2d4d6) left center / calc(50% - 46px) 1px no-repeat, linear-gradient(#e2d4d6,#e2d4d6) right center / calc(50% - 46px) 1px no-repeat; justify-content: center; }
+.theme-greynote .archive-greynote.user .archive-body::before { content: 'Réponse'; }
+.theme-greynote .archive-greynote .archive-body :is(.message-content,.message-content-flat,.message-flat-body,.message-content-rich) { width: 100%; max-width: 100%; padding: 0; border: 0; border-radius: 0; background: transparent; box-shadow: none; color: inherit; line-height: inherit; }
+.theme-greynote .archive-greynote .archive-body :is(.message-story-paragraph,p) { margin: 0 0 1.1em; line-height: 2; }
+.theme-greynote .archive-greynote .archive-body :is(.message-story-paragraph,p):last-child { margin-bottom: 0; }
+/* 对白：只换颜色，不加底。 */
+.theme-greynote .archive-greynote .archive-body :is(.message-quote,.chat-quote) { display: inline; margin: 0; padding: 0; border: 0; border-radius: 0; background: none; box-shadow: none; color: var(--chat-quote-color,#a0656d); font-weight: 600; line-height: inherit; }
+.theme-greynote .archive-greynote .archive-body :is(.message-narration,.chat-narration,em) { color: var(--chat-narration-color,#8f8c89); font-style: normal; }
+.theme-greynote .archive-greynote .archive-body :is(section,[class*='status-card'],[class*='scene-card'],[class*='private'],details) { margin: 18px 0; padding: 14px 16px; border: 0; border-radius: 14px; color: #55524f; background: #f6f5f4; box-shadow: none; }
+.theme-greynote .archive-greynote .message-action-row { justify-content: flex-start; margin-top: 10px; }
+.theme-greynote .archive-greynote.user .archive-heading { flex-direction: row-reverse; }
+.theme-greynote .archive-greynote.user .archive-heading-copy { text-align: right; }
+.theme-greynote .archive-greynote.user .archive-body { background: #fbfafa; }
+.theme-greynote .archive-greynote.user .archive-body :is(.message-content,.message-content-flat,.message-flat-body,.message-content-rich) { width: fit-content; max-width: 100%; margin-left: auto; text-align: left; }
+.theme-greynote .archive-greynote.user .message-action-row { justify-content: flex-end; }
+@media (max-width: 430px) { .theme-greynote .archive-greynote.user { width: 92%; } .theme-greynote .archive-greynote .archive-body { padding: 16px 17px; } }
