@@ -47,3 +47,11 @@ describe('v267 persona home + private-room album', () => {
     expect(personaReplyText('好呀[存相册:海|锁][相册密码:0520][锁照片:海]')).toBe('好呀')
   })
 })
+
+describe('v268 message time in the footer', () => {
+  it('shows a small time next to ••• in both chats', () => {
+    expect(page).toContain('<time className="message-time">{phoneTimeLabel(message.createdAt)}</time>')
+    const app = readFileSync(new URL('./App.tsx', import.meta.url), 'utf8')
+    expect(app).toContain('<time className="message-time">{phoneTimeLabel(at)}</time>')
+  })
+})

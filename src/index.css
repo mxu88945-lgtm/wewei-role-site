@@ -1236,3 +1236,7 @@ button { cursor: pointer; }
 .app-crash-screen button{min-width:240px;padding:12px 16px;border:1px solid #d9d3e6;border-radius:14px;background:#fff;color:#5b4a86;font-size:15px}
 .safe-mode-bar{position:fixed;left:50%;top:calc(env(safe-area-inset-top) + 6px);transform:translateX(-50%);z-index:2147482000;display:flex;align-items:center;gap:8px;max-width:calc(100% - 24px);padding:6px 6px 6px 12px;border-radius:999px;background:rgba(60,50,90,.88);color:#fff;font-size:12px}
 .safe-mode-bar button{flex:none;white-space:nowrap;padding:4px 10px;border:0;border-radius:999px;background:#fff;color:#4a3d72;font-size:12px}
+
+/* v268 消息底部的时间（照顾祁砚）：一行小灰字，跟在 ••• 后面。 */
+.message-action-row .message-time { margin-left: 6px; color: #aaa2ad; font-size: 11px; letter-spacing: .02em; font-variant-numeric: tabular-nums; white-space: nowrap; }
+.phone-chat .wx-row .message-time { display: none; }

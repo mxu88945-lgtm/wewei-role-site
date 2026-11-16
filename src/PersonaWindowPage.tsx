@@ -26,6 +26,7 @@ import { PERSONA_TASK_PIN_LIMIT, createPersonaTask, taskIsActive, updatePersonaT
 import { pastLifeChunksFrom } from './personaPastLifeRecall'
 import { HISTORY_TOKEN_BUDGET } from './historyWindow'
 import { PersonaCompressionCard, PersonaMemoryInspection } from './PersonaMemoryInspection'
+import { phoneTimeLabel } from './phoneTime'
 import { canLockPersonaMemory, PERSONA_LOCKED_BUDGET } from './personaWindowMemory'
 import { activeThread, addPersonaThread, buildPersonaSetting, characterAliasIds, collectFreshFeed, collectPastLifeMemory, conversationInvolvesCharacter, deletePersona, deletePersonaThread, deletePersonaMessage, disablePersona, editPersonaMessage, enablePersona, PERSONA_MEMORY_EVERY, PERSONA_WINDOW_PRESET, pendingPersonaMemoryCount, personaMemoryApi, renamePersonaThread, resolvePersonaApi, switchPersona, switchPersonaThread, updatePersona, updatePersonaThread, type PersonaMemoryEntry, type PersonaMessage, type PersonaWindow } from './personaWindow'
 import { hydratePersonaStore, setPersonaState, usePersonaHydrated, usePersonaState } from './personaWindowStore'
@@ -869,6 +870,7 @@ export default function PersonaWindowPage(props: Props) {
               <button className="danger" {...tap(() => { if (window.confirm('删除这条消息？')) setPersonaState((current) => deletePersonaMessage(current, active.id, threadId, message.id)); setMenuMessageId(null) })}>删除</button>
             </span>}
             {!isUser && message.id === lastMessage?.id && !generating && <button className="continue-turn-button" aria-label="让 TA 继续说" title="继续" {...tap(letThemSpeak)}>▶</button>}
+            {message.createdAt > 1_500_000_000_000 && menuMessageId !== message.id && <time className="message-time">{phoneTimeLabel(message.createdAt)}</time>}
           </div>
         return <div key={message.id} data-message-id={message.id} className={look.rowClass}>
           {look.archive === 'pudding' ? <><PuddingCapsule name={name} avatar={avatar} user={isUser} /><PuddingLetter user={isUser} actions={actionRow}>{content}</PuddingLetter></> : look.archive ? <><ArchiveHeading theme={look.archive} name={name} avatar={avatar} user={isUser} /><div className="archive-body">{content}</div></> : look.layout === 'flat' ? <div className="message-line message-line-flat">

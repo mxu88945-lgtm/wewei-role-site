@@ -4550,6 +4550,7 @@ function App() {
         <button className="message-action-trigger" aria-label="消息操作" onClick={() => setMessageMenuId(message.id)}>•••</button>
         {!isUser && !streaming && replyAlternatives(message).length > 1 && <nav className="reply-version-controls" aria-label={`${authorName}的回复版本`}><button aria-label="上一版回复" disabled={isGenerating || !(message.selectedAlternative || 0)} onClick={() => switchReplyVersion(message, (message.selectedAlternative || 0) - 1)}>‹</button><span>第 {(message.selectedAlternative || 0) + 1} / {replyAlternatives(message).length} 版</span><button aria-label="下一版回复" disabled={isGenerating || (message.selectedAlternative || 0) >= replyAlternatives(message).length - 1} onClick={() => switchReplyVersion(message, (message.selectedAlternative || 0) + 1)}>›</button></nav>}
         {message.role === 'assistant' && message.id === messages[messages.length - 1]?.id && activeConversation?.kind !== 'group' && <button className="continue-turn-button" aria-label="让角色继续下一条" title="继续下一条" disabled={isGenerating} onClick={() => void continueSingleTurn()}>▶</button>}
+        {(() => { const at = messageTime(message); return at ? <time className="message-time">{phoneTimeLabel(at)}</time> : null })()}
       </div>
 
     return <div key={message.id} data-message-id={message.id} className={`message-row ${message.role} message-layout-${chatLayout}${archiveTheme ? ` archive-row archive-${archiveTheme}` : ''}`}>
@@ -5062,7 +5063,7 @@ function UpdateCard() {
     }
   }
 
-  return <section className="update-card"><strong>应用更新</strong><p>主动检查并拉取最新网页版本，不会删除角色、聊天记录或本地设置。</p><small>当前版本：v267 · 2026.11.16 人格窗口先进 TA 的小主页；隐私室加相册（TA 能收你的图、还能上锁设密码）；去掉「已召回旧原文」提示</small><button onClick={refresh} disabled={state === 'checking'}>{state === 'checking' ? '正在检查更新…' : state === 'error' ? '更新失败，点我重试' : '强制刷新到最新版'}</button></section>
+  return <section className="update-card"><strong>应用更新</strong><p>主动检查并拉取最新网页版本，不会删除角色、聊天记录或本地设置。</p><small>当前版本：v268 · 2026.11.16 消息底部加上时间（••• 旁边一行小灰字）；v267 人格窗口小主页 + 隐私室相册</small><button onClick={refresh} disabled={state === 'checking'}>{state === 'checking' ? '正在检查更新…' : state === 'error' ? '更新失败，点我重试' : '强制刷新到最新版'}</button></section>
 }
 
 function PersonaPage({ identities, selectedId, isBound, onSelect, onAdd, onDelete, onUpdate, onBack }: { identities: UserIdentity[]; selectedId: string; isBound: boolean; onSelect: (id: string) => void; onAdd: () => void; onDelete: (id: string) => void; onUpdate: (patch: Partial<UserIdentity>) => void; onBack: () => void }) {
