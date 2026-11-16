@@ -95,4 +95,13 @@ describe('character library groups', () => {
     expect(next.find((item) => item.id === 'c')?.libraryGroup).toBeUndefined()
     expect(next.find((item) => item.id === 'd')?.libraryGroup).toBeUndefined()
   })
+
+  it('does not move a card again after its first automatic placement', () => {
+    const original = card('a', { libraryGroup: '原来的故事', libraryGroupSource: 'auto' })
+    const newerChat = { id: 'newer', kind: 'group', characterId: 'a', participantIds: ['a'], title: '后来新建的群聊', chatGroup: '新的故事', messages: [], createdAt: 2, updatedAt: 2 } as Conversation
+    const list = [original]
+    const next = autoOrganizeLibraryCharacters(list, [], [newerChat])
+    expect(next).toBe(list)
+    expect(next[0]).toMatchObject({ libraryGroup: '原来的故事', libraryGroupSource: 'auto' })
+  })
 })

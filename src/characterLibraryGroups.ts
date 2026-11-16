@@ -100,9 +100,13 @@ const conversationMemberIds = (conversation: Conversation) => [...new Set(
 )].filter(Boolean)
 
 /**
- * Fill only ungrouped / previously auto-grouped cards from durable story links.
- * Existing groups from older versions count as manual and always win. A manual
- * "不分组" opt-out also wins, so this helper can safely run after hydration.
+ * Fill only genuinely ungrouped cards from durable story links.
+ *
+ * Once a card has been placed in a group, that placement is sticky even when it
+ * originally came from auto-organisation. Conversations and projects change far
+ * more often than the library does; re-evaluating an auto placement on every
+ * change made cards jump between groups after creating or editing a chat.
+ * Manual groups and a manual "不分组" opt-out continue to win as before.
  */
 export function autoOrganizeLibraryCharacters(characters: Character[], projects: StoryProject[], conversations: Conversation[]) {
   const characterIds = new Set(characters.map((character) => character.id))
@@ -145,7 +149,7 @@ export function autoOrganizeLibraryCharacters(characters: Character[], projects:
 
   let changed = false
   const next = characters.map((character) => {
-    if (character.libraryGroupOptOut || (character.libraryGroup && character.libraryGroupSource !== 'auto')) return character
+    if (character.libraryGroupOptOut || character.libraryGroup) return character
     const best = (hints.get(character.id) || []).sort((a, b) => b.priority - a.priority || b.order - a.order)[0]
     if (!best) return character
     const role = character.libraryRole || best.role
