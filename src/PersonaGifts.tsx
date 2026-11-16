@@ -1,4 +1,4 @@
-import { useMemo, useState, type CSSProperties } from 'react'
+import { useEffect, useMemo, useState, type CSSProperties } from 'react'
 import type { PersonaTap } from './PersonaTaskCards'
 import {
   PERSONA_GIFT_CATEGORIES, PERSONA_GIFT_MAKER_COLORS, giftCardLabel, giftShelfFor, giftTiles, makePersonaGift, personaGiftEvent,
@@ -39,6 +39,29 @@ export function PersonaGiftsPanel({ name, gifts, enabled, onToggle, onRemove, on
   </section>
 }
 
+/** v276：iOS 键盘弹出时 fixed 弹层不跟着缩，附言框会被压在键盘下面。按 visualViewport 把整个图鉴收到键盘上方。 */
+function useVisibleViewportBox() {
+  const [box, setBox] = useState<{ top: number; height: number } | null>(null)
+  useEffect(() => {
+    const vv = window.visualViewport
+    if (!vv) return
+    let frame = 0
+    const measure = () => {
+      frame = 0
+      const full = Math.max(window.innerHeight, document.documentElement.clientHeight)
+      const keyboard = vv.height < full * 0.8
+      const next = keyboard ? { top: Math.round(vv.offsetTop), height: Math.round(vv.height) } : null
+      setBox((current) => (current?.top === next?.top && current?.height === next?.height) ? current : next)
+    }
+    const schedule = () => { if (!frame) frame = window.requestAnimationFrame(measure) }
+    measure()
+    vv.addEventListener('resize', schedule)
+    vv.addEventListener('scroll', schedule)
+    return () => { if (frame) window.cancelAnimationFrame(frame); vv.removeEventListener('resize', schedule); vv.removeEventListener('scroll', schedule) }
+  }, [])
+  return box
+}
+
 type Pending = { item: PersonaGiftCatalogItem | PersonaGift; note: string }
 
 /** v233：礼物图鉴（＋ 菜单 →「礼物」）。分类、网格、自制、往来、请 TA 送。 */
@@ -50,6 +73,7 @@ export function PersonaGiftSheet({ roleName, shelf, history, canRoleSend, busy, 
   const [makerOpen, setMakerOpen] = useState(false)
   const [form, setForm] = useState({ icon: '', name: '', subtitle: '', color: 0 })
   const [pending, setPending] = useState<Pending | null>(null)
+  const viewport = useVisibleViewportBox()
   const mine = useMemo(() => giftShelfFor(shelf), [shelf])
   const tiles = giftTiles(tab, mine)
   const recent = history.slice(-12).reverse()
@@ -63,7 +87,7 @@ export function PersonaGiftSheet({ roleName, shelf, history, canRoleSend, busy, 
     if (andSend) setPending({ item: gift, note: '' })
     else setTab('custom')
   }
-  return <div className="persona-gift-sheet" role="dialog" aria-modal="true" aria-label="礼物图鉴">
+  return <div className={`persona-gift-sheet${viewport ? ' keyboard' : ''}`} style={viewport ? { top: viewport.top, height: viewport.height, bottom: 'auto' } : undefined} role="dialog" aria-modal="true" aria-label="礼物图鉴">
     <button type="button" className="persona-gift-scrim" aria-label="关闭礼物图鉴" {...tap(onClose)} />
     <section className="persona-gift-panel">
       <header className="persona-gift-head"><div><strong>礼物图鉴</strong><small>挑一份心意，送给 {roleName}。</small></div><button type="button" aria-label="关闭" {...tap(onClose)}>×</button></header>
@@ -96,7 +120,7 @@ export function PersonaGiftSheet({ roleName, shelf, history, canRoleSend, busy, 
       </div>
       {pending && <footer className="persona-gift-send" style={giftStyle(pending.item)}>
         <div className="persona-gift-send-item"><span className="persona-gift-art" aria-hidden="true">{pending.item.icon}</span><div><strong>{pending.item.name}</strong><small>{pending.item.subtitle}</small></div><button type="button" aria-label="取消" {...tap(() => setPending(null))}>×</button></div>
-        <div className="persona-gift-send-row"><input value={pending.note} maxLength={240} placeholder="写一句附言（可以留空）" aria-label="附言" onChange={(event) => setPending({ ...pending, note: event.target.value })} /><button type="button" className="primary" disabled={busy} {...tap(() => { onSend(personaGiftEvent(pending.item, 'user-to-role', pending.note)); setPending(null) })}>送出</button></div>
+        <div className="persona-gift-send-row"><input value={pending.note} maxLength={240} placeholder="写一句附言（可以留空）" aria-label="附言" onFocus={(event) => { const field = event.currentTarget; window.setTimeout(() => field.scrollIntoView({ block: 'nearest' }), 320) }} onChange={(event) => setPending({ ...pending, note: event.target.value })} /><button type="button" className="primary" disabled={busy} {...tap(() => { onSend(personaGiftEvent(pending.item, 'user-to-role', pending.note)); setPending(null) })}>送出</button></div>
       </footer>}
     </section>
   </div>

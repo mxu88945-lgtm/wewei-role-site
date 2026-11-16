@@ -408,6 +408,7 @@ button.persona-life-row:active { background: var(--theme-accent-soft); }
 .persona-plus-menu span { width: 22px; font-size: 18px; text-align: center; }
 
 .persona-gift-sheet { position: fixed; inset: 0; z-index: 82; display: flex; align-items: flex-end; justify-content: center; }
+.persona-gift-sheet.keyboard .persona-gift-panel { max-height: calc(100% - 8px); padding-bottom: 10px; }
 .persona-gift-scrim { position: absolute; inset: 0; border: 0; background: rgba(43,32,52,.38); animation: persona-room-fade .2s ease; }
 .persona-gift-panel { position: relative; display: flex; flex-direction: column; box-sizing: border-box; width: min(100%, 560px); max-height: calc(100% - 40px - env(safe-area-inset-top)); padding: 16px 14px calc(12px + env(safe-area-inset-bottom)); border-radius: 24px 24px 0 0; background: #fcfafd; color: #433832; box-shadow: 0 -8px 30px rgba(57,41,67,.14); }
 .persona-gift-head { display: flex; align-items: flex-start; justify-content: space-between; gap: 12px; padding: 0 4px; }
