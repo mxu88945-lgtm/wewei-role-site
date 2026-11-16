@@ -29,7 +29,7 @@ import './story-composer.css'
 import './memoryApiEnhancements'
 
 const APP_SCOPE = '/wewei-role-site/'
-const SERVICE_WORKER_RELEASE = '2026-11-16-persona-own-identity-v274'
+const SERVICE_WORKER_RELEASE = '2026-11-16-phone-notice-delete-v275'
 
 if ('serviceWorker' in navigator) {
   let reloadingForUpdate = false

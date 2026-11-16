@@ -4030,6 +4030,18 @@ function App() {
     setMessageMenuId(null)
   }
 
+  // 小手机里的系统提示（没连上、剧情更新等）不进模型，删了不动剧情摘要，直接从记录里拿掉（v275）。
+  const deletePhoneNotice = (message: Message) => {
+    if (!activeConversation || !message.phoneNotice) return
+    const id = activeConversation.id
+    const failed = message.finishReason === 'request_failed'
+    const sameKind = failed ? activeConversation.messages.filter((entry) => entry.phoneNotice && entry.finishReason === 'request_failed').length : 1
+    const all = sameKind > 1 && window.confirm(`把这 ${sameKind} 条「没连上」提示都删掉？\n点「取消」只删这一条。`)
+    if (!all && sameKind > 1 && !window.confirm('只删这一条提示？')) return
+    if (sameKind <= 1 && !window.confirm('删掉这条提示？')) return
+    setConversations((current) => current.map((item) => item.id !== id ? item : { ...item, messages: item.messages.filter((entry) => all ? !(entry.phoneNotice && entry.finishReason === 'request_failed') : entry.id !== message.id), updatedAt: Date.now() }))
+  }
+
   const regenerateMessage = async (message: Message) => {
     if (!activeConversation || isGenerating) return
     const index = messages.findIndex((entry) => entry.id === message.id)
@@ -4493,7 +4505,7 @@ function App() {
       const round = message.phoneGame
       return <div key={message.id} data-message-id={message.id}><PhoneGameCard round={round} active={activeConversation.phone.game?.id === round.id} busy={isGenerating} onNext={() => void playPhoneGame(activeConversation, round.kind, round.players, round.truthMode, '', round)} onEnd={endPhoneGame} /></div>
     }
-    if (message.phoneNotice) return <div key={message.id} data-message-id={message.id} className="phone-system-notice" role="note">{message.text}</div>
+    if (message.phoneNotice) return <div key={message.id} data-message-id={message.id} className="phone-system-notice deletable" role="note"><span>{message.text}</span><button type="button" className="phone-notice-delete" aria-label="删除这条提示" title="删除这条提示" onClick={() => deletePhoneNotice(message)}>×</button></div>
     if (activeConversation?.phone && message.role === 'user' && PAT_LINE.test(message.text.trim())) return <div key={message.id} data-message-id={message.id} className="phone-system-notice phone-pat-notice" role="note">{message.text.trim().replace(/[@＠]/g, '')}</div>
     const messageCharacter = resolveMessageCharacter(message)
     const isUser = message.role === 'user'
@@ -5064,7 +5076,7 @@ function UpdateCard() {
     }
   }
 
-  return <section className="update-card"><strong>应用更新</strong><p>主动检查并拉取最新网页版本，不会删除角色、聊天记录或本地设置。</p><small>当前版本：v274 · 2026.11.16 独立窗口里的「我」固定用小手机身份，不再跟长剧情切换身份</small><button onClick={refresh} disabled={state === 'checking'}>{state === 'checking' ? '正在检查更新…' : state === 'error' ? '更新失败，点我重试' : '强制刷新到最新版'}</button></section>
+  return <section className="update-card"><strong>应用更新</strong><p>主动检查并拉取最新网页版本，不会删除角色、聊天记录或本地设置。</p><small>当前版本：v275 · 2026.11.16 小手机里「没连上」等提示可点 × 删除；唱片不再挡住连接提示的关闭键</small><button onClick={refresh} disabled={state === 'checking'}>{state === 'checking' ? '正在检查更新…' : state === 'error' ? '更新失败，点我重试' : '强制刷新到最新版'}</button></section>
 }
 
 function PersonaPage({ identities, selectedId, isBound, onSelect, onAdd, onDelete, onUpdate, onBack }: { identities: UserIdentity[]; selectedId: string; isBound: boolean; onSelect: (id: string) => void; onAdd: () => void; onDelete: (id: string) => void; onUpdate: (patch: Partial<UserIdentity>) => void; onBack: () => void }) {

@@ -5,7 +5,7 @@
 @keyframes wj-music-spin { to { transform: rotate(360deg); } }
 @media (prefers-reduced-motion: reduce) { .wj-music-disc { animation: none; } }
 
-.wj-music-float { position: fixed; z-index: 60; right: 10px; top: calc(env(safe-area-inset-top) + 64px); display: flex; align-items: center; gap: 8px; max-width: min(74vw, 300px); padding: 5px 10px 5px 5px; border-radius: 999px; background: rgba(255,252,248,.94); border: 1px solid rgba(120,90,70,.14); box-shadow: 0 6px 22px rgba(60,40,30,.14); color: #4d3d35; }
+.wj-music-float { transition: top .2s ease; position: fixed; z-index: 60; right: 10px; top: calc(env(safe-area-inset-top) + 64px); display: flex; align-items: center; gap: 8px; max-width: min(74vw, 300px); padding: 5px 10px 5px 5px; border-radius: 999px; background: rgba(255,252,248,.94); border: 1px solid rgba(120,90,70,.14); box-shadow: 0 6px 22px rgba(60,40,30,.14); color: #4d3d35; }
 .wj-music-float.collapsed { padding: 5px; }
 .wj-music-float button { border: 0; background: none; padding: 0; color: inherit; display: flex; align-items: center; justify-content: center; min-width: 0; }
 .wj-music-float button:disabled { opacity: .35; }
@@ -81,3 +81,6 @@
 html[data-standalone] .wj-lyric-paste-layer { bottom: auto; }
 html[data-standalone][data-kb] .wj-lyric-paste { border-radius: 18px; height: calc(100% - 10px - max(14px, env(safe-area-inset-top))); max-height: none; padding-bottom: 12px; }
 html[data-standalone][data-kb] .wj-lyric-paste textarea { height: auto; min-height: 60px; flex: 1 1 0; }
+
+/* 连接提示/剧情提示出现时，唱片挪到提示下面，别压住提示的关闭键（v275） */
+body:has(.chat-error) .wj-music-float { top: calc(env(safe-area-inset-top) + 236px); }
