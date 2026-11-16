@@ -367,7 +367,7 @@ export function planPersonaRequest(persona: PersonaWindow, history: PersonaMessa
     ['group', '群聊成员', group && buildGroupSystemBlock(group, names, new Set(guestPools.map((item) => item.guestId)), new Map(guestPools.filter((item) => item.bound).map((item) => [item.guestId, stripPersonaFormatInstructions(item.bound)])), persona.hostKickEnabled === true)],
     // Keep the core boundary in the FIRST system too (some relays drop later system messages).
     // v261 TA 的小天地：固定文字，只随开关变。
-    ['agency', '暂停·隐私室·身体状态说明', agencyPrompt({ pause: persona.pauseEnabled === true, room: persona.privateRoomEnabled === true, body: persona.bodyStateEnabled === true })],
+    ['agency', '暂停·隐私室·身体状态说明', agencyPrompt({ pause: persona.pauseEnabled === true, room: persona.privateRoomEnabled === true, body: persona.bodyStateEnabled === true, album: true })],
     ['guard', '回复前确认', PERSONA_FINAL_GUARD],
   ]
   const system = joinParts(systemParts)
@@ -388,8 +388,8 @@ export function planPersonaRequest(persona: PersonaWindow, history: PersonaMessa
     ['now-playing', '正在听的歌', deps.nowPlaying?.().trim()],
     ['image-memo', '图记提示（本轮新图）', imageWire.wantsMemo && IMAGE_MEMO_PROMPT],
     ['body', '身体状态', persona.bodyStateEnabled === true && bodyTurnLine(persona.bodyState)],
-    ['album', '相册新照片', persona.privateRoomEnabled === true && albumTurnLine(persona.album, persona.albumCode)],
-    ['album-index', '相册目录（她提到相册时）', persona.privateRoomEnabled === true && albumIndexLine(persona.album, [...history].reverse().find((message) => message.role === 'user')?.text || '')],
+    ['album', '相册新照片', albumTurnLine(persona.album, persona.albumCode)],
+    ['album-index', '相册目录（她提到相册时）', albumIndexLine(persona.album, [...history].reverse().find((message) => message.role === 'user')?.text || '')],
     ['pause', '暂停中·申请继续', persona.pauseEnabled === true && pauseActive(thread.pause) && [...history].reverse().find((message) => message.role === 'user')?.pauseAppeal ? pauseAppealTail(thread.pause) : ''],
     ['guard-turn', '回复前确认', PERSONA_FINAL_GUARD],
     // v234：这一轮谁说（每轮变，所以放尾巴）。
@@ -567,7 +567,7 @@ export async function generatePersonaReply(personaId: string, deps: PersonaRunti
       if (controller.signal.aborted) throw new DOMException('Aborted', 'AbortError')
       if (flushTimer !== null) { clearTimeout(flushTimer); flushTimer = null }
       // v270：翻相册——当场把原图递给他（和本地检索共用这两次额外机会）。
-      const peekKey = round < 2 && persona.privateRoomEnabled === true ? parseAlbumPeek(output) : null
+      const peekKey = round < 2 ? parseAlbumPeek(output) : null
       if (peekKey !== null) {
         const photos = pickAlbumPeek(findPersona(personaId)?.album, peekKey)
         request.push({ role: 'assistant', content: output }, { role: 'user', content: photos.length ? [{ type: 'text', text: albumPeekResult(photos, peekKey) }, ...photos.map((photo): ChatApiContentPart => ({ type: 'image_url', image_url: { url: photo.dataUrl, detail: 'auto' } }))] : albumPeekResult(photos, peekKey) })
@@ -628,15 +628,15 @@ export async function generatePersonaReply(personaId: string, deps: PersonaRunti
       if (asked) toasts.push(shared ? `🔓 ${deps.character.name}给你看了《${asked.title}》` : `🔒 ${deps.character.name}还不想给你看《${asked.title}》`)
       const body = live.bodyStateEnabled === true ? afterReplyBody(live.bodyState, parseBodyTag(own), agencyNow) : undefined
       // v267 相册：他写了 [存相册:…] 就收她这轮发来的图；她新放的照片这轮已经告诉他，算看过。
-      const albumTags = live.privateRoomEnabled === true ? parseAlbumTags(own) : []
+      const albumTags = parseAlbumTags(own)
       const albumCaps = albumTags.map((tag) => tag.caption)
       const albumLock = albumTags.some((tag) => tag.locked)
-      const newCode = live.privateRoomEnabled === true ? parseAlbumCode(own) : null
-      const lockTags = live.privateRoomEnabled === true ? parseLockPhotoTags(own) : []
+      const newCode = parseAlbumCode(own)
+      const lockTags = parseLockPhotoTags(own)
       if (newCode) toasts.push(`🔐 ${deps.character.name}${live.albumCode ? '换了' : '设了'}相册密码`)
       const lastUserImages = albumCaps.length ? ([...history].reverse().find((message) => message.role === 'user')?.images || []).filter((image) => !image.fromVideo) : []
       if (lastUserImages.length) toasts.push(`📷 ${deps.character.name}把你发的${lastUserImages.length > 1 ? ` ${lastUserImages.length} 张图` : '照片'}收进了相册${albumLock ? '，还上了锁' : ''}`)
-      const albumUnseen = live.privateRoomEnabled === true && (live.album || []).some((item) => item.by === 'user' && !item.seen)
+      const albumUnseen = (live.album || []).some((item) => item.by === 'user' && !item.seen)
       if (resume || newPause || notes.length || asked || body || lastUserImages.length || albumUnseen || newCode || lockTags.length) setPersonaState((state) => updatePersona(state, personaId, (item) => {
         let album = lastUserImages.length ? addAlbumPhotos(item.album, lastUserImages, albumCaps, 'char', agencyNow, albumLock) : item.album
         if (lockTags.length && album) album = applyLockPhotoTags(album, lockTags)

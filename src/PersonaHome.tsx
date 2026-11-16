@@ -11,12 +11,12 @@ const weekday = ['日', '一', '二', '三', '四', '五', '六']
  * v267：进人格窗口先到 TA 的小主页（照顾祁砚首页的样子）：时间天气、一句问候、「继续聊天」大卡，
  * 下面是相册、一起听歌、小天地。跟着主题的颜色变量走，不加额外装饰。
  */
-export default function PersonaHome({ name, avatar, userName, lastLine, roomOn, album, body, pause, songTitle, onChat, onBack, onAlbum, onMusic, onAgency, tap }: {
+export default function PersonaHome({ name, avatar, userName, lastLine, album, body, pause, songTitle, onChat, onBack, onAlbum, onMusic, onAgency, tap }: {
   name: string
   avatar?: string
   userName: string
   lastLine: string
-  roomOn: boolean
+  roomOn?: boolean
   album: PersonaAlbumPhoto[]
   body?: PersonaBodyState | null
   pause?: PersonaPause
@@ -62,7 +62,7 @@ export default function PersonaHome({ name, avatar, userName, lastLine, roomOn, 
           <small>ALBUM</small>
           {cover ? <img src={cover.dataUrl} alt="" /> : null}
           <strong>TA 的相册</strong>
-          <p>{roomOn ? (album.length ? `${album.length} 张照片` : '还空着') : '在小天地里打开隐私室'}</p>
+          <p>{album.length ? `${album.length} 张照片` : '还空着'}</p>
           <i aria-hidden="true">↗</i>
         </button>
         <button type="button" className="persona-home-card" {...tap(onMusic)}>

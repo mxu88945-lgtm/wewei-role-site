@@ -89,3 +89,15 @@ describe('v270 album peek', () => {
     expect(runtime).toContain("image_url: { url: photo.dataUrl, detail: 'auto' }")
   })
 })
+
+describe('v272 相册常开', () => {
+  it('隐私室关着时相册说明也在', () => {
+    const text = agencyPrompt({ room: false, album: true })
+    expect(text).toContain('[存相册:')
+    expect(text).toContain('[翻相册:')
+    expect(text).not.toContain('【隐私室】')
+  })
+  it('不传 album 时跟隐私室走（兼容）', () => {
+    expect(agencyPrompt({ room: false })).toBe('')
+  })
+})

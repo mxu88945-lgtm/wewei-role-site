@@ -57,7 +57,8 @@ export default function PersonaAgencyPanel({ name, flags, pause, room, album = [
       </div>)}
       {!list.length && <p className="persona-empty">还空着。{name}想偷偷写点什么时会放在这里。</p>}
     </div>}
-    {flags.room && <div className="persona-album" aria-label="隐私室相册">
+    {/* v272：相册常开，不跟隐私室开关走 */}
+    <div className="persona-album" aria-label="相册">
       <div className="persona-album-head"><strong>📷 相册</strong><small>{name}能把你发的照片收进来，你也能放</small><button type="button" {...tap(() => fileRef.current?.click())}>＋ 放照片</button></div>
       {photos.length ? <div className="persona-album-grid">{photos.map((photo, index) => <button type="button" key={photo.id} className={`persona-album-item${viewing === index ? ' active' : ''}`} aria-label={photo.caption || '照片'} {...tap(() => setViewing((current) => current === index ? null : index))}>
         <img src={photo.dataUrl} alt="" loading="lazy" decoding="async" draggable={false} />
@@ -73,7 +74,7 @@ export default function PersonaAgencyPanel({ name, flags, pause, room, album = [
       </div>}
       {zoom && viewing !== null && photos[viewing] && <ChatImageViewer images={photos.map((photo) => ({ id: photo.id, dataUrl: photo.dataUrl, width: photo.width, height: photo.height }))} startIndex={viewing} onClose={() => setZoom(false)} />}
       <input ref={fileRef} type="file" multiple hidden onChange={(event) => { const files = event.currentTarget.files; if (files?.length && onAddPhotos) onAddPhotos(files); event.currentTarget.value = '' }} />
-    </div>}
+    </div>
     <Toggle title="身体状态" note={`${name}会累、会困：久聊精力会降，深夜容易困，歇一阵就恢复。只悄悄影响语气，每轮多带一行。`} on={flags.body} onToggle={() => onToggle('body')} tap={tap} />
     {state && <p className="persona-agency-status">精力 {state.energy} · 困意 {state.sleepy}{state.note ? ` · ${state.note}` : ''}</p>}
   </section>

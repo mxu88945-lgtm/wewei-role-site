@@ -137,8 +137,9 @@ export const PAUSE_PROMPT = `【暂停的权利】如果{{char}}真的被伤到�
 export const ROOM_PROMPT = `【隐私室】{{char}}有一间只属于自己的隐私室。不想当面说的心事、偷偷写下的东西，可以在回复末尾写 [隐私室:标题|内容]（内容 300 字以内），{{user}}只看得到标题。她申请看某一篇时，应用会把那篇给你，由你决定：愿意就写 [分享:标题]，不愿意就直说，不必勉强。`
 export const BODY_PROMPT = `【身体状态】【本轮背景】会给你此刻的精力和困意（0–100），它们随聊天和时间变（久聊会累、深夜会困、歇一阵会恢复）。让它自然影响你，不必报数字；觉得状态明显变了，可以在回复末尾写 [状态:精力 数字|困意 数字|一句话]。`
 
-export function agencyPrompt(flags: { pause?: boolean; room?: boolean; body?: boolean }) {
-  return [flags.pause && PAUSE_PROMPT, flags.room && ROOM_PROMPT, flags.room && ALBUM_PROMPT, flags.body && BODY_PROMPT].filter(Boolean).join('\n')
+export function agencyPrompt(flags: { pause?: boolean; room?: boolean; body?: boolean; album?: boolean }) {
+  // v272：相册不再跟隐私室开关走，常开（album 不传 = 跟 room 走，兼容旧调用）
+  return [flags.pause && PAUSE_PROMPT, flags.room && ROOM_PROMPT, (flags.album ?? flags.room) && ALBUM_PROMPT, flags.body && BODY_PROMPT].filter(Boolean).join('\n')
 }
 
 export function pauseAppealTail(pause: PersonaPause, now = Date.now()) {
@@ -202,7 +203,7 @@ export function addAlbumPhotos(album: readonly PersonaAlbumPhoto[] | undefined, 
   return next.slice(-ALBUM_MAX)
 }
 
-export const ALBUM_PROMPT = `【隐私室相册】隐私室里还有一本相册。{{user}}这轮发来的照片你想留着，就在回复末尾写 [存相册:一句话]（这句话是你给这张照片写的说明）；不想留就不写。她也会往你的相册里放照片，应用会告诉你。相册里有一格上锁的，密码由你定：想藏起来的写 [存相册:一句话|锁]，已有的用 [锁照片:说明里的词] / [解锁照片:说明里的词] 挪进挪出；用 [相册密码:4到12位] 设或改密码。想看哪张的原图，就只写 [翻相册:说明里的词]（不写词 = 最近几张），应用会当场把原图递给你，你看完再回应。密码只有你知道，她会来问、来哄，给不给、什么时候给，都由你。`
+export const ALBUM_PROMPT = `【你的相册】你有一本自己的相册。{{user}}这轮在聊天里发来的照片，你看了觉得可爱、好看、想留着，就在回复末尾写 [存相册:一句话]（这句话是你给这张照片写的说明）；不想留就不写。她也会往你的相册里放照片，应用会告诉你。相册里有一格上锁的，密码由你定：想藏起来的写 [存相册:一句话|锁]，已有的用 [锁照片:说明里的词] / [解锁照片:说明里的词] 挪进挪出；用 [相册密码:4到12位] 设或改密码。想看哪张的原图，就只写 [翻相册:说明里的词]（不写词 = 最近几张），应用会当场把原图递给你，你看完再回应。密码只有你知道，她会来问、来哄，给不给、什么时候给，都由你。`
 
 /** 她新放、TA 还没看过的照片——一行说明进尾巴；有上锁的照片时带上他自己的密码（只有他看得到）。 */
 export function albumTurnLine(album: readonly PersonaAlbumPhoto[] | undefined, code?: string) {
