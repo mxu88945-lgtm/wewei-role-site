@@ -18,3 +18,10 @@
 .theme-pudding .chat-page:not(.phone-chat) > .composer.can-expand:not(.persona-composer) > textarea { padding-left: 44px; }
 .theme-pudding .chat-page:not(.phone-chat) > .composer:not(.persona-composer) > .composer-expand { margin: 38px 0 0 4px; color: #b6782f; }
 .composer-expand .expand-corners-icon, .expanded-collapse .expand-corners-icon { display: block; pointer-events: none; }
+
+/* v264：长剧情输入框也改一行小胶囊（同人格窗口 v263）：字在左，＋ 和发送在右，多行时按钮贴底；@ 成员条单独一行在上面。 */
+.chat-page:not(.phone-chat) > .composer:not(.persona-composer) { grid-template-columns: minmax(0, 1fr) 36px 44px; grid-template-areas: "thumbs thumbs thumbs" "quote quote quote" "tools tools tools" "input plus send"; align-items: end; column-gap: 2px; padding: 5px 6px 5px 14px; border-radius: 26px !important; }
+.chat-page:not(.phone-chat) > .composer:not(.persona-composer) > textarea { padding: 7px 4px 5px 2px; min-height: 36px; }
+.chat-page:not(.phone-chat) > .composer:not(.persona-composer) > .composer-plus { width: 36px; height: 36px; margin: 0; font-size: 24px; }
+.chat-page:not(.phone-chat) > .composer:not(.persona-composer) > .send-button { width: 42px; height: 36px; margin: 0; font-size: 18px; }
+.theme-pudding .chat-page:not(.phone-chat) > .composer:not(.persona-composer) > textarea { background-position: 2px center; background-size: 30px auto; padding-left: 38px; }
