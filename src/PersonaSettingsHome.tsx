@@ -1,6 +1,6 @@
 import type { PointerEvent } from 'react'
 
-export type PersonaSettingsPanel = 'home' | 'model' | 'prompts' | 'appearance' | 'tasks' | 'selfCard' | 'period' | 'lifePeople' | 'gifts' | 'group'
+export type PersonaSettingsPanel = 'home' | 'model' | 'prompts' | 'appearance' | 'tasks' | 'selfCard' | 'period' | 'lifePeople' | 'gifts' | 'group' | 'agency'
 type Tap = (action: () => void) => { onPointerUp: (event: PointerEvent) => void; onClick: () => void }
 type IconName = 'gift' | 'selfCard' | 'prompt' | 'memory' | 'past' | 'windows' | 'model' | 'people' | 'appearance' | 'music' | 'period' | 'person'
 const ICONS: Record<IconName, string> = {
@@ -29,7 +29,7 @@ function Row({ icon, title, description, value, onSelect, tap }: { icon: IconNam
   </button>
 }
 
-export default function PersonaSettingsHome({ promptLength, memoryCount, threadCount, threadTitle, channelName, modelName, pastLifeEnabled, onNavigate, onThreads, onMemory, onManage, onTogglePastLife, trackCount = 0, songPickEnabled = true, onMusic, onToggleSongPick, selfCardLength = 0, giftCount, periodLabel, peopleCount, personaCount, onSwitchPersona, groupLabel, sprite, tap }: {
+export default function PersonaSettingsHome({ promptLength, memoryCount, threadCount, threadTitle, channelName, modelName, pastLifeEnabled, onNavigate, onThreads, onMemory, onManage, onTogglePastLife, trackCount = 0, songPickEnabled = true, onMusic, onToggleSongPick, selfCardLength = 0, giftCount, periodLabel, peopleCount, personaCount, onSwitchPersona, groupLabel, agencyLabel, sprite, tap }: {
   promptLength: number; memoryCount: number; threadCount: number; threadTitle: string; channelName: string; modelName: string; pastLifeEnabled: boolean
   onNavigate: (panel: PersonaSettingsPanel) => void; onThreads: () => void; onMemory: () => void; onManage: () => void; onTogglePastLife: () => void
   /** v207 一起听歌 */
@@ -44,6 +44,8 @@ export default function PersonaSettingsHome({ promptLength, memoryCount, threadC
   personaCount?: number; onSwitchPersona?: () => void
   /** v234 临时群聊（不传就不显示） */
   groupLabel?: string
+  /** v261 TA 的小天地（不传就不显示） */
+  agencyLabel?: string
   /** v239 Q 版立绘（只有登记了立绘套装的人格才传） */
   sprite?: { on: boolean; appear: 'mood' | 'always'; onToggle: () => void; onAppear: (appear: 'mood' | 'always') => void }
   tap: Tap
@@ -54,6 +56,7 @@ export default function PersonaSettingsHome({ promptLength, memoryCount, threadC
       <Row icon="prompt" title="系统提示词" description="相处方式、语气与表达偏好" value={promptLength ? `${promptLength.toLocaleString()} 字` : '默认规则'} onSelect={() => onNavigate('prompts')} tap={tap} />
       <Row icon="selfCard" title="他自己写的卡" description="他在相处中慢慢补全的自己，原卡不动" value={selfCardLength ? `${selfCardLength.toLocaleString()} 字` : '还空着'} onSelect={() => onNavigate('selfCard')} tap={tap} />
       {giftCount !== undefined && <Row icon="gift" title="礼物架" description="你和 TA 亲手做的礼物 · 让 TA 送礼物的开关" value={giftCount ? `${giftCount} 份` : '还没有'} onSelect={() => onNavigate('gifts')} tap={tap} />}
+      {agencyLabel !== undefined && <Row icon="person" title="TA 的小天地" description="暂停的权利 · 隐私室 · 身体状态" value={agencyLabel} onSelect={() => onNavigate('agency')} tap={tap} />}
       <Row icon="memory" title="记忆" description="长期记忆 · 同一人格的窗口共用" value={`${memoryCount} 条`} onSelect={onMemory} tap={tap} />
       <Row icon="appearance" title="外观与文字" description="主题、壁纸、字号与文字颜色" onSelect={() => onNavigate('appearance')} tap={tap} />
       <Row icon="past" title="任务卡" description="当前窗口的倒计时、完成与取消" onSelect={() => onNavigate('tasks')} tap={tap} />

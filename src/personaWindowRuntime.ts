@@ -50,6 +50,7 @@ import { PERSONA_GIFT_STABLE_HISTORY, personaGiftRecallNote, addPersonaGift, bui
 import { withPromptCache } from './promptCache'
 import { foldPromptForRelay, stripTurnContext } from './promptTail'
 import { recordPromptUsage } from './promptUsage'
+import { addPrivateNotes, afterReplyBody, agencyPrompt, bodyTurnLine, formatLeft, hasResumeTag, PAUSE_APPEAL_GAP_MS, parseBodyTag, parsePauseTag, parseRoomTags, parseShareTitles, pauseActive, pauseAppealTail } from './personaAgency'
 import { dismissGuest, parseGuestKicks, addGuestMemories, buildGroupAfterTail, buildGroupSystemBlock, buildGroupTurnTail, guestMemoryExtractionPrompt, isGuestId, isGuestMessage, labelGroupContent, pendingGuestMessages, planGroupTurn, PERSONA_GROUP_SEGMENT_CAP, PERSONA_GUEST_MEMORY_EVERY, resolveGuest, speakerOf, splitGroupReply, type GroupTurnPlan } from './personaGroup'
 
 /**
@@ -365,6 +366,8 @@ export function planPersonaRequest(persona: PersonaWindow, history: PersonaMessa
     // v234：成员、各自人设/世界观/窗口记忆、模式与输出格式——只随成员或模式变。
     ['group', '群聊成员', group && buildGroupSystemBlock(group, names, new Set(guestPools.map((item) => item.guestId)), new Map(guestPools.filter((item) => item.bound).map((item) => [item.guestId, stripPersonaFormatInstructions(item.bound)])), persona.hostKickEnabled === true)],
     // Keep the core boundary in the FIRST system too (some relays drop later system messages).
+    // v261 TA 的小天地：固定文字，只随开关变。
+    ['agency', '暂停·隐私室·身体状态说明', agencyPrompt({ pause: persona.pauseEnabled === true, room: persona.privateRoomEnabled === true, body: persona.bodyStateEnabled === true })],
     ['guard', '回复前确认', PERSONA_FINAL_GUARD],
   ]
   const system = joinParts(systemParts)
@@ -384,6 +387,8 @@ export function planPersonaRequest(persona: PersonaWindow, history: PersonaMessa
     ['task-status', '任务状态', personaTaskStatus(thread.tasks)],
     ['now-playing', '正在听的歌', deps.nowPlaying?.().trim()],
     ['image-memo', '图记提示（本轮新图）', imageWire.wantsMemo && IMAGE_MEMO_PROMPT],
+    ['body', '身体状态', persona.bodyStateEnabled === true && bodyTurnLine(persona.bodyState)],
+    ['pause', '暂停中·申请继续', persona.pauseEnabled === true && pauseActive(thread.pause) && [...history].reverse().find((message) => message.role === 'user')?.pauseAppeal ? pauseAppealTail(thread.pause) : ''],
     ['guard-turn', '回复前确认', PERSONA_FINAL_GUARD],
     // v234：这一轮谁说（每轮变，所以放尾巴）。
     ['group-turn', '本轮谁说', group ? buildGroupTurnTail(group) : guestHistory ? buildGroupAfterTail(names) : ''],
@@ -443,7 +448,7 @@ export function consolidatePersonaMessages(messages: ChatApiMessage[]): ChatApiM
 /** Visible history for a request: no empty placeholders, no failed turns. */
 const requestHistory = (messages: PersonaMessage[]) => messages.filter((item) => item.text.trim() || item.images?.length || item.attachments?.length || item.gift)
 
-export async function generatePersonaReply(personaId: string, deps: PersonaRuntimeDeps, input: { text?: string; images?: ChatImage[]; attachments?: ChatAttachment[]; gift?: PersonaGiftEvent; regenerate?: boolean; threadId?: string; taskCompletionId?: string; quote?: { messageId: number; author: string; text: string } } = {}) {
+export async function generatePersonaReply(personaId: string, deps: PersonaRuntimeDeps, input: { text?: string; images?: ChatImage[]; attachments?: ChatAttachment[]; gift?: PersonaGiftEvent; regenerate?: boolean; threadId?: string; taskCompletionId?: string; quote?: { messageId: number; author: string; text: string }; appEvent?: { text: string; roomAskId?: string } } = {}) {
   const persona = findPersona(personaId)
   if (!persona) return
   const thread = activeThread(persona, input.threadId)
@@ -454,6 +459,17 @@ export async function generatePersonaReply(personaId: string, deps: PersonaRunti
   const threadId = thread.id
   if (!isApiChannelComplete(deps.api)) { setPersonaError(threadId, '这个人格用的 API 还没配置完整：到 ••• → 模型 换一个渠道，或到 设置 → API 连接 填写。'); return }
   setPersonaError(threadId, '')
+  // v261：TA 暂停中——她发的话都算「申请继续」（10 分钟一次）；礼物、任务事件、申请看隐私室都先等等。
+  const paused = persona.pauseEnabled === true && pauseActive(thread.pause) && !input.regenerate
+  const hasUserInput = Boolean((input.text || '').trim() || input.images?.length || input.attachments?.length)
+  if (paused) {
+    const left = formatLeft(thread.pause!.until - Date.now())
+    if (!hasUserInput || input.gift || input.appEvent || input.taskCompletionId) { setPersonaError(threadId, `${deps.character.name}暂停中，还剩 ${left}。现在只能写一句话递「申请继续」。`); return }
+    const lastAppeal = [...thread.messages].reverse().find((message) => message.role === 'user' && message.pauseAppeal)
+    if (lastAppeal && Date.now() - lastAppeal.createdAt < PAUSE_APPEAL_GAP_MS) { setPersonaError(threadId, `刚递过申请，等 ${formatLeft(PAUSE_APPEAL_GAP_MS - (Date.now() - lastAppeal.createdAt))}再递吧（暂停还剩 ${left}）。`); return }
+  }
+  const lastMessage = thread.messages[thread.messages.length - 1]
+  const appEvent = input.appEvent || (input.regenerate && lastMessage?.role === 'assistant' && lastMessage.appEventText ? { text: lastMessage.appEventText, roomAskId: lastMessage.roomAskId } : undefined)
   let base = thread.messages
   let replacedGiftId = ''
   let replacedReplyIds: number[] = []
@@ -478,7 +494,7 @@ export async function generatePersonaReply(personaId: string, deps: PersonaRunti
   const presentIds = (thread.memberIds || []).filter((id) => (persona.guests || []).some((guest) => guest.id === id))
   const presence = presentIds.length ? { present: presentIds } : {}
   if ((input.text || '').trim() || input.images?.length || input.attachments?.length || userGift) {
-    additions.push({ id: firstId, role: 'user', text: (input.text || '').trim(), createdAt: now, ...(input.images?.length ? { images: input.images } : {}), ...(input.attachments?.length ? { attachments: input.attachments } : {}), ...(input.quote ? { quote: input.quote } : {}), ...(userGift ? { gift: userGift } : {}), ...presence })
+    additions.push({ id: firstId, role: 'user', text: (input.text || '').trim(), createdAt: now, ...(input.images?.length ? { images: input.images } : {}), ...(input.attachments?.length ? { attachments: input.attachments } : {}), ...(input.quote ? { quote: input.quote } : {}), ...(userGift ? { gift: userGift } : {}), ...(paused ? { pauseAppeal: true } : {}), ...presence })
   }
   const withUser = [...base, ...additions]
   const replyId = Math.max(nextPersonaMessageId(withUser), firstId + additions.length)
@@ -486,7 +502,8 @@ export async function generatePersonaReply(personaId: string, deps: PersonaRunti
   const group: GroupTurnPlan | null = planGroupTurn(persona, thread, history, { name: deps.character.name, avatar: deps.character.avatar }, deps.characters)
   const speakerFields = (speakerId: string): Partial<PersonaMessage> => !group ? {} : { speakerId, ...(isGuestId(speakerId) ? { speakerName: group.speakers.find((item) => item.id === speakerId)?.name || '客人' } : {}), ...presence, groupTurn: replyId }
   const defaultSpeaker = group ? group.targets?.[0] || persona.id : ''
-  const placeholder: PersonaMessage = { id: replyId, role: 'assistant', text: '', createdAt: now, ...(completedTask ? { taskCompletionId: completedTask.id } : {}), ...speakerFields(defaultSpeaker) }
+  const eventFields: Partial<PersonaMessage> = appEvent && !completedTask ? { appEventText: appEvent.text, ...(appEvent.roomAskId ? { roomAskId: appEvent.roomAskId } : {}) } : {}
+  const placeholder: PersonaMessage = { id: replyId, role: 'assistant', text: '', createdAt: now, ...(completedTask ? { taskCompletionId: completedTask.id } : {}), ...eventFields, ...speakerFields(defaultSpeaker) }
   const promptThread = { ...thread, messages: withUser, tasks: thread.tasks?.filter((task) => !input.regenerate || task.sourceMessageId === undefined || !replaced.has(task.sourceMessageId)) }
   const touch = (state: Parameters<typeof updatePersona>[0], at: number) => updatePersona(state, personaId, (item) => ({ ...item, updatedAt: at }))
   // v231：重新生成时，被换掉的那条回复里做的礼物也从礼物架上收回。
@@ -511,11 +528,11 @@ export async function generatePersonaReply(personaId: string, deps: PersonaRunti
   const writeGroup = (parts: { speakerId: string; text: string; extra?: Partial<PersonaMessage> }[], busy = true) => setPersonaState((state) => updatePersonaThread(state, personaId, threadId, (item) => {
     const slots = parts.length ? parts : [{ speakerId: defaultSpeaker, text: '' }]
     const keep = item.messages.filter((message) => !isReplySlot(message.id))
-    return { ...item, messages: [...keep, ...slots.map((part, index): PersonaMessage => ({ id: replyId + index, role: 'assistant', text: part.text, createdAt: now, ...(index === 0 && completedTask ? { taskCompletionId: completedTask.id } : {}), ...speakerFields(part.speakerId), ...part.extra }))] }
+    return { ...item, messages: [...keep, ...slots.map((part, index): PersonaMessage => ({ id: replyId + index, role: 'assistant', text: part.text, createdAt: now, ...(index === 0 && completedTask ? { taskCompletionId: completedTask.id } : {}), ...(index === 0 ? eventFields : {}), ...speakerFields(part.speakerId), ...part.extra }))] }
   }), busy)
   const writeStream = (raw: string) => group ? writeGroup(groupParts(raw, true).filter((part) => part.text)) : writeReply(personaReplyText(raw))
   try {
-    const event = completedTask ? `【应用事件，不是用户打字】用户刚刚点击完成当前窗口的任务「${completedTask.text}」。用时由应用记录：${personaTaskStatus([completedTask], now)}。请简短自然地回应这次完成，不复述系统说明，不新增任务。` : undefined
+    const event = completedTask ? `【应用事件，不是用户打字】用户刚刚点击完成当前窗口的任务「${completedTask.text}」。用时由应用记录：${personaTaskStatus([completedTask], now)}。请简短自然地回应这次完成，不复述系统说明，不新增任务。` : appEvent?.text
     // v210：事件作为最新一条用户消息，动态尾巴并在它后面；第一条 system 不动，提示词缓存不断。
     const planThread = input.regenerate ? { ...promptThread, recallLedger: {} } : promptThread
     const pools = personaRecallPools(persona, deps)
@@ -585,6 +602,29 @@ export async function generatePersonaReply(personaId: string, deps: PersonaRunti
     if (selfEdit) setPersonaState((state) => updatePersona(state, personaId, (item) => setSelfCardSection(item, selfEdit.key, selfEdit.content, `他改了「${selfCardLabel(selfEdit.key)}」`)))
     // v207：他点了歌就切过去——每条回复只在生成完这一刻做一次，翻历史不会触发。
     if (songPick) autoPlaySongPick(`${threadId}:${replyId}:${now}`, songPick, useMusicStore.getState())
+    // v261 TA 的小天地：暂停/继续、隐私室、身体状态——只认主人格那段，开关开着才生效。
+    const agencyNow = Date.now()
+    const live = findPersona(personaId), liveThread = live?.threads.find((item) => item.id === threadId)
+    if (live && liveThread) {
+      const toasts: string[] = []
+      const resume = live.pauseEnabled === true && pauseActive(liveThread.pause, agencyNow) && hasResumeTag(own)
+      const newPause = live.pauseEnabled === true && !resume ? parsePauseTag(own, agencyNow) : null
+      if (resume) toasts.push(`☀️ ${deps.character.name}愿意继续了`)
+      if (newPause) toasts.push(`🌙 ${deps.character.name}暂停了这段对话（${formatLeft(newPause.until - agencyNow)}）`)
+      const notes = live.privateRoomEnabled === true ? parseRoomTags(own) : []
+      notes.forEach((note) => toasts.push(`🔒 ${deps.character.name}往隐私室放了一篇《${note.title}》`))
+      const asked = live.privateRoomEnabled === true && appEvent?.roomAskId ? live.privateRoom?.find((note) => note.id === appEvent.roomAskId) : undefined
+      const shared = asked ? parseShareTitles(own).length > 0 : false
+      if (asked) toasts.push(shared ? `🔓 ${deps.character.name}给你看了《${asked.title}》` : `🔒 ${deps.character.name}还不想给你看《${asked.title}》`)
+      const body = live.bodyStateEnabled === true ? afterReplyBody(live.bodyState, parseBodyTag(own), agencyNow) : undefined
+      if (resume || newPause || notes.length || asked || body) setPersonaState((state) => updatePersona(state, personaId, (item) => {
+        let room = notes.length ? addPrivateNotes(item.privateRoom, notes, agencyNow) : item.privateRoom
+        if (asked && room) room = room.map((note) => note.id === asked.id ? { ...note, askedAt: agencyNow, ...(shared ? { shared: true } : { declinedAt: agencyNow }) } : note)
+        const threads = resume || newPause ? item.threads.map((entry) => { if (entry.id !== threadId) return entry; const next = { ...entry }; if (newPause) next.pause = newPause; else delete next.pause; return next }) : item.threads
+        return { ...item, threads, ...(room ? { privateRoom: room } : {}), ...(body ? { bodyState: body } : {}) }
+      }))
+      if (toasts.length) patchRuntime((current) => ({ ...current, peopleToasts: { ...current.peopleToasts, [personaId]: { text: toasts.join(' · '), seq: ++peopleToastSeq } } }))
+    }
     // v258：他在自己那段写了 [请出:名字]——只认在场客人，开关开着才生效；请出后后台整理那位客人的记忆。
     const kicked = group && findPersona(personaId)?.hostKickEnabled === true ? parseGuestKicks(own, group.guests) : []
     if (kicked.length) {

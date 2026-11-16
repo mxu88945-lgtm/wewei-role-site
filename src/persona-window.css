@@ -537,3 +537,15 @@ html[data-kb] .persona-sprite-stage { opacity: 0; }
 html[data-kb] .persona-sprite-stage .persona-sprite-hit { pointer-events: none; }
 html[data-kb] .persona-sprite-tab { display: none; }
 .persona-sprite-appear { flex: none; max-width: 128px; padding: 5px 8px; border: 1px solid rgba(125,104,141,.18); border-radius: 10px; background: rgba(255,255,255,.7); color: inherit; font: inherit; font-size: 13px; }
+
+/* v261 TA 的小天地 */
+.persona-agency-status { margin: -6px 4px 0; color: #84738e; font-size: 12px; line-height: 1.5; }
+.persona-room-row { display: grid; grid-template-columns: minmax(0, 1fr) auto; align-items: center; gap: 8px; padding: 10px 8px 10px 12px; border-bottom: 1px solid rgba(125,104,141,.09); }
+.persona-room-row:last-child { border-bottom: 0; }
+.persona-room-title { display: flex; align-items: center; gap: 8px; min-width: 0; padding: 0; border: 0; background: none; color: #665471; font: inherit; text-align: left; }
+.persona-room-title strong { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 14px; }
+.persona-room-title small { flex: none; color: #a79fac; font-size: 11px; }
+.persona-room-ask { flex: none; padding: 5px 12px; border: 0; border-radius: 999px; background: rgba(125,104,141,.12); color: #7d688d; font-size: 12px; }
+.persona-room-ask:disabled { opacity: .5; }
+.persona-room-text { grid-column: 1 / -1; margin: 4px 0 0; color: #6f6176; font-size: 13px; line-height: 1.7; white-space: pre-wrap; }
+.persona-pause-hint span { white-space: normal; }

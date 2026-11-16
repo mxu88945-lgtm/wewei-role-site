@@ -11,6 +11,7 @@
 import type { Character, CharacterBook, CharacterMemoryEntry, WorldBookEntry } from './characterCard'
 import type { StoryProject } from './storyProject'
 import { stripPresentationalHtmlForPrompt } from './regexEngine'
+import { normalizeBodyState, normalizePause, normalizePrivateRoom, type PersonaBodyState, type PersonaPause, type PersonaPrivateNote } from './personaAgency'
 import type { ChatImage } from './chatImages'
 import { CHAT_ATTACHMENT_LIMIT, CHAT_ATTACHMENT_MAX_CHARS, type ChatAttachment } from './chatAttachments'
 import type { Conversation } from './conversationLifecycle'
@@ -54,6 +55,11 @@ export type PersonaMessage = {
   recallSources?: PersonaRecallSource[]
   /** Application completion event used to regenerate this reply without forging a user turn. */
   taskCompletionId?: string
+  /** v261：暂停中她发的话 = 申请继续。 */
+  pauseAppeal?: boolean
+  /** v261：应用事件（如申请看隐私室）那轮的事件原文，重新生成时照用。 */
+  appEventText?: string
+  roomAskId?: string
   /** 引用的消息（人格窗口内引用回复）。 */
   quote?: { messageId: number; author: string; text: string }
   /** v207：他在这条回复里点的歌（[点歌:X] 解析出来的歌名；正文里已去掉标记）。 */
@@ -120,6 +126,8 @@ export type PersonaThread = {
   guestMemoryThrough?: Record<string, number>
   /** v255 新动态：每个群聊/剧本已经推给这扇窗口的最后一条消息 id。 */
   feedCursor?: Record<string, number>
+  /** v261：TA 暂停了这扇窗口（到 until 自动恢复）。 */
+  pause?: PersonaPause
 }
 
 export type PersonaWindow = {
@@ -170,6 +178,12 @@ export type PersonaWindow = {
   giftsEnabled?: boolean
   /** v258：允许窗口主人在群聊里用 [请出:名字] 请客人离开，默认关（只存 true）。 */
   hostKickEnabled?: boolean
+  /** v261 TA 的小天地：暂停的权利、隐私室、身体状态，默认关（只存 true）。 */
+  pauseEnabled?: boolean
+  privateRoomEnabled?: boolean
+  bodyStateEnabled?: boolean
+  privateRoom?: PersonaPrivateNote[]
+  bodyState?: PersonaBodyState
   /** v234：拉进过这扇人格窗口的客人（卡 + 他自己的窗口记忆），请出后仍保留。 */
   guests?: PersonaGuest[]
 }
@@ -201,7 +215,7 @@ function normalizeMessage(value: unknown): PersonaMessage | null {
   const recallSources = (Array.isArray(value.recallSources) ? value.recallSources : []).filter(isRecord).filter((source) => text(source.threadId) && Number.isSafeInteger(source.messageId) && (source.role === 'user' || source.role === 'assistant')).slice(0, 20).map((source): PersonaRecallSource => ({ threadId: text(source.threadId), messageId: Number(source.messageId), title: text(source.title), role: source.role === 'user' ? 'user' : 'assistant', createdAt: Number(source.createdAt) || 0 }))
   const gift = normalizePersonaGiftEvent(value.gift, role)
   const quote = isRecord(value.quote) && Number.isFinite(Number(value.quote.messageId)) ? { messageId: Number(value.quote.messageId), author: text(value.quote.author), text: text(value.quote.text) } : undefined
-  return { id, role, text: text(value.text), createdAt: Number(value.createdAt) || 0, ...(images?.length ? { images } : {}), ...(attachments.length ? { attachments } : {}), ...(value.finishReason !== undefined ? { finishReason: (value.finishReason as string | null) } : {}), ...(recallSources.length ? { recallSources } : {}), ...(role === 'assistant' && text(value.taskCompletionId) ? { taskCompletionId: text(value.taskCompletionId) } : {}), ...(quote ? { quote } : {}), ...(role === 'assistant' && text(value.songPick).trim() ? { songPick: text(value.songPick).trim().slice(0, 80) } : {}), ...(role === 'assistant' && isSelfCardKey(value.selfCardEdit) ? { selfCardEdit: value.selfCardEdit } : {}), ...(gift ? { gift } : {}), ...normalizeMessageGroup(value, role) }
+  return { id, role, text: text(value.text), createdAt: Number(value.createdAt) || 0, ...(images?.length ? { images } : {}), ...(attachments.length ? { attachments } : {}), ...(value.finishReason !== undefined ? { finishReason: (value.finishReason as string | null) } : {}), ...(recallSources.length ? { recallSources } : {}), ...(role === 'assistant' && text(value.taskCompletionId) ? { taskCompletionId: text(value.taskCompletionId) } : {}), ...(quote ? { quote } : {}), ...(role === 'assistant' && text(value.songPick).trim() ? { songPick: text(value.songPick).trim().slice(0, 80) } : {}), ...(role === 'assistant' && isSelfCardKey(value.selfCardEdit) ? { selfCardEdit: value.selfCardEdit } : {}), ...(gift ? { gift } : {}), ...(role === 'user' && value.pauseAppeal === true ? { pauseAppeal: true } : {}), ...(role === 'assistant' && text(value.appEventText) ? { appEventText: text(value.appEventText).slice(0, 2000) } : {}), ...(role === 'assistant' && text(value.roomAskId) ? { roomAskId: text(value.roomAskId) } : {}), ...normalizeMessageGroup(value, role) }
 }
 
 function normalizeMemory(value: unknown): PersonaMemoryEntry | null {
@@ -260,6 +274,7 @@ function normalizeThread(raw: Record<string, unknown>, fallbackId: string, index
     ...(Number.isSafeInteger(Number(raw.messageSequence)) && Number(raw.messageSequence) > 0 ? { messageSequence: Number(raw.messageSequence) } : {}),
     ...(Array.isArray(raw.tasks) ? { tasks: normalizePersonaTasks(raw.tasks) } : {}),
     ...(isRecord(raw.feedCursor) ? { feedCursor: normalizeFeedCursor(raw.feedCursor) } : {}),
+    ...(normalizePause(raw.pause) ? { pause: normalizePause(raw.pause) } : {}),
     ...normalizeThreadGroup(raw),
   }
 }
@@ -316,6 +331,11 @@ export function normalizePersonaState(value: unknown): PersonaWindowState {
       ...(normalizePersonaGifts(raw.customGifts).length ? { customGifts: normalizePersonaGifts(raw.customGifts) } : {}),
       ...(raw.giftsEnabled === false ? { giftsEnabled: false } : {}),
       ...(raw.hostKickEnabled === true ? { hostKickEnabled: true } : {}),
+      ...(raw.pauseEnabled === true ? { pauseEnabled: true } : {}),
+      ...(raw.privateRoomEnabled === true ? { privateRoomEnabled: true } : {}),
+      ...(raw.bodyStateEnabled === true ? { bodyStateEnabled: true } : {}),
+      ...(normalizePrivateRoom(raw.privateRoom).length ? { privateRoom: normalizePrivateRoom(raw.privateRoom) } : {}),
+      ...(normalizeBodyState(raw.bodyState) ? { bodyState: normalizeBodyState(raw.bodyState) } : {}),
       ...(normalizeGuests(raw.guests, normalizeMemory).length ? { guests: normalizeGuests(raw.guests, normalizeMemory) } : {}),
     })
   }

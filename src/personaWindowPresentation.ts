@@ -40,8 +40,10 @@ export function personaReplyText(value: string) {
   // v207：点歌标记 [点歌:X] 只是给应用看的，任何地方都不显示、不进历史/记忆/摘要。
   // v211：自我卡标记 [自我卡:栏目|…] 同样只给应用看。v231：[自制礼物:…] 也是。v232：[人物:名字|…] 也是。
   return stripPersonTags(stripPersonaGiftTag(stripSelfCardTag(stripSongPick(stripUiOnlyStatusBlocks(sanitizeAssistantOutput(stripSongPick(stripSelfCardTag(stripPersonaGiftTag(stripPersonTags(value))))))
-    .replace(/\[\s*(?:记忆|记住|存记忆|memory|搜索|旧文|提醒|提醒任务|定时提醒|任务|reminder|请出)\s*[:：][^\]\n]*(?:\]|$)/gi, '')
-    .replace(/\[(?:记(?:忆|住)?|存记忆|memory|搜(?:索)?|旧(?:文)?|提(?:醒(?:任(?:务)?)?)?|定(?:时(?:提(?:醒)?)?)?|任(?:务)?|reminder|请(?:出)?)?$/gi, '')
+    .replace(/\[\s*(?:记忆|记住|存记忆|memory|搜索|旧文|提醒|提醒任务|定时提醒|任务|reminder|请出|暂停|分享|状态)\s*[:：][^\]\n]*(?:\]|$)/gi, '')
+    .replace(/\[(?:记(?:忆|住)?|存记忆|memory|搜(?:索)?|旧(?:文)?|提(?:醒(?:任(?:务)?)?)?|定(?:时(?:提(?:醒)?)?)?|任(?:务)?|reminder|请(?:出)?|暂(?:停)?|隐(?:私(?:室)?)?|分(?:享)?|状(?:态)?|继(?:续)?)?$/gi, '')
+    .replace(/\[\s*继续\s*\]/g, '')
+    .replace(/\[\s*隐私室\s*[:：][^\]]*(?:\]|$)/g, '')
     .replace(/<(scene|scenario|details)\b[^>]*>[\s\S]*?(?:<\/\1\s*>|$)/gi, '')
     .replace(/<(style|script|head)\b[^>]*>[\s\S]*?(?:<\/\1\s*>|$)/gi, '')
     .replace(/```(?:css|javascript|js)\b[^\n]*\n[\s\S]*?(?:```|$)/gi, '')
