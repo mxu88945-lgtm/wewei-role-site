@@ -282,6 +282,18 @@ export default function PersonaWindowPage(props: Props) {
   const [agencyTick, setAgencyTick] = useState(0)
   const pausedNow = Boolean(active?.pauseEnabled && thread && pauseActive(thread.pause, Date.now() + agencyTick * 0))
   const bodyOn = active?.bodyStateEnabled === true
+  // v271：状态栏那句话只在他换新一句时亮约 6 秒，随后淡出，只留两条小进度；全句仍在「TA 的小天地」里
+  const statusNote = bodyOn ? currentBody(active?.bodyState).note || '' : ''
+  const [noteShown, setNoteShown] = useState('')
+  const seenNoteRef = useRef<string | null>(null)
+  useEffect(() => {
+    if (seenNoteRef.current === null) { seenNoteRef.current = statusNote; return }
+    if (!statusNote || statusNote === seenNoteRef.current) return
+    seenNoteRef.current = statusNote
+    setNoteShown(statusNote)
+    const timer = window.setTimeout(() => setNoteShown(''), 6000)
+    return () => window.clearTimeout(timer)
+  }, [statusNote])
   useEffect(() => {
     if (!pausedNow && !bodyOn) return
     const timer = window.setInterval(() => setAgencyTick((value) => value + 1), pausedNow ? 30_000 : 60_000)
@@ -675,7 +687,7 @@ export default function PersonaWindowPage(props: Props) {
         {pausedNow && thread?.pause && <span className="persona-status-pause">🌙 暂停中 · {formatLeft(thread.pause.until - Date.now())}</span>}
         {body && <><span className="persona-status-meter" title="精力"><i aria-hidden="true">⚡</i><b><em style={{ width: `${body.energy}%` }} /></b><small>{body.energy}</small></span>
           <span className="persona-status-meter sleepy" title="困意"><i aria-hidden="true">💤</i><b><em style={{ width: `${body.sleepy}%` }} /></b><small>{body.sleepy}</small></span>
-          {body.note && !pausedNow && <span className="persona-status-note">{body.note}</span>}</>}
+          {body.note && !pausedNow && <span className={`persona-status-note${noteShown && noteShown === body.note ? ' show' : ''}`} aria-hidden={noteShown !== body.note}>{body.note}</span>}</>}
       </button>
     })() : <span className="persona-header-spacer" aria-hidden="true" />}
     {view === 'chat' && active ? <button className="more-button" aria-label="窗口与设置" aria-expanded={drawerOpen} {...tap(() => { setSwitcherOpen(false); setSidebarOpen(false); setSettingsPanel('home'); setDrawerOpen(true) })}>•••</button> : <button className="more-button" aria-label="返回聊天" {...tap(() => { setSwitcherOpen(false); setView('chat') })}>✓</button>}
