@@ -47,3 +47,7 @@
 .backstage-chat-error button { margin-left: auto; border: 1px solid currentColor; border-radius: 999px; padding: 4px 12px; background: transparent; color: inherit; font: inherit; font-size: 12px; font-weight: 700; }
 /* v281 他的回复和手记正文一样平铺：不加底色、撑满、同字号行距 */
 .backstage-reply.from-character { justify-self: stretch; max-width: none; width: auto; padding: 0; background: none; border-radius: 0; font-size: 15px; line-height: 1.85; }
+/* v282 手记正文和他的回复字号统一：同一条规则、同一组字体属性，不让别处的样式各管一边 */
+.backstage-notes-page .backstage-note > p,
+.backstage-notes-page .backstage-reply.from-character { font-size: 15px !important; line-height: 1.85 !important; letter-spacing: normal !important; font-weight: 400 !important; font-family: inherit !important; -webkit-text-size-adjust: 100%; text-size-adjust: 100%; }
+.backstage-notes-page .backstage-reply.from-character .message-narration { font-size: inherit !important; }
