@@ -62,7 +62,7 @@ import { withPromptCache } from './promptCache'
 import { recordPromptUsage } from './promptUsage'
 import { CHAT_IMAGE_LIMIT, CHAT_VIDEO_MAX_FRAMES, prepareChatImage, prepareChatVideo, type ChatImage } from './chatImages'
 import { captureTemporaryPlot, consumeTemporaryPlot, withAssistantRetryInstruction, withFinalTemporaryPlotInstruction } from './temporaryPlot'
-import { checkAndRepairTemporaryPlot, reviewTemporaryPlotReply } from './temporaryPlotReview'
+import { reviewTemporaryPlotReply } from './temporaryPlotReview'
 import { resolveChatScrollTarget, resolveRelayoutScrollTop, type ChatScrollSnapshot } from './chatScroll'
 import { createApiChannel, isApiChannelComplete, normalizeApiChannels, resolveApiChannel, withApiModel, type ApiChannel } from './apiChannels'
 import { enabledPresetText, normalizePresetSections } from './presetConfig'
@@ -3173,9 +3173,7 @@ function App() {
         },
         onDelta: (delta) => {
           output += delta
-          // Finite arrangements are shown only after their private check, so
-          // an ignored first draft cannot briefly look like the final reply.
-          if (capturedTemporaryPlot && capturedTemporaryPlot.mode !== 'persistent') return
+          // v280：幕后安排的第一稿也边写边显示，不再藏起来等检查（之前要等 2–3 分钟）。
           const staged = sanitizeAssistantOutput(output, { director: isDirector })
           // Keep partial analysis headings private, but show completed chat sentences
           // while the model is still generating the rest of its reply.
@@ -3189,8 +3187,7 @@ function App() {
       })
       }
       const finitePlot = Boolean(capturedTemporaryPlot && capturedTemporaryPlot.mode !== 'persistent')
-      if (finitePlot) showPhase('幕后安排 1/3 · 正在写第一稿')
-      else if (conversation.phone) showPhase('正在等待模型回复…')
+      if (conversation.phone) showPhase('正在等待模型回复…')
       let completion = await runCompletion()
       cancelQueuedStreamRender()
       if (!output.trim()) throw new Error('模型没有返回内容')
@@ -3201,7 +3198,7 @@ function App() {
         output = ''
         stagedVisibleOutput = ''
         thinkingIndicatorShown = false
-        if (finitePlot) showPhase('幕后安排 1/3 · 第一稿不完整，正在补全正文')
+        if (finitePlot) showPhase('第一稿不完整，正在补全正文')
         else if (conversation.phone) showPhase(phoneReasoningLeak ? '已拦截内部分析，正在重新生成消息…' : '正在重新生成消息…')
         else setConversations((current) => current.map((item) => item.id === conversationId ? { ...item, messages: item.messages.map((message) => message.id === assistantMessage.id ? { ...message, text: '正在补全正文…' } : message) } : item))
         promptMessages = withAssistantRetryInstruction(promptMessages, phoneReasoningLeak
@@ -3223,12 +3220,14 @@ function App() {
       }
       let plotApplied = true
       if (capturedTemporaryPlot && capturedTemporaryPlot.mode !== 'persistent') {
-        let repairing = false
-        const checked = await checkAndRepairTemporaryPlot(cleanOutput || output, (reply) => (showPhase(repairing ? '幕后安排 3/3 · 重写完成，正在复查' : '幕后安排 2/3 · 正在检查是否落实'), reviewTemporaryPlotReply({
+        // v280：正文先落地给她看，再在后台快速查一次（短输出、限时）；不再重查、不再自动重写。
+        const shown = cleanOutput || output
+        setConversations((current) => current.map((item) => item.id === conversationId ? { ...item, messages: item.messages.map((message) => message.id === assistantMessage.id ? { ...message, text: shown } : message) } : item))
+        const verdict = await reviewTemporaryPlotReply({
           api: resolvedSpeakerApi,
           signal: controller.signal,
           direction: capturedTemporaryPlot.text,
-          reply,
+          reply: shown,
           speakerName: speaker.name,
           director: isDirector,
           userName: identity.name,
@@ -3236,30 +3235,11 @@ function App() {
           // The checker receives visible recent history only, never another
           // member's card, project files, memories or private variables.
           recentHistory: nextMessages.slice(-4).map((message) => `${message.role}: ${modelVisibleMessageText({ ...message, text: sanitizeAssistantOutput(message.text, { director: message.characterId === conversation.directorCharacterId }) })}`).join('\n').slice(-6000),
-        })), async () => {
-          repairing = true
-          output = ''
-          stagedVisibleOutput = ''
-          thinkingIndicatorShown = false
-          showPhase('幕后安排 3/3 · 第一稿没落实，正在重写')
-          promptMessages = withAssistantRetryInstruction(promptMessages, '上次回复没有落实本轮幕后安排，不能把只延续旧场景或沿用旧的阻断状态当作完成。请重新生成本轮完整回复，实际启动安排的第一步，并停在用户或独立角色可以回应的位置；不替他们行动或决定，不复述后台指令，保持原输出结构。', true)
-          completion = await runCompletion()
-          cancelQueuedStreamRender()
-          const repaired = sanitizeAssistantOutput(output, { director: isDirector })
-          if (!hasCompleteRoleplayBody(repaired, isDirector) || (isGroup && !isDirector && hasGroupIdentityLeak(repaired, speaker.name, groupNames))) {
-            output = ''
-            throw new Error('补写幕后安排时模型未返回有效正文；安排已保留，请重试。')
-          }
-          return repaired
+          quick: true,
         })
-        stopPhase()
-        cleanOutput = checked.reply
-        plotApplied = checked.applied
-        if (checked.verdict.status === 'ignored') {
-          // Two drafts and minutes of waiting must not end in nothing: keep the
-          // rewrite as this turn's reply, and leave the arrangement pending.
-          setChatError('两次都没完全落实幕后安排，已保留重写后的这一稿；安排未消耗，可以重生成再试，或点“已落实，结束安排”。')
-        } else if (!plotApplied) setChatError('检查认为幕后安排可能与当前事实或角色控制权冲突，本轮回复已保留，安排未消耗。若正文其实已落实，点“已落实，结束安排”即可清空。')
+        plotApplied = verdict.status === 'applied' || verdict.status === 'unknown'
+        if (verdict.status === 'ignored') setChatError('这一稿好像没落实幕后安排，安排还留着：点重生成再写一稿；若其实已落实，点“已落实，结束安排”。')
+        else if (!plotApplied) setChatError('检查认为幕后安排可能与当前事实或角色控制权冲突，本轮回复已保留，安排未消耗。若正文其实已落实，点“已落实，结束安排”即可清空。')
       }
       if (completion.finishReason) {
         setConversations((current) => current.map((item) => item.id === conversationId ? { ...item, messages: item.messages.map((message) => message.id === assistantMessage.id ? { ...message, finishReason: completion.finishReason } : message) } : item))
@@ -5076,7 +5056,7 @@ function UpdateCard() {
     }
   }
 
-  return <section className="update-card"><strong>应用更新</strong><p>主动检查并拉取最新网页版本，不会删除角色、聊天记录或本地设置。</p><small>当前版本：v279 · 2026.11.17 浅灰信笺的气泡左右更宽，撑满屏幕</small><button onClick={refresh} disabled={state === 'checking'}>{state === 'checking' ? '正在检查更新…' : state === 'error' ? '更新失败，点我重试' : '强制刷新到最新版'}</button></section>
+  return <section className="update-card"><strong>应用更新</strong><p>主动检查并拉取最新网页版本，不会删除角色、聊天记录或本地设置。</p><small>当前版本：v280 · 2026.11.17 临时剧情不再藏稿等检查，边写边显示，快很多</small><button onClick={refresh} disabled={state === 'checking'}>{state === 'checking' ? '正在检查更新…' : state === 'error' ? '更新失败，点我重试' : '强制刷新到最新版'}</button></section>
 }
 
 function PersonaPage({ identities, selectedId, isBound, onSelect, onAdd, onDelete, onUpdate, onBack }: { identities: UserIdentity[]; selectedId: string; isBound: boolean; onSelect: (id: string) => void; onAdd: () => void; onDelete: (id: string) => void; onUpdate: (patch: Partial<UserIdentity>) => void; onBack: () => void }) {

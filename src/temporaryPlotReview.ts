@@ -83,10 +83,10 @@ export function parseTemporaryPlotReview(value: string, reply: string): PlotRevi
 }
 
 /** One short, private check only for finite directions; it never enters chat or memory. */
-export async function reviewTemporaryPlotReply(input: PlotReviewInput & { api: ApiConfig; signal: AbortSignal }): Promise<PlotReview> {
+export async function reviewTemporaryPlotReply(input: PlotReviewInput & { api: ApiConfig; signal: AbortSignal; quick?: boolean }): Promise<PlotReview> {
   let verdict = ''
   try {
-    await completeChat({ api: input.api, messages: buildTemporaryPlotReviewMessages(input), temperature: 0, topP: 1, maxTokens: 2000, streaming: false, signal: input.signal, onDelta: (delta) => { verdict += delta } })
+    await completeChat({ api: input.api, messages: buildTemporaryPlotReviewMessages(input), temperature: 0, topP: 1, maxTokens: input.quick ? 400 : 2000, streaming: false, ...(input.quick ? { timeoutMs: 25000 } : {}), signal: input.signal, onDelta: (delta) => { verdict += delta } })
     if (input.signal.aborted) throw new DOMException('Aborted', 'AbortError')
     // A cut-off verdict only counts when its JSON is complete and its quote is
     // verified in the reply; anything partial stays unknown.
