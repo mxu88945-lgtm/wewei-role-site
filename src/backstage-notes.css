@@ -45,3 +45,5 @@
 .backstage-chat-error { display: flex; align-items: center; gap: 10px; font-size: 12px; color: #b4435a; }
 .backstage-chat-error.quiet { color: inherit; opacity: .6; }
 .backstage-chat-error button { margin-left: auto; border: 1px solid currentColor; border-radius: 999px; padding: 4px 12px; background: transparent; color: inherit; font: inherit; font-size: 12px; font-weight: 700; }
+/* v281 他的回复和手记正文一样平铺：不加底色、撑满、同字号行距 */
+.backstage-reply.from-character { justify-self: stretch; max-width: none; width: auto; padding: 0; background: none; border-radius: 0; font-size: 15px; line-height: 1.85; }
