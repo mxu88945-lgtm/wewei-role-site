@@ -1,12 +1,12 @@
 import type { PhoneGameRound } from './phoneGames'
-import type { ChatImage } from './chatImages'
+import type { ChatImage, PlotImage } from './chatImages'
 import type { DirectorTemplateConfig } from './directorTemplate'
 import type { Character, CharacterMemoryEntry } from './characterCard'
 import type { LongMemoryEntry } from './memoryEngine'
 import type { StoryScript, StoryVariable } from './storyScripts'
 
 export type ReplyAlternative = { text: string; finishReason?: string | null; contextSnapshotId?: string }
-export type Message = { id: number; role: 'user' | 'assistant'; text: string; images?: ChatImage[]; characterId?: string; finishReason?: string | null; alternatives?: ReplyAlternative[]; selectedAlternative?: number; contextSnapshotId?: string; /** 小手机群里的系统小字（例如剧情更新提醒），不发给模型、不算发言。 */ phoneNotice?: boolean; /** 本条游戏的固定抽签结果。 */ phoneGame?: PhoneGameRound; /** 小手机「引用回复」：被引用那句的快照（约 80 字）。 */ quote?: { messageId: string; author: string; text: string } }
+export type Message = { id: number; role: 'user' | 'assistant'; text: string; images?: ChatImage[]; /** v284：他在正文里用 [配图:名称] 贴出的幕后配图。 */ plotImages?: PlotImage[]; characterId?: string; finishReason?: string | null; alternatives?: ReplyAlternative[]; selectedAlternative?: number; contextSnapshotId?: string; /** 小手机群里的系统小字（例如剧情更新提醒），不发给模型、不算发言。 */ phoneNotice?: boolean; /** 本条游戏的固定抽签结果。 */ phoneGame?: PhoneGameRound; /** 小手机「引用回复」：被引用那句的快照（约 80 字）。 */ quote?: { messageId: string; author: string; text: string } }
 
 export type ConversationContextSnapshot = {
   memories: LongMemoryEntry[]
@@ -44,7 +44,7 @@ export type Conversation = {
   themePresetId?: string
   themeFrost?: number
   bookmarks?: Record<string, { note: string; createdAt: number }>
-  temporaryPlot?: { id: string; text: string; mode?: 'once' | 'counted' | 'persistent'; remainingUses?: number; recipientIds?: string[] }
+  temporaryPlot?: { id: string; text: string; mode?: 'once' | 'counted' | 'persistent'; remainingUses?: number; recipientIds?: string[]; /** v284 幕后配图：她传给他、可在正文 [配图:名称] 处显示的图。 */ images?: PlotImage[] }
   storyVariables?: StoryVariable[]
   storyScripts?: StoryScript[]
   storyScriptRuns?: Record<string, number>

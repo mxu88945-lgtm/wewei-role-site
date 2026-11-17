@@ -61,7 +61,8 @@ import { foldPromptForRelay } from './promptTail'
 import { withPromptCache } from './promptCache'
 import { recordPromptUsage } from './promptUsage'
 import { CHAT_IMAGE_LIMIT, CHAT_VIDEO_MAX_FRAMES, prepareChatImage, prepareChatVideo, type ChatImage } from './chatImages'
-import { captureTemporaryPlot, consumeTemporaryPlot, withAssistantRetryInstruction, withFinalTemporaryPlotInstruction } from './temporaryPlot'
+import { mergePlotImages, usedPlotImages } from './plotImages'
+import { captureTemporaryPlot, withoutUsedPlotImages, consumeTemporaryPlot, withAssistantRetryInstruction, withFinalTemporaryPlotInstruction } from './temporaryPlot'
 import { reviewTemporaryPlotReply } from './temporaryPlotReview'
 import { resolveChatScrollTarget, resolveRelayoutScrollTop, type ChatScrollSnapshot } from './chatScroll'
 import { createApiChannel, isApiChannelComplete, normalizeApiChannels, resolveApiChannel, withApiModel, type ApiChannel } from './apiChannels'
@@ -2977,6 +2978,7 @@ function App() {
       identity.name,
       capturedTemporaryPlot?.mode,
       isDirector,
+      capturedTemporaryPlot?.images,
     )
     return { promptMessages, promptStats, capturedCharacter, capturedMemoryConfig, capturedMemories, isGroup, isDirector, statusTag, requiresCharacterStatus, groupNames, storedRelationshipStage, capturedTemporaryPlot }
   }
@@ -3359,7 +3361,10 @@ function App() {
       if (controller.signal.aborted) throw new Error('回复已停止')
       const reportedRelationshipStage = capturedCharacter.name === '顾霆深' ? extractRelationshipStage(finalOutput) : undefined
       const nextRelationshipStage = Math.max(storedRelationshipStage || 0, reportedRelationshipStage || 0)
-      const generatedMessage: Message = { ...assistantMessage, text: finalOutput, finishReason: completion.finishReason }
+      // v284 幕后配图：正文里 [配图:名字] 用到的图存到这条消息上；重生成时保留旧版本用过的图。
+      const usedImages = usedPlotImages(finalOutput, capturedTemporaryPlot?.images)
+      const keptPlotImages = mergePlotImages(requestOptions.replacement?.plotImages, usedImages)
+      const generatedMessage: Message = { ...assistantMessage, text: finalOutput, finishReason: completion.finishReason, ...(keptPlotImages ? { plotImages: keptPlotImages } : {}) }
       // v202：新剧情卡里点的歌在歌单里就自动切过去（每条只触发一次，历史消息不触发）。
       if (filmCardEnabled && !conversation.phone && !isDirector) autoPlayFilmSong(assistantMessage.id, finalOutput)
       if (phoneLockCommand && !phoneLockDenied) setPhoneLock({ until: Date.now() + phoneLockCommand.minutes * 60000, startedAt: Date.now(), byId: speaker.id, byName: speaker.name, reason: phoneLockCommand.reason })
@@ -3368,7 +3373,7 @@ function App() {
       const imageMemo = requestOptions.continueWithoutUser ? '' : extractImageMemo(output)
       const memoTurnIds = imageMemo ? new Set(currentImageTurn(nextMessages).map((index) => nextMessages[index].id)) : null
       setConversations((current) => current.map((item) => item.id === conversationId ? {
-        ...(plotApplied ? consumeTemporaryPlot(item, capturedTemporaryPlot, conversation.historyRevision || 0) : item),
+        ...withoutUsedPlotImages(plotApplied ? consumeTemporaryPlot(item, capturedTemporaryPlot, conversation.historyRevision || 0) : item, usedImages),
         messages: (memoTurnIds ? withImageMemo(item.messages, (message) => memoTurnIds.has(message.id), imageMemo) : item.messages).map((message) => message.id === assistantMessage.id ? completedMessage : message),
         relationshipStages: nextRelationshipStage ? { ...(item.relationshipStages || {}), [capturedCharacter.id]: nextRelationshipStage } : item.relationshipStages,
         backstageNotebook: backstageNoteText ? addBackstageNote(item.backstageNotebook, speaker.id, backstageNoteText, Date.now()) : item.backstageNotebook,
@@ -4527,7 +4532,7 @@ function App() {
     const phaseStartedAt = streaming && activeConversation ? phaseStartedAtRef.current.get(`${activeConversation.id}|${message.id}`) : undefined
     // v218：布丁来信在小手机里也用名字胶囊 + 小信封；其他档案主题仍只用于主剧情。
     const archiveTheme = chatTheme === 'pudding' ? 'pudding' : !activeConversation?.phone && (chatTheme === 'academy' || chatTheme === 'vinyl' || chatTheme === 'mobile' || chatTheme === 'letter' || chatTheme === 'mistnote' || chatTheme === 'nightglow' || chatTheme === 'greynote') ? chatTheme : null
-    const textContent = phaseStartedAt !== undefined ? <PhaseElapsed label={displayText} startedAt={phaseStartedAt} /> : displayText ? <MessageContent text={displayText} role={message.role} character={messageCharacter} noStatus={Boolean(activeConversation?.phone)} paper={archiveTheme || (activeConversation?.phone ? false : chatTheme === 'scrapbook' ? 'scrapbook' : chatTheme === 'paper')} userName={identity.name} layout={archiveTheme ? 'flat' : chatLayout} streaming={streaming} greetings={openingGreetings} onSelectGreeting={selectOpening} messageId={message.id} filmAutoplay={filmAutoplay} filmLatest={filmLatest} opening={isOpening && !activeConversation?.phone} /> : null
+    const textContent = phaseStartedAt !== undefined ? <PhaseElapsed label={displayText} startedAt={phaseStartedAt} /> : displayText ? <MessageContent text={displayText} role={message.role} character={messageCharacter} noStatus={Boolean(activeConversation?.phone)} paper={archiveTheme || (activeConversation?.phone ? false : chatTheme === 'scrapbook' ? 'scrapbook' : chatTheme === 'paper')} userName={identity.name} layout={archiveTheme ? 'flat' : chatLayout} streaming={streaming} greetings={openingGreetings} onSelectGreeting={selectOpening} messageId={message.id} filmAutoplay={filmAutoplay} filmLatest={filmLatest} opening={isOpening && !activeConversation?.phone} plotImages={message.plotImages} onOpenImage={setViewerImage} /> : null
     const quoteExists = Boolean(message.quote && messages.some((item) => String(item.id) === message.quote!.messageId))
     const quoteBlock = isUser && message.quote && activeConversation?.phone ? <button type="button" className={`phone-message-quote${quoteExists ? '' : ' missing'}`} aria-label={quoteExists ? `跳到被引用的消息：${message.quote.author}` : '被引用的消息已不在'} disabled={!quoteExists} onClick={() => jumpToQuoted(message.quote!.messageId)}><b>{message.quote.author}：</b>{message.quote.text}</button> : null
     const body = imageGrid ? <>{imageGrid}{textContent}</> : textContent

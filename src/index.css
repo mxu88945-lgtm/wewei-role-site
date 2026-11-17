@@ -1244,3 +1244,13 @@ button { cursor: pointer; }
 /* v268 消息底部的时间（照顾祁砚）：一行小灰字，跟在 ••• 后面。 */
 .message-action-row .message-time { margin-left: 6px; color: #aaa2ad; font-size: 11px; letter-spacing: .02em; font-variant-numeric: tabular-nums; white-space: nowrap; }
 .phone-chat .wx-row .message-time { display: none; }
+
+/* v284 幕后配图：正文里 [配图:名字] 的位置显示图片 */
+.message-plot-image { margin: 10px 0; }
+.message-plot-image button { display: block; width: 100%; max-width: min(320px, 100%); min-height: 0; padding: 0; border: 0; border-radius: 12px; overflow: hidden; background: none; -webkit-tap-highlight-color: transparent; }
+.message-plot-image img { display: block; width: 100%; height: auto; object-fit: cover; }
+.plot-images { display: grid; gap: 10px; }
+.plot-image-row { display: flex; align-items: center; gap: 10px; }
+.plot-image-row img { flex: none; width: 56px; height: 56px; border-radius: 8px; object-fit: cover; }
+.plot-image-row input { flex: 1; min-width: 0; }
+.plot-image-row button { flex: none; }

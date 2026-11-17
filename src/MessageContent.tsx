@@ -1,4 +1,6 @@
 import { hasMediaElement, observeLazyFrame } from './lazyFrames'
+import type { PlotImage } from './chatImages'
+import { PLOT_IMAGE_TAG, splitPlotImages } from './plotImages'
 import { memo, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
 import { stripTurnContext } from './promptTail'
 import DOMPurify from 'dompurify'
@@ -375,7 +377,7 @@ function SandboxHtml({ html, raw = false, paper = false, greetings, onSelectGree
   </div>
 }
 
-function MessageContent({ text: storedText, role, character, userName, layout = 'bubble', streaming = false, greetings, onSelectGreeting, noStatus = false, paper = false, messageId, filmAutoplay = false, filmLatest = false, opening = false }: { text: string; opening?: boolean; role: 'user' | 'assistant'; character: Character; userName: string; layout?: 'bubble' | 'flat'; streaming?: boolean; noStatus?: boolean; paper?: MessageTheme; messageId?: string | number; filmAutoplay?: boolean; filmLatest?: boolean } & SceneHooks) {
+function MessageContent({ text: storedText, role, character, userName, layout = 'bubble', streaming = false, greetings, onSelectGreeting, noStatus = false, paper = false, messageId, filmAutoplay = false, filmLatest = false, opening = false, plotImages, onOpenImage }: { text: string; opening?: boolean; plotImages?: PlotImage[]; onOpenImage?: (image: PlotImage) => void; role: 'user' | 'assistant'; character: Character; userName: string; layout?: 'bubble' | 'flat'; streaming?: boolean; noStatus?: boolean; paper?: MessageTheme; messageId?: string | number; filmAutoplay?: boolean; filmLatest?: boolean } & SceneHooks) {
   // v210：请求专用的【本轮背景】标记永远不显示（只在发出的请求里加，这里兜底）。
   const text = stripTurnContext(storedText)
   // v204：同一个挂着的消息从「流式中」变成「流式结束」那一刻，补一次剧情卡自动切歌（autoPlayFilmSong 自己去重）。
@@ -423,7 +425,7 @@ function MessageContent({ text: storedText, role, character, userName, layout = 
   }, [bodyText, role, character, userName, streaming, noStatus])
 
   const filmCard = film?.card ? <FilmCard card={film.card} avatar={character.avatar} characterId={character.id} speakerName={character.name} seed={`${character.id}|${film.card.sceneTitle}|${film.card.heart}|${film.card.zh}`} cardKey={messageId !== undefined ? `${character.id}|${messageId}` : undefined} isLatest={filmLatest} /> : null
-  const content = renderMessageBody(rendered, role, layout, paper, streaming, greetings, onSelectGreeting)
+  const content = renderMessageBody(rendered, role, layout, paper, streaming, greetings, onSelectGreeting, plotImages, onOpenImage)
   // v244：开场美化模板只挂在主聊天第一条开场白上方；正文仍是原样可读的纯文本。
   // v245：大头像先缩成预览图再放进模板（模板里头像出现 4 次，原图几 MB 会把 iOS 撑爆）；安全模式不加载模板。
   const wantTemplate = opening && role === 'assistant' && Boolean(character.openingTemplate) && !isSafeMode()
@@ -444,21 +446,28 @@ function MessageContent({ text: storedText, role, character, userName, layout = 
   return filmCard ? <>{withTemplate}{filmCard}</> : withTemplate
 }
 
-function renderMessageBody(rendered: string, role: 'user' | 'assistant', layout: 'bubble' | 'flat', paper: MessageTheme, streaming: boolean, greetings: SceneHooks['greetings'], onSelectGreeting: SceneHooks['onSelectGreeting']) {
+function renderMessageBody(rendered: string, role: 'user' | 'assistant', layout: 'bubble' | 'flat', paper: MessageTheme, streaming: boolean, greetings: SceneHooks['greetings'], onSelectGreeting: SceneHooks['onSelectGreeting'], plotImages?: PlotImage[], onOpenImage?: (image: PlotImage) => void) {
   const segments = streaming ? null : splitHtmlFences(rendered)
   if (segments) {
     return <div className="message-content message-content-rich message-content-segments">{segments.map((segment, index) => segment.kind === 'html'
       ? <SandboxHtml key={`h${index}`} html={segment.value} raw greetings={greetings} onSelectGreeting={onSelectGreeting} />
-      : <RenderedBlock key={`t${index}`} rendered={segment.value} role={role} layout={layout} paper={paper} />)}</div>
+      : <RenderedBlock key={`t${index}`} rendered={segment.value} role={role} layout={layout} paper={paper} plotImages={plotImages} onOpenImage={onOpenImage} />)}</div>
   }
-  return <RenderedBlock rendered={rendered} role={role} layout={layout} paper={paper} />
+  return <RenderedBlock rendered={rendered} role={role} layout={layout} paper={paper} plotImages={plotImages} onOpenImage={onOpenImage} />
 }
 
-function RenderedBlock({ rendered, role, layout, paper = false }: { rendered: string; role: 'user' | 'assistant'; layout: 'bubble' | 'flat'; paper?: MessageTheme }) {
+function RenderedBlock({ rendered: raw, role, layout, paper = false, plotImages, onOpenImage }: { rendered: string; role: 'user' | 'assistant'; layout: 'bubble' | 'flat'; paper?: MessageTheme; plotImages?: PlotImage[]; onOpenImage?: (image: PlotImage) => void }) {
+  // v284 幕后配图：[配图:名字] 那一行换成图片；没有对应图（或还在流式中）就把标签藏起来。
+  const hasPlotTag = role === 'assistant' && /\[配图[:：]/.test(raw)
+  const rendered = hasPlotTag && (hasExecutableScript(raw) || isFullHtmlDocument(raw) || looksLikeHtml(raw)) ? raw.replace(PLOT_IMAGE_TAG, '') : raw
   if (hasExecutableScript(rendered) || isFullHtmlDocument(rendered)) return <div className="message-content message-content-rich"><SandboxHtml html={rendered} paper={paper} /></div>
   if (looksLikeHtml(rendered)) return <div className="message-content message-content-rich"><SafeInlineHtml html={rendered} /></div>
   const paragraphs = role === 'user' ? userTextParagraphs(rendered) : plainTextParagraphs(rendered)
-  return <div className={`message-content message-content-plain ${layout === 'bubble' ? 'message-content-bubble' : 'message-content-flat'}`}><div className={`message-plain-text ${role === 'user' ? 'message-plain-text-user' : ''}`}>{paragraphs.map((paragraph, index) => <p key={`${index}-${paragraph.slice(0, 12)}`}>{styledPlainText(paragraph)}</p>)}</div></div>
+  return <div className={`message-content message-content-plain ${layout === 'bubble' ? 'message-content-bubble' : 'message-content-flat'}`}><div className={`message-plain-text ${role === 'user' ? 'message-plain-text-user' : ''}`}>{paragraphs.map((paragraph, index) => hasPlotTag && /\[配图[:：]/.test(paragraph)
+    ? splitPlotImages(paragraph, plotImages).map((piece, part) => piece.kind === 'image'
+      ? <figure key={`${index}-img-${part}`} className="message-plot-image"><button type="button" aria-label={`查看图片：${piece.image.name}`} onClick={() => onOpenImage?.(piece.image)}><img src={piece.image.dataUrl} alt={piece.image.name} loading="lazy" decoding="async" style={{ aspectRatio: `${piece.image.width} / ${piece.image.height}` }} /></button></figure>
+      : piece.text ? <p key={`${index}-t-${part}`}>{styledPlainText(piece.text)}</p> : null)
+    : <p key={`${index}-${paragraph.slice(0, 12)}`}>{styledPlainText(paragraph)}</p>)}</div></div>
 }
 
 export default memo(MessageContent)

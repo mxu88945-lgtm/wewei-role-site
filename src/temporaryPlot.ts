@@ -1,5 +1,8 @@
 import type { Conversation } from './conversationLifecycle'
 import type { ChatApiMessage } from './chatApi'
+import type { PlotImage } from './chatImages'
+import { plotImageInstruction, withPlotImageParts } from './plotImages'
+import { TURN_BRIDGE_TEXT } from './promptTail'
 
 type TemporaryPlot = NonNullable<Conversation['temporaryPlot']>
 
@@ -23,10 +26,12 @@ export function withFinalTemporaryPlotInstruction(
   userName: string,
   mode: TemporaryPlot['mode'] = 'once',
   director = false,
+  images: readonly PlotImage[] = [],
 ) {
   const direction = plot?.trim()
   if (!direction) return messages
-  return [...messages, {
+  const pictures = images.slice(0, 4)
+  return [...withPlotImageParts(messages, pictures, TURN_BRIDGE_TEXT), {
     role: 'system' as const,
     content: `【临时剧情执行令｜${mode === 'once' ? '仅本轮' : '持续幕后方向'}、最高执行优先级】
 这是用户私下交给「${speakerName}」的${mode === 'once' ? '本轮剧情安排' : '持续剧情方向'}，不是参考资料、可选建议或未来备忘。本次回复必须在不复述指令的前提下实际落实，让正文出现与安排对应的可观察事件、行动、信息或局势变化；不得无视、延后到下一轮，或只沿用原剧情而没有落实。${mode === 'once' ? '若安排包含多个步骤，本轮至少明确启动第一步并写到用户可以继续回应的位置。' : '每次沿最新进展推进一个自然步骤，已发生的来电、登场、发现或完成事件不得重复触发；持续风格和节奏要求继续维持，已完成的事件只保留结果，不重新演一遍。'}
@@ -35,7 +40,7 @@ export function withFinalTemporaryPlotInstruction(
 ${director ? '你本轮是旁白导演：必须把安排转成权限内的环境、外部事件或无独立卡 NPC 行动。配角发起来电、门外来访、消息送达均可推进；停在铃声、来电显示或送达节点，不替独立角色接听、答应、回应或决定。安排中的通话内容可作为 NPC 的来意，但尚未接听不能直接写成主角已知。旧剧情中的拒绝婚约或切断某条专线，不等于禁止本轮一切新来电；在已有事实允许的渠道推进，不能把旧的阻断状态当作已经落实新安排。若确无合法渠道，不得编造已经发生或擅自恢复已毁设施。' : ''}
 
 【本轮必须落实的内容】
-${direction}`,
+${direction}${pictures.length ? `\n\n${plotImageInstruction(pictures)}` : ''}`,
   }]
 }
 
@@ -57,4 +62,13 @@ export function consumeTemporaryPlot(conversation: Conversation, captured: Tempo
     return { ...conversation, temporaryPlot: remainingUses ? { ...conversation.temporaryPlot, remainingUses } : undefined }
   }
   return { ...conversation, temporaryPlot: undefined }
+}
+
+/** v284：用过的配图从后台移走（下一轮不再随请求发出），安排本身不动。 */
+export function withoutUsedPlotImages(conversation: Conversation, used: readonly PlotImage[]): Conversation {
+  const plot = conversation.temporaryPlot
+  if (!used.length || !plot?.images?.length) return conversation
+  const ids = new Set(used.map((image) => image.id))
+  const images = plot.images.filter((image) => !ids.has(image.id))
+  return { ...conversation, temporaryPlot: { ...plot, images: images.length ? images : undefined } }
 }

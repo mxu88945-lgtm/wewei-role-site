@@ -4,6 +4,7 @@ import type { ChatApiContentPart } from './chatApi'
 /** A picture the user sent in chat. Stored inline (compressed JPEG) inside the
  *  message, which lives in IndexedDB — never in localStorage. */
 export type ChatImage = { id: string; dataUrl: string; width: number; height: number; fromVideo?: boolean; /** v250 图记：他看图那一轮写下的 ≤40 字描述；之后的请求只带这一行，不再带原图。 */ memo?: string }
+export type PlotImage = ChatImage & { /** 她起的名字，正文里用 [配图:名字] 引用。 */ name: string }
 
 export const CHAT_IMAGE_MAX_SIDE = 1280
 export const CHAT_IMAGE_QUALITY = 0.8

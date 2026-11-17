@@ -1,4 +1,6 @@
 import { useState } from 'react'
+import { prepareChatImage } from './chatImages'
+import { PLOT_IMAGE_LIMIT } from './plotImages'
 import type { Conversation } from './conversationLifecycle'
 export type PlotTemplate = { id: string; title: string; text: string; updatedAt: number }
 
@@ -12,9 +14,26 @@ export default function TemporaryPlotPage({ plot, onChange, recipients, template
   const uses = plot?.remainingUses || defaultUses
   const recipientIds = plot ? plot.recipientIds : defaultRecipients
   const changePlot = (patch: Partial<Plot>) => {
-    const next = { text: value, mode, remainingUses: uses, recipientIds, ...patch, id: crypto.randomUUID() }
-    onChange(next.text.trim() ? next : undefined)
+    const next = { text: value, mode, remainingUses: uses, recipientIds, images: plot?.images, ...patch, id: crypto.randomUUID() }
+    onChange(next.text.trim() || next.images?.length ? next : undefined)
   }
+  const images = plot?.images || []
+  const [imageBusy, setImageBusy] = useState(false)
+  const addImages = async (files: FileList | null) => {
+    if (!files?.length) return
+    setImageBusy(true)
+    try {
+      const room = Math.max(0, PLOT_IMAGE_LIMIT - images.length)
+      const added = []
+      for (const file of Array.from(files).slice(0, room)) {
+        try { const image = await prepareChatImage(file); added.push({ ...image, name: `图${images.length + added.length + 1}` }) } catch { /* 读不了的跳过 */ }
+      }
+      if (added.length) changePlot({ images: [...images, ...added] })
+      if (files.length > room) setNotice(`最多 ${PLOT_IMAGE_LIMIT} 张，多出来的没加。`)
+    } finally { setImageBusy(false) }
+  }
+  const renameImage = (id: string, name: string) => changePlot({ images: images.map((image) => image.id === id ? { ...image, name: name.slice(0, 20) } : image) })
+  const removeImage = (id: string) => { const next = images.filter((image) => image.id !== id); changePlot({ images: next.length ? next : undefined }) }
   const [title, setTitle] = useState('')
   const [notice, setNotice] = useState('')
   const saveTemplate = () => {
@@ -33,7 +52,13 @@ export default function TemporaryPlotPage({ plot, onChange, recipients, template
     {mode === 'counted' && <label>剩余成功次数<input type="number" min={1} max={100} value={uses} onChange={(event) => { const next = Math.max(1, Math.min(100, Math.floor(Number(event.target.value) || 1))); setDefaultUses(next); changePlot({ remainingUses: next }) }} /></label>}
     {recipients.length > 1 && <fieldset className="plot-recipients"><legend>私下接收范围</legend><label className="story-tools-check"><input type="checkbox" checked={recipientIds === undefined} onChange={(event) => { const next = event.target.checked ? undefined : []; setDefaultRecipients(next); changePlot({ recipientIds: next }) }} />本次 @ 谁就给谁</label>{recipients.map((recipient) => <label className="story-tools-check" key={recipient.id}><input type="checkbox" checked={recipientIds?.includes(recipient.id) || false} onChange={(event) => { const next = event.target.checked ? [...recipientIds || [], recipient.id] : (recipientIds || []).filter((id) => id !== recipient.id); setDefaultRecipients(next); changePlot({ recipientIds: next }) }} />允许 {recipient.name}（仍需 @）</label>)}{recipientIds?.length === 0 && <p>尚未选择接收者：这份安排暂时不会发送给任何角色。</p>}</fieldset>}
     <label>幕后安排<textarea rows={12} value={value} onChange={(event) => changePlot({ text: event.target.value })} placeholder="例如：让他接到一通紧急电话；或这场保持缓慢对峙，不急着和解……" /></label>
-    <div className="story-tools-actions"><button disabled={!value} onClick={() => onChange(undefined)}>清空 / 结束</button></div>
+    <article className="story-tools-card"><h3>幕后配图（{images.length}/{PLOT_IMAGE_LIMIT}）</h3>
+      <p>给每张图起个名字，在安排里写怎么用，例如「让他发一条热搜，配上 热搜截图」。他会看图，在正文合适的位置贴出来；用过的图自动移走。每张图约多上千 token，持续模式下没用掉的图每轮都会带上。</p>
+      {images.length > 0 && <div className="plot-images">{images.map((image) => <div className="plot-image-row" key={image.id}><img src={image.dataUrl} alt="" /><input value={image.name} onChange={(event) => renameImage(image.id, event.target.value)} aria-label="配图名字" placeholder="名字，比如 热搜截图" /><button type="button" className="secondary-button" onClick={() => removeImage(image.id)}>删除</button></div>)}</div>}
+      {images.length < PLOT_IMAGE_LIMIT && <label className="secondary-button">{imageBusy ? '处理中…' : '添加图片'}<input type="file" multiple hidden disabled={imageBusy} onChange={(event) => { void addImages(event.target.files); event.target.value = '' }} /></label>}
+      {images.length > 0 && !value.trim() && <p>先写幕后安排，图才会随安排一起发出。</p>}
+    </article>
+    <div className="story-tools-actions"><button disabled={!value && !images.length} onClick={() => onChange(undefined)}>清空 / 结束</button></div>
     <p>{mode === 'persistent' ? '成功回复后仍保留，直到你手动结束。' : mode === 'counted' ? '确认安排落实后扣一次；一次 @ 多位接收者也只扣一次。用完自动结束。' : '确认安排落实后清空。'}失败或停止时不消耗；生成期间的新修改留给下一次。持续方向不会要求重复已经发生的事件。</p>
     {mode !== 'persistent' && <p>回复完成后会用当前渠道额外做一次简短检查；若明确未落实，会自动补写一次并再次检查；检查本身出错或给不出结论时按已使用处理。只有检查明确判定冲突时才保留安排并提示，提示里可一键结束。检查内容不会放进聊天正文。</p>}
     <article className="story-tools-card"><h3>收藏当前安排</h3><label>收藏名称<input value={title} onChange={(event) => setTitle(event.target.value)} placeholder="突发来电、配角入场……" /></label><button className="secondary-button" disabled={!title.trim() || !value.trim()} onClick={saveTemplate}>保存到剧情收藏</button></article>
