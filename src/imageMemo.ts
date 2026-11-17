@@ -48,19 +48,27 @@ export function currentImageTurn(messages: readonly ImageTurnMessage[]): number[
 export const IMAGE_RECALL_PHRASE = /(?:那|这|刚才|刚刚|之前|上次|前面|上面)(?:张|个|的|发的|那张)?\s*(?:图片?|照片|相片|截图)|(?:图|照片|图片|截图|相片)里|之前发的|刚才发的|刚刚发的/
 const MEMO_STOP_CHARS = /[的一了是在她他我你它这那个只张和很有着也都就把被跟与及或吗呢吧啊呀，。！？、：；\s]/
 
-/** 她这句话里说到了某条图记里的东西（任意连续 3 字，且不含虚词）。 */
-export function imageMemoMentioned(memo: string | undefined, text: string) {
-  const chars = Array.from(String(memo || ''))
+/** v278：把人名（角色名、她的名字）从图记和她的话里抠掉，免得一叫名字就把旧图翻出来。 */
+function withoutNames(text: string, names: readonly (string | undefined)[]) {
+  let out = text
+  for (const name of names) { const clean = String(name || '').trim(); if (Array.from(clean).length >= 2) out = out.split(clean).join('・') }
+  return out
+}
+
+/** 她这句话里说到了某条图记里的东西（任意连续 3 字，且不含虚词；人名不算）。 */
+export function imageMemoMentioned(memo: string | undefined, text: string, names: readonly (string | undefined)[] = []) {
+  text = withoutNames(text, names)
+  const chars = Array.from(withoutNames(String(memo || ''), names))
   for (let index = 0; index + 3 <= chars.length; index++) {
     const gram = chars.slice(index, index + 3)
-    if (gram.some((char) => MEMO_STOP_CHARS.test(char))) continue
+    if (gram.some((char) => char === '・' || MEMO_STOP_CHARS.test(char))) continue
     if (text.includes(gram.join(''))) return true
   }
   return false
 }
 
 /** 按需回看：本轮没发新图、却回指了旧图时，返回最近一张匹配的原图（最多 1 张），否则 null。 */
-export function findRecallImage(all: readonly ImageTurnMessage[], turnText: string): ChatImage | null {
+export function findRecallImage(all: readonly ImageTurnMessage[], turnText: string, names: readonly (string | undefined)[] = []): ChatImage | null {
   const text = turnText.trim()
   if (!text) return null
   const older: ChatImage[] = []
@@ -70,7 +78,7 @@ export function findRecallImage(all: readonly ImageTurnMessage[], turnText: stri
     for (const image of [...message.images].reverse()) if (!image.fromVideo) older.push(image)
   }
   if (!older.length) return null
-  const byMemo = older.find((image) => image.memo && imageMemoMentioned(image.memo, text))
+  const byMemo = older.find((image) => image.memo && imageMemoMentioned(image.memo, text, names))
   if (byMemo) return byMemo
   return IMAGE_RECALL_PHRASE.test(text) ? older[0] : null
 }
@@ -88,7 +96,7 @@ export type ImageWirePlan = {
  * window: the messages the request carries (same order). all: the full thread (for on-demand recall);
  * pass the window again when there is nothing older. noLiveImages: an app event (not her turn) is the latest message.
  */
-export function planImageWire(window: readonly ImageTurnMessage[], all: readonly ImageTurnMessage[] = window, options: { noLiveImages?: boolean } = {}): ImageWirePlan {
+export function planImageWire(window: readonly ImageTurnMessage[], all: readonly ImageTurnMessage[] = window, options: { noLiveImages?: boolean; names?: readonly (string | undefined)[] } = {}): ImageWirePlan {
   const turn = options.noLiveImages ? [] : currentImageTurn(window)
   const live = new Set(turn.filter((index) => window[index].images?.length))
   if (live.size) {
@@ -96,7 +104,7 @@ export function planImageWire(window: readonly ImageTurnMessage[], all: readonly
     return { live, recall: null, wantsMemo: !images.some((image) => image.memo) }
   }
   if (!turn.length) return { live, recall: null, wantsMemo: false }
-  const image = findRecallImage(all, turn.map((index) => window[index].text || '').join('\n'))
+  const image = findRecallImage(all, turn.map((index) => window[index].text || '').join('\n'), options.names)
   return { live, recall: image ? { index: turn[turn.length - 1], image } : null, wantsMemo: false }
 }
 

@@ -65,6 +65,9 @@ describe('图记 pure helpers (v250)', () => {
     expect(findRecallImage(all, '那张图你再看看')?.id).toBe('new')
     expect(findRecallImage(all, '还记得海边落日吗')?.id).toBe('old')
     expect(findRecallImage(all, '今天好累')).toBeNull()
+    const named = [{ role: 'user', images: [{ id: 'shot', dataUrl: 'data:,', memo: '谢聿衡的小天地设置截图' }] }] as never
+    expect(findRecallImage(named, '好个谢聿衡，哈哈', ['谢聿衡', '周惟惟'])).toBeNull()
+    expect(findRecallImage(named, '小天地设置那页', ['谢聿衡'])?.id).toBe('shot')
     const plan = planImageWire([...all, { role: 'user', text: '刚才的照片里是什么' }])
     expect(plan.live.size).toBe(0)
     expect(plan.recall).toMatchObject({ index: 4, image: { id: 'new' } })

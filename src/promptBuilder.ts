@@ -534,7 +534,7 @@ ${stripStageGateMetadata(input.actorContinuityAnchor || '')}`,
 
   // v250 图记：真图只在本轮（含重新生成）发；旧图只留图记一行；她回指旧图时临时附回 1 张原图。
   // 续演（continueWithoutUser）不是她的新一轮，不再重发图片。
-  const imageWire = planImageWire(recent, input.messages, { noLiveImages: input.noLiveImages })
+  const imageWire = planImageWire(recent, input.messages, { noLiveImages: input.noLiveImages, names: [character.name, user.name] })
   const attachmentTurns = attachmentPromptIndices(recent)
   const history = recent.map<ChatApiMessage>((message, index) => {
     const scripted = applyRegexScripts(
