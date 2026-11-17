@@ -16,9 +16,9 @@
 .theme-greynote .composer { border: 1px solid #e0dfdd; border-radius: 28px; background: rgba(255,255,255,.95); box-shadow: 0 8px 22px rgba(60,58,56,.07); }
 .theme-greynote .composer-plus { color: #6f6c6a; background: #eeedec; }
 .theme-greynote .send-button { color: #fff; background: #8c8a88; box-shadow: 0 5px 14px rgba(60,58,56,.14); }
-.theme-greynote .message-list { gap: 26px; }
+.theme-greynote .message-list { gap: 26px; padding-left: 8px; padding-right: 8px; }
 .theme-greynote .archive-greynote { box-sizing: border-box; width: 100%; min-width: 0; align-self: stretch; color: var(--chat-text-color,#3a3836); }
-.theme-greynote .archive-greynote.user { width: min(90%,430px); margin-left: auto; align-self: flex-end; }
+.theme-greynote .archive-greynote.user { width: min(94%,460px); margin-left: auto; align-self: flex-end; }
 /* 头像：白边 + 细灰线，一圈就够。名字在旁边，一行小字副标题。 */
 .theme-greynote .archive-greynote .archive-heading { display: flex; align-items: center; gap: 14px; min-height: 0; padding: 0 4px; border: 0; background: none; box-shadow: none; }
 .theme-greynote .archive-greynote .archive-portrait { flex: 0 0 auto; width: 64px; height: 64px; padding: 4px; border: 1px solid #d6d5d3; border-radius: 50%; background: #fff; box-shadow: 0 4px 12px rgba(60,58,56,.08); }
@@ -50,4 +50,5 @@
 .theme-greynote .home-entrances .home-icon { color: #a0656d; border: 1px solid #e2e1df; background: #fff; box-shadow: 0 4px 12px rgba(60,58,56,.06); }
 .theme-greynote .home-entrances .home-icon > svg { width: 24px; height: 24px; stroke-width: 1.6; }
 .theme-greynote .home-entrances > button { border: 1px solid #e7e6e4; background: rgba(255,255,255,.72); box-shadow: 0 6px 18px rgba(60,58,56,.04); }
-@media (max-width: 430px) { .theme-greynote .archive-greynote.user { width: 92%; } .theme-greynote .archive-greynote .archive-body { padding: 16px 17px; } }
+@media (max-width: 430px) { .theme-greynote .archive-greynote.user { width: 94%; } .theme-greynote .archive-greynote .archive-body { padding: 16px 16px; } }
+/* v279：左右撑满一点——消息区两侧 18px → 8px。 */
