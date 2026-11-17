@@ -29,7 +29,7 @@ import './story-composer.css'
 import './memoryApiEnhancements'
 
 const APP_SCOPE = '/wewei-role-site/'
-const SERVICE_WORKER_RELEASE = '2026-11-17-backstage-font-v282'
+const SERVICE_WORKER_RELEASE = '2026-11-17-gramo-picker-v283'
 
 if ('serviceWorker' in navigator) {
   let reloadingForUpdate = false

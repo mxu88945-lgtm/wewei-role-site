@@ -43,6 +43,8 @@ const NUDGE_DELAY_MS = 3500
 
 function FilmCard({ card, avatar, speakerName, seed, characterId, cardKey, isLatest = false }: { card: FilmCardData; avatar?: string; speakerName: string; seed: string; characterId?: string; cardKey?: string; isLatest?: boolean }) {
   const [npcIndex, setNpcIndex] = useState(0)
+  // v283：点唱片/歌名展开歌单，直接选歌。
+  const [picking, setPicking] = useState(false)
   // 只订阅基本类型：now 每秒换一个新对象，订阅整个对象会让每张卡每秒重渲染。
   const nowName = useMusicStore((state) => state.now?.name ?? '')
   const nowPlaying = useMusicStore((state) => Boolean(state.now?.playing))
@@ -86,6 +88,16 @@ function FilmCard({ card, avatar, speakerName, seed, characterId, cardKey, isLat
     // 没匹配到：放你正在听的（或歌单第一首）。
     state.requestToggle()
   }
+  const togglePicker = () => {
+    const state = useMusicStore.getState()
+    if (!state.tracks.length) { state.setSheetOpen(true); return }
+    setPicking((open) => !open)
+  }
+  const pick = (id: string) => {
+    if (!settledCards.has(settleKey)) { settledCards.add(settleKey); bump() }
+    useMusicStore.getState().requestPlay(id)
+    setPicking(false)
+  }
   const next = () => {
     const state = useMusicStore.getState()
     if (!state.tracks.length) { state.setSheetOpen(true); return }
@@ -94,13 +106,13 @@ function FilmCard({ card, avatar, speakerName, seed, characterId, cardKey, isLat
 
   return <section className="film-card" aria-label="剧情美化卡">
     <div className="film-gramo">
-      <span className={`film-gramo-disc${playingHere ? ' spinning' : ''}`} aria-hidden="true" />
-      <div className="film-gramo-text">
+      <span className={`film-gramo-disc${playingHere ? ' spinning' : ''}`} aria-hidden="true" onClick={togglePicker} />
+      <div className="film-gramo-text film-gramo-pickable" role="button" tabIndex={0} aria-expanded={picking} aria-label="选歌" onClick={togglePicker} onKeyDown={(event) => { if (event.key === 'Enter') togglePicker() }}>
         <small>GRAMOPHONE · SIDE A</small>
         <strong>{gramo.title}</strong>
         {gramo.sub && <em className={gramo.sub === lyricLine && lyricLine ? 'film-gramo-lyric' : undefined}>{gramo.sub}</em>}
         {missing
-          ? <button type="button" className="film-gramo-requested film-gramo-import" onClick={importSong}>{gramo.requested ? `${gramo.requested} · ` : ''}<b>点这里导入《{card.song!.title}》</b></button>
+          ? <button type="button" className="film-gramo-requested film-gramo-import" onClick={(event) => { event.stopPropagation(); importSong() }}>{gramo.requested ? `${gramo.requested} · ` : ''}<b>点这里导入《{card.song!.title}》</b></button>
           : tapToPlay ? <small className="film-gramo-requested film-gramo-tap">点播放 ▶ 听《{card.song!.title}》</small>
           : gramo.requested && <small className="film-gramo-requested">{gramo.requested}</small>}
       </div>
@@ -109,6 +121,10 @@ function FilmCard({ card, avatar, speakerName, seed, characterId, cardKey, isLat
         <button type="button" aria-label="下一首" onClick={next}><NextIcon /></button>
       </div>
     </div>
+
+    {picking && tracks.length > 0 && <ul className="film-gramo-list" aria-label="歌单">
+      {tracks.map((track) => <li key={track.id}><button type="button" className={track.name === nowName ? 'active' : undefined} onClick={() => pick(track.id)}>{track.name}</button></li>)}
+    </ul>}
 
     <div className="film-strip">
       <FilmFrame characterId={characterId} characterName={speakerName} avatar={avatar} sceneTitle={card.sceneTitle} />

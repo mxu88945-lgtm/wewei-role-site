@@ -155,3 +155,9 @@
 .film-gramo-import b { font-weight: 600; color: var(--film-red); text-decoration: underline; text-underline-offset: 2px; text-decoration-color: rgba(155,58,50,.35); }
 .film-gramo-tap { color: var(--film-red); }
 .film-gramo-actions button.film-gramo-nudge { box-shadow: 0 0 0 2px rgba(155,58,50,.28); }
+
+/* v283：点唱片/歌名展开歌单选歌 */
+.film-gramo-pickable, .film-gramo-disc { cursor: pointer; -webkit-tap-highlight-color: transparent; touch-action: manipulation; }
+.film-gramo-list { margin: 6px 0 0; padding: 4px; list-style: none; max-height: 216px; overflow-y: auto; -webkit-overflow-scrolling: touch; border-radius: 12px; background: var(--film-paper-2); }
+.film-gramo-list button { display: block; width: 100%; min-height: 0; padding: 8px 10px; border: 0; border-radius: 8px; color: var(--film-ink); background: transparent; font-size: 13px; line-height: 1.35; text-align: left; overflow: hidden; white-space: nowrap; text-overflow: ellipsis; -webkit-tap-highlight-color: transparent; }
+.film-gramo-list button.active { color: var(--film-red); font-weight: 600; background: var(--film-paper); }
