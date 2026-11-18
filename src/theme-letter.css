@@ -63,3 +63,9 @@
 .theme-letter .archive-letter.user .archive-body { text-align: right; }
 .theme-letter .archive-letter.user .archive-body :is(.message-content,.message-content-flat,.message-flat-body,.message-content-rich) { width: fit-content; max-width: 100%; margin-left: auto; margin-right: 0; text-align: left; }
 @media (max-width: 430px) { .theme-letter .archive-letter.user { width: 90%; } }
+/* v285：长剧情信笺左右再铺满——消息区两侧 18px → 6px，卡片内边距 15px → 11px（封面同步抵消）。 */
+.theme-letter .message-list { padding-left: 6px; padding-right: 6px; }
+.theme-letter .archive-letter { padding-left: 11px; padding-right: 11px; }
+.theme-letter .archive-letter .archive-heading { width: calc(100% + 22px); margin-left: -11px; margin-right: -11px; }
+.theme-letter .archive-letter.user { width: min(94%,460px); }
+@media (max-width: 430px) { .theme-letter .archive-letter.user { width: 94%; } }
