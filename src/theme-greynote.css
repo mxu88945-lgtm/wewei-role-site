@@ -11,7 +11,7 @@
   background: #f1f1f0;
   color: #3a3836;
 }
-.theme-choice-grid button.greynote i { border: 1px solid #d9d8d6; border-radius: 11px; background: linear-gradient(145deg,#f1f1f0 0 52%,#ffffff 53% 76%,#b9898f 77%); }
+.theme-choice-grid button.greynote i { border: 1px solid #d9d8d6; border-radius: 11px; background: linear-gradient(145deg,#f1f1f0 0 52%,#ffffff 53% 76%,#9ca5ad 77%); }
 .theme-greynote .chat-header::before { background: rgba(241,241,240,.92); }
 .theme-greynote .composer { border: 1px solid #e0dfdd; border-radius: 28px; background: rgba(255,255,255,.95); box-shadow: 0 8px 22px rgba(60,58,56,.07); }
 .theme-greynote .composer-plus { color: #6f6c6a; background: #eeedec; }
@@ -30,14 +30,14 @@
 .theme-greynote .archive-greynote .archive-heading-copy > small { display: block; margin-top: 4px; color: #a3a09d; font: italic 11px/1.3 Georgia,serif; letter-spacing: .08em; }
 /* 信纸：白底细边，顶部一条带小标题的分割线。 */
 .theme-greynote .archive-greynote .archive-body { box-sizing: border-box; width: 100%; min-width: 0; margin-top: 12px; padding: 18px 20px 18px; border: 1px solid #e5e4e2; border-radius: 20px; background: #fff; box-shadow: 0 6px 18px rgba(60,58,56,.05); font-size: var(--chat-font-size,16px); line-height: 2; text-align: left; overflow-wrap: anywhere; }
-.theme-greynote .archive-greynote .archive-body::before { content: 'Mon Chéri'; display: flex; align-items: center; gap: 12px; margin: 0 0 14px; color: #b9898f; font: italic 13px/1 Georgia,'Times New Roman',serif; letter-spacing: .06em; }
+.theme-greynote .archive-greynote .archive-body::before { content: 'Mon Chéri'; display: flex; align-items: center; gap: 12px; margin: 0 0 14px; color: #9ca5ad; font: italic 13px/1 Georgia,'Times New Roman',serif; letter-spacing: .06em; }
 .theme-greynote .archive-greynote .archive-body::before { background: linear-gradient(#e2d4d6,#e2d4d6) left center / calc(50% - 46px) 1px no-repeat, linear-gradient(#e2d4d6,#e2d4d6) right center / calc(50% - 46px) 1px no-repeat; justify-content: center; }
 .theme-greynote .archive-greynote.user .archive-body::before { content: 'Réponse'; }
 .theme-greynote .archive-greynote .archive-body :is(.message-content,.message-content-flat,.message-flat-body,.message-content-rich) { width: 100%; max-width: 100%; padding: 0; border: 0; border-radius: 0; background: transparent; box-shadow: none; color: inherit; line-height: inherit; }
 .theme-greynote .archive-greynote .archive-body :is(.message-story-paragraph,p) { margin: 0 0 1.1em; line-height: 2; }
 .theme-greynote .archive-greynote .archive-body :is(.message-story-paragraph,p):last-child { margin-bottom: 0; }
 /* 对白：只换颜色，不加底。 */
-.theme-greynote .archive-greynote .archive-body :is(.message-quote,.chat-quote) { display: inline; margin: 0; padding: 0; border: 0; border-radius: 0; background: none; box-shadow: none; color: var(--chat-quote-color,#a0656d); font-weight: 600; line-height: inherit; }
+.theme-greynote .archive-greynote .archive-body :is(.message-quote,.chat-quote) { display: inline; margin: 0; padding: 0; border: 0; border-radius: 0; background: none; box-shadow: none; color: var(--chat-quote-color,#56626d); font-weight: 600; line-height: inherit; }
 .theme-greynote .archive-greynote .archive-body :is(.message-narration,.chat-narration,em) { color: var(--chat-narration-color,#8f8c89); font-style: normal; }
 .theme-greynote .archive-greynote .archive-body :is(section,[class*='status-card'],[class*='scene-card'],[class*='private'],details) { margin: 18px 0; padding: 14px 16px; border: 0; border-radius: 14px; color: #55524f; background: #f6f5f4; box-shadow: none; }
 .theme-greynote .archive-greynote .message-action-row { justify-content: flex-start; margin-top: 10px; }
@@ -47,7 +47,7 @@
 .theme-greynote .archive-greynote.user .archive-body :is(.message-content,.message-content-flat,.message-flat-body,.message-content-rich) { width: fit-content; max-width: 100%; margin-left: auto; text-align: left; }
 .theme-greynote .archive-greynote.user .message-action-row { justify-content: flex-end; }
 /* v266：首页图标——白底细灰边小方块，图标线条用淡玫瑰色，不换贴纸。 */
-.theme-greynote .home-entrances .home-icon { color: #a0656d; border: 1px solid #e2e1df; background: #fff; box-shadow: 0 4px 12px rgba(60,58,56,.06); }
+.theme-greynote .home-entrances .home-icon { color: #56626d; border: 1px solid #e2e1df; background: #fff; box-shadow: 0 4px 12px rgba(60,58,56,.06); }
 .theme-greynote .home-entrances .home-icon > svg { width: 24px; height: 24px; stroke-width: 1.6; }
 .theme-greynote .home-entrances > button { border: 1px solid #e7e6e4; background: rgba(255,255,255,.72); box-shadow: 0 6px 18px rgba(60,58,56,.04); }
 @media (max-width: 430px) { .theme-greynote .archive-greynote.user { width: 94%; } .theme-greynote .archive-greynote .archive-body { padding: 16px 16px; } }

@@ -271,7 +271,7 @@ const builtInThemes: ChatThemePreset[] = [
   { id: 'mistnote', name: '雾蓝长笺', mode: 'mistnote', baseColor: '#f3f6f7', textColor: '#35424b', narrationColor: '#74828b', quoteColor: '#486274', frost: .48 },
   { id: 'nightglow', name: '暗夜流光', mode: 'nightglow', baseColor: '#f6f1ee', textColor: '#2b2522', narrationColor: '#7a6e68', quoteColor: '#a8383c', frost: .5 },
   { id: 'vinyl', name: '青橙唱片', mode: 'vinyl', baseColor: '#ffffff', textColor: '#315868', narrationColor: '#7b98a4', quoteColor: '#b46b43', frost: .55 },
-  { id: 'greynote', name: '浅灰信笺', mode: 'greynote', baseColor: '#f1f1f0', textColor: '#3a3836', narrationColor: '#8f8c89', quoteColor: '#a0656d', frost: .5 },
+  { id: 'greynote', name: '浅灰信笺', mode: 'greynote', baseColor: '#f1f1f0', textColor: '#3a3836', narrationColor: '#8f8c89', quoteColor: '#56626d', frost: .5 },
   { id: 'warmtea', name: '暖茶笺', mode: 'warmtea', baseColor: '#fbf4ea', textColor: '#4a3426', narrationColor: '#8c6f5a', quoteColor: '#9a4f2e', frost: .5 },
 ]
 
@@ -693,7 +693,7 @@ function App() {
   const setChatFontSize = (value: number) => setChatFontSizeRaw(normalizeChatFontSize(value))
   const [chatTextColor, setChatTextColor] = useState(() => read('weijing.chatTextColor', '#4e4852'))
   const [chatNarrationColor, setChatNarrationColor] = useState(() => read('weijing.chatNarrationColor', '#7f7089'))
-  const [chatQuoteColor, setChatQuoteColor] = useState(() => read('weijing.chatQuoteColor', '#7b4d67'))
+  const [chatQuoteColor, setChatQuoteColor] = useState(() => { const saved = read('weijing.chatQuoteColor', '#7b4d67'); return saved.toLowerCase() === '#a0656d' ? '#56626d' : saved })
   const [chatBaseColor, setChatBaseColor] = useState(() => read('weijing.chatBaseColor', '#f5f1f8'))
   const [chatTheme, setChatTheme] = useState<ChatThemeMode>(() => read('weijing.chatTheme', 'mist'))
   const [chatBackgroundFrost, setChatBackgroundFrost] = useState(() => read('weijing.chatBackgroundFrost', .72))
@@ -802,7 +802,9 @@ function App() {
   const personaAppearanceScope = usePersonaAppearanceScope(characters)
   const visiblePersona = page === 'persona-window' ? personaAppearanceScope : undefined
   const personaDefaults = { theme: { id: effectiveThemeId, name: [...builtInThemes, ...customThemes].find((item) => item.id === effectiveThemeId)?.name || '应用默认', mode: chatTheme, baseColor: chatBaseColor, textColor: chatTextColor, narrationColor: chatNarrationColor, quoteColor: chatQuoteColor, frost: chatBackgroundFrost }, fontSize: chatFontSize, uiScale: uiFontScale, uiWeight: uiFontWeight, baseColor: chatBaseColor, textColor: chatTextColor, narrationColor: chatNarrationColor, quoteColor: chatQuoteColor }
-  const displayAppearance = resolvePersonaAppearance(visiblePersona?.appearance, personaDefaults)
+  const resolvedAppearance = resolvePersonaAppearance(visiblePersona?.appearance, personaDefaults)
+  // v289：浅灰信笺对白从玫瑰红改成墨灰蓝；旧存档里的 #a0656d 也跟着换。
+  const displayAppearance = resolvedAppearance.quoteColor?.toLowerCase() === '#a0656d' ? { ...resolvedAppearance, quoteColor: '#56626d' } : resolvedAppearance
   const displayAvatar = visiblePersona ? characters.find((item) => item.id === visiblePersona.characterId)?.avatar : activeCharacter.avatar
   const displayWallpaper = visiblePersona ? personaWallpaper(chatWallpapers, visiblePersona.id, displayAppearance.theme.id, displayAppearance.baseColor) : currentWallpaper
   const wallpaperEditKey = visiblePersona ? personaWallpaperKey(visiblePersona.id, displayAppearance.theme.id) : wallpaperKey
@@ -5061,7 +5063,7 @@ function UpdateCard() {
     }
   }
 
-  return <section className="update-card"><strong>应用更新</strong><p>主动检查并拉取最新网页版本，不会删除角色、聊天记录或本地设置。</p><small>当前版本：v288 · 2026.11.18 群聊里你的气泡不显示 @名字</small><button onClick={refresh} disabled={state === 'checking'}>{state === 'checking' ? '正在检查更新…' : state === 'error' ? '更新失败，点我重试' : '强制刷新到最新版'}</button></section>
+  return <section className="update-card"><strong>应用更新</strong><p>主动检查并拉取最新网页版本，不会删除角色、聊天记录或本地设置。</p><small>当前版本：v289 · 2026.11.18 浅灰信笺对白改成墨灰蓝</small><button onClick={refresh} disabled={state === 'checking'}>{state === 'checking' ? '正在检查更新…' : state === 'error' ? '更新失败，点我重试' : '强制刷新到最新版'}</button></section>
 }
 
 function PersonaPage({ identities, selectedId, isBound, onSelect, onAdd, onDelete, onUpdate, onBack }: { identities: UserIdentity[]; selectedId: string; isBound: boolean; onSelect: (id: string) => void; onAdd: () => void; onDelete: (id: string) => void; onUpdate: (patch: Partial<UserIdentity>) => void; onBack: () => void }) {
