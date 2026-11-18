@@ -1,4 +1,4 @@
-import { useRef, useState, type FocusEvent, type PointerEvent } from 'react'
+import { useRef, useState, type FocusEvent, type PointerEvent, type ReactNode } from 'react'
 import type { Character } from './characterCard'
 import type { PersonaThread, PersonaWindow } from './personaWindow'
 import { addGuest, deleteGuest, inviteGuest, isImageAvatar, pendingGuestCount, PERSONA_GROUP_GUEST_LIMIT, replyModeOf, resolveGuest, setReplyMode, updateGuest, type PersonaGuest, type PersonaReplyMode } from './personaGroup'
@@ -14,7 +14,7 @@ function GuestAvatar({ name, avatar }: { name: string; avatar?: string }) {
  * v234 ••• →「群聊成员」：拉人进来（角色卡 / 手写简卡）、请出与拉回、回复模式、客人的世界观与窗口记忆。
  * 主人格始终在场，不能请出。
  */
-export default function PersonaGroupPanel({ persona, thread, characters, mainName, mainAvatar, userName, tap, onFocus, onChange, onDismiss, onExtract, busy, storiesFor }: {
+export default function PersonaGroupPanel({ persona, thread, characters, mainName, mainAvatar, userName, tap, onFocus, onChange, onDismiss, onExtract, busy, storiesFor, modelPicker }: {
   persona: PersonaWindow
   thread: PersonaThread
   characters: Character[]
@@ -30,6 +30,8 @@ export default function PersonaGroupPanel({ persona, thread, characters, mainNam
   busy: (guestId: string) => boolean
   /** v256：这张卡演过的剧场/剧本（非小手机），给客人勾选绑定。 */
   storiesFor?: (characterId: string) => Array<{ id: string; title: string }>
+  /** v286：客人自己的回复渠道和模型。 */
+  modelPicker?: (guest: PersonaGuest) => ReactNode
 }) {
   const [query, setQuery] = useState('')
   const [pickOpen, setPickOpen] = useState(false)
@@ -79,6 +81,7 @@ export default function PersonaGroupPanel({ persona, thread, characters, mainNam
         const toggle = (id: string) => onChange((current) => updateGuest(current, guest.id, { boundStoryIds: bound.includes(id) ? bound.filter((item) => item !== id) : [...bound, id].slice(-6) }))
         return <div className="persona-bound-groups"><div><strong>绑定剧场</strong><small>{bound.length ? `已绑定 ${bound.length} 个，他会一直记得这些故事的经过（约 900 字常驻）。` : '勾选后他一直记得这场戏；不勾也会在你提到时想起。'}</small></div><div className="persona-bound-group-list">{stories.map((story) => <button key={story.id} aria-pressed={bound.includes(story.id)} className={bound.includes(story.id) ? 'on' : ''} {...tap(() => toggle(story.id))}><span>{story.title || '未命名剧场'}</span><i>{bound.includes(story.id) ? '✓' : '＋'}</i></button>)}</div></div>
       })()}
+      {modelPicker && <div className="persona-memory-field persona-guest-model"><strong>模型与渠道</strong>{modelPicker(guest)}<small>群聊里每个人单独请求一次，各用各的模型。</small></div>}
       <div className="persona-guest-memory">
         <div><strong>他在这扇窗口的记忆（{guest.memories.length}）</strong><small>只记他在场时的事，不进 {mainName} 的长期记忆。{pending ? `有 ${pending} 条新消息待整理。` : ''}</small></div>
         {guest.memories.slice().reverse().slice(0, 20).map((entry) => <div key={entry.id} className="persona-guest-memory-row"><span><b>{entry.title}</b>{entry.content}</span><button className="danger-link" aria-label={`删除记忆${entry.title}`} {...tap(() => onChange((current) => updateGuest(current, guest.id, { memories: (current.guests || []).find((item) => item.id === guest.id)?.memories.filter((item) => item.id !== entry.id) || [] })))}>删除</button></div>)}

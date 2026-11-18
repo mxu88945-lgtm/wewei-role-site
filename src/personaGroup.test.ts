@@ -256,12 +256,23 @@ describe('生成 (v234)', () => {
   const reply = (content: string) => vi.fn(async (_url: unknown, init?: RequestInit) => { void init; return new Response(JSON.stringify({ choices: [{ message: { role: 'assistant', content }, finish_reason: 'stop' }] }), { status: 200, headers: { 'content-type': 'application/json' } }) })
   const seed = (transform: (persona: PersonaWindow) => PersonaWindow = (persona) => persona) => setPersonaState(() => stateWith(transform(groupPersona())))
 
-  it('natural mode: one reply becomes several bubbles with their own speakers; tags never show', async () => {
-    vi.stubGlobal('fetch', reply('【阿七】客官！[送礼:daisy|给你]\n[人物:小满|朋友]\n[自我卡:性格|改了]\n【虞山行】……拿着。[送礼:rose|别丢]\n【林栖】师兄脸红了。'))
+  // v286：群聊每人单独请求——按请求里「轮到 X」回各自的话。
+  const bodyText = (init?: RequestInit) => allText(JSON.parse(String(init?.body)).messages)
+  const perSpeaker = (byName: Record<string, string>) => vi.fn(async (_url: unknown, init?: RequestInit) => {
+    const text = bodyText(init)
+    const name = Object.keys(byName).find((key) => text.includes(`轮到 ${key}`)) || ''
+    return new Response(JSON.stringify({ choices: [{ message: { role: 'assistant', content: name ? byName[name] : '' }, finish_reason: 'stop' }] }), { status: 200, headers: { 'content-type': 'application/json' } })
+  })
+
+  it('natural mode: each present member is asked on their own; tags never show; skip works', async () => {
+    const fetchMock = perSpeaker({ 阿七: '【阿七】客官！[送礼:daisy|给你]\n[人物:小满|朋友]\n[自我卡:性格|改了]', 虞山行: '……拿着。[送礼:rose|别丢]\n【林栖】我替师妹说', 林栖: '师兄脸红了。' })
+    vi.stubGlobal('fetch', fetchMock)
     seed((persona) => setReplyMode(persona, persona.threads[0].id, 'natural'))
-    await generatePersonaReply(PID, live, { text: '大家好，小满也来了' })
+    await generatePersonaReply(PID, live, { text: '阿七，大家好，小满也来了' })
     const persona = getPersonaState().personas[0]
     const [user, a, main, lin] = persona.threads[0].messages
+    expect(fetchMock).toHaveBeenCalledTimes(3)
+    expect(bodyText(fetchMock.mock.calls[1][1])).toContain('客官！')
     expect(user).toMatchObject({ role: 'user', present: ['guest-a', 'guest-c'] })
     expect(a).toMatchObject({ speakerId: 'guest-a', speakerName: '阿七', text: '客官！', groupTurn: a.id })
     expect(a.gift).toBeUndefined()
@@ -269,28 +280,42 @@ describe('生成 (v234)', () => {
     expect(main).toMatchObject({ speakerId: PID, text: '……拿着。', groupTurn: a.id })
     expect(main.gift).toMatchObject({ giftId: 'rose', direction: 'role-to-user' })
     expect(lin).toMatchObject({ speakerId: 'guest-c', text: '师兄脸红了。' })
-    // 客人的 [人物:]、[自我卡:] 丢掉：主人格那段没有，所以都不生效
     expect(live.recordPeople).not.toHaveBeenCalled()
     expect(persona.selfCard).toBeUndefined()
     for (const message of [a, main, lin]) expect(message.text).not.toMatch(/【|\[/)
+    vi.stubGlobal('fetch', perSpeaker({ 阿七: '[不接话]', 虞山行: '嗯。', 林栖: '[不接话]' }))
+    await generatePersonaReply(PID, live, { text: '好' })
+    const last = getPersonaState().personas[0].threads[0].messages.slice(5)
+    expect(last.map((item) => [item.speakerId, item.text])).toEqual([[PID, '嗯。']])
+  })
+
+  it('guests use their own channel', async () => {
+    const fetchMock = perSpeaker({ 林栖: '我先。', 阿七: '我后。' })
+    vi.stubGlobal('fetch', fetchMock)
+    seed()
+    await generatePersonaReply(PID, { ...live, guestApi: (id: string) => id === 'guest-c' ? { baseUrl: 'https://other.test/v1', apiKey: 'k2', modelName: 'm2' } : live.api }, { text: '@林栖 @阿七 你们说' })
+    expect(String(fetchMock.mock.calls[0][0])).toContain('other.test')
+    expect(JSON.parse(String(fetchMock.mock.calls[0][1]?.body)).model).toBe('m2')
+    expect(String(fetchMock.mock.calls[1][0])).toContain('relay.test')
   })
 
   it('@ mode: only the mentioned answer, in order; regenerate replaces the whole turn', async () => {
-    const fetchMock = reply('【林栖】我先。\n【虞山行】我也说。\n【阿七】我后。')
+    const fetchMock = perSpeaker({ 林栖: '我先。\n【虞山行】我也说。', 阿七: '【阿七】我后。' })
     vi.stubGlobal('fetch', fetchMock)
     seed()
     await generatePersonaReply(PID, live, { text: '@林栖 @阿七 你们说' })
     let messages = getPersonaState().personas[0].threads[0].messages
     expect(messages.map((item) => item.speakerId)).toEqual([undefined, 'guest-c', 'guest-a'])
-    expect(allText([{ role: 'user', content: String(JSON.parse(String(fetchMock.mock.calls[0][1]?.body)).messages.slice(-1)[0].content) }])).toContain('本轮依次由 林栖、阿七 回复')
-    vi.stubGlobal('fetch', reply('【林栖】重来一遍。'))
+    expect(messages.map((item) => item.text).slice(1)).toEqual(['我先。', '我后。'])
+    expect(fetchMock).toHaveBeenCalledTimes(2)
+    vi.stubGlobal('fetch', perSpeaker({ 林栖: '重来一遍。', 阿七: '[不接话]' }))
     await generatePersonaReply(PID, live, { regenerate: true })
     messages = getPersonaState().personas[0].threads[0].messages
     expect(messages.map((item) => item.text)).toEqual(['@林栖 @阿七 你们说', '重来一遍。'])
   })
 
   it('memory isolation: a guest [记忆:] goes to him only, the owner\'s to the owner only', async () => {
-    vi.stubGlobal('fetch', reply('【阿七】记下了。[记忆:周惟惟爱吃阳春面]\n【虞山行】嗯。[记忆:她今天心情很好]'))
+    vi.stubGlobal('fetch', perSpeaker({ 阿七: '记下了。[记忆:周惟惟爱吃阳春面]', 虞山行: '嗯。[记忆:她今天心情很好]', 林栖: '[不接话]' }))
     seed((persona) => setReplyMode(persona, persona.threads[0].id, 'natural'))
     await generatePersonaReply(PID, live, { text: '我爱吃阳春面，今天心情很好' })
     const persona = getPersonaState().personas[0]
@@ -299,10 +324,14 @@ describe('生成 (v234)', () => {
     expect(persona.guests?.find((item) => item.id === 'guest-c')?.memories).toEqual([])
   })
 
-  it('streaming: chunks that cut a marker in half still end up as clean bubbles', async () => {
-    const chunks = ['（抬眼）嗯。\n【阿', '七】客', '官！\n【林', '栖】师兄……', '\n【周惟', '惟】我替她说']
-    const sse = chunks.map((piece) => `data: ${JSON.stringify({ choices: [{ delta: { content: piece } }] })}\n\n`).join('') + 'data: [DONE]\n\n'
-    vi.stubGlobal('fetch', vi.fn(async () => new Response(sse, { status: 200, headers: { 'content-type': 'text/event-stream' } })))
+  it('streaming: each speaker streams into their own clean bubble', async () => {
+    const streams: Record<string, string[]> = { 虞山行: ['（抬眼）', '嗯。'], 阿七: ['【阿', '七】客', '官！'], 林栖: ['师兄……', '\n【周惟', '惟】我替她说'] }
+    vi.stubGlobal('fetch', vi.fn(async (_url: unknown, init?: RequestInit) => {
+      const text = bodyText(init)
+      const name = Object.keys(streams).find((key) => text.includes(`轮到 ${key}`)) || ''
+      const sse = (streams[name] || []).map((piece) => `data: ${JSON.stringify({ choices: [{ delta: { content: piece } }] })}\n\n`).join('') + 'data: [DONE]\n\n'
+      return new Response(sse, { status: 200, headers: { 'content-type': 'text/event-stream' } })
+    }))
     seed((persona) => setReplyMode(persona, persona.threads[0].id, 'natural'))
     await generatePersonaReply(PID, { ...live, streaming: true }, { text: '大家好' })
     const messages = getPersonaState().personas[0].threads[0].messages.slice(1)

@@ -59,7 +59,7 @@ import { isSafeMode } from './safeMode'
 import { spriteAppearOf, spriteEnabled, spriteSetFor } from './personaSprite'
 import { setSpritePrefs, useSpriteState } from './personaSpriteStore'
 import MentionPicker from './MentionPicker'
-import { dismissGuest, insertMention, isGuestMessage, isImageAvatar, presentGuests, replyModeOf, speakerOf, typedMentionTrigger } from './personaGroup'
+import { dismissGuest, insertMention, isGuestMessage, isImageAvatar, presentGuests, replyModeOf, speakerOf, typedMentionTrigger, updateGuest } from './personaGroup'
 
 type Props = {
   characters: Character[]
@@ -134,7 +134,7 @@ function messagePreview(message: PersonaMessage) {
 }
 
 /** Channel + model for one persona (same fields as the main chat's member API binding). */
-function PersonaModelPicker({ persona, channels, mainApi, onChange, onFocus }: { persona: PersonaWindow; channels: ApiChannel[]; mainApi: ApiChannel; onChange: (patch: { apiChannelId?: string; modelName?: string }) => void; onFocus: (event: React.FocusEvent<HTMLElement>) => void }) {
+function PersonaModelPicker({ persona, channels, mainApi, onChange, onFocus, followLabel }: { persona: Pick<PersonaWindow, 'id' | 'apiChannelId' | 'modelName'>; channels: ApiChannel[]; mainApi: ApiChannel; onChange: (patch: { apiChannelId?: string; modelName?: string }) => void; onFocus: (event: React.FocusEvent<HTMLElement>) => void; followLabel?: string }) {
   const listId = useId()
   const tap = useOneTap()
   const follows = !persona.apiChannelId || !channels.some((item) => item.id === persona.apiChannelId)
@@ -169,7 +169,7 @@ function PersonaModelPicker({ persona, channels, mainApi, onChange, onFocus }: {
     } finally { setLoading(false) }
   }
   return <div className="member-api-binding persona-model-picker">
-    <label><span>回复渠道</span><select value={follows ? '' : channel.id} onChange={(event) => switchChannel(event.target.value)}><option value="">跟随主聊天（{mainApi.name}）</option><ChannelOptions channels={channels} renderLabel={(item) => item.name} /></select></label>
+    <label><span>回复渠道</span><select value={follows ? '' : channel.id} onChange={(event) => switchChannel(event.target.value)}><option value="">{followLabel || '跟随主聊天'}（{mainApi.name}）</option><ChannelOptions channels={channels} renderLabel={(item) => item.name} /></select></label>
     {!follows && <label><span>回复模型</span><div className="member-model-field"><input list={listId} value={persona.modelName || ''} onFocus={onFocus} onChange={(event) => pickModel(event.target.value || undefined)} placeholder={channel.modelName || '手动填写模型名称'} autoCapitalize="none" autoCorrect="off" /><button type="button" {...tap(() => { void load() })} disabled={loading}>{loading ? '获取中…' : '获取模型'}</button></div></label>}
     <datalist id={listId}>{models.map((model) => <option value={model.id} key={model.id} />)}</datalist>
     {!follows && models.length > 0 && <label><span>模型列表</span><select value={models.some((model) => model.id === persona.modelName) ? persona.modelName : ''} onChange={(event) => { if (event.target.value) pickModel(event.target.value) }}><option value="">从 {models.length} 个模型中选择</option>{models.map((model) => <option value={model.id} key={model.id}>{model.id}</option>)}</select></label>}
@@ -334,6 +334,8 @@ export default function PersonaWindowPage(props: Props) {
       character,
       user: { name: identity.name, description: identity.description },
       api: chatApi,
+      // v286：群聊里客人用自己选的渠道和模型；没选 = 跟 TA 同一个。
+      guestApi: (guestId) => { const guest = persona?.guests?.find((item) => item.id === guestId); return guest?.apiChannelId ? resolvePersonaApi(guest, props.apiChannels, chatApi) : chatApi },
       memoryApi: personaMemoryApi(props.memoryApiFor(characterId), chatApi),
       temperature: props.temperature,
       topP: props.topP,
@@ -953,7 +955,7 @@ export default function PersonaWindowPage(props: Props) {
         </header>}
         <div className="right-drawer-scroll">
           {drawerOpen && settingsPanel === 'home' && <PersonaSettingsHome promptLength={active.systemPrompt?.trim().length || 0} memoryCount={active.memories.length} threadCount={active.threads.length} threadTitle={thread?.title || ''} channelName={resolvePersonaApi(active, props.apiChannels, props.api).name} modelName={resolvePersonaApi(active, props.apiChannels, props.api).modelName || ''} pastLifeEnabled={active.pastLifeEnabled !== false} onNavigate={setSettingsPanel} onThreads={openSidebar} onMemory={() => { setDrawerOpen(false); setViewReturn('settings'); setView('memory') }} onManage={() => { setDrawerOpen(false); setViewReturn('settings'); setView('manage') }} onTogglePastLife={togglePastLife} trackCount={trackCount} songPickEnabled={active.songPickEnabled !== false} onMusic={() => { setDrawerOpen(false); setMusicSheetOpen(true) }} onToggleSongPick={() => setPersonaState((current) => updatePersona(current, active.id, (item) => { const next = { ...item }; if (item.songPickEnabled === false) delete next.songPickEnabled; else next.songPickEnabled = false; return next }))} selfCardLength={selfCardLength(active.selfCard)} personaCount={enabled.length} onSwitchPersona={() => { setDrawerOpen(false); setRenaming(null); setSwitcherOpen(true) }} periodLabel={periodStats(periodLog, localToday()).short} peopleCount={lifePeople.people.length} giftCount={active.customGifts?.length || 0} agencyLabel={[active.pauseEnabled && (pausedNow ? '暂停中' : '暂停'), active.privateRoomEnabled && `隐私室 ${active.privateRoom?.length || 0}`, active.bodyStateEnabled && '身体'].filter(Boolean).join(' · ') || '都关着'} groupLabel={groupOn ? `${guestsHere.length + 1} 人 · ${thread && replyModeOf(thread) === 'natural' ? '自然' : '@'}` : '仅 TA'} sprite={spriteSet ? { on: spriteOn, appear: spriteAppearOf(spritePrefs[active.id]), onToggle: () => setSpritePrefs(active.id, (current) => ({ ...current, on: !spriteOn })), onAppear: (appear) => setSpritePrefs(active.id, (current) => ({ ...current, appear, hidden: false })) } : undefined} tap={tap} />}
-          {drawerOpen && settingsPanel === 'group' && thread && <PersonaGroupPanel storiesFor={(characterId) => { const card = characters.find((item) => item.id === characterId); if (!card) return []; const ids = characterAliasIds(card, characters); return conversations.filter((item) => !item.phone && conversationInvolvesCharacter(item, ids)).sort((a, b) => (b.updatedAt || 0) - (a.updatedAt || 0)).slice(0, 12).map((item) => ({ id: item.id, title: item.title })) }} persona={active} thread={thread} characters={characters} mainName={activeCharacter.name} mainAvatar={activeCharacter.avatar} userName={identity.name} tap={tap} onFocus={scrollFieldIntoView}
+          {drawerOpen && settingsPanel === 'group' && thread && <PersonaGroupPanel storiesFor={(characterId) => { const card = characters.find((item) => item.id === characterId); if (!card) return []; const ids = characterAliasIds(card, characters); return conversations.filter((item) => !item.phone && conversationInvolvesCharacter(item, ids)).sort((a, b) => (b.updatedAt || 0) - (a.updatedAt || 0)).slice(0, 12).map((item) => ({ id: item.id, title: item.title })) }} persona={active} thread={thread} characters={characters} mainName={activeCharacter.name} mainAvatar={activeCharacter.avatar} userName={identity.name} tap={tap} onFocus={scrollFieldIntoView} modelPicker={(guest) => <PersonaModelPicker persona={{ id: `${active.id}:${guest.id}`, apiChannelId: guest.apiChannelId, modelName: guest.modelName }} channels={props.apiChannels} mainApi={resolvePersonaApi(active, props.apiChannels, props.api)} followLabel={`跟 ${activeCharacter.name} 一样`} onFocus={scrollFieldIntoView} onChange={(patch) => setPersonaState((current) => updatePersona(current, active.id, (item) => updateGuest(item, guest.id, { apiChannelId: patch.apiChannelId || '', modelName: patch.apiChannelId ? patch.modelName || '' : '' })))} />}
             onChange={(transform) => setPersonaState((current) => updatePersona(current, active.id, transform))}
             onDismiss={(guestId) => {
               setPersonaState((current) => updatePersona(current, active.id, (item) => dismissGuest(item, threadId, guestId)))

@@ -28,6 +28,9 @@ export type PersonaGuest = {
   world?: string
   /** v256：角色卡客人绑定的剧场/剧本（她勾选的），这些故事的经过常驻在他的卡里（≤900 字）。 */
   boundStoryIds?: string[]
+  /** v286：他自己的回复渠道和模型（不填 = 跟窗口主人同一个）。群聊里每人单独请求。 */
+  apiChannelId?: string
+  modelName?: string
   /** 他在这扇人格窗口里的记忆：只记他在场时的事，按他的视角。 */
   memories: PersonaMemoryEntry[]
   createdAt: number
@@ -81,6 +84,7 @@ export function normalizeGuests(value: unknown, normalizeMemory: (raw: unknown) 
       ...(str(raw.persona).trim() ? { persona: str(raw.persona).slice(0, 8000) } : {}),
       ...(str(raw.world).trim() ? { world: str(raw.world).slice(0, 8000) } : {}),
       ...(source === 'card' && Array.isArray(raw.boundStoryIds) && raw.boundStoryIds.some((id) => typeof id === 'string' && id) ? { boundStoryIds: [...new Set(raw.boundStoryIds.filter((id): id is string => typeof id === 'string' && Boolean(id)))].slice(0, 6) } : {}),
+      ...(str(raw.apiChannelId).trim() ? { apiChannelId: str(raw.apiChannelId).trim(), ...(str(raw.modelName).trim() ? { modelName: str(raw.modelName).trim().slice(0, 200) } : {}) } : {}),
       memories: (Array.isArray(raw.memories) ? raw.memories : []).map(normalizeMemory).filter((item): item is PersonaMemoryEntry => Boolean(item)),
       createdAt: Number(raw.createdAt) || 0,
       updatedAt: Number(raw.updatedAt) || 0,
@@ -218,8 +222,8 @@ export function buildGroupSystemBlock(plan: Pick<GroupTurnPlan, 'mode' | 'guests
   ].filter(Boolean).join('\n')).join('\n\n')
   const pastNote = pastLifeGuests.size ? `（卡里写了「前世记忆」的客人例外：他记得和${names.user}的过往交流与一起写过的故事，可以自然认出她、想起往事；但原卡身份、职业和故事里的人物关系仍不自动成为此刻的关系，此刻的场景只从这扇窗口开始。）` : ''
   const mode = plan.mode === 'natural'
-    ? `【回复模式｜自然接话】由你判断这一轮谁自然接话：可以只有一个人，也可以几个人接戏，每轮最多 ${PERSONA_GROUP_NATURAL_CAP} 段；没话说的人不必硬说，不要每人轮流发言。`
-    : `【回复模式｜@ 点名】${names.user}在消息里 @ 谁，就只由谁回复；@ 了几个人就按 @ 的顺序各写一段；没有 @ 时由${names.char}回复。本轮名单写在【本轮背景】里。`
+    ? `【回复模式｜自然接话】每个人各自单独回复：应用一次只请一个人开口，轮到谁写在【本轮背景】里。有话就接，没话说的人可以不接；不要每人轮流硬说。`
+    : `【回复模式｜@ 点名】${names.user}在消息里 @ 谁，就只由谁回复；@ 了几个人就按 @ 的顺序一个一个来；没有 @ 时由${names.char}回复。应用一次只请一个人开口，轮到谁写在【本轮背景】里。`
   return `【临时群聊｜这扇窗口现在不只你们两个人】
 此刻在场：${names.user}（她本人，谁都不替她说话）、${names.char}（窗口主人，始终在场）${plan.guests.map((guest) => `、${guest.name}`).join('')}。以下群聊规则优先于上文“一对一”的说法；${names.char}自己的相处规则、记忆与专属功能照旧。
 
@@ -227,8 +231,8 @@ ${cards}
 
 ${mode}
 【群聊回复格式】
-- 每位发言人单独一段，段首另起一行写【名字】，名字只能是：${allowed.join('、')}。这个标记只给应用看，会被隐藏，不会显示给她。
-- 每段只写这个人自己的话和简短动作；不替别人说话，不替${names.user}发言、行动或决定。
+- 每次只写轮到的那个人的一段，段首另起一行写【名字】，名字只能是：${allowed.join('、')}。这个标记只给应用看，会被隐藏，不会显示给她。
+- 只写这个人自己的话和简短动作；不替别人说话（别人会自己回），不替${names.user}发言、行动或决定。
 - 从角色卡拉来的客人是“借人不借戏”：原卡里的剧情、人物关系、恩怨和与${names.user}或任何人的过往一律不作数；原卡里的其他人物不在场，也不要提起。他是第一次走进这扇窗口，和在场的人原本素不相识，彼此的关系只从这扇窗口里发生的事开始（他自己的窗口记忆和【他的世界观】另有写明的除外）。${pastNote}
 - 客人各按自己的人设与世界观说话，只知道自己在场时发生的事；${names.char}的长期记忆、前世记忆和与${names.user}的私事，客人并不知道。尤其〔幕后手记与戏外私聊〕只是${names.char}本人和${names.user}的戏外真心话：哪怕客人也演过同一场戏、记得那场戏，也不知道这些手记和私聊，不得引用、暗示或接这些话。
 ${canKick ? `- 请出：这里是${names.char}的地方。${names.char}真被某位客人惹烦、或客人越界、冒犯${names.user}时，可以在【${names.char}】那段末尾单独一行写 [请出:客人名字]，应用会请他离开（他的记忆保留，${names.user}随时能再拉回来）。先用话说清再请；别为一点小事请人，也不要每轮都请。客人不能请出任何人。\n` : ''}- 礼物、人物档案、自我卡、点歌和任务卡只属于${names.char}，只能写在【${names.char}】那一段；客人段落里不要写这些标记（写了也会被丢掉）。客人想记住的事，可以在自己那段末尾写 [记忆:一句话]，只记进他自己的窗口记忆。`
@@ -244,6 +248,27 @@ export function buildGroupTurnTail(plan: GroupTurnPlan) {
       : `【本轮发言｜@ 点名】本轮只由 ${names[0]} 回复，段首写【${names[0]}】，别人不插话。`
   }
   return `【本轮发言｜自然接话】由你判断这一轮谁接话（${plan.speakers.map((item) => item.name).join('、')} 之中），最多 ${plan.cap} 段，每段段首写【名字】。`
+}
+
+/** v286：不接话时只回这一行。 */
+export const GROUP_SKIP_TAG = '[不接话]'
+export const isGroupSkip = (raw: string) => /^\s*(?:【[^】\n]*】\s*)?[[［]\s*不接话\s*[\]］]\s*$/.test(raw)
+
+/** v286：这一轮依次请谁开口。@ 点名 = 点到的人；自然接话 = 她这句话里叫到名字的客人先，然后窗口主人，再其他客人。 */
+export function groupTurnOrder(plan: Pick<GroupTurnPlan, 'speakers' | 'targets'>, latestUserText = ''): string[] {
+  if (plan.targets) return [...plan.targets]
+  const main = plan.speakers.find((item) => item.main)
+  const guests = plan.speakers.filter((item) => !item.main)
+  const named = guests.filter((item) => item.name.trim() && latestUserText.includes(item.name.trim()))
+  return [...named.map((item) => item.id), ...(main ? [main.id] : []), ...guests.filter((item) => !named.includes(item)).map((item) => item.id)]
+}
+
+/** v286：每人单独请求时的【本轮背景】一句：轮到谁、这一轮前面的人已经说了什么、能不能不接。 */
+export function buildGroupSoloTail(plan: Pick<GroupTurnPlan, 'speakers'>, speakerId: string, said: readonly { name: string; text: string }[], allowSkip: boolean) {
+  const name = plan.speakers.find((item) => item.id === speakerId)?.name || ''
+  const before = said.length ? `\n这一轮前面已经有人接了话（她都看到了）：\n${said.map((item) => `【${item.name}】\n${item.text}`).join('\n\n')}\n可以接着他们的话说，别重复他们说过的。` : ''
+  const skip = allowSkip ? `\n${name}要是这一轮没什么想说的，就只回一行 ${GROUP_SKIP_TAG}，不用硬接。` : ''
+  return `【本轮发言｜轮到 ${name}】这次只写 ${name} 一个人的一段，段首写【${name}】；别人会各自回复，不要替任何人写。${before}${skip}`
 }
 
 /** 历史里有客人说过话、但现在没人在场：提醒只以主人格身份回（只进【本轮背景】）。 */
@@ -358,13 +383,16 @@ export function addGuest(persona: PersonaWindow, threadId: string, input: Omit<P
   return { persona: inviteGuest(withGuest, threadId, guest.id), guest }
 }
 
-export function updateGuest(persona: PersonaWindow, guestId: string, patch: Partial<Pick<PersonaGuest, 'name' | 'avatar' | 'persona' | 'world' | 'memories' | 'boundStoryIds'>>, now = Date.now()): PersonaWindow {
+export function updateGuest(persona: PersonaWindow, guestId: string, patch: Partial<Pick<PersonaGuest, 'name' | 'avatar' | 'persona' | 'world' | 'memories' | 'boundStoryIds' | 'apiChannelId' | 'modelName'>>, now = Date.now()): PersonaWindow {
   return { ...persona, guests: (persona.guests || []).map((guest) => {
     if (guest.id !== guestId) return guest
     const next: PersonaGuest = { ...guest, ...patch, updatedAt: now }
     if (patch.name !== undefined) next.name = patch.name.trim().slice(0, 40) || guest.name
     for (const key of ['avatar', 'persona', 'world'] as const) if (patch[key] !== undefined && !String(patch[key]).trim()) delete next[key]
     if (patch.boundStoryIds !== undefined && !patch.boundStoryIds.length) delete next.boundStoryIds
+    // v286：渠道清空 = 跟窗口主人；模型只在有自己的渠道时留着。
+    if ('apiChannelId' in patch && !patch.apiChannelId) { delete next.apiChannelId; delete next.modelName }
+    else if ('modelName' in patch && !patch.modelName) delete next.modelName
     return next
   }) }
 }
