@@ -471,3 +471,16 @@ export function parseGuestKicks(text: string, guests: readonly Pick<ResolvedGues
   }
   return out
 }
+
+/** v288：她气泡里不显示 @名字（点名照样生效）；只有 @ 的那条整条不显示。 */
+export function groupMentionNames(main: string, guests: readonly { name: string }[]): string[] | null {
+  if (!guests.length) return null
+  return [main, ...guests.map((guest) => guest.name), '所有人', '全体'].map((name) => String(name || '').trim()).filter(Boolean).sort((a, b) => b.length - a.length)
+}
+export function stripGroupMentions(text: string, names: readonly string[]): string {
+  if (!names.length || !/[@＠]/.test(text)) return text
+  return text.replace(new RegExp(`[@＠](?:${names.map(escapeRegExp).join('|')})[\\s,，、]*`, 'g'), '').replace(/^\s+/, '')
+}
+export function isMentionOnlyText(text: string, names: readonly string[]): boolean {
+  return /[@＠]/.test(text) && !stripGroupMentions(text, names).trim()
+}

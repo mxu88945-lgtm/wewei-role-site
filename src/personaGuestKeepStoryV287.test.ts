@@ -32,3 +32,15 @@ describe('v287 角色卡客人带上原卡剧情开关', () => {
     expect((updateGuest(persona, 'guest-a', { keepStory: false }) as { guests: PersonaGuest[] }).guests[0].keepStory).toBeUndefined()
   })
 })
+
+import { groupMentionNames, isMentionOnlyText, stripGroupMentions } from './personaGroup'
+describe('v288 气泡隐藏 @名字', () => {
+  const names = groupMentionNames('谢聿衡', [{ name: '小Eli' }])!
+  it('去掉 @名字，纯 @ 整条隐藏', () => {
+    expect(stripGroupMentions('@谢聿衡 你看他', names)).toBe('你看他')
+    expect(isMentionOnlyText('@谢聿衡', names)).toBe(true)
+    expect(isMentionOnlyText('@谢聿衡 嗯', names)).toBe(false)
+    expect(stripGroupMentions('邮箱 a@b.com', names)).toBe('邮箱 a@b.com')
+    expect(groupMentionNames('谢聿衡', [])).toBeNull()
+  })
+})

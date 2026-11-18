@@ -59,7 +59,7 @@ import { isSafeMode } from './safeMode'
 import { spriteAppearOf, spriteEnabled, spriteSetFor } from './personaSprite'
 import { setSpritePrefs, useSpriteState } from './personaSpriteStore'
 import MentionPicker from './MentionPicker'
-import { dismissGuest, insertMention, isGuestMessage, isImageAvatar, presentGuests, replyModeOf, speakerOf, typedMentionTrigger, updateGuest } from './personaGroup'
+import { dismissGuest, groupMentionNames, insertMention, isMentionOnlyText, resolveGuest, stripGroupMentions, isGuestMessage, isImageAvatar, presentGuests, replyModeOf, speakerOf, typedMentionTrigger, updateGuest } from './personaGroup'
 
 type Props = {
   characters: Character[]
@@ -313,6 +313,7 @@ export default function PersonaWindowPage(props: Props) {
   const windowStart = resolveChatWindowStart(messages, thread ? windowAnchors[thread.id] : null)
   const earlierCount = earlierChatMessageCount(windowStart)
   const rendered = windowStart > 0 ? messages.slice(windowStart) : messages
+  const mentionNames = groupMentionNames(activeCharacter?.name || '', (active?.guests || []).map((guest) => resolveGuest(guest, characters)))
   const tasks = thread?.tasks || []
   // v234 临时群聊：在场客人（空 = 只有主人格，界面与以前一样）
   const guestsHere = active && thread ? presentGuests(active, thread, characters) : []
@@ -870,6 +871,7 @@ export default function PersonaWindowPage(props: Props) {
         const isUser = message.role === 'user'
         const streamingNow = !isUser && generating && message.id === lastMessage?.id
         if (!isUser && !streamingNow && !message.text.trim() && !message.gift) return null
+        if (isUser && mentionNames && !message.gift && !message.quote && !message.images?.length && !message.attachments?.length && isMentionOnlyText(message.text, mentionNames)) return null
         // v234：客人说的话用他的名字和头像（emoji 头像直接显示）；旧消息、主人格照旧。
         const guestSpeaker = isGuestMessage(message) ? speakerOf(message, active, activeCharacter.name, characters) : null
         const name = isUser ? identity.name : guestSpeaker ? guestSpeaker.name : activeCharacter.name
@@ -882,7 +884,7 @@ export default function PersonaWindowPage(props: Props) {
               {message.quote && <div className="persona-message-quote"><b>{message.quote.author}：</b>{message.quote.text}</div>}
               {message.images?.length ? <div className={`message-images persona-message-images count-${Math.min(message.images.length, 4)}`}>{message.images.map((image, imageIndex) => <button type="button" key={image.id} aria-label="查看图片" {...tap(() => setViewerImage({ images: message.images || [], index: imageIndex }))}><img src={image.dataUrl} alt="" loading="lazy" decoding="async" draggable={false} style={message.images!.length === 1 && image.width && image.height ? { aspectRatio: `${image.width} / ${image.height}` } : undefined} /></button>)}</div> : null}
               {message.attachments?.length ? <div className="persona-attachment-list" aria-label="消息文件">{message.attachments.map((attachment) => <div className="persona-attachment-card" key={attachment.id}><span aria-hidden="true">📄</span><div><strong>{attachment.name}</strong><small>{attachmentSizeLabel(attachment.size)}{attachment.truncated ? ' · 过长，已保存前 20 万字' : ' · 只读参考'}</small></div></div>)}</div> : null}
-              {streamingNow && (!message.text || isPendingAssistantText(message.text)) ? <div className="persona-typing">（{name}正在回应…）</div> : (message.text.trim() ? <MessageContent text={isUser ? message.text : personaReplyText(message.text)} role={message.role} character={activeCharacter} userName={identity.name} streaming={streamingNow} noStatus layout={look.layout} paper={look.paper} /> : null)}
+              {streamingNow && (!message.text || isPendingAssistantText(message.text)) ? <div className="persona-typing">（{name}正在回应…）</div> : (message.text.trim() ? <MessageContent text={isUser ? (mentionNames ? stripGroupMentions(message.text, mentionNames) : message.text) : personaReplyText(message.text)} role={message.role} character={activeCharacter} userName={identity.name} streaming={streamingNow} noStatus layout={look.layout} paper={look.paper} /> : null)}
         </>
         const actionRow = streamingNow ? null : <div className="message-action-row">
             <button className="message-action-trigger" aria-label="消息操作" {...tap(() => setMenuMessageId(menuMessageId === message.id ? null : message.id))}>•••</button>
