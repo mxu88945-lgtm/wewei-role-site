@@ -52,6 +52,7 @@ export function setPersonaState(update: (current: PersonaWindowState) => Persona
   scheduleSave(busy ? 900 : 120)
 }
 
+export function subscribePersonaStore(listener: () => void) { return subscribe(listener) }
 function subscribe(listener: () => void) {
   listeners.add(listener)
   return () => { listeners.delete(listener) }

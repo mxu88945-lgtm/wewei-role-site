@@ -41,6 +41,7 @@ import { PuddingCapsule, PuddingLetter } from './PuddingLetter'
 import { messageThemeLayout } from './chatThemeLayout'
 import { useMessageEditorHeight } from './useMessageEditorHeight'
 import './persona-window.css'
+import { registerPushContext, type PushContext as PushContextValue } from './personaPush'
 import { ChannelOptions } from './ChannelOptions'
 import PersonaPeriodPanel from './PersonaPeriodPanel'
 import PersonaPeoplePanel from './PersonaPeoplePanel'
@@ -369,6 +370,22 @@ export default function PersonaWindowPage(props: Props) {
       realWorld: () => { const closing = '这是你们此刻真实的时间、地点与天气；聊天时自然地顺着它（很晚了可以催睡、下雨会提醒带伞），不用每条都提，也不要编造别的时间、地点或天气。'; try { return buildPhoneRealWorldNote(new Date(), JSON.parse(localStorage.getItem('weijing.phoneWeather') || 'null'), closing) } catch { return buildPhoneRealWorldNote(new Date(), null, closing) } },
     }
   }
+  // v297 手机推送：切到后台时把当前人格的系统提示和最近聊天交给推送服务器，TA 主动来找你时用。
+  const pushBuilderRef = useRef<() => PushContextValue | null>(() => null)
+  pushBuilderRef.current = () => {
+    if (!active || !thread) return null
+    const deps = depsFor(active.characterId)
+    if (!deps) return null
+    const request = buildPersonaRequest(active, thread.messages, deps, thread)
+    const first = request.find((item) => item.role === 'system')
+    const system = typeof first?.content === 'string' ? first.content : Array.isArray(first?.content) ? first.content.map((part) => ('text' in part && typeof part.text === 'string' ? part.text : '')).join('\n') : ''
+    const name = deps.character.name
+    const recent = thread.messages.filter((item) => item.text?.trim()).slice(-8).map((item) => `${item.role === 'user' ? identity.name || '她' : item.speakerName || name}：${item.text.slice(0, 500)}`).join('\n')
+    return { name, personaId: active.id, threadId: thread.id, system, recent }
+  }
+  useEffect(() => {
+    registerPushContext(() => pushBuilderRef.current(), characters.map((item) => [item.id, item.name] as [string, string]))
+  }, [characters])
 
   // v208：输入框随内容长高（同主聊天 composer）：1 行起，约 6 行封顶后内部滚动；发送清空后缩回。
   useLayoutEffect(() => {

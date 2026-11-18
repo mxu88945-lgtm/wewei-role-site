@@ -1,4 +1,4 @@
-const CACHE_NAME = 'weijing-shell-v296'
+const CACHE_NAME = 'weijing-shell-v297'
 const APP_ROOT = '/wewei-role-site/'
 // v218：布丁来信的两张布丁狗图，安装时先放进缓存，离线也能显示。
 // v239：谢聿衡 Q 版立绘 9 张表情也先缓存，换表情离线也不白。
@@ -32,6 +32,23 @@ self.addEventListener('activate', (event) => {
     const keys = await caches.keys()
     await Promise.all(keys.filter((key) => key.startsWith('weijing-') && key !== CACHE_NAME).map((key) => caches.delete(key)))
     await self.clients.claim()
+  })())
+})
+
+// v297：人格窗口的到点提醒和 TA 主动发来的话，App 关着也弹通知。
+self.addEventListener('push', (event) => {
+  let data = {}
+  try { data = event.data ? event.data.json() : {} } catch { data = { body: event.data ? event.data.text() : '' } }
+  event.waitUntil(self.registration.showNotification(data.title || '惟境', { body: data.body || '', tag: data.tag || undefined, data: { url: data.url || APP_ROOT }, icon: `${APP_ROOT}apple-touch-icon.png`, badge: `${APP_ROOT}apple-touch-icon.png` }))
+})
+
+self.addEventListener('notificationclick', (event) => {
+  event.notification.close()
+  const url = event.notification.data?.url || APP_ROOT
+  event.waitUntil((async () => {
+    const list = await self.clients.matchAll({ type: 'window', includeUncontrolled: true })
+    for (const client of list) if ('focus' in client) return client.focus()
+    return self.clients.openWindow(url)
   })())
 })
 

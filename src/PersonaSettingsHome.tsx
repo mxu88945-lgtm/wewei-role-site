@@ -1,4 +1,5 @@
-import type { PointerEvent } from 'react'
+import { useState, type PointerEvent } from 'react'
+import { enablePush, pushOn, pushProactivePerDay, pushStatus, setPushProactive } from './personaPush'
 
 export type PersonaSettingsPanel = 'home' | 'model' | 'prompts' | 'appearance' | 'tasks' | 'selfCard' | 'period' | 'lifePeople' | 'gifts' | 'group' | 'agency'
 type Tap = (action: () => void) => { onPointerUp: (event: PointerEvent) => void; onClick: () => void }
@@ -27,6 +28,32 @@ function Row({ icon, title, description, value, onSelect, tap }: { icon: IconNam
     <Icon name={icon} /><span className="persona-settings-copy"><strong>{title}</strong><small>{description}</small></span>
     <span className="persona-settings-value" title={value}>{value}</span><span className="persona-settings-chevron" aria-hidden="true">›</span>
   </button>
+}
+
+/** v297：手机通知（到点提醒 + TA 主动来找你），状态只存这台手机。 */
+function PersonaPushRows({ tap }: { tap: Tap }) {
+  const [on, setOn] = useState(pushOn())
+  const [status, setStatus] = useState(pushStatus())
+  const [perDay, setPerDay] = useState(pushProactivePerDay())
+  const [busy, setBusy] = useState(false)
+  const press = async () => {
+    if (busy) return
+    setBusy(true)
+    try { setStatus(await enablePush()) } catch (error) { setStatus('开启失败：' + (error instanceof Error ? error.message : String(error))) }
+    setOn(pushOn()); setBusy(false)
+  }
+  return <>
+    <div className="persona-settings-row persona-settings-toggle">
+      <Icon name="past" /><span className="persona-settings-copy"><strong>关掉 App 也能收到</strong><small>{status}</small></span>
+      <button className="persona-push-button" disabled={busy} {...tap(() => { void press() })}>{on ? '测试' : '开启'}</button>
+    </div>
+    {on && <div className="persona-settings-row persona-settings-toggle">
+      <Icon name="person" /><span className="persona-settings-copy"><strong>TA 会主动来找你</strong><small>白天 9 点到 22 点半，想起你就自己发一条；你在聊时不打扰</small></span>
+      <select className="persona-sprite-appear" aria-label="TA 主动来找你" value={String(perDay)} onChange={(event) => { const next = Number(event.target.value); setPerDay(next); setPushProactive(next) }}>
+        <option value="0">关</option><option value="1">每天 1 条</option><option value="2">每天 2 条</option><option value="3">每天 3 条</option><option value="5">每天 5 条</option>
+      </select>
+    </div>}
+  </>
 }
 
 export default function PersonaSettingsHome({ promptLength, memoryCount, threadCount, threadTitle, channelName, modelName, pastLifeEnabled, onNavigate, onThreads, onMemory, onManage, onTogglePastLife, trackCount = 0, songPickEnabled = true, onMusic, onToggleSongPick, selfCardLength = 0, giftCount, periodLabel, peopleCount, personaCount, onSwitchPersona, groupLabel, agencyLabel, sprite, tap }: {
@@ -89,6 +116,10 @@ export default function PersonaSettingsHome({ promptLength, memoryCount, threadC
       {periodLabel !== undefined && <Row icon="period" title="经期记录" description="记录与预测，TA 会在需要时体贴一点" value={periodLabel} onSelect={() => onNavigate('period')} tap={tap} />}
       {peopleCount !== undefined && <Row icon="person" title="人物档案" description="你身边的人，聊到时 TA 会记得是谁" value={peopleCount ? `${peopleCount} 人` : '还空着'} onSelect={() => onNavigate('lifePeople')} tap={tap} />}
     </section></>}
+    <p className="persona-settings-caption">手机通知</p>
+    <section className="persona-settings-group" aria-label="手机通知">
+      <PersonaPushRows tap={tap} />
+    </section>
     <p className="persona-settings-caption">窗口与连接</p>
     <section className="persona-settings-group" aria-label="窗口与连接">
       <Row icon="windows" title="聊天窗口" description={threadTitle || '在左侧栏查看、新开与整理窗口'} value={`${threadCount} 个`} onSelect={onThreads} tap={tap} />

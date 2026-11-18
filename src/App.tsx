@@ -80,9 +80,10 @@ import { buildSharedTheaterBackground, createDirectorCharacter, createDirectorTe
 import CharacterWorkshop from './CharacterWorkshop'
 import StoryProjectManager from './StoryProjectManager'
 import PersonaWindowPage from './PersonaWindowPage'
-import { getPersonaState, hydratePersonaStore, isPersonaStoreHydrated, setPersonaState, usePersonaAppearanceScope } from './personaWindowStore'
+import { getPersonaState, hydratePersonaStore, isPersonaStoreHydrated, setPersonaState, subscribePersonaStore, usePersonaAppearanceScope } from './personaWindowStore'
 import { CHAT_FONT_MAX, CHAT_FONT_MIN, CHAT_FONT_STEP, formatChatFontSize, normalizeChatFontSize, personaWallpaper, personaWallpaperKey, resolvePersonaAppearance } from './personaAppearance'
 import { startPersonaTaskClock, type PersonaTaskDue } from './personaTaskClock'
+import { startPersonaPush } from './personaPush'
 import { buildPersonaWindowNoteForPhone, characterAliasIds, PERSONA_WINDOWS_KEY, personaWindowForBackstage, switchPersona, switchPersonaThread } from './personaWindow'
 import { normalizeStoryProjects, type StoryProject } from './storyProject'
 import { buildStoryProjectPrompt, selectConversationStoryProject } from './storyProjectPrompt'
@@ -592,6 +593,7 @@ function App() {
   }, [])
   // 人格窗口数据单独存放；启动就读进来，备份时才拿得到最新内容。
   useEffect(() => { void hydratePersonaStore() }, [])
+  useEffect(() => { startPersonaPush(subscribePersonaStore) }, [])
   useEffect(() => startPersonaTaskClock((due) => setTaskDueNotices((current) => [...current, ...due].slice(-10))), [])
   useEffect(() => { durableGet<ForumThread[]>('weijing.forum').then((stored) => { if (stored && !forumThreadsRef.current.length) forumThreadsRef.current = stored }).catch(() => undefined) }, [])
   const handleForumChange = useCallback((threads: ForumThread[]) => { forumThreadsRef.current = threads }, [])
@@ -5063,7 +5065,7 @@ function UpdateCard() {
     }
   }
 
-  return <section className="update-card"><strong>应用更新</strong><p>主动检查并拉取最新网页版本，不会删除角色、聊天记录或本地设置。</p><small>当前版本：v296 · 2026.11.18 提到英文名不再误翻旧图，附回旧图标明是旧的</small><button onClick={refresh} disabled={state === 'checking'}>{state === 'checking' ? '正在检查更新…' : state === 'error' ? '更新失败，点我重试' : '强制刷新到最新版'}</button></section>
+  return <section className="update-card"><strong>应用更新</strong><p>主动检查并拉取最新网页版本，不会删除角色、聊天记录或本地设置。</p><small>当前版本：v297 · 2026.11.18 人格窗口接上手机通知：到点提醒、TA 主动来找你</small><button onClick={refresh} disabled={state === 'checking'}>{state === 'checking' ? '正在检查更新…' : state === 'error' ? '更新失败，点我重试' : '强制刷新到最新版'}</button></section>
 }
 
 function PersonaPage({ identities, selectedId, isBound, onSelect, onAdd, onDelete, onUpdate, onBack }: { identities: UserIdentity[]; selectedId: string; isBound: boolean; onSelect: (id: string) => void; onAdd: () => void; onDelete: (id: string) => void; onUpdate: (patch: Partial<UserIdentity>) => void; onBack: () => void }) {
