@@ -37,7 +37,7 @@
 .theme-greynote .archive-greynote .archive-body :is(.message-story-paragraph,p) { margin: 0 0 1.1em; line-height: 2; }
 .theme-greynote .archive-greynote .archive-body :is(.message-story-paragraph,p):last-child { margin-bottom: 0; }
 /* 对白：只换颜色，不加底。 */
-.theme-greynote .archive-greynote .archive-body :is(.message-quote,.chat-quote) { display: inline; margin: 0 .06em; padding: .12em .5em; border: 0; border-radius: 10px; background: linear-gradient(100deg,#dae9f2,#f8e4eb); box-decoration-break: clone; -webkit-box-decoration-break: clone; box-shadow: none; color: var(--chat-quote-color,#3a6482); font-weight: 600; line-height: inherit; }
+.theme-greynote .archive-greynote .archive-body :is(.message-quote,.chat-quote) { display: inline; margin: 0 .06em; padding: .12em .5em; border: 0; border-radius: 10px; background: linear-gradient(100deg,rgba(218,233,242,.5),rgba(248,228,235,.5)); box-decoration-break: clone; -webkit-box-decoration-break: clone; box-shadow: none; color: var(--chat-quote-color,#3a6482); font-weight: 600; line-height: inherit; }
 .theme-greynote .archive-greynote .archive-body :is(.message-narration,.chat-narration,em) { color: var(--chat-narration-color,#8f8c89); font-style: normal; }
 .theme-greynote .archive-greynote .archive-body :is(section,[class*='status-card'],[class*='scene-card'],[class*='private'],details) { margin: 18px 0; padding: 14px 16px; border: 0; border-radius: 14px; color: #55524f; background: #f6f5f4; box-shadow: none; }
 .theme-greynote .archive-greynote .message-action-row { justify-content: flex-start; margin-top: 10px; }

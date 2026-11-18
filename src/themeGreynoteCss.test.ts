@@ -13,7 +13,7 @@ describe('v265 浅灰信笺 theme', () => {
   it('stays plain: light grey canvas, white letter body, colour-only quotes, ringed avatar', () => {
     expect(css).toContain('background: #f1f1f0')
     expect(css).toContain('.theme-greynote .archive-greynote .archive-body { box-sizing: border-box')
-    expect(css).toMatch(/message-quote,\.chat-quote\) \{ display: inline;[^}]*border-radius: 10px;[^}]*linear-gradient\(100deg,#dae9f2,#f8e4eb\)[^}]*box-decoration-break: clone/)
+    expect(css).toMatch(/message-quote,\.chat-quote\) \{ display: inline;[^}]*border-radius: 10px;[^}]*linear-gradient\(100deg,rgba\(218,233,242,\.5\),rgba\(248,228,235,\.5\)\)[^}]*box-decoration-break: clone/)
     expect(css).toMatch(/\.archive-portrait \{[^}]*border: 1px solid #d6d5d3; border-radius: 50%; background: #fff/)
     expect(css).not.toMatch(/url\(|animation/)
   })
