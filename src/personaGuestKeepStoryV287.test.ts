@@ -44,3 +44,21 @@ describe('v288 气泡隐藏 @名字', () => {
     expect(groupMentionNames('谢聿衡', [])).toBeNull()
   })
 })
+
+describe('v295 没勾剧情的客人看不到别人的原卡剧情', () => {
+  const a = resolveGuest({ ...base, keepStory: true }, [card])
+  const b = resolveGuest({ ...base, id: 'guest-b', name: '阿七', characterId: 'c2' }, [{ ...card, id: 'c2', name: '阿七', scenario: '江湖' }])
+  it('阿七开口时藏起小Eli的世界观', () => {
+    const block = buildGroupSystemBlock({ mode: 'mention', guests: [a, b] }, { char: '谢聿衡', user: '惟惟' }, new Set(), new Map(), false, 'guest-b')
+    expect(block).not.toContain('孤儿院')
+    expect(block).toContain('阿七不在那出戏里')
+    expect(block).toContain('这一轮是阿七开口')
+  })
+  it('小Eli自己开口、主人开口照旧', () => {
+    for (const id of ['guest-a', undefined]) {
+      const block = buildGroupSystemBlock({ mode: 'mention', guests: [a, b] }, { char: '谢聿衡', user: '惟惟' }, new Set(), new Map(), false, id)
+      expect(block).toContain('孤儿院')
+      expect(block).not.toContain('这一轮是阿七开口')
+    }
+  })
+})

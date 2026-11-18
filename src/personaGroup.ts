@@ -228,9 +228,17 @@ function guestCardRules(guests: readonly ResolvedGuest[], user: string, pastNote
   return rules.join('\n') + '\n'
 }
 
-export function buildGroupSystemBlock(plan: Pick<GroupTurnPlan, 'mode' | 'guests'>, names: { char: string; user: string }, pastLifeGuests: ReadonlySet<string> = new Set(), boundStories: ReadonlyMap<string, string> = new Map(), canKick = false) {
+export function buildGroupSystemBlock(plan: Pick<GroupTurnPlan, 'mode' | 'guests'>, names: { char: string; user: string }, pastLifeGuests: ReadonlySet<string> = new Set(), boundStories: ReadonlyMap<string, string> = new Map(), canKick = false, speakerId?: string) {
   const allowed = [names.char, ...plan.guests.map((guest) => guest.name)]
-  const cards = plan.guests.map((guest) => [
+  // v295：轮到“借人不借戏”的客人开口时，别的客人带来的原卡剧情只有他们自己知道——这一轮不给他看。
+  const speaker = speakerId ? plan.guests.find((guest) => guest.id === speakerId) : undefined
+  const stripSpeaker = Boolean(speaker && !speaker.keepStory)
+  const hidden = (guest: ResolvedGuest) => stripSpeaker && guest.id !== speakerId
+  const cards = plan.guests.map((guest) => hidden(guest) ? [
+    `〔${guest.name}｜临时加入的客人〕`,
+    guest.persona && `人设（只写性格与样子，供你认人）：\n${clip(guest.persona, 600)}`,
+    guest.keepStory && `${guest.name}带着自己原卡里的故事来：那是${guest.name}自己的戏，${speaker!.name}不在那出戏里，不知道里面的身份、关系和往事；${guest.name}嘴里提到的戏里的人和事，${speaker!.name}只当是第一次听说。`,
+  ].filter(Boolean).join('\n') : [
     `〔${guest.name}｜临时加入的客人〕`,
     guest.persona && (guest.fromCard ? (guest.keepStory ? `人设（来自原角色卡，原卡里的身份、人物关系和过往都作数）：\n${guest.persona}` : `人设（借自原角色卡，只取性格、说话方式、外貌与身份气质）：\n${guest.persona}`) : `人设：\n${guest.persona}`),
     guest.world && `${guest.name}的世界观：\n${guest.world}`,
@@ -251,7 +259,7 @@ ${mode}
 【群聊回复格式】
 - 每次只写轮到的那个人的一段，段首另起一行写【名字】，名字只能是：${allowed.join('、')}。这个标记只给应用看，会被隐藏，不会显示给她。
 - 只写这个人自己的话和简短动作；不替别人说话（别人会自己回），不替${names.user}发言、行动或决定。
-${guestCardRules(plan.guests, names.user, pastNote)}- 客人各按自己的人设与世界观说话，只知道自己在场时发生的事；${names.char}的长期记忆、前世记忆和与${names.user}的私事，客人并不知道。尤其〔幕后手记与戏外私聊〕只是${names.char}本人和${names.user}的戏外真心话：哪怕客人也演过同一场戏、记得那场戏，也不知道这些手记和私聊，不得引用、暗示或接这些话。
+${guestCardRules(plan.guests, names.user, pastNote)}${stripSpeaker && plan.guests.some((guest) => guest.keepStory && guest.id !== speakerId) ? `- 这一轮是${speaker!.name}开口：${speaker!.name}没带原卡剧情，只活在这扇窗口里；别人带来的故事是别人的，不要顺着入戏、不要套用戏里的身份或称呼（包括对${names.user}的称呼和关系）。\n` : ''}- 客人各按自己的人设与世界观说话，只知道自己在场时发生的事；${names.char}的长期记忆、前世记忆和与${names.user}的私事，客人并不知道。尤其〔幕后手记与戏外私聊〕只是${names.char}本人和${names.user}的戏外真心话：哪怕客人也演过同一场戏、记得那场戏，也不知道这些手记和私聊，不得引用、暗示或接这些话。
 ${canKick ? `- 请出：这里是${names.char}的地方。${names.char}真被某位客人惹烦、或客人越界、冒犯${names.user}时，可以在【${names.char}】那段末尾单独一行写 [请出:客人名字]，应用会请他离开（他的记忆保留，${names.user}随时能再拉回来）。先用话说清再请；别为一点小事请人，也不要每轮都请。客人不能请出任何人。\n` : ''}- 礼物、人物档案、自我卡、点歌和任务卡只属于${names.char}，只能写在【${names.char}】那一段；客人段落里不要写这些标记（写了也会被丢掉）。客人想记住的事，可以在自己那段末尾写 [记忆:一句话]，只记进他自己的窗口记忆。`
 }
 

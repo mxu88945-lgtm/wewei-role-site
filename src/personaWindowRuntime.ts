@@ -367,7 +367,7 @@ export function planPersonaRequest(persona: PersonaWindow, history: PersonaMessa
     // v232：人物档案自己记——固定文字，只随开关变。
     ['people-tag', '人物档案说明', deps.peopleSelfRecord?.() && PEOPLE_TAG_PROMPT],
     // v234：成员、各自人设/世界观/窗口记忆、模式与输出格式——只随成员或模式变。
-    ['group', '群聊成员', group && buildGroupSystemBlock(group, names, new Set(guestPools.map((item) => item.guestId)), new Map(guestPools.filter((item) => item.bound).map((item) => [item.guestId, stripPersonaFormatInstructions(item.bound)])), persona.hostKickEnabled === true)],
+    ['group', '群聊成员', group && buildGroupSystemBlock(group, names, new Set(guestPools.map((item) => item.guestId)), new Map(guestPools.filter((item) => item.bound).map((item) => [item.guestId, stripPersonaFormatInstructions(item.bound)])), persona.hostKickEnabled === true, options.turnSpeaker?.id)],
     // Keep the core boundary in the FIRST system too (some relays drop later system messages).
     // v261 TA 的小天地：固定文字，只随开关变。
     ['agency', '暂停·隐私室·身体状态说明', agencyPrompt({ pause: persona.pauseEnabled === true, room: persona.privateRoomEnabled === true, body: persona.bodyStateEnabled === true, album: true })],
