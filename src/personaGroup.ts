@@ -28,6 +28,8 @@ export type PersonaGuest = {
   world?: string
   /** v256：角色卡客人绑定的剧场/剧本（她勾选的），这些故事的经过常驻在他的卡里（≤900 字）。 */
   boundStoryIds?: string[]
+  /** v287：角色卡客人带上原卡剧情、开局场景和人物关系（默认不带 = 借人不借戏）。 */
+  keepStory?: boolean
   /** v286：他自己的回复渠道和模型（不填 = 跟窗口主人同一个）。群聊里每人单独请求。 */
   apiChannelId?: string
   modelName?: string
@@ -38,7 +40,7 @@ export type PersonaGuest = {
 }
 
 export type GroupSpeaker = { id: string; name: string; avatar?: string; main: boolean }
-export type ResolvedGuest = GroupSpeaker & { persona: string; world: string; memories: PersonaMemoryEntry[]; fromCard?: boolean }
+export type ResolvedGuest = GroupSpeaker & { persona: string; world: string; memories: PersonaMemoryEntry[]; fromCard?: boolean; keepStory?: boolean }
 
 /** 同时在场的客人上限（不含主人格）。 */
 export const PERSONA_GROUP_GUEST_LIMIT = 6
@@ -83,6 +85,7 @@ export function normalizeGuests(value: unknown, normalizeMemory: (raw: unknown) 
       ...(str(raw.avatar).trim() ? { avatar: str(raw.avatar).trim() } : {}),
       ...(str(raw.persona).trim() ? { persona: str(raw.persona).slice(0, 8000) } : {}),
       ...(str(raw.world).trim() ? { world: str(raw.world).slice(0, 8000) } : {}),
+      ...(source === 'card' && raw.keepStory === true ? { keepStory: true } : {}),
       ...(source === 'card' && Array.isArray(raw.boundStoryIds) && raw.boundStoryIds.some((id) => typeof id === 'string' && id) ? { boundStoryIds: [...new Set(raw.boundStoryIds.filter((id): id is string => typeof id === 'string' && Boolean(id)))].slice(0, 6) } : {}),
       ...(str(raw.apiChannelId).trim() ? { apiChannelId: str(raw.apiChannelId).trim(), ...(str(raw.modelName).trim() ? { modelName: str(raw.modelName).trim().slice(0, 200) } : {}) } : {}),
       memories: (Array.isArray(raw.memories) ? raw.memories : []).map(normalizeMemory).filter((item): item is PersonaMemoryEntry => Boolean(item)),
@@ -125,8 +128,10 @@ export function resolveGuest(guest: PersonaGuest, characters: readonly CardLike[
   const cardPersona = card ? [card.description, card.personality].map((part) => stripPersonaFormatInstructions(part || '')).filter((part) => part.trim()).join('\n') : ''
   const persona = (guest.persona?.trim() || cardPersona).replace(/\{\{char\}\}/gi, name)
   // v237：角色卡客人不再自动带原卡开局场景（那是原卡的剧情），只有她在这里手写的世界观才生效。
-  const world = (guest.world?.trim() || '').replace(/\{\{char\}\}/gi, name)
-  return { id: guest.id, name, avatar: guest.avatar || card?.avatar, main: false, fromCard: Boolean(card), persona: clip(persona.trim(), GUEST_PERSONA_MAX), world: clip(world.trim(), GUEST_WORLD_MAX), memories: guest.memories }
+  // v287：勾了「带上原卡剧情和关系」才读原卡开局场景。
+  const keepStory = Boolean(card) && guest.keepStory === true
+  const world = (guest.world?.trim() || (keepStory ? stripPersonaFormatInstructions(card?.scenario || '') : '')).replace(/\{\{char\}\}/gi, name)
+  return { id: guest.id, name, avatar: guest.avatar || card?.avatar, main: false, fromCard: Boolean(card), ...(keepStory ? { keepStory: true } : {}), persona: clip(persona.trim(), GUEST_PERSONA_MAX), world: clip(world.trim(), GUEST_WORLD_MAX), memories: guest.memories }
 }
 
 /** 这扇窗口此刻在场的客人（按拉进来的顺序；库里已删掉的不算）。 */
@@ -210,11 +215,24 @@ const memoryLines = (entries: readonly PersonaMemoryEntry[], max = GUEST_MEMORY_
 /** v256：角色卡客人的前世记忆指路（只在他确有过往记录时写进他的卡里）。 */
 export const guestPastLifePointer = (name: string, user: string) => `前世记忆：${name}和${user}在小手机交流或长剧情里有过往记录（那是过去的线上交流和一起写过的故事，不是此刻的身份与关系）。聊到相关的人、事或往事时，应用会在本轮附上【${name}的前世记忆】片段，只有${name}自己记得；没附上的细节不编造。`
 
+/** v287：角色卡客人默认借人不借戏；勾了 keepStory 的按原卡来。 */
+function guestCardRules(guests: readonly ResolvedGuest[], user: string, pastNote: string) {
+  const cardGuests = guests.filter((guest) => guest.fromCard)
+  const strip = cardGuests.filter((guest) => !guest.keepStory), keep = cardGuests.filter((guest) => guest.keepStory)
+  // 没有角色卡客人时仍保留原规则文字，基线不变。
+  const stripNames = keep.length && strip.length ? `（${strip.map((guest) => guest.name).join('、')}）` : ''
+  const names = { user }
+  const rules: string[] = []
+  if (strip.length || !keep.length) rules.push(`- 从角色卡拉来的客人${stripNames}是“借人不借戏”：原卡里的剧情、人物关系、恩怨和与${names.user}或任何人的过往一律不作数；原卡里的其他人物不在场，也不要提起。他是第一次走进这扇窗口，和在场的人原本素不相识，彼此的关系只从这扇窗口里发生的事开始（他自己的窗口记忆和【他的世界观】另有写明的除外）。${pastNote}`)
+  if (keep.length) rules.push(`- ${keep.map((guest) => guest.name).join('、')}带着原卡的身份、人物关系和过往来到这里：原卡写的都作数，可以自然提起；原卡里的其他人物不在场，不要替他们说话。`)
+  return rules.join('\n') + '\n'
+}
+
 export function buildGroupSystemBlock(plan: Pick<GroupTurnPlan, 'mode' | 'guests'>, names: { char: string; user: string }, pastLifeGuests: ReadonlySet<string> = new Set(), boundStories: ReadonlyMap<string, string> = new Map(), canKick = false) {
   const allowed = [names.char, ...plan.guests.map((guest) => guest.name)]
   const cards = plan.guests.map((guest) => [
     `〔${guest.name}｜临时加入的客人〕`,
-    guest.persona && (guest.fromCard ? `人设（借自原角色卡，只取性格、说话方式、外貌与身份气质）：\n${guest.persona}` : `人设：\n${guest.persona}`),
+    guest.persona && (guest.fromCard ? (guest.keepStory ? `人设（来自原角色卡，原卡里的身份、人物关系和过往都作数）：\n${guest.persona}` : `人设（借自原角色卡，只取性格、说话方式、外貌与身份气质）：\n${guest.persona}`) : `人设：\n${guest.persona}`),
     guest.world && `${guest.name}的世界观：\n${guest.world}`,
     memoryLines(guest.memories) && `${guest.name}在这扇窗口里记得的事（只属于${guest.name}）：\n${memoryLines(guest.memories)}`,
     pastLifeGuests.has(guest.id) && guestPastLifePointer(guest.name, names.user),
@@ -233,8 +251,7 @@ ${mode}
 【群聊回复格式】
 - 每次只写轮到的那个人的一段，段首另起一行写【名字】，名字只能是：${allowed.join('、')}。这个标记只给应用看，会被隐藏，不会显示给她。
 - 只写这个人自己的话和简短动作；不替别人说话（别人会自己回），不替${names.user}发言、行动或决定。
-- 从角色卡拉来的客人是“借人不借戏”：原卡里的剧情、人物关系、恩怨和与${names.user}或任何人的过往一律不作数；原卡里的其他人物不在场，也不要提起。他是第一次走进这扇窗口，和在场的人原本素不相识，彼此的关系只从这扇窗口里发生的事开始（他自己的窗口记忆和【他的世界观】另有写明的除外）。${pastNote}
-- 客人各按自己的人设与世界观说话，只知道自己在场时发生的事；${names.char}的长期记忆、前世记忆和与${names.user}的私事，客人并不知道。尤其〔幕后手记与戏外私聊〕只是${names.char}本人和${names.user}的戏外真心话：哪怕客人也演过同一场戏、记得那场戏，也不知道这些手记和私聊，不得引用、暗示或接这些话。
+${guestCardRules(plan.guests, names.user, pastNote)}- 客人各按自己的人设与世界观说话，只知道自己在场时发生的事；${names.char}的长期记忆、前世记忆和与${names.user}的私事，客人并不知道。尤其〔幕后手记与戏外私聊〕只是${names.char}本人和${names.user}的戏外真心话：哪怕客人也演过同一场戏、记得那场戏，也不知道这些手记和私聊，不得引用、暗示或接这些话。
 ${canKick ? `- 请出：这里是${names.char}的地方。${names.char}真被某位客人惹烦、或客人越界、冒犯${names.user}时，可以在【${names.char}】那段末尾单独一行写 [请出:客人名字]，应用会请他离开（他的记忆保留，${names.user}随时能再拉回来）。先用话说清再请；别为一点小事请人，也不要每轮都请。客人不能请出任何人。\n` : ''}- 礼物、人物档案、自我卡、点歌和任务卡只属于${names.char}，只能写在【${names.char}】那一段；客人段落里不要写这些标记（写了也会被丢掉）。客人想记住的事，可以在自己那段末尾写 [记忆:一句话]，只记进他自己的窗口记忆。`
 }
 
@@ -383,13 +400,14 @@ export function addGuest(persona: PersonaWindow, threadId: string, input: Omit<P
   return { persona: inviteGuest(withGuest, threadId, guest.id), guest }
 }
 
-export function updateGuest(persona: PersonaWindow, guestId: string, patch: Partial<Pick<PersonaGuest, 'name' | 'avatar' | 'persona' | 'world' | 'memories' | 'boundStoryIds' | 'apiChannelId' | 'modelName'>>, now = Date.now()): PersonaWindow {
+export function updateGuest(persona: PersonaWindow, guestId: string, patch: Partial<Pick<PersonaGuest, 'name' | 'avatar' | 'persona' | 'world' | 'memories' | 'boundStoryIds' | 'keepStory' | 'apiChannelId' | 'modelName'>>, now = Date.now()): PersonaWindow {
   return { ...persona, guests: (persona.guests || []).map((guest) => {
     if (guest.id !== guestId) return guest
     const next: PersonaGuest = { ...guest, ...patch, updatedAt: now }
     if (patch.name !== undefined) next.name = patch.name.trim().slice(0, 40) || guest.name
     for (const key of ['avatar', 'persona', 'world'] as const) if (patch[key] !== undefined && !String(patch[key]).trim()) delete next[key]
     if (patch.boundStoryIds !== undefined && !patch.boundStoryIds.length) delete next.boundStoryIds
+    if ('keepStory' in patch && patch.keepStory !== true) delete next.keepStory
     // v286：渠道清空 = 跟窗口主人；模型只在有自己的渠道时留着。
     if ('apiChannelId' in patch && !patch.apiChannelId) { delete next.apiChannelId; delete next.modelName }
     else if ('modelName' in patch && !patch.modelName) delete next.modelName
