@@ -15,6 +15,9 @@ export const ARCHIVED_IMAGE_FALLBACK = '【此前发过的图片】'
 export const ARCHIVED_VIDEO_FALLBACK = '【此前发过的一段视频】'
 export const IMAGE_MEMO_PROMPT = '（应用提示：她这轮发了图。回复末尾另写一行 [图记:图里是什么，40字内]，会被隐藏。）'
 
+/** v296：附回的旧图要说清是旧的，免得他当成她刚发来的。 */
+export const RECALLED_IMAGE_NOTE = '（应用附上一张她之前发过的旧图，方便你回看；不是她这轮新发的。她没问图里的东西就不要主动描述。）'
+
 export type ImageTurnMessage = { role: string; promptRole?: string; text?: string; images?: ChatImage[] }
 
 export function clipImageMemo(text: string | undefined) {
@@ -62,6 +65,8 @@ export function imageMemoMentioned(memo: string | undefined, text: string, names
   for (let index = 0; index + 3 <= chars.length; index++) {
     const gram = chars.slice(index, index + 3)
     if (gram.some((char) => char === '・' || MEMO_STOP_CHARS.test(char))) continue
+    // v296：至少两个汉字才算对上，英文名（Eli 之类）和数字串不再翻出旧图。
+    if (gram.filter((char) => /\p{Script=Han}/u.test(char)).length < 2) continue
     if (text.includes(gram.join(''))) return true
   }
   return false
@@ -118,7 +123,7 @@ export function imageWireContent(text: string, images: ChatImage[] | undefined, 
   const lead = live ? text || hint : [archivedImageText(own), text].filter(Boolean).join('\n')
   const pictures = [...(live ? own : []), ...(recalled ? [recalled] : [])]
   return [
-    { type: 'text', text: lead || '（她提到了之前发过的那张图，原图附上。）' },
+    { type: 'text', text: [lead, recalled && !live ? RECALLED_IMAGE_NOTE : ''].filter(Boolean).join('\n') || RECALLED_IMAGE_NOTE },
     ...pictures.map((image): ChatApiContentPart => ({ type: 'image_url', image_url: { url: image.dataUrl, detail: 'auto' } })),
   ]
 }

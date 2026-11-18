@@ -187,3 +187,19 @@ describe('send never hangs on a picture that will not decode (v250)', () => {
     expect(await caught).toMatch(/超时/)
   })
 })
+
+import { findRecallImage as findRecallV296, imageMemoMentioned as mentionedV296, imageWireContent as wireV296, RECALLED_IMAGE_NOTE } from './imageMemo'
+describe('v296 英文名不翻旧图，附回旧图标明是旧的', () => {
+  const old = { role: 'user', text: '', images: [{ dataUrl: 'data:x', memo: 'Eli穿浅灰绿羽绒服站在雪地越野车旁' }] } as never
+  it('只提 Eli 不翻图', () => {
+    expect(mentionedV296('Eli穿浅灰绿羽绒服', '连 Eli 饿了都等我')).toBe(false)
+    expect(findRecallV296([old], '连 Eli 饿了都等我')).toBeNull()
+  })
+  it('说到中文图记词还会翻', () => {
+    expect(findRecallV296([old], '那件羽绒服好看吗')).not.toBeNull()
+  })
+  it('附回旧图带说明', () => {
+    const content = wireV296('好看吗', undefined, false, { dataUrl: 'data:x' } as never)
+    expect(JSON.stringify(content)).toContain(RECALLED_IMAGE_NOTE.slice(0, 10))
+  })
+})

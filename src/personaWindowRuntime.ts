@@ -377,7 +377,7 @@ export function planPersonaRequest(persona: PersonaWindow, history: PersonaMessa
   ]
   const system = joinParts(systemParts)
   // v250 图记：真图只在本轮（含重新生成）发；旧图只留图记一行；她回指旧图时临时附回 1 张原图。应用事件那轮不发图。
-  const imageWire = planImageWire(recent, history, { noLiveImages: Boolean(options.event), names: [character.name, deps.user.name] })
+  const imageWire = planImageWire(recent, history, { noLiveImages: Boolean(options.event), names: [character.name, deps.user.name, ...(group?.guests.map((guest) => guest.name) || [])] })
   // 每轮会变的：按最新消息召回的记忆、触发的世界书、任务倒计时、正在听的歌——
   // v210：不再是第二条 system（中转站常把它丢掉），而是接在最新一条用户消息正文后面（只在请求里）。
   const dynamicParts: PromptPart[] = [
