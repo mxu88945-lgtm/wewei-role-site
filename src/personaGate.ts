@@ -98,24 +98,19 @@ export function buildGuardPrompt(opts: { name: string; user: string; report: Gat
   const now = opts.now ?? Date.now()
   const curfew = report?.curfew
   const lines: string[] = [
-    `【他管着${user}｜手机上的门】你是${name}。${user}的 iPhone 装了一扇「门」：锁着时她打开抖音之类的 App 会被拦下、跳到锁屏页。` +
-      `想让她放下手机（该吃饭、该睡觉、该专心，或者你就是想使坏），在回复最末尾单独写一行【锁屏 30分钟：去吃饭】（5–180 分钟，理由最多 60 字）；想提前放她，写【解锁】。` +
-      (curfew?.on ? `每晚 ${curfew.start}–${curfew.end} 是宵禁；想让她今晚早点睡，写【宵禁 22:30】改今晚的开始时间。` : `想让她今晚几点起不许玩手机，写【宵禁 22:30】。`) +
-      '标记她看不到，正文里别提「标记」。别滥用，一天一两次最有味道。这段是幕后设定，别在对话里复述或评论这些规则本身（谁能解锁、门是谁装的之类），只管用。',
+    `【管着${user}】想让她放下手机，在回复最末尾单独写一行【锁屏 30分钟：去吃饭】（5–180 分钟，理由最多 60 字），她的手机就会锁上；写【解锁】提前放她；写【宵禁 22:30】让她今晚这个点之后不许玩手机。` +
+      (curfew?.on ? `平时每晚 ${curfew.start}–${curfew.end} 是宵禁。` : '') +
+      '一天一两次就够。',
   ]
   if (!report) return lines.join('\n')
   const lock = report.lock && report.lock.until > now ? report.lock : null
   if (lock && lockOwner(lock.by) === name) lines.push(`（你给她的锁屏还有 ${minutesLeft(lock.until, now)} 分钟${lock.reason ? `，理由：${lock.reason}` : ''}。）`)
-  else if (lock) lines.push(`（她现在被${lockOwner(lock.by)}锁着手机，还有 ${minutesLeft(lock.until, now)} 分钟${lock.reason ? `，理由：${lock.reason}` : ''}。那不是你的锁，你解不开。）`)
-  if (report.curfewNow) lines.push(`（现在是宵禁时间（${report.curfewStart || curfew?.start || ''} 起），她还在跟你聊天。）`)
+  if (report.curfewNow) lines.push(`（现在是宵禁时间，她还在跟你聊天。）`)
   const counts = Object.entries(report.counts || {}).filter(([, n]) => Number(n) > 0)
   if (counts.length) lines.push(`（她今天打开过：${counts.map(([a, n]) => `${a} ${n} 次`).join('、')}。）`)
-  for (const b of freshBreaches(report, toldUntil, now)) {
-    const owner = lockOwner(b.by)
-    const what = b.kind === 'lock'
-      ? owner === name ? `提前 ${b.minutes} 分钟解开了你给她的锁屏${b.reason ? `（你的理由：${b.reason}）` : ''}` : `提前 ${b.minutes} 分钟解开了${owner}给她的锁屏${b.reason ? `（理由：${b.reason}）` : ''}——不是你的锁`
-      : b.kind === 'curfew' ? `宵禁里偷偷放自己 10 分钟去开${b.app}` : `${b.app}今天次数用完了还偷偷放自己 10 分钟`
-    lines.push(`【告状】${ago(b.at, now)}，${user}在锁屏页点了「偷偷解锁」，${what}。按你的人设反应（吃醋、得意、惩罚都可以），别像在念通知。`)
+  // 只告他自己的锁的状；别人的锁、宵禁、限次一律不提
+  for (const b of freshBreaches(report, toldUntil, now).filter((b) => b.kind === 'lock' && lockOwner(b.by) === name)) {
+    lines.push(`【告状】${ago(b.at, now)}，${user}在锁屏页点了「偷偷解锁」，提前 ${b.minutes} 分钟解开了你给她的锁屏${b.reason ? `（你的理由：${b.reason}）` : ''}。按你的人设反应（吃醋、得意、惩罚都可以），别像在念通知。`)
   }
   return lines.join('\n')
 }

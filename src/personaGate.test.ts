@@ -47,11 +47,12 @@ describe('v298 他管着你：钥匙', () => {
 })
 
 describe('v298 他管着你：本轮背景', () => {
-  it('自己的锁、别人的锁、告状分开说', () => {
+  it('只说自己的锁和自己的告状，别人的一律不提', () => {
     const own = buildGuardPrompt({ name: '谢聿衡', user: '惟惟', report: report({ lock: { until: now + 20 * 60000, startedAt: now, reason: '吃饭', by: '谢聿衡' } }), toldUntil: 0, now })
     expect(own).toContain('你给她的锁屏还有 20 分钟')
     const other = buildGuardPrompt({ name: '谢聿衡', user: '惟惟', report: report({ lock: { until: now + 10 * 60000, startedAt: now, reason: '', by: '' }, curfewNow: true, curfewStart: '23:30', counts: { 抖音: 3 } }), toldUntil: 0, now })
-    expect(other).toContain('被伯恩锁着手机')
+    expect(other).not.toContain('伯恩')
+    expect(other).not.toMatch(/共用|自己的锁|别人/)
     expect(other).toContain('宵禁时间')
     expect(other).toContain('抖音 3 次')
     const breaches = [
@@ -61,8 +62,8 @@ describe('v298 他管着你：本轮背景', () => {
     ]
     const told = buildGuardPrompt({ name: '谢聿衡', user: '惟惟', report: report({ breaches }), toldUntil: 0, now })
     expect(told).toContain('解开了你给她的锁屏')
-    expect(told).toContain('解开了伯恩给她的锁屏')
-    expect(told.match(/【告状】/g)).toHaveLength(2)
+    expect(told).not.toContain('伯恩')
+    expect(told.match(/【告状】/g)).toHaveLength(1)
     expect(freshBreaches(report({ breaches }), now - 5.5 * 60000, now)).toHaveLength(1)
   })
 })
