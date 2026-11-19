@@ -7,7 +7,7 @@ import { stripGuardTags } from './personaGate'
  * v297 手机推送（人格窗口）：到点提醒和「TA 主动来找你」都交给 Cloudflare 上的小服务器（和顾祁砚共用一台）。
  * App 被 iPhone 冻住或关掉也能响。设备号、开关只存在这台手机的 localStorage，不进备份和云同步。
  */
-export const PUSH_BASE = 'https://gqy-push.lyy0305123.workers.dev'
+export const PUSH_BASE = 'https://push.zhouweiweihome.top'
 const ON_KEY = 'weijing.push.on'
 const DEVICE_KEY = 'weijing.push.device'
 const PROACTIVE_KEY = 'weijing.push.proactive'

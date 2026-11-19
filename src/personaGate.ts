@@ -5,7 +5,7 @@
  * 只在主人格那段回复收尾时执行一次。钥匙、开关、告状进度只存这台手机的 localStorage。
  */
 
-export const GATE_BASE = 'https://burne-gate.lyy0305123.workers.dev'
+export const GATE_BASE = 'https://gate.zhouweiweihome.top'
 const ON_KEY = 'weijing.gate.on'
 const KEY_KEY = 'weijing.gate.key'
 const TOLD_KEY = 'weijing.gate.toldUntil'

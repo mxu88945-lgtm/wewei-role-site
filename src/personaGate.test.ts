@@ -39,7 +39,7 @@ describe('v298 他管着你：标记解析', () => {
 
 describe('v298 他管着你：钥匙', () => {
   it('从链接里取 k=，或接受光秃秃的钥匙', () => {
-    expect(parseGateKey('https://burne-gate.lyy0305123.workers.dev/open?k=bw0123456789abcdef&app=抖音')).toBe('bw0123456789abcdef')
+    expect(parseGateKey('https://gate.zhouweiweihome.top/open?k=bw0123456789abcdef&app=抖音')).toBe('bw0123456789abcdef')
     expect(parseGateKey('  bw0123456789abcdef_-  ')).toBe('bw0123456789abcdef_-')
     expect(parseGateKey('short')).toBe('')
     expect(parseGateKey('https://x.dev/?k=abc')).toBe('')
