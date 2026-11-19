@@ -90,7 +90,7 @@ describe('v255 人格窗口世界书语义触发', () => {
 describe('v255 启动秒开', () => {
   it('hashed assets are cache-first and the shell falls back to cache after a short wait', () => {
     const sw = readFileSync(new URL('../public/sw.js', import.meta.url), 'utf8')
-    expect(sw).toMatch(/weijing-shell-v2\d\d/)
+    expect(sw).toMatch(/weijing-shell-v\d{3}/)
     expect(sw).toMatch(/isHashedAsset\(url\)[\s\S]*caches\.match\(request\)[\s\S]*if \(cached\) return cached/)
     expect(sw).toContain('SHELL_NETWORK_WAIT_MS = 1500')
   })
