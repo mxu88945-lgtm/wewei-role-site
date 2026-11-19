@@ -4,6 +4,7 @@ import { stripSongPick } from './personaSongPick'
 import { stripSelfCardTag } from './personaSelfCard'
 import { stripPersonaGiftTag } from './personaGifts'
 import { stripPersonTags } from './peopleProfiles'
+import { stripGuardTags } from './personaGate'
 
 // Only used by 人格窗口. Never change the card or the story/phone renderer.
 export const PERSONA_DISPLAY_LORE = /(<\/?(?:div|span|status|[a-z][\w-]*_status|scene|scenario|psychology|style|section|details|table)\b|状态栏|美化|输出格式|格式要求|html|css|正则)/i
@@ -39,7 +40,8 @@ export function stripPersonaFormatInstructions(value: string) {
 export function personaReplyText(value: string) {
   // v207：点歌标记 [点歌:X] 只是给应用看的，任何地方都不显示、不进历史/记忆/摘要。
   // v211：自我卡标记 [自我卡:栏目|…] 同样只给应用看。v231：[自制礼物:…] 也是。v232：[人物:名字|…] 也是。
-  return stripPersonTags(stripPersonaGiftTag(stripSelfCardTag(stripSongPick(stripUiOnlyStatusBlocks(sanitizeAssistantOutput(stripSongPick(stripSelfCardTag(stripPersonaGiftTag(stripPersonTags(value))))))
+  // v298：他管着你【锁屏 N分钟：理由】【解锁】【宵禁 HH:MM】（含流式半截）同样只给应用看。
+  return stripGuardTags(stripPersonTags(stripPersonaGiftTag(stripSelfCardTag(stripSongPick(stripUiOnlyStatusBlocks(sanitizeAssistantOutput(stripSongPick(stripSelfCardTag(stripPersonaGiftTag(stripPersonTags(stripGuardTags(value)))))))
     .replace(/\[\s*(?:记忆|记住|存记忆|memory|搜索|旧文|提醒|提醒任务|定时提醒|任务|reminder|请出|暂停|分享|状态)\s*[:：][^\]\n]*(?:\]|$)/gi, '')
     .replace(/\[\s*(?:存相册|相册密码|锁照片|解锁照片|翻相册)\s*(?:[:：][^\]\n]*)?(?:\]|$)/g, '')
     .replace(/\[(?:记(?:忆|住)?|存记忆|memory|搜(?:索)?|旧(?:文)?|提(?:醒(?:任(?:务)?)?)?|定(?:时(?:提(?:醒)?)?)?|任(?:务)?|reminder|请(?:出)?|暂(?:停)?|隐(?:私(?:室)?)?|分(?:享)?|状(?:态)?|继(?:续)?|存(?:相(?:册)?)?)?$/gi, '')
@@ -62,5 +64,5 @@ export function personaReplyText(value: string) {
     .replace(/&amp;/gi, '&')
     .replace(/[ \t]+\n/g, '\n')
     .replace(/\n{3,}/g, '\n\n')
-    .trim()))))
+    .trim())))))
 }

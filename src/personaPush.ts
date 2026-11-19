@@ -1,6 +1,7 @@
 import { getPersonaState, setPersonaState } from './personaWindowStore'
 import { nextPersonaMessageId, updatePersonaThread, type PersonaMessage } from './personaWindow'
 import { taskIsActive } from './personaTasks'
+import { stripGuardTags } from './personaGate'
 
 /**
  * v297 手机推送（人格窗口）：到点提醒和「TA 主动来找你」都交给 Cloudflare 上的小服务器（和顾祁砚共用一台）。
@@ -107,9 +108,10 @@ export async function pullPushInbox() {
         const [personaId, threadId] = String(item.conv || '').split('|')
         const persona = next.personas.find((p) => p.id === personaId)
         const thread = persona?.threads.find((t) => t.id === threadId)
-        if (!persona || !thread || !item.text?.trim()) continue
+        const text = stripGuardTags(String(item.text || '')).trim()
+        if (!persona || !thread || !text) continue
         const id = Math.max(nextPersonaMessageId(thread.messages), (thread.messageSequence || 0) + 1)
-        const message: PersonaMessage = { id, role: 'assistant', text: item.text.trim(), createdAt: item.ts || Date.now() }
+        const message: PersonaMessage = { id, role: 'assistant', text, createdAt: item.ts || Date.now() }
         next = updatePersonaThread(next, personaId, threadId, (t) => ({ ...t, messages: [...t.messages, message], messageSequence: id, updatedAt: Math.max(t.updatedAt, message.createdAt) }))
         done.push(item.id)
       }

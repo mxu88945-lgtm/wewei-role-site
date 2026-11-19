@@ -50,6 +50,7 @@ import { parsePersonTags, PEOPLE_TAG_PROMPT, type PersonTag } from './peopleProf
 import { PERSONA_GIFT_STABLE_HISTORY, personaGiftRecallNote, addPersonaGift, buildPersonaGiftPrompt, extractPersonaAssistantGift, personaGiftHistory, personaGiftPromptText, personaGiftRecordLine, removePersonaGift, type PersonaGiftEvent } from './personaGifts'
 import { withPromptCache } from './promptCache'
 import { foldPromptForRelay, stripTurnContext } from './promptTail'
+import { applyGateCommands, extractGuardTags, gateOn, markGateTold, prepareGateTurn } from './personaGate'
 import { recordPromptUsage } from './promptUsage'
 import { addAlbumPhotos, applyLockPhotoTags, parseAlbumCode, parseLockPhotoTags, addPrivateNotes, afterReplyBody, agencyPrompt, albumIndexLine, albumPeekResult, albumTurnLine, parseAlbumPeek, pickAlbumPeek, bodyTurnLine, parseAlbumTags, formatLeft, hasResumeTag, PAUSE_APPEAL_GAP_MS, parseBodyTag, parsePauseTag, parseRoomTags, parseShareTitles, pauseActive, pauseAppealTail } from './personaAgency'
 import { dismissGuest, parseGuestKicks, addGuestMemories, buildGroupAfterTail, buildGroupSystemBlock, buildGroupTurnTail, buildGroupSoloTail, groupTurnOrder, isGroupSkip, guestMemoryExtractionPrompt, isGuestId, isGuestMessage, labelGroupContent, pendingGuestMessages, planGroupTurn, PERSONA_GROUP_SEGMENT_CAP, PERSONA_GUEST_MEMORY_EVERY, resolveGuest, speakerOf, splitGroupReply, type GroupTurnPlan } from './personaGroup'
@@ -273,7 +274,7 @@ function latestUserText(history: PersonaMessage[]) {
 
 /** event：应用事件（如任务完成），v210 起作为最新一条用户消息发出，动态尾巴跟在它后面。
  * v236：semantic = 语义召回命中（没开/失败时不传，自动回退到线索 + 关键词）；pools 不传就现算。 */
-export function planPersonaRequest(persona: PersonaWindow, history: PersonaMessage[], deps: PersonaRuntimeDeps, thread: PersonaThread = activeThread(persona), options: { event?: string; semantic?: PersonaSemanticHits | null; pools?: PersonaRecallPools; turnSpeaker?: { id: string; said: { name: string; text: string }[]; allowSkip: boolean } } = {}) {
+export function planPersonaRequest(persona: PersonaWindow, history: PersonaMessage[], deps: PersonaRuntimeDeps, thread: PersonaThread = activeThread(persona), options: { event?: string; semantic?: PersonaSemanticHits | null; pools?: PersonaRecallPools; turnSpeaker?: { id: string; said: { name: string; text: string }[]; allowSkip: boolean }; gate?: string } = {}) {
   const character = personaCharacter(deps.character)
   const pools = options.pools || personaRecallPools(persona, deps)
   const setting = pools.setting
@@ -397,6 +398,8 @@ export function planPersonaRequest(persona: PersonaWindow, history: PersonaMessa
     ['album-index', '相册目录（她提到相册时）', albumIndexLine(persona.album, [...history].reverse().find((message) => message.role === 'user')?.text || '')],
     ['diary-turn', '日记（晚上没写/聊到日记）', diaryTurnLine(persona.diary, [...history].reverse().find((message) => message.role === 'user')?.text || '', Date.now(), history.filter((message) => message.role === 'user' && localDay(message.createdAt || 0) === localDay(Date.now())).length)],
     ['pause', '暂停中·申请继续', persona.pauseEnabled === true && pauseActive(thread.pause) && [...history].reverse().find((message) => message.role === 'user')?.pauseAppeal ? pauseAppealTail(thread.pause) : ''],
+    // v298 他管着你：开着才有；群聊里只给窗口主人自己那份请求（客人不拿这把钥匙）。
+    ['gate', '他管着你（手机上的门）', options.gate && (!group || options.turnSpeaker?.id === persona.id) ? options.gate : ''],
     ['guard-turn', '回复前确认', PERSONA_FINAL_GUARD],
     // v234：这一轮谁说（每轮变，所以放尾巴）。
     ['group-turn', '本轮谁说', group ? (options.turnSpeaker ? buildGroupSoloTail(group, options.turnSpeaker.id, options.turnSpeaker.said, options.turnSpeaker.allowSkip) : buildGroupTurnTail(group)) : guestHistory ? buildGroupAfterTail(names) : ''],
@@ -551,8 +554,12 @@ export async function generatePersonaReply(personaId: string, deps: PersonaRunti
       try { semantic = await deps.semanticRecall({ persona, thread: planThread, history, pools, inContextKeys: recentKeys, query: latestUserText(history) }) } catch { semantic = null }
       if (controller.signal.aborted) throw new DOMException('Aborted', 'AbortError')
     }
+    // v298 他管着你：开着就先拉门上的情况（4 秒超时，失败就当没有），只进【本轮背景】。
+    const gateTurn = gateOn() ? await prepareGateTurn(deps.character.name, deps.user.name).catch(() => null) : null
+    if (gateTurn && controller.signal.aborted) throw new DOMException('Aborted', 'AbortError')
+    const gate = gateTurn?.note || ''
     const sources = new Map<string, PersonaRecallSource>()
-    let plan = planPersonaRequest(persona, history, deps, planThread, { event, semantic, pools })
+    let plan = planPersonaRequest(persona, history, deps, planThread, { event, semantic, pools, gate })
     plan.memory.audit.sources.forEach((source) => sources.set(`${source.threadId}|${source.messageId}`, source))
     const rememberAudit = () => patchRuntime((current) => ({ ...current, memoryAudits: { ...current.memoryAudits, [threadId]: { ...plan.memory.audit, sources: [...sources.values()] } } }))
     rememberAudit()
@@ -570,7 +577,7 @@ export async function generatePersonaReply(personaId: string, deps: PersonaRunti
       const allowSkip = Boolean(group && !group.targets && (said.length > 0 || remaining > 0))
       const speakerApi = isMain ? deps.api : deps.guestApi?.(speakerId) || deps.api
       if (!isApiChannelComplete(speakerApi)) throw new Error(`${speakerName}用的 API 还没配置完整：到 ••• → 群聊成员 → ${speakerName} 换一个渠道。`)
-      const speakerPlan = group ? planPersonaRequest(persona, history, deps, planThread, { event, semantic, pools, turnSpeaker: { id: speakerId, said: said.map(({ name, text }) => ({ name, text })), allowSkip } }) : plan
+      const speakerPlan = group ? planPersonaRequest(persona, history, deps, planThread, { event, semantic, pools, gate, turnSpeaker: { id: speakerId, said: said.map(({ name, text }) => ({ name, text })), allowSkip } }) : plan
       if (group && (isMain || turnIndex === 0)) { plan = speakerPlan; speakerPlan.memory.audit.sources.forEach((source) => sources.set(`${source.threadId}|${source.messageId}`, source)); rememberAudit() }
       const request = speakerPlan.messages.slice()
       const label = group ? `【${speakerName}】\n` : ''
@@ -720,6 +727,10 @@ export async function generatePersonaReply(personaId: string, deps: PersonaRunti
       const withImage = memoTurnIds.size ? updatePersonaThread(withMemory, personaId, threadId, (item) => { const messages = withImageMemo(item.messages, (message) => memoTurnIds.has(message.id), imageMemo); return messages === item.messages ? item : { ...item, messages } }) : withMemory
       return touch(updatePersonaThread(withImage, personaId, threadId, (item) => ({ ...commitPersonaRecallLedger(item, [...sources.keys(), ...plan.memory.pastLifeKeys, ...plan.guestPastKeys], plan.memory.turn), ...(plan.feedCursor ? { feedCursor: plan.feedCursor } : {}), ...(completedTask ? { tasks: item.tasks?.map((entry) => entry.id === completedTask.id ? { ...entry, reactedAt: done } : entry) } : task && !item.tasks?.some((existing) => taskIsActive(existing) && existing.text === task.text) ? { tasks: [...(item.tasks || []), task] } : {}), updatedAt: done })), done)
     })
+    // v298 他管着你：告状这轮已经告诉他了；他写的锁屏/解锁/宵禁只认主人格那段，收尾时执行一次（客人段落只剥不执行）。
+    if (gateTurn?.toldAt) markGateTold(gateTurn.toldAt)
+    const gateCommands = gate ? extractGuardTags(own).commands : []
+    if (gateCommands.length) void applyGateCommands(gateCommands, { name: deps.character.name, avatar: deps.character.avatar }).then((lines) => { if (lines.length) patchRuntime((current) => ({ ...current, peopleToasts: { ...current.peopleToasts, [personaId]: { text: lines.join(' · '), seq: ++peopleToastSeq } } })) }).catch(() => undefined)
     // v234：客人在场的新消息攒够了，就在后台按他的视角整理进他自己的窗口记忆。
     if (group) setTimeout(() => { void extractGuestMemories(personaId, deps, { threadId, every: PERSONA_GUEST_MEMORY_EVERY }) }, 2400)
     setTimeout(() => {

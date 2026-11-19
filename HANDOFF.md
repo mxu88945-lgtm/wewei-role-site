@@ -58,3 +58,9 @@
 - 提炼分工：压缩器提示词加一句（每件事一行，关系/承诺/状态写进那行，同事只写一次）；长期记忆总结的 user 消息（非小手机）加分工提醒（核心记忆里写过的一句带过）；核心记忆提炼两处提示词加「只写结论，不照抄总结原句」。默认「记忆总结提示词」（她可改的）没动。
 - 评测 src/storyMemoryDedupe.test.ts（夹具 storyMemoryDedupe.fixture.ts，「像真的」三层 + 15 个种下事实 + 2 句差一点的），共用请求拼装挪到 src/storyPromptRequest.fixture.ts。v252 夹具每轮 43.3k → 36.4k（夹具内部重复多，偏乐观）；像真的夹具三层记忆 2395 → 2085（-13%），15/15 事实仍在请求里。
 - 世界书（src/storyWorldbookAudit.test.ts）：内容一字不差（忽略空白）的条目只发一次，常驻优先；卡自带 scan_depth（条目 extensions.scan_depth 优先，其次 character_book.scan_depth，正整数）时只扫最近 N 条，没写的照旧扫整段最近原文（≤47 条/≈8200 token）。人格窗口不传 messages，不变。没有递归触发（条目内容不会再触发别的条目）。常驻不封顶——只报告了建议。
+
+## v298（2026-11-19）人格窗口「他管着你」
+- 借伯恩的门（burne-gate，src/personaGate.ts）：同一把钥匙，惟境是客人，写 /state 一律带 `by: <人格名>`，只发 lock/unlock/tonight（锁时带 avatar≤60000 字符、appUrl），不碰 name/curfew/limit。钥匙/开关/toldUntil 存 localStorage（weijing.gate.*），不进备份。
+- 设置：人格窗口 ••• 设置首页「手机通知」下面一节「他管着你」：开关 + 点开粘贴伯恩链接（取 k=）或裸钥匙，测试后显示 /report 状态。
+- 开着时每次人格窗口请求前拉 /report（4 秒超时，失败忽略），说明 + 锁状态（自己的锁/谁锁的）+ 宵禁 + 今日次数 + 3 小时内未告诉过的告状 进【本轮背景】（第一条 system 不变）；群聊只给窗口主人那份请求。回复成功后 toldUntil 前移到已告状的最晚时间。
+- 标记【锁屏 N分钟：理由】【解锁】【宵禁 HH:MM】由 personaReplyText 剥掉（含流式半截），推送收件也剥；只在主人格那段回复收尾时执行一次（客人只剥不执行）。没有 App 内锁屏盖层。测试：src/personaGate.test.ts。

@@ -636,3 +636,10 @@ html[data-kb] .persona-sprite-tab { display: none; }
 /* v297 手机通知：开启/测试按钮跟出现方式下拉一样的小胶囊 */
 .persona-push-button { flex: none; padding: 5px 12px; border: 1px solid rgba(125,104,141,.18); border-radius: 10px; background: rgba(255,255,255,.7); color: inherit; font: inherit; font-size: 13px; }
 .persona-push-button:disabled, .persona-sprite-appear:disabled { opacity: .5; }
+
+/* v298 他管着你：粘贴伯恩链接/钥匙的一行 */
+.persona-gate-key { min-height: 0; padding-top: 10px; }
+.persona-gate-key .persona-settings-copy { width: 100%; }
+.persona-gate-field { display: flex; align-items: center; gap: 8px; margin-top: 8px; }
+.persona-gate-field input { flex: 1; min-width: 0; padding: 7px 10px; border: 1px solid rgba(125,104,141,.18); border-radius: 10px; background: rgba(255,255,255,.7); color: inherit; font: inherit; font-size: 16px; }
+.persona-gate-key small, .persona-gate-status small { white-space: normal; }

@@ -1,5 +1,6 @@
 import { useState, type PointerEvent } from 'react'
 import { enablePush, pushOn, pushProactivePerDay, pushStatus, setPushProactive } from './personaPush'
+import { describeGateReport, fetchGateReport, gateKey, gateOn, parseGateKey, setGateKey, setGateOn } from './personaGate'
 
 export type PersonaSettingsPanel = 'home' | 'model' | 'prompts' | 'appearance' | 'tasks' | 'selfCard' | 'period' | 'lifePeople' | 'gifts' | 'group' | 'agency'
 type Tap = (action: () => void) => { onPointerUp: (event: PointerEvent) => void; onClick: () => void }
@@ -52,6 +53,42 @@ function PersonaPushRows({ tap }: { tap: Tap }) {
       <select className="persona-sprite-appear" aria-label="TA 主动来找你" value={String(perDay)} onChange={(event) => { const next = Number(event.target.value); setPerDay(next); setPushProactive(next) }}>
         <option value="0">关</option><option value="1">每天 1 条</option><option value="2">每天 2 条</option><option value="3">每天 3 条</option><option value="5">每天 5 条</option>
       </select>
+    </div>}
+  </>
+}
+
+/** v298：他管着你——和伯恩共用一扇「门」，钥匙与开关只存这台手机。 */
+function PersonaGateRows({ tap }: { tap: Tap }) {
+  const [on, setOn] = useState(gateOn())
+  const [draft, setDraft] = useState(gateKey())
+  const [status, setStatus] = useState(gateKey() ? (gateOn() ? '已开启：TA 能锁你的手机、改今晚宵禁' : '已存钥匙，还没开') : '还没连上')
+  const [busy, setBusy] = useState(false)
+  const [editing, setEditing] = useState(false)
+  const test = async (key: string) => { setBusy(true); setStatus('正在连门…'); setStatus(describeGateReport(await fetchGateReport(key))); setBusy(false) }
+  const save = (value: string) => {
+    const key = parseGateKey(value)
+    if (!value.trim()) { setGateKey(''); setGateOn(false); setOn(false); setStatus('还没连上'); return }
+    if (!key) { setStatus('认不出钥匙：粘贴伯恩复制的整条链接（含 k=），或 16–64 位钥匙'); return }
+    setDraft(key); setGateKey(key); void test(key)
+  }
+  const toggle = () => {
+    if (!on && !parseGateKey(draft)) { setStatus('先粘贴伯恩的链接或钥匙'); return }
+    const next = !on
+    setGateOn(next); setOn(next)
+    if (next) void test(gateKey()); else setStatus('已关闭：TA 不再管你的手机')
+  }
+  return <>
+    <div className="persona-settings-row persona-settings-toggle persona-gate-status">
+      <Icon name="person" /><span className="persona-settings-copy"><strong>让 TA 锁你的手机</strong><small>{status}</small></span>
+      <button className={`switch ${on ? 'on' : ''}`} aria-label="他管着你" aria-pressed={on} {...tap(toggle)}><span /></button>
+    </div>
+    {!editing ? <button className="persona-settings-row persona-gate-key" {...tap(() => setEditing(true))}>
+      <span className="persona-settings-copy"><strong>{draft ? '换一把钥匙 / 再测一次' : '粘贴伯恩的链接'}</strong><small>在伯恩 设置→他管着你 复制任意一条链接粘贴到这里，用同一扇门</small></span><span className="persona-settings-chevron" aria-hidden="true">›</span>
+    </button> : <div className="persona-settings-row persona-gate-key">
+      <span className="persona-settings-copy"><small>在伯恩 设置→他管着你 复制任意一条链接粘贴到这里，用同一扇门</small>
+        <span className="persona-gate-field"><input type="text" inputMode="url" autoComplete="off" autoCapitalize="off" spellCheck={false} autoFocus placeholder="粘贴链接或钥匙" aria-label="伯恩的链接或钥匙" value={draft} onChange={(event) => setDraft(event.target.value)} onBlur={(event) => { if (event.target.value.trim() !== gateKey()) save(event.target.value) }} />
+          <button className="persona-push-button" disabled={busy} {...tap(() => save(draft))}>测试</button></span>
+      </span>
     </div>}
   </>
 }
@@ -119,6 +156,10 @@ export default function PersonaSettingsHome({ promptLength, memoryCount, threadC
     <p className="persona-settings-caption">手机通知</p>
     <section className="persona-settings-group" aria-label="手机通知">
       <PersonaPushRows tap={tap} />
+    </section>
+    <p className="persona-settings-caption">他管着你</p>
+    <section className="persona-settings-group" aria-label="他管着你">
+      <PersonaGateRows tap={tap} />
     </section>
     <p className="persona-settings-caption">窗口与连接</p>
     <section className="persona-settings-group" aria-label="窗口与连接">
