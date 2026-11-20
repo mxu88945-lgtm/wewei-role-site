@@ -1,6 +1,6 @@
 import { hasMediaElement, observeLazyFrame } from './lazyFrames'
 import type { PlotImage } from './chatImages'
-import { PLOT_IMAGE_TAG, splitPlotImages } from './plotImages'
+import { PLOT_IMAGE_TAG, plotTagsToHtml, splitPlotImages } from './plotImages'
 import { memo, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
 import { stripTurnContext } from './promptTail'
 import DOMPurify from 'dompurify'
@@ -459,7 +459,7 @@ function renderMessageBody(rendered: string, role: 'user' | 'assistant', layout:
 function RenderedBlock({ rendered: raw, role, layout, paper = false, plotImages, onOpenImage }: { rendered: string; role: 'user' | 'assistant'; layout: 'bubble' | 'flat'; paper?: MessageTheme; plotImages?: PlotImage[]; onOpenImage?: (image: PlotImage) => void }) {
   // v284 幕后配图：[配图:名字] 那一行换成图片；没有对应图（或还在流式中）就把标签藏起来。
   const hasPlotTag = role === 'assistant' && /\[配图[:：]/.test(raw)
-  const rendered = hasPlotTag && (hasExecutableScript(raw) || isFullHtmlDocument(raw) || looksLikeHtml(raw)) ? raw.replace(PLOT_IMAGE_TAG, '') : raw
+  const rendered = hasPlotTag && (hasExecutableScript(raw) || isFullHtmlDocument(raw)) ? raw.replace(PLOT_IMAGE_TAG, '') : hasPlotTag && looksLikeHtml(raw) ? plotTagsToHtml(raw, plotImages) : raw
   if (hasExecutableScript(rendered) || isFullHtmlDocument(rendered)) return <div className="message-content message-content-rich"><SandboxHtml html={rendered} paper={paper} /></div>
   if (looksLikeHtml(rendered)) return <div className="message-content message-content-rich"><SafeInlineHtml html={rendered} /></div>
   const paragraphs = role === 'user' ? userTextParagraphs(rendered) : plainTextParagraphs(rendered)

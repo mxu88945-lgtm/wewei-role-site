@@ -61,7 +61,7 @@ import { foldPromptForRelay } from './promptTail'
 import { withPromptCache } from './promptCache'
 import { recordPromptUsage } from './promptUsage'
 import { CHAT_IMAGE_LIMIT, CHAT_VIDEO_MAX_FRAMES, prepareChatImage, prepareChatVideo, type ChatImage } from './chatImages'
-import { mergePlotImages, usedPlotImages } from './plotImages'
+import { ensurePlotImageTags, mergePlotImages, usedPlotImages } from './plotImages'
 import { captureTemporaryPlot, withoutUsedPlotImages, consumeTemporaryPlot, withAssistantRetryInstruction, withFinalTemporaryPlotInstruction } from './temporaryPlot'
 import { reviewTemporaryPlotReply } from './temporaryPlotReview'
 import { resolveChatScrollTarget, resolveRelayoutScrollTop, type ChatScrollSnapshot } from './chatScroll'
@@ -3361,7 +3361,9 @@ function App() {
           statusTag,
         )
         : visibleOutput
-      const finalOutput = storedRelationshipStage ? enforceRelationshipStageFloor(statusOutput, storedRelationshipStage) : statusOutput
+      const stagedOutput = storedRelationshipStage ? enforceRelationshipStageFloor(statusOutput, storedRelationshipStage) : statusOutput
+      // v303：安排点名要配的图，模型漏写标签时自动补上。
+      const finalOutput = ensurePlotImageTags(stagedOutput, capturedTemporaryPlot?.images, capturedTemporaryPlot?.text)
       if (controller.signal.aborted) throw new Error('回复已停止')
       const reportedRelationshipStage = capturedCharacter.name === '顾霆深' ? extractRelationshipStage(finalOutput) : undefined
       const nextRelationshipStage = Math.max(storedRelationshipStage || 0, reportedRelationshipStage || 0)
@@ -5065,7 +5067,7 @@ function UpdateCard() {
     }
   }
 
-  return <section className="update-card"><strong>应用更新</strong><p>主动检查并拉取最新网页版本，不会删除角色、聊天记录或本地设置。</p><small>当前版本：v302 · 2026.11.20 幕后配图：名字栏修好、空名字自动叫图1，安排里要配图时他必须贴出来</small><button onClick={refresh} disabled={state === 'checking'}>{state === 'checking' ? '正在检查更新…' : state === 'error' ? '更新失败，点我重试' : '强制刷新到最新版'}</button></section>
+  return <section className="update-card"><strong>应用更新</strong><p>主动检查并拉取最新网页版本，不会删除角色、聊天记录或本地设置。</p><small>当前版本：v303 · 2026.11.20 幕后配图：安排点名的图他漏贴会自动补上，导演带格式的回复也能显示图</small><button onClick={refresh} disabled={state === 'checking'}>{state === 'checking' ? '正在检查更新…' : state === 'error' ? '更新失败，点我重试' : '强制刷新到最新版'}</button></section>
 }
 
 function PersonaPage({ identities, selectedId, isBound, onSelect, onAdd, onDelete, onUpdate, onBack }: { identities: UserIdentity[]; selectedId: string; isBound: boolean; onSelect: (id: string) => void; onAdd: () => void; onDelete: (id: string) => void; onUpdate: (patch: Partial<UserIdentity>) => void; onBack: () => void }) {

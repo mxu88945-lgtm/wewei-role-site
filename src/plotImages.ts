@@ -75,3 +75,35 @@ export function withPlotImageParts(messages: ChatApiMessage[], images: readonly 
   const insertAt = lastTurn + 1
   return [...messages.slice(0, insertAt), { role: 'user' as const, content: [{ type: 'text' as const, text: bridge }, ...parts] }, ...messages.slice(insertAt)]
 }
+
+/**
+ * v303 兜底：安排里点名要配的图（写了图名，或只有一张图且安排提到图/照片/截图/热搜），
+ * 模型没写 [配图:…] 标签时，自动插到第一段讲照片/截图/热搜的正文前，找不到就放在正文末尾（状态块之前）。
+ */
+export function ensurePlotImageTags(text: string, images: readonly PlotImage[] | undefined, plotText: string | undefined): string {
+  if (!images?.length || !plotText?.trim()) return text
+  const plot = norm(plotText)
+  const mentionsPicture = /图|照片|截图|热搜|配图|发图/.test(plotText)
+  const required = images.filter((image, index) => {
+    const name = norm(plotImageName(image, index))
+    return (name && plot.includes(name)) || (images.length === 1 && mentionsPicture)
+  })
+  const missing = required.filter((image) => !usedPlotImages(text, images).includes(image))
+  if (!missing.length) return text
+  const tags = missing.map((image) => `[配图:${plotImageName(image, images.indexOf(image))}]`).join('\n')
+  const statusAt = text.search(/\n\s*(?:<[a-z]|```)/i)
+  const body = statusAt > 0 ? text.slice(0, statusAt) : text
+  const rest = statusAt > 0 ? text.slice(statusAt) : ''
+  const lines = body.split('\n')
+  const hit = lines.findIndex((line) => /照片|图片|截图|热搜|原图|抓拍|配图/.test(line) && !/^\s*</.test(line) && !/^\s*\[/.test(line))
+  if (hit >= 0) { lines.splice(hit, 0, tags, ''); return lines.join('\n') + rest }
+  return `${body}\n\n${tags}${rest}`
+}
+
+/** v303：含行内 HTML 的回复里，把标签换成 <img>（无对应图就去掉）。 */
+export function plotTagsToHtml(html: string, images: readonly PlotImage[] | undefined) {
+  return html.replace(PLOT_IMAGE_TAG, (_, name: string) => {
+    const image = findPlotImage(images, name)
+    return image ? `<img src="${image.dataUrl}" alt="" style="display:block;width:100%;max-width:320px;height:auto;border-radius:12px;margin:10px 0" />` : ''
+  })
+}
