@@ -10,9 +10,14 @@ export const PLOT_IMAGE_TAG = /\[配图[:：]\s*([^\]\n]{1,40}?)\s*\]/g
 
 const norm = (value: string) => value.trim().replace(/[「」『』"“”《》\s]/g, '')
 
+/** v302：名字被清空时按「图N」兜底，避免模型拿到空名字写不出标签。 */
+export function plotImageName(image: PlotImage, index: number) {
+  return image.name?.trim() || `图${index + 1}`
+}
+
 export function findPlotImage(images: readonly PlotImage[] | undefined, name: string) {
   const key = norm(name)
-  return images?.find((image) => norm(image.name) === key)
+  return images?.find((image, index) => norm(plotImageName(image, index)) === key)
 }
 
 /** 正文里实际用到的图（按出现顺序，去重）。 */
@@ -52,8 +57,9 @@ export function splitPlotImages(text: string, images: readonly PlotImage[] | und
 }
 
 export function plotImageInstruction(images: readonly PlotImage[]) {
-  const list = images.map((image, index) => `图${index + 1}「${image.name}」`).join('、')
-  return `【幕后配图】她附了 ${images.length} 张图（按顺序附在本轮最后，只给你看）：${list}。剧情里需要把某张图展示出来时（如热搜、新闻、聊天截图、照片），在那个位置单独一行写 [配图:名字]，名字必须与清单一致，每张最多用一次；图里的文字和画面要与你写的内容对得上。不需要就不用，不要提到这些图是幕后给的。`
+  const list = images.map((image, index) => `图${index + 1}「${plotImageName(image, index)}」`).join('、')
+  const tags = images.map((image, index) => `[配图:${plotImageName(image, index)}]`).join('、')
+  return `【幕后配图】她附了 ${images.length} 张图（按顺序附在本轮最后，只给你看）：${list}。剧情里需要把某张图展示出来时（如热搜、新闻、聊天截图、照片），在那个位置单独一行原样写对应标签：${tags}，名字必须与清单一致，每张最多用一次；图里的文字和画面要与你写的内容对得上。安排里提到要配图、发图、附上这张图时，本轮正文必须用上；没提到就按剧情需要决定。不要提到这些图是幕后给的。`
 }
 
 /** 把图附到最后一条用户消息上（没有就补一条桥接用户消息）；fold 之后尾巴文字仍会接在后面。 */

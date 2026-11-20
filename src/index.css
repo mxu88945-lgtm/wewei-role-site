@@ -1253,4 +1253,4 @@ button { cursor: pointer; }
 .plot-image-row { display: flex; align-items: center; gap: 10px; }
 .plot-image-row img { flex: none; width: 56px; height: 56px; border-radius: 8px; object-fit: cover; }
 .plot-image-row input { flex: 1; min-width: 0; }
-.plot-image-row button { flex: none; }
+.plot-image-row button { flex: none; width: auto; padding: 10px 14px; }
