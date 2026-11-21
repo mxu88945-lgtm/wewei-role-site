@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest'
-import { parseLyrics, lyricIndexAt, buildMusicNote, guessSongMeta, pickLyrics, rankLyrics, shiftLyrics } from './lyrics'
+import { parseLyrics, lyricIndexAt, buildMusicNote, guessSongMeta, lyricQueryPairs, stripTrackNo, pickLyrics, rankLyrics, shiftLyrics } from './lyrics'
 
 const lrc = `[ti:晴天]
 [ar:周杰伦]
@@ -57,5 +57,15 @@ describe('lyric ranking by duration', () => {
   it('shifts timed lyrics', () => {
     expect(shiftLyrics([{ t: 1, text: 'a' }], 0.5)[0].t).toBe(1.5)
     expect(shiftLyrics([{ t: -1, text: 'a' }], 0.5)[0].t).toBe(-1)
+  })
+})
+
+describe('v304 lyric query pairs', () => {
+  it('strips track numbers and searches title-artist order too', () => {
+    expect(stripTrackNo('0921.你爱我像谁-张卫健')).toBe('你爱我像谁-张卫健')
+    expect(stripTrackNo('01 左右为难')).toBe('左右为难')
+    const q = lyricQueryPairs('0921.你爱我像谁-张卫健.mp3')
+    expect(q.pairs).toContainEqual({ title: '你爱我像谁', artist: '张卫健' })
+    expect(q.query).toBe('你爱我像谁 张卫健')
   })
 })

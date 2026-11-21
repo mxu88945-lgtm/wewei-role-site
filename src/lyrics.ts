@@ -98,7 +98,7 @@ export function buildMusicNote(now: NowPlaying | null, lines: LyricLine[], playl
 
 /** 从文件名猜歌名/歌手：「阿梨粤-我和春天有个约会(女声版)」→ { title:'我和春天有个约会', artist:'阿梨粤' } */
 export function guessSongMeta(name: string): { title: string; artist: string } {
-  let s = name.replace(/\.[a-z0-9]{2,4}$/i, '').trim()
+  let s = stripTrackNo(name.replace(/\.[a-z0-9]{2,4}$/i, '').trim())
   let artist = ''
   const m = s.match(/^(.+?)\s*[-–—]\s*(.+)$/)
   if (m) {
@@ -107,6 +107,25 @@ export function guessSongMeta(name: string): { title: string; artist: string } {
   }
   const title = s.replace(/[（(【[].*?[）)】\]]/g, '').replace(/[-–—]+$/, '').trim()
   return { title: title || s.trim(), artist }
+}
+
+/** v304：去掉文件名前面的曲目编号「0921.」「01 」「02-」 */
+export function stripTrackNo(s: string): string {
+  return s.replace(/^\d{1,4}\s*[.、_\-–—]\s*|^\d{1,4}\s+/, '').trim()
+}
+
+/** v304：文件名可能是「歌手-歌名」也可能是「歌名-歌手」（如「0921.你爱我像谁-张卫健」），两种顺序都搜，外加整串关键词 */
+export function lyricQueryPairs(name: string): { pairs: { title: string; artist: string }[]; query: string } {
+  const { title, artist } = guessSongMeta(name)
+  const pairs: { title: string; artist: string }[] = []
+  const add = (t: string, a: string) => {
+    t = t.replace(/[（(【[].*?[）)】\]]/g, '').trim()
+    if (t && !pairs.some((p) => p.title === t && p.artist === a)) pairs.push({ title: t, artist: a })
+  }
+  add(title, artist)
+  if (artist) add(artist, title)
+  const query = stripTrackNo(name.replace(/\.[a-z0-9]{2,4}$/i, '')).replace(/[（(【[].*?[）)】\]]/g, ' ').replace(/[-–—_]+/g, ' ').replace(/\s+/g, ' ').trim()
+  return { pairs, query }
 }
 
 interface LrclibItem { trackName?: string; artistName?: string; duration?: number; syncedLyrics?: string | null; plainLyrics?: string | null; instrumental?: boolean }
@@ -143,17 +162,21 @@ export function pickLyrics(items: LrclibItem[], title: string, dur = 0): string 
 
 /** 网上找歌词候选（lrclib.net，免费、可跨域），按 rankLyrics 排好；dur 是这首歌实际时长（秒） */
 export async function fetchLyricCandidates(name: string, dur = 0, signal?: AbortSignal): Promise<string[]> {
-  const { title, artist } = guessSongMeta(name)
-  if (!title) return []
+  const { pairs, query } = lyricQueryPairs(name)
+  if (!pairs.length) return []
   const get = async (q: string) => {
     const r = await fetch(`https://lrclib.net/api/search?${q}`, { signal })
     if (!r.ok) return [] as LrclibItem[]
     return (await r.json()) as LrclibItem[]
   }
   const enc = encodeURIComponent
-  const byArtist = artist ? rankLyrics(await get(`track_name=${enc(title)}&artist_name=${enc(artist)}`), title, dur) : []
-  const all = rankLyrics(await get(`track_name=${enc(title)}`), title, dur)
-  return [...byArtist, ...all.filter((x) => !byArtist.includes(x))]
+  const merge = (lists: string[][]) => lists.reduce<string[]>((acc, l) => [...acc, ...l.filter((x) => !acc.includes(x))], [])
+  const byArtist = await Promise.all(pairs.filter((p) => p.artist).map(async (p) => rankLyrics(await get(`track_name=${enc(p.title)}&artist_name=${enc(p.artist)}`), p.title, dur)))
+  const free = query ? await get(`q=${enc(query)}`) : []
+  const found = merge([...byArtist, ...pairs.map((p) => rankLyrics(free, p.title, dur))])
+  if (found.length) return found
+  // 都没搜到才只按歌名搜（容易搜到同名别的歌）
+  return merge(await Promise.all(pairs.map(async (p) => rankLyrics(await get(`track_name=${enc(p.title)}`), p.title, dur))))
 }
 
 export async function fetchOnlineLyrics(name: string, signal?: AbortSignal, dur = 0): Promise<string> {
