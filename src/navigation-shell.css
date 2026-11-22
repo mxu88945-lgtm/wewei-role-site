@@ -206,3 +206,9 @@
   .left-drawer { left: 0; }
   .right-drawer { right: 0; }
 }
+
+.runtime-diagnostics-card { padding: 16px; display: grid; gap: 12px; border-radius: 20px; background: #efedf0; }
+.runtime-diagnostics-heading { display: flex; align-items: center; justify-content: space-between; gap: 12px; }
+.runtime-diagnostics-heading strong, .runtime-diagnostics-heading small { display: block; }
+.runtime-diagnostics-heading small { margin-top: 4px; color: #918996; font-size: 11px; }
+.runtime-diagnostics-card pre { margin: 0; padding: 12px; overflow: auto; border-radius: 14px; color: #625b66; background: rgba(255,255,255,.65); font: 11px/1.7 ui-monospace, SFMono-Regular, Menlo, monospace; white-space: pre-wrap; word-break: break-word; }

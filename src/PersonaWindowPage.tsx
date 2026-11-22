@@ -31,6 +31,7 @@ import { canLockPersonaMemory, PERSONA_LOCKED_BUDGET } from './personaWindowMemo
 import { activeThread, addPersonaThread, buildPersonaSetting, characterAliasIds, collectFreshFeed, collectPastLifeMemory, conversationInvolvesCharacter, deletePersona, deletePersonaThread, deletePersonaMessage, disablePersona, editPersonaMessage, enablePersona, PERSONA_MEMORY_EVERY, PERSONA_WINDOW_PRESET, pendingPersonaMemoryCount, personaMemoryApi, renamePersonaThread, resolvePersonaApi, switchPersona, switchPersonaThread, updatePersona, updatePersonaThread, type PersonaMemoryEntry, type PersonaMessage, type PersonaWindow } from './personaWindow'
 import { hydratePersonaStore, setPersonaState, usePersonaHydrated, usePersonaState } from './personaWindowStore'
 import { buildPersonaRequest, dismissPeopleToast, extractGuestMemories, extractPersonaMemory, generatePersonaReply, getPersonaRuntime, maybeCompressPersonaContext, setPersonaError, stopPersonaReply, subscribePersonaRuntime, type PersonaRuntimeDeps } from './personaWindowRuntime'
+import { draftScopeKey, useScopedDraft } from './draftStore'
 
 import { findTrackByTitle, useMusicStore } from './musicStore'
 import { buildNowPlayingNote } from './nowPlayingNote'
@@ -219,7 +220,6 @@ export default function PersonaWindowPage(props: Props) {
   const [settingsPanel, setSettingsPanel] = useState<PersonaSettingsPanel>('home')
   const [renaming, setRenaming] = useState<{ id: string; title: string } | null>(null)
   const [libraryOpen, setLibraryOpen] = useState<boolean | null>(null)
-  const [draft, setDraft] = useState('')
   const [pendingImages, setPendingImages] = useState<ChatImage[]>([])
   const [pendingAttachments, setPendingAttachments] = useState<ChatAttachment[]>([])
   const [imageBusy, setImageBusy] = useState(false)
@@ -278,6 +278,7 @@ export default function PersonaWindowPage(props: Props) {
 
   const thread = active ? activeThread(active) : undefined
   const threadId = thread?.id || ''
+  const [draft, setDraft] = useScopedDraft(draftScopeKey('persona', threadId || active?.id || ''))
   const generating = Boolean(thread && runtime.generating[thread.id])
   // v261：TA 暂停这扇窗口时，每 30 秒刷新一下剩余时间，到点自动恢复。
   const [agencyTick, setAgencyTick] = useState(0)
