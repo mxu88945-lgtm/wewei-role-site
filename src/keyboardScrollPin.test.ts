@@ -78,4 +78,16 @@ describe('keyboard scroll pin', () => {
     expect(pin.pin()).toBe(false)
     expect(box.scrollTop).toBe(1300)
   })
+
+  it('v305: tapping the composer pins to the newest message even from history', () => {
+    const box = { scrollTop: 200, scrollHeight: 1600, clientHeight: 600 }
+    const { pin, flush } = harness(box)
+    pin.armStuck()
+    expect(pin.arm()).toBe(true) // the viewport change inside the window keeps the forced decision
+    box.clientHeight = 300
+    expect(pin.pin()).toBe(true)
+    expect(box.scrollTop).toBe(1300)
+    flush()
+    expect(box.scrollTop).toBe(1300)
+  })
 })

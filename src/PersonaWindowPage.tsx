@@ -460,9 +460,19 @@ export default function PersonaWindowPage(props: Props) {
       const page = composer.closest<HTMLElement>('.persona-window-page')
       if (page) page.style.setProperty('--persona-scroll-bottom', `${Math.max(0, Math.ceil(page.getBoundingClientRect().bottom - composer.getBoundingClientRect().top)) + 12}px`)
     }
+    let focusPinLive = false
     const arm = () => { pin.arm() }
     const repin = () => { sync(); pin.pin() }
-    const release = () => { pin.release() }
+    // v305：点输入框 = 要回最新那条。直接钉到底，并在键盘动画期间多补几次（iOS 的 resize 常常来得晚）。
+    const focusLatest = (event: FocusEvent) => {
+      if (!(event.target instanceof HTMLTextAreaElement)) { arm(); return }
+      stickRef.current = true
+      focusPinLive = true
+      pin.armStuck()
+      pin.pin()
+      for (const delay of [180, 420, 700]) window.setTimeout(() => { if (focusPinLive) { stickRef.current = true; pin.armStuck(); pin.pin() } }, delay)
+    }
+    const release = () => { focusPinLive = false; pin.release() }
     const composerObserver = composer && typeof ResizeObserver !== 'undefined' ? new ResizeObserver(sync) : null
     const listObserver = typeof ResizeObserver !== 'undefined' ? new ResizeObserver(repin) : null
     if (composer) composerObserver?.observe(composer)
@@ -472,14 +482,14 @@ export default function PersonaWindowPage(props: Props) {
     applyAppHeight?.()
     window.addEventListener(VIEWPORT_WILL_CHANGE_EVENT, arm)
     window.addEventListener(VIEWPORT_CHANGE_EVENT, repin)
-    composer?.addEventListener('focusin', arm)
+    composer?.addEventListener('focusin', focusLatest)
     list.addEventListener('touchstart', release, { passive: true })
     return () => {
       composerObserver?.disconnect()
       listObserver?.disconnect()
       window.removeEventListener(VIEWPORT_WILL_CHANGE_EVENT, arm)
       window.removeEventListener(VIEWPORT_CHANGE_EVENT, repin)
-      composer?.removeEventListener('focusin', arm)
+      composer?.removeEventListener('focusin', focusLatest)
       list.removeEventListener('touchstart', release)
       list.style.removeProperty('--composer-clearance')
     }

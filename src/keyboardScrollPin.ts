@@ -50,6 +50,8 @@ export interface KeyboardScrollPin {
       shrinks or grows). While a pin is already armed and within its window the
       original decision is kept and only the window is extended. */
   arm: () => boolean
+  /** v305：她点了输入框——不管刚才停在哪，都钉到最新一条，跨整段键盘动画。 */
+  armStuck: () => void
   /** Viewport / list size changed: if armed and stuck, scroll to the bottom now,
       on the next frame and after the delayed re-pins. */
   pin: () => boolean
@@ -90,6 +92,11 @@ export function createKeyboardScrollPin(getList: () => ScrollBox | null | undefi
       armedUntil = now + KEYBOARD_PIN_WINDOW_MS
       generation += 1
       return stuck
+    },
+    armStuck() {
+      stuck = true
+      armedUntil = host.now() + KEYBOARD_PIN_WINDOW_MS
+      generation += 1
     },
     pin() {
       if (!active()) return false
