@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it, vi } from 'vitest'
-import { completeChat, testApiConnection } from './chatApi'
+import { completeChat, completeChatWithTools, testApiConnection } from './chatApi'
 
 afterEach(() => { vi.unstubAllGlobals(); vi.useRealTimers() })
 
@@ -538,4 +538,28 @@ describe('v126 non-stream timeout', () => {
     expect(bodies[2].messages[0].content).toBe('稳定前缀')
     resetPromptCacheMemory()
   })
+  it('工具结果只回填请求消息并限制为三轮', async () => {
+    const bodies: Record<string, unknown>[] = []
+    vi.stubGlobal('fetch', vi.fn(async (_url: string, init?: RequestInit) => {
+      const body = JSON.parse(String(init?.body)) as Record<string, unknown>
+      bodies.push(body)
+      const round = bodies.length
+      if (round <= 3) return new Response(JSON.stringify({ choices: [{ message: { content: '', tool_calls: [{ id: `call-${round}`, type: 'function', function: { name: 'read_url', arguments: '{}' } }] } }] }), { headers: { 'content-type': 'application/json' } })
+      return new Response(JSON.stringify({ choices: [{ message: { content: '最终正文。' } }] }), { headers: { 'content-type': 'application/json' } })
+    }))
+    let output = ''
+    const result = await completeChatWithTools({
+      api: { baseUrl: 'https://relay.example/v1', apiKey: 'test', modelName: 'model' },
+      messages: [{ role: 'user', content: '查一下' }], temperature: 1, topP: 1, maxTokens: 100,
+      signal: new AbortController().signal, onDelta: (delta) => { output += delta },
+      tools: [{ type: 'function', function: { name: 'read_url', parameters: {} } }],
+      executeTool: async () => '工具结果',
+    })
+    expect(result.toolCalls).toHaveLength(1)
+    expect(bodies).toHaveLength(3)
+    expect(output).toBe('')
+    expect((bodies[1].messages as unknown[])[(bodies[1].messages as unknown[]).length - 1]).toMatchObject({ role: 'tool', content: '工具结果' })
+    expect((bodies[2].messages as unknown[])[(bodies[2].messages as unknown[]).length - 1]).toMatchObject({ role: 'tool', content: '工具结果' })
+  })
+
 })

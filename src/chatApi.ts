@@ -4,9 +4,11 @@ export type ApiConfig = { baseUrl: string; apiKey: string; modelName: string; pr
 export type ChatApiContentPart =
   | { type: 'text'; text: string; cache_control?: { type: 'ephemeral' } }
   | { type: 'image_url'; image_url: { url: string; detail?: 'auto' | 'low' | 'high' } }
-export type ChatApiMessage = { role: 'system' | 'user' | 'assistant'; content: string | ChatApiContentPart[] }
+export type ChatApiMessage = { role: 'system' | 'user' | 'assistant' | 'tool'; content: string | ChatApiContentPart[]; tool_call_id?: string; tool_calls?: Array<{ id: string; type: 'function'; function: { name: string; arguments: string } }> }
 export type CompletionActivity = 'connecting' | 'retrying' | 'thinking' | 'content'
-export type CompletionResult = { finishReason: string | null }
+export type CompletionResult = { finishReason: string | null; toolCalls?: Array<{ id: string; name: string; arguments: string }> }
+export type ChatToolDefinition = { type: 'function'; function: { name: string; description?: string; parameters?: Record<string, unknown> } }
+export type ChatToolExecutor = (call: { id: string; name: string; arguments: string }) => Promise<string>
 export type ConnectionTestResult = { method: 'models' | 'chat'; modelListError?: string }
 
 export class ChatApiError extends Error {
@@ -25,7 +27,7 @@ export type ApiModel = {
   ownedBy?: string
 }
 
-type CompletionOptions = {
+export type CompletionOptions = {
   api: ApiConfig
   messages: ChatApiMessage[]
   temperature: number
@@ -42,6 +44,7 @@ type CompletionOptions = {
    * Only the caller that wants a cache readout passes it; nothing else changes when it is absent.
    */
   onUsage?: (usage: PromptUsage | null) => void
+  tools?: Array<{ type: 'function'; function: { name: string; description?: string; parameters?: Record<string, unknown> } }>
 }
 
 // v210：stream_options.include_usage 被某个中转站拒绝后，本次会话不再给这个渠道带。
@@ -289,12 +292,13 @@ async function consumeJson(response: Response, onDelta: (delta: string) => void,
   }
   const choice = data?.choices?.[0]
   const content = messageContent(choice?.message?.content ?? choice?.text ?? data?.content ?? data?.output_text)
-  if (!content) throw new ChatApiError(reasoningActivity(data) ? '模型只返回了思考数据，没有返回可显示的正文。' : '接口返回成功，但没有回复内容。', 'response', true)
-  onActivity?.('content')
-  onDelta(content)
+  const rawToolCalls = Array.isArray(choice?.message?.tool_calls) ? choice.message.tool_calls : []
+  const toolCalls = rawToolCalls.map((call: any, index: number) => ({ id: String(call?.id || `tool-call-${index + 1}`), name: String(call?.function?.name || ''), arguments: typeof call?.function?.arguments === 'string' ? call.function.arguments : JSON.stringify(call?.function?.arguments || {}) })).filter((call: any) => call.name)
+  if (!content && !toolCalls.length) throw new ChatApiError(reasoningActivity(data) ? '模型只返回了思考数据，没有返回可显示的正文。' : '接口返回成功，但没有回复内容。', 'response', true)
+  if (content) { onActivity?.('content'); onDelta(content) }
   onUsage?.(readUsage(data))
   const finishReason = choice?.finish_reason ?? data?.stop_reason
-  return { finishReason: typeof finishReason === 'string' ? finishReason : null }
+  return { finishReason: typeof finishReason === 'string' ? finishReason : null, ...(toolCalls.length ? { toolCalls } : {}) }
 }
 
 async function readStreamChunk(reader: ReadableStreamDefaultReader<Uint8Array>, signal: AbortSignal, timeoutMs: number) {
@@ -554,8 +558,27 @@ export async function completeChat(options: CompletionOptions): Promise<Completi
   }
 }
 
+/** Non-streaming tool loop. Tool messages are request-only and are never persisted by callers. */
+export async function completeChatWithTools(options: Omit<CompletionOptions, 'tools' | 'streaming'> & { tools: ChatToolDefinition[]; executeTool: ChatToolExecutor; onToolActivity?: (active: boolean) => void; maxToolRounds?: number }): Promise<CompletionResult> {
+  let messages = options.messages.slice()
+  let last: CompletionResult = { finishReason: null }
+  const rounds = Math.min(3, Math.max(1, options.maxToolRounds || 3))
+  for (let round = 0; round < rounds; round += 1) {
+    let calls = ''
+    last = await completeChat({ ...options, messages, streaming: false, tools: options.tools, onDelta: (delta) => { calls += delta; options.onDelta(delta) } })
+    if (!last.toolCalls?.length) return last
+    const toolCalls = last.toolCalls
+    messages = [...messages, { role: 'assistant', content: calls, tool_calls: toolCalls.map((call) => ({ id: call.id, type: 'function' as const, function: { name: call.name, arguments: call.arguments } })) }]
+    options.onToolActivity?.(true)
+    try {
+      for (const call of toolCalls) messages.push({ role: 'tool', tool_call_id: call.id, content: await options.executeTool(call) })
+    } finally { options.onToolActivity?.(false) }
+  }
+  return last
+}
+
 async function completeChatRequest(options: CompletionOptions) {
-  const { api, temperature, topP, maxTokens, streaming, signal, onDelta, onActivity, onUsage } = options
+  const { api, temperature, topP, maxTokens, streaming, signal, onDelta, onActivity, onUsage, tools } = options
   const anthropic = api.protocol === 'anthropic'
   // v209：Claude cache_control 只走 OpenAI 兼容格式；原生 Anthropic 或已知不认的渠道一律去掉标记。
   let messages = anthropic || promptCacheUnsupported(api) ? stripPromptCache(options.messages) : options.messages
@@ -583,6 +606,7 @@ async function completeChatRequest(options: CompletionOptions) {
             [compatibility.tokenField]: effectiveMaxTokens,
             stream: streaming,
             ...(compatibility.streamOptions ? { stream_options: { include_usage: true } } : {}),
+            ...(!anthropic && tools?.length ? { tools } : {}),
           }),
           signal,
         }, streaming ? CONNECT_TIMEOUT_MS : NON_STREAM_RESPONSE_TIMEOUT_MS, Boolean(options.timeoutMs))
