@@ -1,18 +1,18 @@
-import type { ApiChannel } from './apiChannels'
 import type { PlotImage } from './chatImages'
 
 export type PlotImageGenerationMode = 'manual' | 'automatic'
 export type PlotImageGenerationConfig = {
   mode: PlotImageGenerationMode
-  channelId: string
+  baseUrl: string
   model: string
+  apiKey: string
   size: '1024x1024' | '1792x1024' | '1024x1792'
 }
 
 type DailyCount = { day: string; count: number }
 export const PLOT_IMAGE_GENERATION_CONFIG_KEY = 'weijing.plotImageGeneration'
 export const PLOT_IMAGE_GENERATION_COUNT_KEY = 'weijing.plotImageGenerationCount'
-export const DEFAULT_PLOT_IMAGE_GENERATION: PlotImageGenerationConfig = { mode: 'manual', channelId: '', model: '', size: '1024x1024' }
+export const DEFAULT_PLOT_IMAGE_GENERATION: PlotImageGenerationConfig = { mode: 'manual', baseUrl: '', model: '', apiKey: '', size: '1024x1024' }
 
 const today = (now = Date.now()) => new Date(now).toISOString().slice(0, 10)
 const storage = () => {
@@ -25,8 +25,9 @@ export function readPlotImageGenerationConfig(): PlotImageGenerationConfig {
     const value = raw ? JSON.parse(raw) as Partial<PlotImageGenerationConfig> : {}
     return {
       mode: value.mode === 'automatic' ? 'automatic' : 'manual',
-      channelId: typeof value.channelId === 'string' ? value.channelId : '',
+      baseUrl: typeof value.baseUrl === 'string' ? value.baseUrl : '',
       model: typeof value.model === 'string' ? value.model : '',
+      apiKey: typeof value.apiKey === 'string' ? value.apiKey : '',
       size: value.size === '1792x1024' || value.size === '1024x1792' ? value.size : '1024x1024',
     }
   } catch { return { ...DEFAULT_PLOT_IMAGE_GENERATION } }
@@ -49,8 +50,10 @@ export function recordGeneratedPlotImages(amount = 1, now = Date.now()): number 
   return count
 }
 
-function endpoint(channel: ApiChannel) {
-  return `${channel.baseUrl.trim().replace(/\/+$/, '')}/images/generations`
+function endpoint(baseUrl: string) {
+  const base = baseUrl.trim().replace(/\/+$/, '')
+  if (/\/v1$/i.test(base)) return `${base}/images/generations`
+  return `${base}/v1/images/generations`
 }
 
 function dataUrlFromBase64(value: string) {
@@ -69,19 +72,19 @@ async function imageUrlToDataUrl(url: string, signal?: AbortSignal) {
   })
 }
 
-export async function generatePlotImage(channel: ApiChannel, prompt: string, size: PlotImageGenerationConfig['size'], name: string, signal?: AbortSignal): Promise<PlotImage> {
-  if (channel.protocol !== 'openai' || !channel.apiKey.trim() || !channel.modelName.trim()) throw new Error('请先配置一个 OpenAI 兼容的图片渠道、密钥和模型。')
+export async function generatePlotImage(config: PlotImageGenerationConfig, prompt: string, name: string, signal?: AbortSignal): Promise<PlotImage> {
+  if (!config.baseUrl.trim() || !config.apiKey.trim() || !config.model.trim()) throw new Error('请先在“图片接口设置”里填写 Base URL、模型和密钥。')
   if (!prompt.trim()) throw new Error('请先写幕后安排，再生成配图。')
   const controller = new AbortController()
   const timeout = setTimeout(() => controller.abort(), 60_000)
   const abort = () => controller.abort()
   signal?.addEventListener('abort', abort, { once: true })
   try {
-    const response = await fetch(endpoint(channel), {
+    const response = await fetch(endpoint(config.baseUrl), {
       method: 'POST',
       signal: controller.signal,
-      headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${channel.apiKey}` },
-      body: JSON.stringify({ model: channel.modelName.trim(), prompt: prompt.trim().slice(0, 4000), n: 1, size }),
+      headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${config.apiKey}` },
+      body: JSON.stringify({ model: config.model.trim(), prompt: prompt.trim().slice(0, 4000), n: 1, size: config.size }),
     })
     const payload = await response.json().catch(() => null) as { data?: Array<{ b64_json?: string; url?: string }>; error?: { message?: string } } | null
     if (!response.ok) throw new Error(payload?.error?.message || `图片接口请求失败（${response.status}）`)
@@ -90,6 +93,9 @@ export async function generatePlotImage(channel: ApiChannel, prompt: string, siz
     const dataUrl = first.b64_json ? dataUrlFromBase64(first.b64_json) : await imageUrlToDataUrl(first.url!, controller.signal)
     recordGeneratedPlotImages(1)
     return { id: crypto.randomUUID(), name: name.trim() || '本轮配图', dataUrl, width: 1024, height: 1024 }
+  } catch (error) {
+    if (error instanceof DOMException && error.name === 'AbortError') throw new Error('图片生成超时，请检查接口地址或网络后重试。')
+    throw error
   } finally {
     clearTimeout(timeout)
     signal?.removeEventListener('abort', abort)

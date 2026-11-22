@@ -17,10 +17,12 @@ describe('幕后配图生图', () => {
     vi.restoreAllMocks()
   })
 
-  it('defaults to manual generation and persists the selected mode', () => {
+  it('defaults to manual generation and stores independent settings locally', () => {
     expect(readPlotImageGenerationConfig()).toEqual(DEFAULT_PLOT_IMAGE_GENERATION)
-    savePlotImageGenerationConfig({ ...DEFAULT_PLOT_IMAGE_GENERATION, mode: 'automatic', channelId: 'img', model: 'dall-e-3' })
-    expect(readPlotImageGenerationConfig()).toMatchObject({ mode: 'automatic', channelId: 'img', model: 'dall-e-3' })
+    savePlotImageGenerationConfig({ ...DEFAULT_PLOT_IMAGE_GENERATION, baseUrl: 'https://images.example/v1', model: 'gpt-image-1', apiKey: 'secret' })
+    expect(readPlotImageGenerationConfig()).toMatchObject({ baseUrl: 'https://images.example/v1', model: 'gpt-image-1', apiKey: 'secret' })
+    savePlotImageGenerationConfig({ ...readPlotImageGenerationConfig(), mode: 'automatic' })
+    expect(readPlotImageGenerationConfig().mode).toBe('automatic')
   })
 
   it('keeps a daily count and resets it when the day changes', () => {
@@ -32,11 +34,22 @@ describe('幕后配图生图', () => {
     expect(readTodayGeneratedPlotImageCount(next)).toBe(0)
   })
 
-  it('calls the OpenAI-compatible image endpoint and accepts base64 data', async () => {
+  it('calls the independent OpenAI-compatible image endpoint and accepts base64 data', async () => {
     vi.stubGlobal('fetch', vi.fn(async () => new Response(JSON.stringify({ data: [{ b64_json: 'abc' }] }), { status: 200 })))
-    const image = await generatePlotImage({ id: 'channel', name: '图片', platform: 'custom-openai', protocol: 'openai', baseUrl: 'https://example.test/v1', apiKey: 'secret', modelName: 'dall-e-3', maxTokenField: 'auto' }, '画一间雨夜书房', '1024x1024', '雨夜')
-    expect(fetch).toHaveBeenCalledWith('https://example.test/v1/images/generations', expect.objectContaining({ method: 'POST' }))
+    const config = { ...DEFAULT_PLOT_IMAGE_GENERATION, baseUrl: 'https://example.test/v1', apiKey: 'secret', model: 'gpt-image-1' }
+    const image = await generatePlotImage(config, '画一间雨夜书房', '雨夜')
+    expect(fetch).toHaveBeenCalledWith('https://example.test/v1/images/generations', expect.objectContaining({ method: 'POST', headers: { 'Content-Type': 'application/json', Authorization: 'Bearer secret' } }))
     expect(image).toMatchObject({ name: '雨夜', dataUrl: 'data:image/png;base64,abc' })
     expect(readTodayGeneratedPlotImageCount()).toBe(1)
+  })
+
+  it('adds /v1 when the configured Base URL does not include it', async () => {
+    vi.stubGlobal('fetch', vi.fn(async () => new Response(JSON.stringify({ data: [{ b64_json: 'abc' }] }), { status: 200 })))
+    await generatePlotImage({ ...DEFAULT_PLOT_IMAGE_GENERATION, baseUrl: 'https://example.test', apiKey: 'secret', model: 'gpt-image-1' }, '画一盏灯', '灯')
+    expect(fetch).toHaveBeenCalledWith('https://example.test/v1/images/generations', expect.anything())
+  })
+
+  it('returns a friendly configuration error before making a request', async () => {
+    await expect(generatePlotImage(DEFAULT_PLOT_IMAGE_GENERATION, '画一盏灯', '灯')).rejects.toThrow('Base URL、模型和密钥')
   })
 })
