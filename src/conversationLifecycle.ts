@@ -6,7 +6,7 @@ import type { LongMemoryEntry } from './memoryEngine'
 import type { StoryScript, StoryVariable } from './storyScripts'
 
 export type ReplyAlternative = { text: string; finishReason?: string | null; contextSnapshotId?: string }
-export type Message = { id: number; role: 'user' | 'assistant'; text: string; images?: ChatImage[]; /** v284：他在正文里用 [配图:名称] 贴出的幕后配图。 */ plotImages?: PlotImage[]; characterId?: string; finishReason?: string | null; alternatives?: ReplyAlternative[]; selectedAlternative?: number; contextSnapshotId?: string; /** 小手机群里的系统小字（例如剧情更新提醒），不发给模型、不算发言。 */ phoneNotice?: boolean; /** 本条游戏的固定抽签结果。 */ phoneGame?: PhoneGameRound; /** 小手机「引用回复」：被引用那句的快照（约 80 字）。 */ quote?: { messageId: string; author: string; text: string } }
+export type Message = { id: number; role: 'user' | 'assistant'; text: string; sensorEvent?: { events: Array<{ event: string; strength?: number; direction?: string; duration_ms?: number; timestamp?: number }>; label: string }; images?: ChatImage[]; /** v284：他在正文里用 [配图:名称] 贴出的幕后配图。 */ plotImages?: PlotImage[]; characterId?: string; finishReason?: string | null; alternatives?: ReplyAlternative[]; selectedAlternative?: number; contextSnapshotId?: string; /** 小手机群里的系统小字（例如剧情更新提醒），不发给模型、不算发言。 */ phoneNotice?: boolean; /** 本条游戏的固定抽签结果。 */ phoneGame?: PhoneGameRound; /** 小手机「引用回复」：被引用那句的快照（约 80 字）。 */ quote?: { messageId: string; author: string; text: string } }
 
 export type ConversationContextSnapshot = {
   memories: LongMemoryEntry[]

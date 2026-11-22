@@ -268,3 +268,7 @@
   -webkit-backdrop-filter: none !important;
   backdrop-filter: none !important;
 }
+
+.sensor-event-line { color: var(--text-muted, #8b8790); font-size: 12px; line-height: 1.4; text-align: center; margin: 8px 12px; opacity: .82; }
+.sense-options { display:grid; grid-template-columns:repeat(2,minmax(0,1fr)); gap:8px; margin-top:8px; }
+.sense-options label { display:flex; align-items:center; justify-content:space-between; gap:8px; padding:8px 10px; border:1px solid var(--border); border-radius:12px; }
