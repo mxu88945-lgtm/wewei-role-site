@@ -1,6 +1,6 @@
 export type RoleWakeConfig = { enabled: boolean; url: string; key: string }
 export type RoleWakeMessage = { id: string; text: string; ts?: number }
-export type RoleWakeSyncInput = { roleId: string; roleName: string; personaSummary: string; recentSummary: string; lastChatAt: number }
+export type RoleWakeSyncInput = { roleId: string; roleName: string; personaSummary: string; recentSummary: string; lastChatAt: number; pushDevice?: string; pushUrl?: string }
 
 // Deliberately not prefixed with `weijing.`: backupStore treats that prefix as durable user data.
 const ENABLED_KEY = 'roleWake.enabled'
@@ -25,7 +25,9 @@ const saveSeenIds = (seen: Set<string>) => { try { storage()?.setItem(SEEN_KEY, 
 export async function syncRoleWake(input: RoleWakeSyncInput, config = readRoleWakeConfig()): Promise<boolean> {
   if (!roleWakeReady(config)) return false
   try {
-    const response = await fetch(`${config.url}/sync`, { method: 'POST', headers: headers(config), body: JSON.stringify({ ...input, personaSummary: input.personaSummary.slice(0, 6000), recentSummary: input.recentSummary.slice(0, 1800) }) })
+    const { pushDevice, pushUrl, ...base } = input
+    const push = pushDevice?.trim() ? { pushDevice: pushDevice.trim(), pushUrl: pushUrl?.trim() || '' } : {}
+    const response = await fetch(`${config.url}/sync`, { method: 'POST', headers: headers(config), body: JSON.stringify({ ...base, ...push, personaSummary: input.personaSummary.slice(0, 6000), recentSummary: input.recentSummary.slice(0, 1800) }) })
     return response.ok
   } catch { return false }
 }

@@ -84,7 +84,7 @@ import PersonaWindowPage from './PersonaWindowPage'
 import { getPersonaState, hydratePersonaStore, isPersonaStoreHydrated, setPersonaState, subscribePersonaStore, usePersonaAppearanceScope } from './personaWindowStore'
 import { CHAT_FONT_MAX, CHAT_FONT_MIN, CHAT_FONT_STEP, formatChatFontSize, normalizeChatFontSize, personaWallpaper, personaWallpaperKey, resolvePersonaAppearance } from './personaAppearance'
 import { startPersonaTaskClock, type PersonaTaskDue } from './personaTaskClock'
-import { startPersonaPush } from './personaPush'
+import { pushAppUrl, pushDeviceId, pushOn, startPersonaPush } from './personaPush'
 import { pullRoleWakeInbox, readRoleWakeConfig, roleWakeRecentSummary, syncRoleWake, writeRoleWakeConfig, type RoleWakeConfig } from './roleWake'
 import { buildPersonaWindowNoteForPhone, characterAliasIds, PERSONA_WINDOWS_KEY, personaWindowForBackstage, switchPersona, switchPersonaThread } from './personaWindow'
 import { normalizeStoryProjects, type StoryProject } from './storyProject'
@@ -4082,7 +4082,8 @@ function App() {
     if (roleWake.enabled && !conversation.phone) {
       const latest = conversationsRef.current.find((item) => item.id === conversation!.id) || { ...conversation, messages: baseMessages }
       const character = characters.find((item) => item.id === conversation!.characterId) || activeCharacter
-      void syncRoleWake({ roleId: character.id, roleName: character.name, personaSummary: [character.description, character.greeting, character.systemPrompt].filter(Boolean).join('\n'), recentSummary: roleWakeRecentSummary(latest.messages), lastChatAt: Date.now() }, roleWake)
+      const deviceId = pushOn() ? pushDeviceId() : ''
+      void syncRoleWake({ roleId: character.id, roleName: character.name, personaSummary: [character.description, character.greeting, character.systemPrompt].filter(Boolean).join('\n'), recentSummary: roleWakeRecentSummary(latest.messages), lastChatAt: Date.now(), ...(deviceId ? { pushDevice: deviceId, pushUrl: pushAppUrl() } : {}) }, roleWake)
     }
   }
 
@@ -5182,7 +5183,7 @@ function UpdateCard() {
     }
   }
 
-  return <section className="update-card"><strong>应用更新</strong><p>主动检查并拉取最新网页版本，不会删除角色、聊天记录或本地设置。</p><small>当前版本：v314 · 2026.11.22 接入“自己的小心思”：只同步短摘要，打开 App 时取回主动消息</small><button onClick={refresh} disabled={state === 'checking'}>{state === 'checking' ? '正在检查更新…' : state === 'error' ? '更新失败，点我重试' : '强制刷新到最新版'}</button></section>
+  return <section className="update-card"><strong>应用更新</strong><p>主动检查并拉取最新网页版本，不会删除角色、聊天记录或本地设置。</p><small>当前版本：v315 · 2026.11.22 主动消息复用手机推送：打开推送后，角色醒来会弹通知</small><button onClick={refresh} disabled={state === 'checking'}>{state === 'checking' ? '正在检查更新…' : state === 'error' ? '更新失败，点我重试' : '强制刷新到最新版'}</button></section>
 }
 
 function PersonaPage({ identities, selectedId, isBound, onSelect, onAdd, onDelete, onUpdate, onBack }: { identities: UserIdentity[]; selectedId: string; isBound: boolean; onSelect: (id: string) => void; onAdd: () => void; onDelete: (id: string) => void; onUpdate: (patch: Partial<UserIdentity>) => void; onBack: () => void }) {

@@ -29,6 +29,9 @@ function device() {
   }
   return id
 }
+/** role-wake 只在推送已开启时读取现有 device，关闭时绝不生成新设备号。 */
+export function pushDeviceId() { return pushOn() ? device() : '' }
+export function pushAppUrl() { return APP_URL() }
 async function post<T = unknown>(path: string, data: Record<string, unknown>): Promise<T> {
   const res = await fetch(PUSH_BASE + path, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ device: device(), ...data }) })
   if (!res.ok) throw new Error('推送服务 ' + res.status)
