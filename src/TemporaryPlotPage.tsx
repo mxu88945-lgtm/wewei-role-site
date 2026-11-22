@@ -1,11 +1,13 @@
 import { useState } from 'react'
 import { prepareChatImage } from './chatImages'
 import { PLOT_IMAGE_LIMIT } from './plotImages'
+import { buildPlotImagePrompt, generatePlotImage, type PlotImageGenerationConfig } from './plotImageGeneration'
+import type { ApiChannel } from './apiChannels'
 import type { Conversation } from './conversationLifecycle'
 export type PlotTemplate = { id: string; title: string; text: string; updatedAt: number }
 
 type Plot = NonNullable<Conversation['temporaryPlot']>
-export default function TemporaryPlotPage({ plot, onChange, recipients, templates, onTemplatesChange, onBack }: { plot?: Plot; onChange: (plot: Plot | undefined) => void; recipients: { id: string; name: string }[]; templates: PlotTemplate[]; onTemplatesChange: (templates: PlotTemplate[]) => void; onBack: () => void }) {
+export default function TemporaryPlotPage({ plot, onChange, recipients, templates, onTemplatesChange, onBack, imageGeneration, imageChannels, onOpenImageSettings }: { plot?: Plot; onChange: (plot: Plot | undefined) => void; recipients: { id: string; name: string }[]; templates: PlotTemplate[]; onTemplatesChange: (templates: PlotTemplate[]) => void; onBack: () => void; imageGeneration: PlotImageGenerationConfig; imageChannels: ApiChannel[]; onOpenImageSettings: () => void }) {
   const value = plot?.text || ''
   const [defaultMode, setDefaultMode] = useState<Plot['mode']>(plot?.mode || 'once')
   const [defaultUses, setDefaultUses] = useState(plot?.remainingUses || 3)
@@ -19,6 +21,19 @@ export default function TemporaryPlotPage({ plot, onChange, recipients, template
   }
   const images = plot?.images || []
   const [imageBusy, setImageBusy] = useState(false)
+  const imageChannel = imageChannels.find((channel) => channel.id === imageGeneration.channelId)
+  const generateImage = async () => {
+    if (!value.trim()) { setNotice('先写幕后安排，再生成配图。'); return }
+    if (!imageChannel) { onOpenImageSettings(); return }
+    if (images.length >= PLOT_IMAGE_LIMIT) { setNotice(`最多 ${PLOT_IMAGE_LIMIT} 张配图。`); return }
+    setImageBusy(true)
+    try {
+      const image = await generatePlotImage({ ...imageChannel, modelName: imageGeneration.model.trim() || imageChannel.modelName }, buildPlotImagePrompt(value), imageGeneration.size, `图${images.length + 1}`)
+      changePlot({ images: [...images, image] })
+      setNotice('配图已生成；发送后会按现有规则附给模型。')
+    } catch (error) { setNotice(error instanceof Error ? error.message : '配图生成失败，请检查图片渠道。') }
+    finally { setImageBusy(false) }
+  }
   const addImages = async (files: FileList | null) => {
     if (!files?.length) return
     setImageBusy(true)
@@ -55,7 +70,7 @@ export default function TemporaryPlotPage({ plot, onChange, recipients, template
     <article className="story-tools-card"><h3>幕后配图（{images.length}/{PLOT_IMAGE_LIMIT}）</h3>
       <p>给每张图起个名字，在安排里写怎么用，例如「让他发一条热搜，配上 热搜截图」。他会看图，在正文合适的位置贴出来；用过的图自动移走。每张图约多上千 token，持续模式下没用掉的图每轮都会带上。</p>
       {images.length > 0 && <div className="plot-images">{images.map((image) => <div className="plot-image-row" key={image.id}><img src={image.dataUrl} alt="" /><input value={image.name} onChange={(event) => renameImage(image.id, event.target.value)} aria-label="配图名字" placeholder="名字，比如 热搜截图" /><button type="button" className="secondary-button" onClick={() => removeImage(image.id)}>删除</button></div>)}</div>}
-      {images.length < PLOT_IMAGE_LIMIT && <label className="secondary-button">{imageBusy ? '处理中…' : '添加图片'}<input type="file" multiple hidden disabled={imageBusy} onChange={(event) => { void addImages(event.target.files); event.target.value = '' }} /></label>}
+      <div className="story-tools-actions"><button type="button" className="secondary-button" disabled={imageBusy || images.length >= PLOT_IMAGE_LIMIT} onClick={() => void generateImage()}>{imageBusy ? '生成中…' : '配图'}</button>{images.length < PLOT_IMAGE_LIMIT && <label className="secondary-button">添加图片<input type="file" multiple hidden disabled={imageBusy} onChange={(event) => { void addImages(event.target.files); event.target.value = '' }} /></label>}<button type="button" className="text-button" onClick={onOpenImageSettings}>图片接口设置</button></div>
       {images.length > 0 && !value.trim() && <p>先写幕后安排，图才会随安排一起发出。</p>}
     </article>
     <div className="story-tools-actions"><button disabled={!value && !images.length} onClick={() => onChange(undefined)}>清空 / 结束</button></div>
