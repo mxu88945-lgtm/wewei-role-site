@@ -1,6 +1,7 @@
 export const DEFAULT_TOOL_SERVICE_URL = 'https://tools.zhouweiweihome.top'
-const URL_KEY = 'weijing.toolServiceUrl'
-const KEY_KEY = 'weijing.toolServiceKey'
+// 不用 weijing.* 前缀：工具密钥只存本机，不能被备份带走。
+const URL_KEY = 'weijing-local.toolServiceUrl'
+const KEY_KEY = 'weijing-local.toolServiceKey'
 
 export type ToolServiceConfig = { url: string; key: string }
 export type OpenAITool = { type: 'function'; function: { name: string; description?: string; parameters?: Record<string, unknown> } }
@@ -24,8 +25,9 @@ export async function fetchToolDefinitions(config: ToolServiceConfig, signal?: A
   if (!config.key.trim() || !config.url.trim()) return []
   const response = await fetch(`${config.url.replace(/\/$/, '')}/tools`, { headers: { Authorization: `Bearer ${config.key}` }, signal })
   if (!response.ok) throw new Error(`工具服务暂不可用（HTTP ${response.status}）`)
-  const payload = await response.json() as { tools?: unknown[] }
-  return Array.isArray(payload.tools) ? payload.tools.filter((item): item is OpenAITool => Boolean(item && typeof item === 'object' && (item as OpenAITool).type === 'function' && typeof (item as OpenAITool).function?.name === 'string')).slice(0, 16) : []
+  const payload = await response.json() as unknown[] | { tools?: unknown[] }
+  const list = Array.isArray(payload) ? payload : payload?.tools
+  return Array.isArray(list) ? list.filter((item): item is OpenAITool => Boolean(item && typeof item === 'object' && (item as OpenAITool).type === 'function' && typeof (item as OpenAITool).function?.name === 'string')).slice(0, 16) : []
 }
 
 export async function callTool(config: ToolServiceConfig, call: ToolCall, signal?: AbortSignal): Promise<string> {

@@ -27,6 +27,14 @@ describe('toolService', () => {
     expect((call[1]?.headers as Record<string, string>).Authorization).toBe('Bearer secret')
   })
 
+  it('accepts the bare array role-tools actually returns and keeps the key out of weijing.* backup keys', async () => {
+    vi.stubGlobal('fetch', vi.fn(async () => new Response(JSON.stringify([{ type: 'function', function: { name: 'read_url' } }, { type: 'function', function: { name: 'web_search' } }]))))
+    expect(await fetchToolDefinitions({ url: 'https://tools.example', key: 'secret' })).toHaveLength(2)
+    const values = new Map<string, string>()
+    saveToolServiceConfig({ url: '', key: 'secret' }, { setItem: (key: string, value: string) => { values.set(key, value) } })
+    expect([...values.keys()].some((key) => key.startsWith('weijing.'))).toBe(false)
+  })
+
   it('rejects failed discovery and tool calls for the caller to fall back', async () => {
     vi.stubGlobal('fetch', vi.fn(async () => new Response('no', { status: 503 })))
     await expect(fetchToolDefinitions({ url: 'https://tools.example', key: 'secret' })).rejects.toThrow('HTTP 503')
