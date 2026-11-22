@@ -14,8 +14,8 @@ export type RuntimeDiagnosticInput = {
   dataUpdatedAt?: number
 }
 
-export const APP_VERSION = 'v311'
-export const SERVICE_WORKER_VERSION = 'weijing-shell-v311'
+export const APP_VERSION = 'v312'
+export const SERVICE_WORKER_VERSION = 'weijing-shell-v312'
 
 const safe = (value: string | undefined) => value?.trim() || '未设置'
 const time = (value?: number) => value ? new Date(value).toLocaleString() : '未知'
