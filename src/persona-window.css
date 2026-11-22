@@ -643,3 +643,9 @@ html[data-kb] .persona-sprite-tab { display: none; }
 .persona-gate-field { display: flex; align-items: center; gap: 8px; margin-top: 8px; }
 .persona-gate-field input { flex: 1; min-width: 0; padding: 7px 10px; border: 1px solid rgba(125,104,141,.18); border-radius: 10px; background: rgba(255,255,255,.7); color: inherit; font: inherit; font-size: 16px; }
 .persona-gate-key small, .persona-gate-status small { white-space: normal; }
+
+/* v306 独立窗口：底部留白改成真实元素（Safari 不把 flex 滚动容器的 padding-bottom 算进可滚动高度，最新一条会被输入框挡住）。 */
+.chat-page.persona-window-page .message-list.persona-message-list,
+html[data-standalone][data-kb] .chat-canvas .chat-page.persona-window-page .message-list.persona-message-list { padding-bottom: 0; }
+.persona-list-tail { flex: 0 0 auto; width: 100%; height: calc(var(--composer-clearance, 122px) + env(safe-area-inset-bottom)); margin-top: -16px; pointer-events: none; }
+html[data-standalone][data-kb] .persona-list-tail { height: var(--composer-clearance, 122px); }

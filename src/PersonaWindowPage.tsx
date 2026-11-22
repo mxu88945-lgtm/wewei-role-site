@@ -943,6 +943,8 @@ export default function PersonaWindowPage(props: Props) {
           {!isUser && tasksByMessage.has(message.id) && <PersonaTaskCards tasks={tasksByMessage.get(message.id)!} busy={generating} onAction={taskAction} onReact={taskReact} tap={tap} />}
         </div>
       })}
+      {/* v306：iOS Safari 的 flex 滚动容器不算底部 padding，最后一段会压在输入框下面——用一块真实的垫子撑出空位。 */}
+      <div className="persona-list-tail" aria-hidden="true" />
     </div>
     {messages.length > 0 && !drawerOpen && !sidebarOpen && !viewerImage && (personaJump.up || personaJump.down) && <nav className={`persona-jump-controls${personaJump.visible ? ' visible' : ''}`} aria-label="快速浏览对话">{personaJump.up && <button aria-label="回到顶部" {...tap(() => scrollChat('top'))}>↑</button>}{personaJump.down && <button aria-label="跳到最新消息" {...tap(() => scrollChat('bottom'))}>↓</button>}</nav>}
     {activeTasks.length > 0 && !drawerOpen && !sidebarOpen && <PersonaTaskPin tasks={activeTasks} tap={tap} onOpen={() => { setSidebarOpen(false); setSettingsPanel('tasks'); setDrawerOpen(true) }} onDone={(id) => taskAction(id, 'done')} />}
