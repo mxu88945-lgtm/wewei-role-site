@@ -462,15 +462,17 @@ export default function PersonaWindowPage(props: Props) {
     }
     let focusPinLive = false
     const arm = () => { pin.arm() }
-    const repin = () => { sync(); pin.pin() }
+    const repin = () => { sync(); if (pin.pin() && focusPinLive) listRef.current?.querySelector('.persona-list-tail')?.scrollIntoView({ block: 'end', inline: 'nearest', behavior: 'auto' }) }
     // v305：点输入框 = 要回最新那条。直接钉到底，并在键盘动画期间多补几次（iOS 的 resize 常常来得晚）。
     const focusLatest = (event: FocusEvent) => {
       if (!(event.target instanceof HTMLTextAreaElement)) { arm(); return }
       stickRef.current = true
       focusPinLive = true
-      pin.armStuck()
-      pin.pin()
-      for (const delay of [180, 420, 700]) window.setTimeout(() => { if (focusPinLive) { stickRef.current = true; pin.armStuck(); pin.pin() } }, delay)
+      // v307：同主聊天——iOS 的 flex 滚动容器 scrollHeight 会慢一帧，光算 scrollTop 会停在半路；让末尾垫子自己 scrollIntoView。
+      const toTail = () => { if (!focusPinLive) return; stickRef.current = true; pin.armStuck(); pin.pin(); listRef.current?.querySelector('.persona-list-tail')?.scrollIntoView({ block: 'end', inline: 'nearest', behavior: 'auto' }) }
+      toTail()
+      window.requestAnimationFrame(toTail)
+      for (const delay of [180, 420, 700, 1000]) window.setTimeout(toTail, delay)
     }
     const release = () => { focusPinLive = false; pin.release() }
     const composerObserver = composer && typeof ResizeObserver !== 'undefined' ? new ResizeObserver(sync) : null
