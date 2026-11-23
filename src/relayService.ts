@@ -5,7 +5,7 @@ export const RELAY_STORAGE_KEY = 'weijing-local.relay'
 export type RelayConfig = { enabled: boolean; url: string; key: string }
 export type RelayPending = { id: string; conversationId: string; assistantId: number; createdAt: number }
 export type RelayResult = { status: 'running' | 'done' | 'error'; text?: string; error?: string; toolCalls?: Array<{ id: string; name: string; arguments: string }> }
-export const RELAY_IDLE_MS = 60_000
+export const RELAY_IDLE_MS = 20_000
 export const RELAY_TOTAL_MS = 240_000
 const RELAY_POLLS = 5
 /** 中继一直没动静：让调用方改走直连。shown 是已经显示出去的半截。 */
@@ -43,7 +43,7 @@ export async function startRelay(args: { id: string; conversationId: string; ass
   const payload: Record<string, unknown> = { id: args.id, base: endpoint(args.api), key: args.api.apiKey, body: requestBody(args.api, args.messages, args.temperature, args.topP, args.maxTokens, args.tools), title: '惟境' }
   const device = pushOn() ? pushDeviceId() : ''
   if (device) { payload.pushDevice = device; payload.pushUrl = pushAppUrl() }
-  // v325：中继卡住时不再无限等。整段最多 4 分钟；连续 60 秒一个字都没来就停下去问 /result。
+  // v325：中继卡住时不再无限等。整段最多 4 分钟；连续 20 秒一个字都没来就停下去问 /result。
   const local = new AbortController()
   const abortLocal = () => local.abort()
   args.signal.addEventListener('abort', abortLocal, { once: true })
