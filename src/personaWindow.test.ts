@@ -182,7 +182,7 @@ describe('前世记忆', () => {
   it('is capped and empty when the character has no other life', () => {
     const { conversations, memoryEntries } = fixtures()
     const long = { ...conversations[0], characterMemories: { gu: Array.from({ length: 80 }, (_, index) => core(`事${index}`, '很长的记忆'.repeat(20))) } }
-    expect(buildPastLifeMemory({ character: gu, conversations: [long], memoryEntries, maxChars: 1000 }).length).toBeLessThan(1400)
+    expect(buildPastLifeMemory({ character: gu, conversations: [long], memoryEntries, maxChars: 1000 }).length).toBeLessThan(1500)
     expect(buildPastLifeMemory({ character: character('nobody', '路人'), conversations, memoryEntries })).toBe('')
   })
 

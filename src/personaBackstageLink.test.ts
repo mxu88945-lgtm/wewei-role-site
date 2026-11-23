@@ -71,7 +71,7 @@ describe('v206 绑定剧本', () => {
     expect(plain.text.indexOf('新剧本')).toBeLessThan(plain.text.indexOf('旧剧本'))
     expect(plain.text).not.toContain('第20句')
     const bound = collectPastLifeMemory({ character: gu, conversations, memoryEntries, boundConversationIds: ['old'] })
-    expect(bound.text.indexOf('〔绑定的剧本｜长剧情｜旧剧本〕')).toBeGreaterThan(-1)
+    expect(bound.text.indexOf('〔绑定的剧本｜长剧情｜旧剧本')).toBeGreaterThan(-1)
     expect(bound.text.indexOf('旧剧本')).toBeLessThan(bound.text.indexOf('新剧本'))
     expect(bound.text).toContain('旧剧本里的长期记忆')
     expect(bound.text).toContain('旧剧本的经过')

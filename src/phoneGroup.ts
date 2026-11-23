@@ -1,3 +1,4 @@
+import { agoLabel, lastPlayedAt } from './phoneTime'
 const PHONE_LOCK_TAG = /[【[]\s*锁屏\s*(\d{1,3})\s*(?:分钟|分|min)?\s*(?:[：:，,]\s*([^】\]]{0,60}))?[】\]]/
 const PHONE_LOCK_TAG_GLOBAL = new RegExp(PHONE_LOCK_TAG.source, 'g')
 
@@ -127,7 +128,7 @@ export function buildPhoneArchive(sources: PhoneArchiveSource[], speakerId: stri
       ...longMemories.map((entry) => `${entry.title ? `${entry.title}：` : ''}${entry.content}`),
     ].filter((line, index, lines) => lines.indexOf(line) === index).map((line) => `· ${clip(line, 400)}`).slice(0, extra ? 10 : 24).join('\n')
     return [
-      `【${character.name}的剧情档案｜来自对话「${conversation.title}」${own ? '｜这是你自己演过的戏' : ''}${extra ? '｜他演过的另一场戏' : ''}】`,
+      `【${character.name}的剧情档案｜来自对话「${conversation.title}」${own ? '｜这是你自己演过的戏' : ''}${extra ? '｜他演过的另一场戏' : ''}${agoLabel(lastPlayedAt(conversation)) ? `｜最后一次跑：${agoLabel(lastPlayedAt(conversation))}` : ''}】`,
       conversation.contextSummary?.trim() && `剧情摘要：\n${clip(conversation.contextSummary, extra ? (own ? 1500 : 900) : own ? 3000 : 2400)}`,
       memories && `记忆：\n${memories}`,
       `最近几句：\n${tail(conversation.messages, (message) => message.role === 'user' ? userName : nameOf(message), extra ? (own ? 6 : 4) : own ? 12 : 10)}`,

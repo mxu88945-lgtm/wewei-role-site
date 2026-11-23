@@ -41,3 +41,20 @@ export function phoneNowLabel(now: Date) {
   const period = hour < 5 ? '深夜' : hour < 9 ? '早上' : hour < 11 ? '上午' : hour < 13 ? '中午' : hour < 18 ? '下午' : hour < 23 ? '晚上' : '深夜'
   return `${now.getMonth() + 1}月${now.getDate()}日 星期${['日', '一', '二', '三', '四', '五', '六'][now.getDay()]} ${pad(hour)}:${pad(now.getMinutes())}（${period}）`
 }
+
+/** v323：一段对话最后一次真的有人说话的时间（消息 id 即时间戳），没有就退回 updatedAt。 */
+export function lastPlayedAt(conversation: { messages: readonly Pick<Message, 'id' | 'phoneNotice'>[]; updatedAt?: number }, now = Date.now()) {
+  let last = 0
+  for (const message of conversation.messages) { if (message.phoneNotice) continue; const at = messageTime(message, now); if (at && at > last) last = at }
+  return last || conversation.updatedAt || 0
+}
+
+/** v323：给模型看的日期 + 隔了多久：2026-11-20 21:30（3天前）。 */
+export function agoLabel(at: number, now = Date.now()) {
+  if (!at) return ''
+  const date = new Date(at)
+  const stamp = `${date.getFullYear()}-${pad(date.getMonth() + 1)}-${pad(date.getDate())} ${pad(date.getHours())}:${pad(date.getMinutes())}`
+  const diff = Math.max(0, now - at)
+  const ago = diff < 3_600_000 ? '不到1小时前' : diff < 86_400_000 ? `${Math.floor(diff / 3_600_000)}小时前` : diff < 30 * 86_400_000 ? `${Math.floor(diff / 86_400_000)}天前` : `${Math.floor(diff / (30 * 86_400_000))}个多月前`
+  return `${stamp}（${ago}）`
+}

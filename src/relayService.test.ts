@@ -23,7 +23,7 @@ describe('weijing local relay', () => {
         const body = JSON.parse(String(init?.body))
         expect(body.key).toBe('model-key')
         expect(body.body.model).toBe('model')
-        return new Response('accepted', { status: 200 })
+        return new Response('你好，', { status: 200 })
       }
       expect(url).toContain('/result/')
       expect((init?.headers as Record<string, string>).Authorization).toBe('Bearer relay-key')

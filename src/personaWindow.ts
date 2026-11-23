@@ -1,3 +1,4 @@
+import { agoLabel, lastPlayedAt } from './phoneTime'
 /**
  * 人格窗口：每个被启用的角色都有一扇属于“他自己”的独立窗口。
  *
@@ -728,7 +729,7 @@ export function collectPastLifeMemory({ character, conversations, memoryEntries,
       const lb = boundSet.has(left.id) ? 1 : 0
       const rb = boundSet.has(right.id) ? 1 : 0
       if (lb !== rb) return rb - lb
-      return (right.updatedAt || 0) - (left.updatedAt || 0)
+      return lastPlayedAt(right) - lastPlayedAt(left)
     })
   const relatedIds = new Set(related.map((conversation) => conversation.id))
   const blocks: string[] = []
@@ -804,7 +805,8 @@ export function collectPastLifeMemory({ character, conversations, memoryEntries,
     if (!parts.length) continue
     const kind = conversationKind(conversation)
     const isBound = boundSet.has(conversation.id)
-    const block = clip(`〔${isBoundStory ? '绑定的剧本｜' : isBound ? '绑定的群｜' : ''}${kind}｜${conversation.title || '未命名'}〕\n${parts.join('\n')}`, isBoundStory ? PAST_LIFE_PER_BOUND_STORY : PAST_LIFE_PER_CONVERSATION)
+    const lastAt = agoLabel(lastPlayedAt(conversation))
+    const block = clip(`〔${isBoundStory ? '绑定的剧本｜' : isBound ? '绑定的群｜' : ''}${kind}｜${conversation.title || '未命名'}${lastAt ? `｜最后一次：${lastAt}` : ''}〕\n${parts.join('\n')}`, isBoundStory ? PAST_LIFE_PER_BOUND_STORY : PAST_LIFE_PER_CONVERSATION)
     push(block, { conversationId: conversation.id, title: conversation.title || '未命名', kind, source: remembered ? 'memory' : summary ? 'summary' : 'excerpt' }, isBound, castNames(conversation, ids, characters))
   }
   pushBackstage()
@@ -814,6 +816,7 @@ export function collectPastLifeMemory({ character, conversations, memoryEntries,
 - 可以自然记得有记录的称呼、偏好与交流；谈起长剧情时理解为共同故事。旧卡里的职业、婚姻和人物关系不自动成为当前关系。
 - 那些故事里的地点、身份和未完的事件属于过去的篇章，不要当成此刻正在发生；不要逐条复述。
 - 与这扇窗口自己的记忆或最新对话冲突时，以这扇窗口为准。
+- 每段标题里的「最后一次」是那段对话最后有人说话的时间，后面括号是离现在隔了多久：很久没继续的，故事就停在那时候、之后没有新进展；别把旧的当成刚发生，也别把几段的先后弄反。
 - 记录里出现的其他人，身份、职业只以记录里写明的为准；没写明就别自己补（比如凭空叫谁“律师”“X总”），不同故事里同名的人也不要混成一个身份。
 ${backstagePushed && sources.some((item) => item.source === 'backstage') ? '- 〔幕后手记与戏外私聊〕是他戏外本人和{{user}}私下说过的话，可以自然记得、接着聊；那不是戏里的剧情。\n' : ''}${boundStorySet.size ? '- 标有〔绑定的剧本〕的长剧情是{{user}}特意让你记着的，优先参考它的记忆、经过和最后写到的地方。\n' : ''}${boundGroupIds.length ? '- 上面标有〔绑定的群〕的小手机群聊，其"最后聊到的"是最新的实时消息，你确实知道群里刚才发生了什么。' + '{{user}}问起时可以直接说记得、自然接话，不用装作不知道，也不用说什么"后台没有同步"。' : ''}`
   const text = `${preamble}\n\n${blocks.join('\n\n')}`

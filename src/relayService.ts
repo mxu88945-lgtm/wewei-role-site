@@ -41,11 +41,20 @@ export async function startRelay(args: { id: string; conversationId: string; ass
   try {
     const response = await fetch(`${config.url}/start`, { method: 'POST', headers: { ...auth(config.key), 'Content-Type': 'application/json' }, body: JSON.stringify(payload), signal: args.signal })
     if (!response.ok) throw new Error(`中继 HTTP ${response.status}`)
-    await response.text().catch(() => '')
+    // v323：中继边跑边把字传回来，这里一段段显示；最后用 /result 补齐没收到的尾巴。
+    let shown = ''
+    try {
+      const reader = response.body?.getReader()
+      if (reader) {
+        const decoder = new TextDecoder()
+        while (true) { const { done, value } = await reader.read(); if (done) break; const piece = decoder.decode(value, { stream: true }); if (piece) { shown += piece; args.onDelta(piece) } }
+      } else await response.text()
+    } catch (error) { if (args.signal.aborted) throw error }
     const result = await getRelayResult(args.id)
     if (result.status === 'error') throw new Error(result.error || '中继生成失败')
     if (result.status !== 'done') throw new Error('中继仍在生成，回到前台后会自动取回')
-    if (result.text) args.onDelta(result.text)
+    if (result.text && !shown) args.onDelta(result.text)
+    else if (result.text && result.text.length > shown.length && result.text.startsWith(shown)) args.onDelta(result.text.slice(shown.length))
     clearRelayPending(args.id)
     return { finishReason: null, toolCalls: result.toolCalls }
   } catch (error) {
