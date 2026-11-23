@@ -103,3 +103,5 @@ body:has(.chat-error) .wj-music-float { top: calc(env(safe-area-inset-top) + 236
 .wj-ne-qr .img svg { width: 100%; height: auto; display: block; }
 .wj-ne-qr small { display: block; margin-top: 8px; font-size: 12px; line-height: 1.6; opacity: .8; }
 .wj-ne .wj-music-list .name small { opacity: .6; font-size: 12px; }
+/* v330：键盘弹出时整层收到键盘上方，弹层不超出可见区域 */
+.wj-music-layer.keyboard .wj-music-sheet { max-height: 100%; }

@@ -16,6 +16,7 @@ import './music.css'
 import NeteasePanel from './NeteasePanel'
 import { isNeTrackId, neSongIdOf, neteaseLyric, neteaseReady, neteaseSearch, neteaseSongUrl, neTrackId, neTrackName, type NeteaseSong } from './neteaseMusic'
 import { isSafeMode } from './safeMode'
+import { useVisibleViewportBox } from './useVisibleViewportBox'
 
 function fmt(sec: number): string {
   if (!isFinite(sec) || sec <= 0) return '0:00'
@@ -408,6 +409,7 @@ export default function MusicPlayer({ hideFloat = false }: { hideFloat?: boolean
   }, [])
 
   useEffect(() => { if (!sheetOpen) { setManaging(false); setPicked(new Set()); setLyricChoice(null); setPaste(null) } }, [sheetOpen])
+  const kbBox = useVisibleViewportBox(sheetOpen)
 
   // v241 粘贴面板：挂载时立刻写入可见高度（键盘弹起时贴在键盘上方）
   const pasteOpen = Boolean(paste)
@@ -431,7 +433,7 @@ export default function MusicPlayer({ hideFloat = false }: { hideFloat?: boolean
   </>
   const disc = <span className="wj-music-disc" style={{ animationPlayState: playing ? 'running' : 'paused' }} aria-hidden="true" />
 
-  if (sheetOpen) return createPortal(<div className="wj-music-layer" role="dialog" aria-modal="true" aria-label="一起听歌">
+  if (sheetOpen) return createPortal(<div className={`wj-music-layer${kbBox ? ' keyboard' : ''}`} style={kbBox ? { top: kbBox.top, height: kbBox.height, bottom: 'auto' } : undefined} onFocusCapture={(e) => { const t = e.target as HTMLElement; if (t.tagName === 'INPUT' && (t as HTMLInputElement).type !== 'range') window.setTimeout(() => t.scrollIntoView({ block: 'nearest' }), 350) }} role="dialog" aria-modal="true" aria-label="一起听歌">
     <button type="button" className="wj-music-backdrop" aria-label="关闭听歌" onClick={() => setSheetOpen(false)} />
     <section className="wj-music-sheet">
       {inputs}
