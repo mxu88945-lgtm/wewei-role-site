@@ -4,6 +4,7 @@
  * - 流式输出时，末尾写到一半的标记（「[点」「【点歌：夜」…）先藏起来。
  * - 自动切歌每条消息只做一次，只在回复刚生成完时做，翻历史永远不会触发。
  */
+import { neteaseReady } from './neteaseMusic'
 import { findTrackByTitle, type MusicTrack } from './musicStore'
 
 const OPEN = '[【［'
@@ -69,11 +70,21 @@ export function buildPersonaSongPrompt(names: readonly string[]): string {
 只有心情和氛围真的合适时（偶尔，不是每轮都点），可以在回复的最后单独一行写 [点歌:歌名]，歌名只能从上面的歌单里选，应用会替你把这首歌放起来。这一行不会显示给{{user}}，不要解释它，正文里也不用提“我点了歌”。`
 }
 
+/** v324：连着网易云时，他也能点歌单外的歌（应用去网易云搜）。歌单空时单独成段。 */
+export function buildPersonaSongPromptWithNetease(names: readonly string[], online: boolean): string {
+  const base = buildPersonaSongPrompt(names)
+  if (!online) return base
+  const extra = '{{user}}连着网易云：歌单外的歌你也可以点，写 [点歌:歌名 歌手]，应用会去网易云搜到直接放。同样偶尔才点，不要每轮都点，正文里不用解释。'
+  return base ? `${base}\n${extra}` : `【一起听歌｜你可以自己点歌】\n${extra}`
+}
+
 type MusicSnapshot = {
   tracks: MusicTrack[]
   activeId: string
   now: { playing: boolean } | null
   requestPlay: (id: string, auto?: boolean) => void
+  /** v324：连着网易云时，歌单里没有就交给 MusicPlayer 去网易云搜 */
+  requestNeteasePick?: (title: string) => void
 }
 
 const handled = new Set<string>()
@@ -87,7 +98,11 @@ export function autoPlaySongPick(key: string, title: string, music: MusicSnapsho
   handled.add(key)
   if (handled.size > 200) handled.delete(handled.values().next().value as string)
   const track = findTrackByTitle(music.tracks, title)
-  if (!track) return false
+  if (!track) {
+    if (!music.requestNeteasePick || !neteaseReady()) return false
+    music.requestNeteasePick(title)
+    return true
+  }
   if (music.activeId === track.id && music.now?.playing) return false
   music.requestPlay(track.id, true)
   return true

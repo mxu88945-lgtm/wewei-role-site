@@ -5,7 +5,7 @@
 import { create } from 'zustand'
 import type { LyricLine, NowPlaying } from './lyrics'
 
-export interface MusicTrack { id: string; name: string; hasLyrics?: boolean }
+export interface MusicTrack { id: string; name: string; hasLyrics?: boolean; /** v324 网易云在线歌 */ title?: string; artist?: string; cover?: string }
 
 const KEY = 'weijing-music-v1'
 interface Persisted { tracks: MusicTrack[]; activeId: string; mini: boolean }
@@ -47,6 +47,9 @@ interface MusicState extends Persisted {
   /** v202：剧情卡上「点这里导入《X》」：让 MusicPlayer 打开文件选择，导入后歌名对得上就直接放。 */
   importRequest: { title: string; artist: string; nonce: number } | null
   requestImport: (title: string, artist?: string) => void
+  /** v324：他点的歌歌单里没有、连着网易云时：让 MusicPlayer 去网易云搜到直接放。 */
+  neteasePick: { title: string; nonce: number } | null
+  requestNeteasePick: (title: string) => void
 }
 
 export type MusicCommand = { kind: 'play'; id: string; auto?: boolean; nonce: number } | { kind: 'toggle'; nonce: number } | { kind: 'step'; dir: 1 | -1; nonce: number }
@@ -91,6 +94,8 @@ export const useMusicStore = create<MusicState>((set, get) => {
     setAutoplayBlocked: (id) => { if (get().autoplayBlockedId !== id) set({ autoplayBlockedId: id }) },
     importRequest: null,
     requestImport: (title, artist = '') => set({ importRequest: { title, artist, nonce: ++commandNonce } }),
+    neteasePick: null,
+    requestNeteasePick: (title) => set({ neteasePick: { title, nonce: ++commandNonce } }),
   }
 })
 

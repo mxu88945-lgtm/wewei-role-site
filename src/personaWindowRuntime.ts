@@ -43,7 +43,8 @@ import {
 import { BACKGROUND_RECALL_BUDGET, BACKGROUND_RECALL_MAX_CHUNKS, BACKGROUND_STABLE_MAX, backgroundPointer, chunkPastLife, PAST_LIFE_POINTER, PAST_LIFE_RECALL_BUDGET, PAST_LIFE_RECALL_MAX_CHUNKS, pastLifeBlocksFromText, pastLifeChunksFrom, recallBackground, recallPastLife, withBackgroundRecall, withPastLifeRecall, type PastLifeChunk } from './personaPastLifeRecall'
 import { cueScanText, touchRecalledMemories, type PersonaSemanticHits } from './personaMemoryRank'
 import { getPersonaState, setPersonaState } from './personaWindowStore'
-import { autoPlaySongPick, buildPersonaSongPrompt, parseSongPick } from './personaSongPick'
+import { autoPlaySongPick, buildPersonaSongPromptWithNetease, parseSongPick } from './personaSongPick'
+import { neteaseReady } from './neteaseMusic'
 import { buildSelfCardPrompt, parseSelfCardTag, selfCardLabel, setSelfCardSection } from './personaSelfCard'
 import { useMusicStore } from './musicStore'
 import { parsePersonTags, PEOPLE_TAG_PROMPT, type PersonTag } from './peopleProfiles'
@@ -360,7 +361,7 @@ export function planPersonaRequest(persona: PersonaWindow, history: PersonaMessa
     ['past-life-pointer', '前世记忆指路', pastLifeChunks?.length ? PAST_LIFE_POINTER : ''],
     ['memory-tools', '记忆工具说明', PERSONA_MEMORY_TOOLS],
     ['tasks', '任务卡说明', persona.tasksEnabled !== false && PERSONA_TASK_PROMPT],
-    ['songs', '点歌说明与歌单', persona.songPickEnabled !== false && buildPersonaSongPrompt(deps.songList?.() || [])],
+    ['songs', '点歌说明与歌单', persona.songPickEnabled !== false && buildPersonaSongPromptWithNetease(deps.songList?.() || [], neteaseReady())],
     // v231：自制礼物说明 + 他做过的礼物名。v233：双向礼物——图鉴、礼物架、礼物往来（只在礼物架/往来变化时变）；
     // 关掉「让 TA 送礼物」后只留「她送的礼物卡是真事」和往来记录。
     // v236：往来记录常驻只留最近两次，更早的聊到礼物时进尾巴。

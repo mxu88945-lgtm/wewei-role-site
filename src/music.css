@@ -84,3 +84,22 @@ html[data-standalone][data-kb] .wj-lyric-paste textarea { height: auto; min-heig
 
 /* 连接提示/剧情提示出现时，唱片挪到提示下面，别压住提示的关闭键（v275） */
 body:has(.chat-error) .wj-music-float { top: calc(env(safe-area-inset-top) + 236px); }
+
+/* v324 网易云页 */
+.wj-music-head .wj-ne-tab { margin-left: auto; margin-right: 6px; width: auto; padding: 0 12px; font-size: 13px; border-radius: 999px; }
+.wj-music-head .wj-ne-tab.on { font-weight: 600; }
+.wj-ne { display: flex; flex-direction: column; gap: 10px; margin-top: 8px; }
+.wj-ne label { display: flex; flex-direction: column; gap: 4px; font-size: 12px; opacity: .85; }
+.wj-ne input { font-size: 16px; padding: 9px 11px; border-radius: 10px; border: 1px solid rgba(127,127,127,.3); background: transparent; color: inherit; }
+.wj-ne-note { font-size: 12px; line-height: 1.6; opacity: .75; margin: 0; }
+.wj-ne-actions, .wj-ne-status { display: flex; gap: 8px; flex-wrap: wrap; align-items: center; }
+.wj-ne-status span { flex: 1; font-size: 13px; }
+.wj-ne-actions button, .wj-ne-status button, .wj-ne-search button { padding: 7px 12px; border-radius: 999px; border: 1px solid rgba(127,127,127,.3); background: transparent; color: inherit; font-size: 13px; }
+.wj-ne button.strong { background: rgba(127,127,127,.18); font-weight: 600; }
+.wj-ne-search { display: flex; gap: 8px; }
+.wj-ne-search input { flex: 1; min-width: 0; }
+.wj-ne-qr { text-align: center; }
+.wj-ne-qr .img { width: 200px; max-width: 70vw; margin: 0 auto; background: #fff; border-radius: 12px; padding: 6px; }
+.wj-ne-qr .img svg { width: 100%; height: auto; display: block; }
+.wj-ne-qr small { display: block; margin-top: 8px; font-size: 12px; line-height: 1.6; opacity: .8; }
+.wj-ne .wj-music-list .name small { opacity: .6; font-size: 12px; }

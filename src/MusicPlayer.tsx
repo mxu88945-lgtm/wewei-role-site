@@ -13,6 +13,8 @@ import { fetchLyricCandidates, isTimed, lyricIndexAt, parseLyrics, shiftLyrics, 
 import { isNoLyricsHint, LYRIC_PASTE_PLACEHOLDER, lyricPasteAction, staticLyricTexts } from './lyricPaste'
 import { findTrackByTitle, musicDel, musicGet, musicSet, musicTrackId, useMusicStore, type MusicCommand, type MusicTrack } from './musicStore'
 import './music.css'
+import NeteasePanel from './NeteasePanel'
+import { isNeTrackId, neSongIdOf, neteaseLyric, neteaseReady, neteaseSearch, neteaseSongUrl, neTrackId, neTrackName, type NeteaseSong } from './neteaseMusic'
 import { isSafeMode } from './safeMode'
 
 function fmt(sec: number): string {
@@ -39,6 +41,8 @@ export default function MusicPlayer({ hideFloat = false }: { hideFloat?: boolean
   // v217 歌单「管理」：多选删除（只选一首时可改名）
   const [managing, setManaging] = useState(false)
   const [picked, setPicked] = useState<Set<string>>(() => new Set())
+  // v324 网易云页
+  const [neOpen, setNeOpen] = useState(false)
   const audioRef = useRef<HTMLAudioElement | null>(null)
   const urlRef = useRef('')
   const loadedRef = useRef('')
@@ -76,7 +80,11 @@ export default function MusicPlayer({ hideFloat = false }: { hideFloat?: boolean
     el.addEventListener('play', () => { setPlaying(true); publish(); useMusicStore.getState().setAutoplayBlocked('') })
     el.addEventListener('pause', () => { setPlaying(false); publish() })
     el.addEventListener('ended', () => { void step(1, true) })
-    el.addEventListener('error', () => { if (el.src) setErr('这首歌读不出来，可能格式不支持') })
+    el.addEventListener('error', () => {
+      if (!el.src) return
+      // v324 网易云播放地址过期：清掉，下次点播放会重新取
+      if (isNeTrackId(loadedRef.current)) { loadedRef.current = ''; setErr('网易云链接过期了，再点一下播放') } else setErr('这首歌读不出来，可能格式不支持')
+    })
     audioRef.current = el
     return el
   }
@@ -107,6 +115,17 @@ export default function MusicPlayer({ hideFloat = false }: { hideFloat?: boolean
     const t = stateRef.current.tracks.find((x) => x.id === id)
     if (!t) return
     setHint('正在找歌词…')
+    if (isNeTrackId(id)) {
+      try {
+        const lrc = await neteaseLyric(neSongIdOf(id))
+        if (lrc && parseLyrics(lrc).length) {
+          await musicSet(`lyric:${id}`, lrc)
+          setHasLyrics(id, true)
+          if (loadedRef.current === id) { setLyrics(shiftLyrics(parseLyrics(lrc), getOffset(id))); setHint('') }
+          return
+        }
+      } catch { /* 落回 lrclib */ }
+    }
     try {
       const list = await fetchLyricCandidates(t.name, await waitDuration())
       candRef.current.set(id, { list, idx: 0 })
@@ -147,6 +166,17 @@ export default function MusicPlayer({ hideFloat = false }: { hideFloat?: boolean
   async function loadTrack(id: string): Promise<HTMLAudioElement | null> {
     const a = ensureAudio()
     if (loadedRef.current === id && a.src) return a
+    if (isNeTrackId(id)) {
+      // v324 网易云：每次现取播放地址（大约 20 分钟失效）
+      let url = ''
+      try { url = await neteaseSongUrl(neSongIdOf(id)) } catch (e) { setErr((e as Error).message || '这首暂时放不了'); return null }
+      if (urlRef.current) { URL.revokeObjectURL(urlRef.current); urlRef.current = '' }
+      a.src = url
+      loadedRef.current = id
+      setPos(0); setDur(0)
+      void loadLyrics(id)
+      return a
+    }
     const blob = await musicGet<Blob>(`music:${id}`).catch(() => null)
     if (!blob) { setErr('这首歌的文件不见了，删掉重新导入一下～'); return null }
     if (urlRef.current) URL.revokeObjectURL(urlRef.current)
@@ -156,6 +186,29 @@ export default function MusicPlayer({ hideFloat = false }: { hideFloat?: boolean
     setPos(0); setDur(0)
     void loadLyrics(id)
     return a
+  }
+
+  /** v324：网易云的歌加进歌单（已在歌单的不重复加），返回歌单 id */
+  function addNeSongs(songs: NeteaseSong[]): string[] {
+    const have = new Set(stateRef.current.tracks.map((t) => t.id))
+    const fresh: MusicTrack[] = []
+    for (const song of songs) {
+      const id = neTrackId(song.songId)
+      if (have.has(id)) continue
+      have.add(id)
+      fresh.push({ id, name: neTrackName(song), title: song.name, artist: song.artist, cover: song.cover })
+    }
+    if (fresh.length) { addTracks(fresh); stateRef.current = { ...stateRef.current, tracks: [...stateRef.current.tracks, ...fresh] } }
+    return songs.map((song) => neTrackId(song.songId))
+  }
+
+  async function pickFromNetease(title: string) {
+    try {
+      const song = (await neteaseSearch(title))[0]
+      if (!song) return
+      const [id] = addNeSongs([song])
+      await playTrack(id, true)
+    } catch { /* 搜不到就算了 */ }
   }
 
   async function playTrack(id: string, auto = false) {
@@ -330,6 +383,7 @@ export default function MusicPlayer({ hideFloat = false }: { hideFloat?: boolean
       importWantRef.current = { title: state.importRequest.title, artist: state.importRequest.artist }
       fileRef.current?.click()
     }
+    if (state.neteasePick && state.neteasePick !== prev.neteasePick) void pickFromNetease(state.neteasePick.title)
   }), [])
 
   // v217：锁屏 / 控制中心显示歌名，能直接暂停、切上下首（另外两个 app 都有）。
@@ -381,7 +435,7 @@ export default function MusicPlayer({ hideFloat = false }: { hideFloat?: boolean
     <button type="button" className="wj-music-backdrop" aria-label="关闭听歌" onClick={() => setSheetOpen(false)} />
     <section className="wj-music-sheet">
       {inputs}
-      <div className="wj-music-head"><strong>♪ 一起听歌</strong><button type="button" aria-label="关闭" onClick={() => setSheetOpen(false)}>×</button></div>
+      <div className="wj-music-head"><strong>♪ 一起听歌</strong><button type="button" className={`wj-ne-tab${neOpen ? ' on' : ''}`} onClick={() => { setNeOpen(!neOpen); setManaging(false) }}>{neOpen ? '我的歌单' : '网易云'}</button><button type="button" aria-label="关闭" onClick={() => setSheetOpen(false)}>×</button></div>
       <div className="wj-music-now">
         {disc}
         <div className="wj-music-info">
@@ -402,7 +456,8 @@ export default function MusicPlayer({ hideFloat = false }: { hideFloat?: boolean
       </div>}
       {staticLines.length > 0 && !hint && <div className="wj-music-static-lyrics" aria-label="歌词">{staticLines.map((line, i) => <p key={i}>{line}</p>)}</div>}
       {err && <p className="wj-music-error">{err}</p>}
-      {tracks.length > 0 && <div className="wj-music-list-head">
+      {neOpen && <NeteasePanel onAdd={(songs) => { addNeSongs(songs) }} onPlay={(song, rest) => { const [id] = addNeSongs([song]); void rest; void playTrack(id) }} />}
+      {!neOpen && tracks.length > 0 && <div className="wj-music-list-head">
         {managing ? <>
           <button type="button" onClick={() => setPicked(picked.size === tracks.length ? new Set() : new Set(tracks.map((t) => t.id)))}>{picked.size === tracks.length ? '取消全选' : '全选'}</button>
           {picked.size === 1 && <button type="button" onClick={renamePicked}>改名</button>}
@@ -413,7 +468,7 @@ export default function MusicPlayer({ hideFloat = false }: { hideFloat?: boolean
           <button type="button" className="push" onClick={() => setManaging(true)}>管理</button>
         </>}
       </div>}
-      <div className={`wj-music-list${managing ? ' managing' : ''}`}>
+      {!neOpen && <div className={`wj-music-list${managing ? ' managing' : ''}`}>
         {tracks.map((t) => managing
           ? <button key={t.id} type="button" role="checkbox" aria-checked={picked.has(t.id)} className={`wj-music-pick${picked.has(t.id) ? ' on' : ''}${t.id === active?.id ? ' current' : ''}`} onClick={() => togglePick(t.id)}>
             <span className="box" aria-hidden="true">{picked.has(t.id) ? '✓' : ''}</span>
@@ -424,9 +479,9 @@ export default function MusicPlayer({ hideFloat = false }: { hideFloat?: boolean
             <button type="button" className="mini" onClick={() => setLyricChoice(t)}>{t.hasLyrics ? '换词' : '+词'}</button>
             <button type="button" className="mini danger" aria-label="删除" onClick={() => del(t)}>×</button>
           </div>)}
-        {!tracks.length && <p className="wj-music-empty">歌只存在这台手机里 ♡ 原唱的歌词最准。</p>}
-      </div>
-      {!managing &&       <button type="button" className="wj-music-add" onClick={() => { importWantRef.current = null; fileRef.current?.click() }}>＋ 导入音乐（可连同同名 .lrc 一起选）</button>}
+        {!tracks.length && <p className="wj-music-empty">歌只存在这台手机里 ♡ 原唱的歌词最准。{neteaseReady() ? '' : ' 也可以点右上「网易云」连上网易云。'}</p>}
+      </div>}
+      {!managing && !neOpen &&       <button type="button" className="wj-music-add" onClick={() => { importWantRef.current = null; fileRef.current?.click() }}>＋ 导入音乐（可连同同名 .lrc 一起选）</button>}
     </section>
     {lyricChoice && createPortal(<div className="wj-lyric-choice-layer" role="dialog" aria-modal="true" aria-label="加歌词">
       <button type="button" className="wj-music-backdrop" aria-label="关闭" onClick={() => setLyricChoice(null)} />
