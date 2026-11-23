@@ -651,12 +651,12 @@ html[data-standalone][data-kb] .chat-canvas .chat-page.persona-window-page .mess
 html[data-standalone][data-kb] .persona-list-tail { height: var(--composer-clearance, 122px); }
 
 /* v331：照 io —— ＋ 单独一个圆钮放在输入胶囊左边，菜单是圆角磨砂卡 + 线条图标。 */
-.chat-page.persona-window-page > .composer.persona-composer { left: calc(50% + 27px); width: min(calc(100% - 32px - 54px), 434px); grid-template-columns: minmax(0, 1fr) 44px; grid-template-areas: "thumbs thumbs" "note note" "tools tools" "input send"; }
-.chat-page.persona-window-page > .composer.persona-composer::before { left: -70px; }
-.chat-page.persona-window-page > .composer.persona-composer > .composer-plus { position: absolute; left: -56px; bottom: -1px; width: 48px; height: 48px; margin: 0; display: grid; place-items: center; border-radius: 50% !important; border: 1px solid rgba(255,255,255,.85) !important; background: rgba(255,255,255,.9) !important; box-shadow: 0 6px 18px rgba(57,41,67,.12) !important; color: #3d3740; opacity: 1; font-size: 0; }
-.chat-page.persona-window-page > .composer.persona-composer > .composer-plus svg { width: 22px; height: 22px; fill: none; stroke: currentColor; stroke-width: 1.8; stroke-linecap: round; transition: transform .18s ease; }
+.chat-page.persona-window-page > .composer.persona-composer { left: calc(50% + 24px); width: min(calc(100% - 32px - 48px), 440px); grid-template-columns: minmax(0, 1fr) 44px; grid-template-areas: "thumbs thumbs" "note note" "tools tools" "input send"; }
+.chat-page.persona-window-page > .composer.persona-composer::before { left: -64px; }
+.chat-page.persona-window-page > .composer.persona-composer > .composer-plus { position: absolute; left: -50px; bottom: 3px; width: 40px; height: 40px; margin: 0; display: grid; place-items: center; border-radius: 50% !important; border: 1px solid rgba(255,255,255,.85) !important; background: rgba(255,255,255,.9) !important; box-shadow: 0 6px 18px rgba(57,41,67,.12) !important; color: #3d3740; opacity: 1; font-size: 0; }
+.chat-page.persona-window-page > .composer.persona-composer > .composer-plus svg { width: 19px; height: 19px; fill: none; stroke: currentColor; stroke-width: 1.8; stroke-linecap: round; transition: transform .18s ease; }
 .chat-page.persona-window-page > .composer.persona-composer > .composer-plus[aria-expanded="true"] svg { transform: rotate(45deg); }
 .chat-page.persona-window-page > .composer.persona-composer > .composer-plus:active { transform: scale(.94); }
-.chat-page.persona-window-page > .composer.persona-composer > .persona-plus-menu { left: -56px; right: auto; bottom: calc(100% + 10px); min-width: 210px; padding: 8px; border: 1px solid rgba(255,255,255,.9); border-radius: 26px; background: rgba(255,255,255,.94); box-shadow: 0 14px 40px rgba(40,32,44,.16); }
+.chat-page.persona-window-page > .composer.persona-composer > .persona-plus-menu { left: -50px; right: auto; bottom: calc(100% + 10px); min-width: 210px; padding: 8px; border: 1px solid rgba(255,255,255,.9); border-radius: 26px; background: rgba(255,255,255,.94); box-shadow: 0 14px 40px rgba(40,32,44,.16); }
 .chat-page.persona-window-page > .composer.persona-composer > .persona-plus-menu button { gap: 14px; min-height: 50px; padding: 0 16px; border-radius: 18px; color: #2f2b31; font-size: 16px; }
 .chat-page.persona-window-page > .composer.persona-composer > .persona-plus-menu svg { width: 22px; height: 22px; flex: none; fill: none; stroke: currentColor; stroke-width: 1.6; stroke-linecap: round; stroke-linejoin: round; }
