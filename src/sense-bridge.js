@@ -12,7 +12,11 @@ function screenAngle() {
 
 async function requestEventPermission(EventType) {
   if (!EventType || typeof EventType.requestPermission !== 'function') return 'not-required';
-  return EventType.requestPermission();
+  const result = await EventType.requestPermission();
+  // Hark patch: outside a tap iOS can answer 'denied' without ever asking. Only trust a
+  // denial that came from inside a tap; otherwise wait for the next tap and ask then.
+  if (result === 'denied' && !globalThis.navigator?.userActivation?.isActive) return 'needs-tap';
+  return result;
 }
 
 // Hark patch: iOS only unlocks audio / motion permission inside a tap. When the app
@@ -259,7 +263,7 @@ export class SenseBridge extends EventTarget {
       let magnitude = Math.hypot(a.x, a.y, a.z);
       if (!event.acceleration && event.accelerationIncludingGravity) magnitude = Math.abs(magnitude - 9.81);
       this.#sensor({ type: 'shake', magnitude: +magnitude.toFixed(2) });
-      if (magnitude < 9 || Date.now() - lastAt < this.options.shakeCooldown) return;
+      if (magnitude < 7 || Date.now() - lastAt < this.options.shakeCooldown) return;
       lastAt = Date.now();
       this.#emit('device_shaken', clamp(magnitude / 28));
     };

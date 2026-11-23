@@ -23,7 +23,7 @@ export const permissionMessage = (error: unknown) => /denied|permission/i.test(e
 export const isMainChatScope = (page: string, conversation?: { phone?: unknown } | null) => page === 'chat' && !conversation?.phone
 
 export function acceptSensorBundle(bundle: SensorEventBundle | null, state: { lastReactionAt: number; replyBusy: boolean }, now = Date.now()) {
-  if (!bundle || state.replyBusy || (state.lastReactionAt > 0 && now - state.lastReactionAt < 20_000)) return false
+  if (!bundle || state.replyBusy || (state.lastReactionAt > 0 && now - state.lastReactionAt < 10_000)) return false
   state.lastReactionAt = now
   return true
 }
