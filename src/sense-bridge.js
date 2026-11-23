@@ -289,37 +289,43 @@ export class SenseBridge extends EventTarget {
   enableTouch(element = document.documentElement) {
     if (this.cleanups.has('touch')) return;
     if (!this.capabilities().touch) throw new Error('Pointer events are unavailable.');
+    // Hark patch: iOS starts text selection on a long press and cancels pointer events,
+    // so the old pointerup check never fired. Use touch events + a timer: still held
+    // after HOLD_MS without moving = long press.
+    const HOLD_MS = 500;
     let state = null;
     let lastAt = 0;
-    const down = (event) => {
-      if (event.pointerType !== 'touch') return;
-      state = { id: event.pointerId, at: performance.now(), x: event.clientX, y: event.clientY, pressure: event.pressure || 0 };
+    const clear = () => { if (state?.timer) clearTimeout(state.timer); state = null; };
+    const fire = () => {
+      if (!state) return;
+      const duration = performance.now() - state.at;
+      state.timer = 0;
+      if (Date.now() - lastAt < 3000) return;
+      lastAt = Date.now();
+      this.#emit('screen_touched', Math.max(0.3, clamp(state.force || 0)), { gesture: 'long_press', duration_ms: Math.round(duration) });
+    };
+    const start = (event) => {
+      clear();
+      if (event.touches && event.touches.length !== 1) return;
+      const t = event.touches ? event.touches[0] : event;
+      state = { at: performance.now(), x: t.clientX, y: t.clientY, force: t.force || 0, timer: 0 };
+      state.timer = setTimeout(fire, HOLD_MS);
     };
     const move = (event) => {
-      if (!state || event.pointerId !== state.id) return;
-      state.pressure = Math.max(state.pressure, event.pressure || 0);
-      if (Math.hypot(event.clientX - state.x, event.clientY - state.y) > 14) state = null;
+      if (!state) return;
+      const t = event.touches ? event.touches[0] : event;
+      if (!t) return;
+      state.force = Math.max(state.force, t.force || 0);
+      if (Math.hypot(t.clientX - state.x, t.clientY - state.y) > 14) clear();
     };
-    const end = (event) => {
-      if (!state || event.pointerId !== state.id) return;
-      const finished = state;
-      state = null;
-      const duration = performance.now() - finished.at;
-      if (duration < 320 || Date.now() - lastAt < 3000) return;
-      lastAt = Date.now();
-      this.#emit('screen_touched', Math.max(0.12, clamp((duration - 250) / 1500), clamp(finished.pressure)), {
-        gesture: 'long_press', duration_ms: Math.round(duration)
-      });
-    };
-    element.addEventListener('pointerdown', down, { passive: true });
-    element.addEventListener('pointermove', move, { passive: true });
-    element.addEventListener('pointerup', end, { passive: true });
-    element.addEventListener('pointercancel', end, { passive: true });
+    const hasTouch = 'ontouchstart' in globalThis;
+    const types = hasTouch
+      ? [['touchstart', start], ['touchmove', move], ['touchend', clear], ['touchcancel', clear]]
+      : [['pointerdown', (e) => { if (e.pointerType === 'touch') start(e); }], ['pointermove', move], ['pointerup', clear], ['pointercancel', clear]];
+    types.forEach(([type, fn]) => element.addEventListener(type, fn, { passive: true }));
     this.cleanups.set('touch', () => {
-      element.removeEventListener('pointerdown', down);
-      element.removeEventListener('pointermove', move);
-      element.removeEventListener('pointerup', end);
-      element.removeEventListener('pointercancel', end);
+      clear();
+      types.forEach(([type, fn]) => element.removeEventListener(type, fn));
     });
   }
 
