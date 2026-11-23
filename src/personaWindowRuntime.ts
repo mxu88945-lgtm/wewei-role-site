@@ -548,15 +548,19 @@ export async function generatePersonaReply(personaId: string, deps: PersonaRunti
     const planThread = input.regenerate ? { ...promptThread, recallLedger: {} } : promptThread
     const pools = personaRecallPools(persona, deps)
     // v236：语义召回先查（4 秒超时，失败就当没开）；结果只影响本轮【本轮背景】，不碰第一条 system。
-    let semantic: PersonaSemanticHits | null = null
-    if (deps.semanticRecall) {
-      const recentKeys = new Set(personaRecentHistory(history, planThread, deps.memoryLength, deps.historyTokenBudget).map((message) => `${threadId}|${message.id}`))
-      try { semantic = await deps.semanticRecall({ persona, thread: planThread, history, pools, inContextKeys: recentKeys, query: latestUserText(history) }) } catch { semantic = null }
-      if (controller.signal.aborted) throw new DOMException('Aborted', 'AbortError')
-    }
-    // v298 他管着你：开着就先拉门上的情况（4 秒超时，失败就当没有），只进【本轮背景】。
-    const gateTurn = gateOn() ? await prepareGateTurn(deps.character.name, deps.user.name).catch(() => null) : null
-    if (gateTurn && controller.signal.aborted) throw new DOMException('Aborted', 'AbortError')
+    // v322：语义召回和门上情况并行查，各自最多等 3.5 秒（本地向量库在 iOS 上偶尔会卡死，不能让回复一直挂着）。
+    const capped = <T,>(work: Promise<T>): Promise<T | null> => new Promise((resolve) => {
+      const timer = setTimeout(() => resolve(null), 3500)
+      controller.signal.addEventListener('abort', () => { clearTimeout(timer); resolve(null) }, { once: true })
+      work.then((value) => { clearTimeout(timer); resolve(value) }, () => { clearTimeout(timer); resolve(null) })
+    })
+    const recentKeys = deps.semanticRecall ? new Set(personaRecentHistory(history, planThread, deps.memoryLength, deps.historyTokenBudget).map((message) => `${threadId}|${message.id}`)) : null
+    const wantGate = gateOn()
+    const [semantic, gateTurn] = !deps.semanticRecall && !wantGate ? [null, null] : await Promise.all([
+      deps.semanticRecall && recentKeys ? capped(Promise.resolve().then(() => deps.semanticRecall!({ persona, thread: planThread, history, pools, inContextKeys: recentKeys, query: latestUserText(history) }))) : Promise.resolve(null),
+      wantGate ? capped(prepareGateTurn(deps.character.name, deps.user.name)) : Promise.resolve(null),
+    ])
+    if (controller.signal.aborted) throw new DOMException('Aborted', 'AbortError')
     const gate = gateTurn?.note || ''
     const sources = new Map<string, PersonaRecallSource>()
     let plan = planPersonaRequest(persona, history, deps, planThread, { event, semantic, pools, gate })

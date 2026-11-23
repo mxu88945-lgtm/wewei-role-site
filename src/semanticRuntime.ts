@@ -189,7 +189,7 @@ async function embedQuery(channel: ApiChannel, model: string, text: string): Pro
  * 当前对话的语义召回。关着时立刻返回空、不发请求；失败或 3 秒超时也返回空（超时后 2 分钟内直接跳过）。
  * v252：一轮只嵌一次她最新一句；旧原文块只放滑出窗口那段之外（更深处）的命中，不和滑出窗口的召回重复。
  */
-export async function semanticRecallForConversation(input: ConversationRecallInput): Promise<ConversationSemantic> {
+async function semanticRecallForConversationInner(input: ConversationRecallInput): Promise<ConversationSemantic> {
   try {
     if (!isSemanticReady()) return EMPTY_CONVERSATION_SEMANTIC
     const now = input.now ?? Date.now()
@@ -507,4 +507,12 @@ export async function refreshSemanticCounts(autoResume = true): Promise<void> {
   } catch {
     /* 统计失败不影响使用 */
   }
+}
+
+/** v322：整体最多等 3.5 秒（iOS 上本地向量库偶尔卡住），超时就当没开，回复照常发出。 */
+export function semanticRecallForConversation(...args: Parameters<typeof semanticRecallForConversationInner>): Promise<ConversationSemantic> {
+  return new Promise((resolve) => {
+    const timer = setTimeout(() => resolve(EMPTY_CONVERSATION_SEMANTIC), 3500)
+    semanticRecallForConversationInner(...args).then((value) => { clearTimeout(timer); resolve(value) }, () => { clearTimeout(timer); resolve(EMPTY_CONVERSATION_SEMANTIC) })
+  })
 }
