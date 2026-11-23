@@ -145,9 +145,10 @@ export class SenseBridge extends EventTarget {
     if (this.cleanups.has('rotation')) return;
     const capabilities = this.capabilities();
     if (!capabilities.motion && !capabilities.orientation) throw new Error('Rotation sensing is unavailable.');
-    const orientationPermission = await requestEventPermission(globalThis.DeviceOrientationEvent);
+    let orientationPermission, motionPermission;
+    try { orientationPermission = await requestEventPermission(globalThis.DeviceOrientationEvent); } catch { orientationPermission = 'needs-tap'; }
     if (orientationPermission === 'denied') throw new Error('Orientation permission denied.');
-    const motionPermission = await requestEventPermission(globalThis.DeviceMotionEvent);
+    try { motionPermission = await requestEventPermission(globalThis.DeviceMotionEvent); } catch { motionPermission = 'needs-tap'; }
     this.diagnostic.permissions.rotation = { orientation: orientationPermission, motion: motionPermission };
 
     let calibration = [];
@@ -213,12 +214,30 @@ export class SenseBridge extends EventTarget {
       detect(side, tilt);
     };
 
-    addEventListener('devicemotion', onMotion, true);
-    addEventListener('deviceorientation', onOrientation, true);
+    const attach = () => {
+      addEventListener('devicemotion', onMotion, true);
+      addEventListener('deviceorientation', onOrientation, true);
+    };
+    let stopAsk = () => {};
+    if (orientationPermission === 'needs-tap' || motionPermission === 'needs-tap') {
+      let attached = false;
+      stopAsk = onEveryGesture(() => {
+        if (attached) return;
+        Promise.all([requestEventPermission(globalThis.DeviceOrientationEvent), requestEventPermission(globalThis.DeviceMotionEvent)]).then(([o, m]) => {
+          const ok = (r) => r === 'granted' || r === 'not-required';
+          if (attached || !this.cleanups.has('rotation') || !(ok(o) || ok(m))) return;
+          attached = true;
+          stopAsk();
+          this.diagnostic.permissions.rotation = { orientation: o, motion: m };
+          attach();
+        }).catch(() => {});
+      });
+    } else attach();
     addEventListener('orientationchange', reset);
     screen.orientation?.addEventListener?.('change', reset);
     reset();
     this.cleanups.set('rotation', () => {
+      stopAsk();
       removeEventListener('devicemotion', onMotion, true);
       removeEventListener('deviceorientation', onOrientation, true);
       removeEventListener('orientationchange', reset);
