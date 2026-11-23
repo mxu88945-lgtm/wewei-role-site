@@ -44,3 +44,12 @@ export async function callTool(config: ToolServiceConfig, call: ToolCall, signal
 function parseArguments(value: string) {
   try { const parsed = JSON.parse(value || '{}'); return parsed && typeof parsed === 'object' ? parsed : {} } catch { return {} }
 }
+
+/**
+ * v320：工具回合只能整段返回（不能边写边显示），以前每条都走，回复显得很慢。
+ * 现在只有像要查东西的话（带链接、或说了查/搜/新闻/天气/最新/价格之类）才带工具，其余照常流式。
+ */
+const TOOL_INTENT = /https?:\/\/|www\.|查一?下|查查|帮我查|搜一?下|搜搜|搜索|上网|网上|百度|谷歌|google|新闻|热搜|天气|气温|最新|今天几号|现在几点|汇率|股价|价格|多少钱|链接|网址|网页|这篇|看看这个/i
+export function wantsRoleTools(text: string | undefined | null) {
+  return Boolean(text && TOOL_INTENT.test(text))
+}

@@ -53,7 +53,7 @@ import { assignLibraryGroup, libraryPlacementDraft, preserveLibraryPlacement, au
 import { activeCharacterMemory, characterMemoryEntryFromConversation, characterMemoryExtractionPrompt, characterMemorySummaryProtocol, parseCharacterMemoryCandidates, splitCharacterMemorySummary } from './characterMemory'
 import { readCachedModels, saveCachedModels } from './modelListCache'
 import { ChatApiError, completeChat, completeChatWithTools, fetchApiModels, testApiConnection, type ApiConfig, type ApiModel, type CompletionActivity, type CompletionOptions } from './chatApi'
-import { callTool, fetchToolDefinitions, readToolServiceConfig, saveToolServiceConfig, DEFAULT_TOOL_SERVICE_URL, type ToolServiceConfig } from './toolService'
+import { callTool, fetchToolDefinitions, readToolServiceConfig, wantsRoleTools, saveToolServiceConfig, DEFAULT_TOOL_SERVICE_URL, type ToolServiceConfig } from './toolService'
 import { buildChatPrompt, coreMemoryChunks, storyHistoryWindow, storyLoreChunks } from './promptBuilder'
 import { EVICTED_POOL_MAX } from './evictedRecall'
 import { HISTORY_TOKEN_BUDGET } from './historyWindow'
@@ -3250,7 +3250,8 @@ function App() {
       let promptMessages = prepared.promptMessages
       if (requestOptions.sensorPrompt) promptMessages = [...promptMessages, { role: 'user' as const, content: requestOptions.sensorPrompt }]
       let discoveredTools: Awaited<ReturnType<typeof fetchToolDefinitions>> = []
-      if (toolService.key.trim() && toolService.url.trim() && resolvedSpeakerApi.protocol !== 'anthropic') {
+      const latestUserText = requestOptions.sensorPrompt ? '' : [...nextMessages].reverse().find((message) => message.role === 'user')?.text
+      if (toolService.key.trim() && toolService.url.trim() && resolvedSpeakerApi.protocol !== 'anthropic' && wantsRoleTools(latestUserText)) {
         try { discoveredTools = await fetchToolDefinitions(toolService, controller.signal) }
         catch (error) { console.warn('[tools] discovery skipped', error) }
       }
