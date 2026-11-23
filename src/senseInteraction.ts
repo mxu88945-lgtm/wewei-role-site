@@ -4,6 +4,7 @@ export type SenseEvent = { event: string; strength?: number; direction?: string;
 export type SensorEventBundle = { events: SenseEvent[]; at: number }
 
 export const DEFAULT_SENSE_SETTINGS: SenseSettings = { enabled: false, blow: false, shake: false, rotation: false, longPress: false }
+export const PERSONA_SENSE_EVENT = 'weijing:persona-sense'
 export const SENSOR_PROMPT = '这是用户在现实中对手机做的动作，请用角色自己的口吻自然回应一两句，不要提传感器、JSON 或这条提示。'
 export const kindForEvent = (event: string): SenseKind | null => ({ user_blowing: 'blow', device_shaken: 'shake', device_rotated: 'rotation', screen_touched: 'longPress' } as Record<string, SenseKind>)[event] || null
 export const labelForEvent = (event: SenseEvent) => {
@@ -57,7 +58,7 @@ export class SenseInteractionRuntime {
   }
   disable(kind: SenseKind) { this.enabled.delete(kind); this.bridge?.disable(kind) }
   pause() { this.paused = true; this.bridge?.disableAll() }
-  async resume() { if (!this.paused) return; this.paused = false; for (const kind of [...this.enabled]) await this.set(kind, true).catch(() => undefined) }
+  async resume() { if (!this.paused) return; this.paused = false; for (const kind of [...this.enabled]) { this.enabled.delete(kind); await this.set(kind, true).catch(() => { this.enabled.add(kind) }) } }
   dispose() { this.bridge?.disableAll(); this.enabled.clear(); if (this.timer) window.clearTimeout(this.timer) }
   private receive(event: SenseEvent) {
     if (this.paused || !kindForEvent(event.event)) return

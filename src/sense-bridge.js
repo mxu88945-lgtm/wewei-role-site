@@ -15,6 +15,15 @@ async function requestEventPermission(EventType) {
   return EventType.requestPermission();
 }
 
+// Hark patch: iOS only unlocks audio / motion permission inside a tap. When the app
+// restores a saved switch on launch or after returning from background there is no tap,
+// so wait for the next touch anywhere and finish turning the sense on then.
+function onEveryGesture(fn) {
+  const types = ['touchend', 'click', 'keydown'];
+  types.forEach((type) => addEventListener(type, fn, true));
+  return () => types.forEach((type) => removeEventListener(type, fn, true));
+}
+
 export function detectCapabilities(scope = globalThis) {
   const secure = scope.isSecureContext === true;
   return {
@@ -85,6 +94,9 @@ export class SenseBridge extends EventTarget {
     this.diagnostic.permissions.microphone = 'granted';
     const AudioContextType = globalThis.AudioContext || globalThis.webkitAudioContext;
     const context = new AudioContextType();
+    const wake = () => { if (context.state !== 'running' && context.state !== 'closed') context.resume?.().catch(() => {}); };
+    wake();
+    const stopWake = onEveryGesture(wake);
     const analyser = context.createAnalyser();
     analyser.fftSize = 1024;
     analyser.smoothingTimeConstant = 0.35;
@@ -122,6 +134,7 @@ export class SenseBridge extends EventTarget {
     };
     frame = requestAnimationFrame(sample);
     this.cleanups.set('blow', () => {
+      stopWake();
       cancelAnimationFrame(frame);
       stream.getTracks().forEach((track) => track.stop());
       if (context.state !== 'closed') context.close().catch(() => {});
@@ -216,7 +229,8 @@ export class SenseBridge extends EventTarget {
   async enableShake() {
     if (this.cleanups.has('shake')) return;
     if (!this.capabilities().motion) throw new Error('Shake sensing is unavailable.');
-    const permission = await requestEventPermission(globalThis.DeviceMotionEvent);
+    let permission;
+    try { permission = await requestEventPermission(globalThis.DeviceMotionEvent); } catch { permission = 'needs-tap'; }
     if (permission === 'denied') throw new Error('Motion permission denied.');
     this.diagnostic.permissions.shake = permission;
     let lastAt = 0;
@@ -226,12 +240,27 @@ export class SenseBridge extends EventTarget {
       let magnitude = Math.hypot(a.x, a.y, a.z);
       if (!event.acceleration && event.accelerationIncludingGravity) magnitude = Math.abs(magnitude - 9.81);
       this.#sensor({ type: 'shake', magnitude: +magnitude.toFixed(2) });
-      if (magnitude < 11 || Date.now() - lastAt < this.options.shakeCooldown) return;
+      if (magnitude < 9 || Date.now() - lastAt < this.options.shakeCooldown) return;
       lastAt = Date.now();
       this.#emit('device_shaken', clamp(magnitude / 28));
     };
-    addEventListener('devicemotion', onMotion, true);
-    this.cleanups.set('shake', () => removeEventListener('devicemotion', onMotion, true));
+    if (permission !== 'needs-tap') {
+      addEventListener('devicemotion', onMotion, true);
+      this.cleanups.set('shake', () => removeEventListener('devicemotion', onMotion, true));
+      return;
+    }
+    let attached = false;
+    const stopAsk = onEveryGesture(() => {
+      if (attached) return;
+      requestEventPermission(globalThis.DeviceMotionEvent).then((result) => {
+        if (attached || (result !== 'granted' && result !== 'not-required') || !this.cleanups.has('shake')) return;
+        attached = true;
+        stopAsk();
+        this.diagnostic.permissions.shake = result;
+        addEventListener('devicemotion', onMotion, true);
+      }).catch(() => {});
+    });
+    this.cleanups.set('shake', () => { stopAsk(); removeEventListener('devicemotion', onMotion, true); });
   }
 
   enableTouch(element = document.documentElement) {

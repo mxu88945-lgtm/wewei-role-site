@@ -43,6 +43,7 @@ import { messageThemeLayout } from './chatThemeLayout'
 import { useMessageEditorHeight } from './useMessageEditorHeight'
 import './persona-window.css'
 import { registerPushContext, type PushContext as PushContextValue } from './personaPush'
+import { acceptSensorBundle, labelForEvent, PERSONA_SENSE_EVENT, SENSOR_PROMPT, type SensorEventBundle } from './senseInteraction'
 import { ChannelOptions } from './ChannelOptions'
 import PersonaPeriodPanel from './PersonaPeriodPanel'
 import PersonaPeoplePanel from './PersonaPeoplePanel'
@@ -532,6 +533,23 @@ export default function PersonaWindowPage(props: Props) {
     stickRef.current = true
     void generatePersonaReply(active.id, deps, { threadId: thread.id, appEvent: { text: roomAskEvent(note, identity.name), roomAskId: note.id } })
   }
+  // v318：感知互动也在人格窗口里生效：长按、吹气、摇晃作为应用事件发一轮，TA 自然回应。
+  const senseStateRef = useRef({ lastReactionAt: 0, replyBusy: false })
+  useEffect(() => {
+    const onSense = (event: Event) => {
+      const bundle = (event as CustomEvent<SensorEventBundle>).detail
+      if (view !== 'chat' || !active || !thread) return
+      senseStateRef.current.replyBusy = Boolean(generating)
+      if (!acceptSensorBundle(bundle, senseStateRef.current)) return
+      const deps = depsFor(active.characterId)
+      if (!deps) return
+      const labels = bundle.events.map((item) => labelForEvent(item)).join('、')
+      stickRef.current = true
+      void generatePersonaReply(active.id, deps, { threadId: thread.id, appEvent: { text: `【应用事件，不是用户打字】${labels}。${SENSOR_PROMPT}` } })
+    }
+    window.addEventListener(PERSONA_SENSE_EVENT, onSense)
+    return () => window.removeEventListener(PERSONA_SENSE_EVENT, onSense)
+  })
   const send = () => {
     if (!active || !activeCharacter || !thread) return
     if (generating) { stopPersonaReply(thread.id); return }
