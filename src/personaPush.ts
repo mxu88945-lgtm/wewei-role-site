@@ -2,6 +2,7 @@ import { getPersonaState, setPersonaState } from './personaWindowStore'
 import { nextPersonaMessageId, updatePersonaThread, type PersonaMessage } from './personaWindow'
 import { taskIsActive } from './personaTasks'
 import { stripGuardTags } from './personaGate'
+import { pullRoleWakeInbox, readRoleWakeConfig, roleWakeReady, syncRoleWake } from './roleWake'
 
 /**
  * v297 手机推送（人格窗口）：到点提醒和「TA 主动来找你」都交给 Cloudflare 上的小服务器（和顾祁砚共用一台）。
@@ -125,14 +126,76 @@ export async function pullPushInbox() {
   finally { pulling = false }
 }
 
+/**
+ * v318 小心思（role-wake）接人格窗口：聊完后把当前窗口的人设与最近聊天同步过去；
+ * 回到前台时把 TA 决定发的话放回原来那扇窗口。只认「小心思」自己的开关，不依赖手机通知。
+ */
+const WAKE_ROLES_KEY = 'roleWake.personaRoles'
+const wakeRoleId = (personaId: string, threadId: string) => `pw|${personaId}|${threadId}`.slice(0, 120)
+const readWakeRoles = (): string[] => { try { const v = JSON.parse(storage()?.getItem(WAKE_ROLES_KEY) || '[]'); return Array.isArray(v) ? v.filter((x): x is string => typeof x === 'string').slice(-6) : [] } catch { return [] } }
+let lastWakeKey = ''
+export function syncPersonaRoleWake() {
+  const config = readRoleWakeConfig()
+  if (!roleWakeReady(config)) return
+  let ctx: PushContext | null = null
+  try { ctx = contextBuilder?.() || null } catch { return }
+  if (!ctx) return
+  const persona = getPersonaState().personas.find((p) => p.id === ctx!.personaId)
+  const thread = persona?.threads.find((t) => t.id === ctx!.threadId)
+  const last = thread?.messages[thread.messages.length - 1]
+  if (!thread || !last || last.role !== 'assistant') return
+  const lastUser = [...thread.messages].reverse().find((m) => m.role === 'user')
+  const roleId = wakeRoleId(ctx.personaId, ctx.threadId)
+  const key = `${roleId}#${last.id}`
+  if (key === lastWakeKey) return
+  lastWakeKey = key
+  const deviceId = pushOn() ? device() : ''
+  void syncRoleWake({ roleId, roleName: ctx.name, personaSummary: ctx.system, recentSummary: ctx.recent, lastChatAt: lastUser?.createdAt || last.createdAt || Date.now(), ...(deviceId ? { pushDevice: deviceId, pushUrl: APP_URL() } : {}) }, config)
+    .then((ok) => {
+      if (!ok) { lastWakeKey = ''; return }
+      const roles = readWakeRoles().filter((id) => id !== roleId)
+      try { storage()?.setItem(WAKE_ROLES_KEY, JSON.stringify([...roles, roleId].slice(-6))) } catch { /* ignore */ }
+    })
+}
+let wakePulling = false
+export async function pullPersonaRoleWake() {
+  const config = readRoleWakeConfig()
+  if (!roleWakeReady(config) || wakePulling) return
+  wakePulling = true
+  try {
+    for (const roleId of readWakeRoles()) {
+      const [, personaId, threadId] = roleId.split('|')
+      const incoming = await pullRoleWakeInbox(roleId, config)
+      if (!incoming.length) continue
+      setPersonaState((state) => {
+        let next = state
+        for (const item of incoming) {
+          const thread = next.personas.find((p) => p.id === personaId)?.threads.find((t) => t.id === threadId)
+          const text = stripGuardTags(item.text).trim()
+          if (!thread || !text) continue
+          const id = Math.max(nextPersonaMessageId(thread.messages), (thread.messageSequence || 0) + 1)
+          const message: PersonaMessage = { id, role: 'assistant', text, createdAt: item.ts || Date.now() }
+          next = updatePersonaThread(next, personaId, threadId, (t) => ({ ...t, messages: [...t.messages, message], messageSequence: id, updatedAt: Math.max(t.updatedAt, message.createdAt) }))
+        }
+        return next
+      })
+    }
+  } catch (error) { console.warn('小心思收件失败', error) }
+  finally { wakePulling = false }
+}
+
 let started = false
 /** App 启动时调一次：状态变了就同步任务，切到后台时同步上下文，回到前台收消息。 */
 export function startPersonaPush(subscribe: (listener: () => void) => () => void) {
   if (started || typeof document === 'undefined') return
   started = true
   let timer: ReturnType<typeof setTimeout> | null = null
-  subscribe(() => { if (timer) clearTimeout(timer); timer = setTimeout(() => syncPushTasks(), 1500) })
-  document.addEventListener('visibilitychange', () => { if (document.hidden) { syncPushTasks(); syncPushContext() } else void pullPushInbox() })
-  window.addEventListener('pagehide', () => syncPushContext())
-  setTimeout(() => { syncPushTasks(true); void pullPushInbox() }, 9000)
+  let wakeTimer: ReturnType<typeof setTimeout> | null = null
+  subscribe(() => {
+    if (timer) clearTimeout(timer); timer = setTimeout(() => syncPushTasks(), 1500)
+    if (wakeTimer) clearTimeout(wakeTimer); wakeTimer = setTimeout(() => syncPersonaRoleWake(), 4000)
+  })
+  document.addEventListener('visibilitychange', () => { if (document.hidden) { syncPushTasks(); syncPushContext(); syncPersonaRoleWake() } else { void pullPushInbox(); void pullPersonaRoleWake() } })
+  window.addEventListener('pagehide', () => { syncPushContext(); syncPersonaRoleWake() })
+  setTimeout(() => { syncPushTasks(true); void pullPushInbox(); void pullPersonaRoleWake() }, 9000)
 }
