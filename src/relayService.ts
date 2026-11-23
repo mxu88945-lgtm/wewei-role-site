@@ -60,7 +60,7 @@ export async function startRelay(args: { id: string; conversationId: string; ass
       const reader = response.body?.getReader()
       if (reader) {
         const decoder = new TextDecoder()
-        while (true) { kick(); const { done, value } = await reader.read(); if (done) break; const piece = decoder.decode(value, { stream: true }); if (piece) { shown += piece; args.onDelta(piece) } }
+        while (true) { kick(); const { done, value } = await reader.read(); if (done) break; const piece = decoder.decode(value, { stream: true }).replace(/\u2060/g, ''); if (piece) { shown += piece; args.onDelta(piece) } }
       } else await response.text()
     } catch (error) { if (args.signal.aborted) throw error }
     if (idle) clearTimeout(idle)
