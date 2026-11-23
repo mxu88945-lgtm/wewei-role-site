@@ -3314,6 +3314,9 @@ function App() {
             // an interrupted background job. Do not resurrect it on next launch.
             // The relay itself keeps pending only for an actual interrupted fetch.
             console.warn('[relay] failed; falling back to direct API', error)
+            // v325：中继半路卡住时把显示了一半的字清掉，直连从头写，避免重复。
+            output = ''
+            stagedVisibleOutput = ''
           }
         }
         if (discoveredTools.length) {

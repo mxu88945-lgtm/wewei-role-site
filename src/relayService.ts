@@ -5,6 +5,11 @@ export const RELAY_STORAGE_KEY = 'weijing-local.relay'
 export type RelayConfig = { enabled: boolean; url: string; key: string }
 export type RelayPending = { id: string; conversationId: string; assistantId: number; createdAt: number }
 export type RelayResult = { status: 'running' | 'done' | 'error'; text?: string; error?: string; toolCalls?: Array<{ id: string; name: string; arguments: string }> }
+export const RELAY_IDLE_MS = 60_000
+export const RELAY_TOTAL_MS = 240_000
+const RELAY_POLLS = 5
+/** 中继一直没动静：让调用方改走直连。shown 是已经显示出去的半截。 */
+export class RelayStalledError extends Error { constructor(readonly shown: string) { super('中继没有动静，改走直连') } }
 const cleanUrl = (value: string) => value.trim().replace(/\/+$/, '')
 function readStored(): { config?: Partial<RelayConfig>; pending?: RelayPending[] } {
   try { return JSON.parse(localStorage.getItem(RELAY_STORAGE_KEY) || '{}') as { config?: Partial<RelayConfig>; pending?: RelayPending[] } } catch { return {} }
@@ -38,8 +43,16 @@ export async function startRelay(args: { id: string; conversationId: string; ass
   const payload: Record<string, unknown> = { id: args.id, base: endpoint(args.api), key: args.api.apiKey, body: requestBody(args.api, args.messages, args.temperature, args.topP, args.maxTokens, args.tools), title: '惟境' }
   const device = pushOn() ? pushDeviceId() : ''
   if (device) { payload.pushDevice = device; payload.pushUrl = pushAppUrl() }
+  // v325：中继卡住时不再无限等。整段最多 4 分钟；连续 60 秒一个字都没来就停下去问 /result。
+  const local = new AbortController()
+  const abortLocal = () => local.abort()
+  args.signal.addEventListener('abort', abortLocal, { once: true })
+  const overall = setTimeout(abortLocal, RELAY_TOTAL_MS)
+  let idle: ReturnType<typeof setTimeout> | undefined
+  const kick = () => { if (idle) clearTimeout(idle); idle = setTimeout(abortLocal, RELAY_IDLE_MS) }
   try {
-    const response = await fetch(`${config.url}/start`, { method: 'POST', headers: { ...auth(config.key), 'Content-Type': 'application/json' }, body: JSON.stringify(payload), signal: args.signal })
+    kick()
+    const response = await fetch(`${config.url}/start`, { method: 'POST', headers: { ...auth(config.key), 'Content-Type': 'application/json' }, body: JSON.stringify(payload), signal: local.signal })
     if (!response.ok) throw new Error(`中继 HTTP ${response.status}`)
     // v323：中继边跑边把字传回来，这里一段段显示；最后用 /result 补齐没收到的尾巴。
     let shown = ''
@@ -47,21 +60,30 @@ export async function startRelay(args: { id: string; conversationId: string; ass
       const reader = response.body?.getReader()
       if (reader) {
         const decoder = new TextDecoder()
-        while (true) { const { done, value } = await reader.read(); if (done) break; const piece = decoder.decode(value, { stream: true }); if (piece) { shown += piece; args.onDelta(piece) } }
+        while (true) { kick(); const { done, value } = await reader.read(); if (done) break; const piece = decoder.decode(value, { stream: true }); if (piece) { shown += piece; args.onDelta(piece) } }
       } else await response.text()
     } catch (error) { if (args.signal.aborted) throw error }
-    const result = await getRelayResult(args.id)
+    if (idle) clearTimeout(idle)
+    let result = await getRelayResult(args.id)
+    for (let i = 0; i < RELAY_POLLS && result.status === 'running' && !args.signal.aborted; i += 1) {
+      await new Promise((resolve) => setTimeout(resolve, 2000))
+      result = await getRelayResult(args.id)
+    }
     if (result.status === 'error') throw new Error(result.error || '中继生成失败')
-    if (result.status !== 'done') throw new Error('中继仍在生成，回到前台后会自动取回')
+    if (result.status !== 'done') throw new RelayStalledError(shown)
     if (result.text && !shown) args.onDelta(result.text)
     else if (result.text && result.text.length > shown.length && result.text.startsWith(shown)) args.onDelta(result.text.slice(shown.length))
     clearRelayPending(args.id)
     return { finishReason: null, toolCalls: result.toolCalls }
   } catch (error) {
+    if (error instanceof RelayStalledError) { clearRelayPending(args.id); throw error }
     // Abort/network errors intentionally leave pending; the next foreground visit can recover it.
     if (args.signal.aborted) throw error
     clearRelayPending(args.id)
     throw error
+  } finally {
+    clearTimeout(overall); if (idle) clearTimeout(idle)
+    args.signal.removeEventListener('abort', abortLocal)
   }
 }
 export async function recoverRelayPending(): Promise<Array<RelayPending & { result: RelayResult }>> {
