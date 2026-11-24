@@ -659,11 +659,18 @@ button { cursor: pointer; }
 .library-group-head .library-group-header { flex: 1; min-width: 0; }
 .library-group-edit { flex: none; min-height: 44px; border: 0; border-radius: 16px; padding: 0 14px; color: var(--theme-accent-text); background: var(--theme-accent-soft); font-size: 13px; font-weight: 800; }
 .library-member-list { max-height: 46vh; overflow-y: auto; -webkit-overflow-scrolling: touch; padding: 6px 4px; display: grid; gap: 4px; }
-.library-member { min-height: 46px; border: 0; border-radius: 14px; padding: 0 10px; display: flex; align-items: center; gap: 10px; color: #4d4651; background: transparent; text-align: left; }
+.library-member { width: 100%; min-width: 0; min-height: 54px; border: 0; border-radius: 14px; padding: 6px 10px; display: flex; align-items: center; gap: 10px; color: #4d4651; background: transparent; text-align: left; }
 .library-member i { flex: none; width: 24px; height: 24px; border-radius: 50%; display: grid; place-items: center; font-style: normal; font-size: 13px; color: #fff; border: 1.5px solid rgba(74,56,84,.22); }
 .library-member.checked i { border-color: transparent; background: var(--theme-accent); }
-.library-member strong { font-size: 14px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-.library-member span { margin-left: auto; color: #9d97a1; font-size: 11px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.library-member-copy { flex: 1; min-width: 0; display: grid; gap: 2px; }
+.library-member-copy strong { font-size: 15px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.library-member-copy small { color: #9d97a1; font-size: 11.5px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.library-member.checked { background: var(--theme-accent-soft, #f1ebf5); }
+.library-member.checked strong { color: var(--theme-accent-text, #4d4651); }
+/* 成员管理弹层：不许横向撑开，保存按钮要像按钮 */
+.library-group-sheet { grid-template-columns: minmax(0, 1fr); overflow-x: hidden; }
+.library-group-sheet .library-member-list { min-width: 0; overflow-x: hidden; }
+.conversation-menu > button.library-sheet-save { color: #fff; text-align: center; background: linear-gradient(135deg, var(--theme-accent-strong), var(--theme-accent-end)); }
 .library-member:active { background: #eee9f1; }
 .chat-group { display: grid; gap: 6px; margin-bottom: 8px; }
 .chat-group .library-group-header, .chat-group .library-group-edit { min-height: 40px; }
