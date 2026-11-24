@@ -6,7 +6,7 @@ type Member = { id: string; name: string; avatar?: string }
 type Notice = { text: string; at: number; until?: number | null } | null | undefined
 
 /** 小手机「聊天信息」页（微信样式）：成员、群公告、积分榜、谁来回，都收在这里，不再挂在聊天页顶上。 */
-export function PhoneChatInfo({ title, dm, members, notice, mode, onMode, onSaveNotice, onClose, onSearch, onGroupSettings, onChatSettings }: {
+export function PhoneChatInfo({ title, dm, members, notice, mode, onMode, onSaveNotice, onClose, onSearch, onGroupSettings, onChatSettings, split, onSplit }: {
   title: string
   dm: boolean
   members: Member[]
@@ -18,6 +18,8 @@ export function PhoneChatInfo({ title, dm, members, notice, mode, onMode, onSave
   onSearch: () => void
   onGroupSettings?: () => void
   onChatSettings: () => void
+  split?: { on: boolean; max: number }
+  onSplit?: (value: { on: boolean; max: number }) => void
 }) {
   const [editing, setEditing] = useState(false)
   const [text, setText] = useState(notice?.text || '')
@@ -56,6 +58,10 @@ export function PhoneChatInfo({ title, dm, members, notice, mode, onMode, onSave
       {!dm && <section className="wx-info-group">
         <div className="wx-info-title"><span>谁来回</span></div>
         {PHONE_REPLY_MODES.map((item) => <button key={item.id} className={`wx-info-mode${mode === item.id ? ' active' : ''}`} onClick={() => onMode(item.id)}><span>{item.label}<small>{item.hint}</small></span><b>{mode === item.id ? '✓' : ''}</b></button>)}
+      </section>}
+      {split && onSplit && <section className="wx-info-group">
+        <button className="wx-info-mode" role="switch" aria-checked={split.on} onClick={() => onSplit({ ...split, on: !split.on })}><span>分段气泡<small>按句子一条条显示，超过上限自动合并，不刷屏</small></span><b>{split.on ? '开' : '关'}</b></button>
+        {split.on && <div className="wx-info-notice-edit"><span>最多几条气泡</span><div className="wx-info-chips">{[2, 3, 4, 6, 8].map((count) => <button key={count} className={split.max === count ? 'active' : ''} onClick={() => onSplit({ ...split, max: count })}>{count} 条</button>)}</div></div>}
       </section>}
       <section className="wx-info-group">
         <button onClick={onSearch}><span>查找聊天内容</span><b>›</b></button>
