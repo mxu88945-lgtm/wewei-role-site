@@ -254,10 +254,18 @@ export default function CharacterWorkshop({ channels, characters = [], defaultCh
         // The prompt now asks for a compact usable card, so 8k is ample and
         // materially more compatible across the user's mixed channels.
         maxTokens: 8000,
-        streaming: false,
+        // v334：整卡生成改走流式。非流式要让中转站一口气憋 1–3 分钟不出声，
+        // 中转/CDN 常在约 100 秒时掐断（524/502），于是反复“接口不稳，正在重新连接”。
+        // 流式边写边传，连接一直有数据，不会被当成空闲掐掉。
+        streaming: true,
+        firstActivityTimeoutMs: 120_000,
         signal: controller.signal,
         onDelta: (delta) => { raw += delta },
-        onActivity: (activity) => { if (revision === generationRevisionRef.current) setGenerateActivity(activity === 'retrying' ? 'retrying' : '') },
+        onActivity: (activity) => {
+          // 重连会从头再写一遍，丢掉上一次写了一半的内容，避免拼出坏 JSON。
+          if (activity === 'retrying') raw = ''
+          if (revision === generationRevisionRef.current) setGenerateActivity(activity === 'retrying' ? 'retrying' : '')
+        },
       })
       if (revision !== generationRevisionRef.current) return
       if (completion.finishReason === 'length' || completion.finishReason === 'max_tokens') {
@@ -311,8 +319,9 @@ export default function CharacterWorkshop({ channels, characters = [], defaultCh
         // Copilot replies are a compact JSON patch, not a full card. Keeping
         // the ceiling aligned with card generation avoids credit-gated relays
         // rejecting the request before they generate anything.
-        temperature: .66, topP: .9, maxTokens: 8000, streaming: false, signal: controller.signal,
+        temperature: .66, topP: .9, maxTokens: 8000, streaming: true, firstActivityTimeoutMs: 120_000, signal: controller.signal,
         onDelta: (delta) => { raw += delta },
+        onActivity: (activity) => { if (activity === 'retrying') raw = '' },
       })
       if (revision !== generationRevisionRef.current || controller.signal.aborted) return
       if (completion.finishReason === 'length' || completion.finishReason === 'max_tokens') {

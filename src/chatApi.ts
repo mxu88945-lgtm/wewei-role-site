@@ -39,6 +39,8 @@ export type CompletionOptions = {
   onActivity?: (activity: CompletionActivity) => void
   /** Bound the entire completion, including reconnects and JSON bodies. */
   timeoutMs?: number
+  /** v334：长生成（AI 工坊整卡）的思考期更长，允许更久才出第一个字。默认 45 秒。 */
+  firstActivityTimeoutMs?: number
   /**
    * v210：读到的用量（输入 / 缓存命中 token）；渠道没返回时给 null。流式时可能在回复结束后稍晚一点才调用。
    * Only the caller that wants a cache readout passes it; nothing else changes when it is absent.
@@ -328,6 +330,7 @@ async function consumeEventStream(
   signal: AbortSignal,
   onActivity?: (activity: CompletionActivity) => void,
   onUsage?: (usage: PromptUsage | null) => void,
+  firstActivityTimeoutMs = FIRST_STREAM_ACTIVITY_TIMEOUT_MS,
 ): Promise<CompletionResult> {
   if (!response.body) return consumeJson(response, onDelta, onActivity, onUsage)
   const reader = response.body.getReader()
@@ -337,7 +340,7 @@ async function consumeEventStream(
   let streamEnded = false
   let contentReceived = false
   let meaningfulActivity = false
-  const firstActivityDeadline = Date.now() + FIRST_STREAM_ACTIVITY_TIMEOUT_MS
+  const firstActivityDeadline = Date.now() + firstActivityTimeoutMs
   let usage: PromptUsage | null = null
   let sawDone = false
   let leftover: string[] = []
@@ -686,7 +689,7 @@ async function completeChatRequest(options: CompletionOptions) {
       // Some OpenAI-compatible relays ignore `stream: false` and still answer
       // with SSE. Trust the actual response format before the requested mode.
       if (contentType.includes('text/event-stream') || (streaming && !contentType.includes('application/json'))) {
-        return await consumeEventStream(response, onDelta, signal, onActivity, onUsage)
+        return await consumeEventStream(response, onDelta, signal, onActivity, onUsage, options.firstActivityTimeoutMs)
       }
       return await consumeJson(response, onDelta, onActivity, onUsage)
     } catch (error) {
