@@ -14,7 +14,7 @@ export type RuntimeDiagnosticInput = {
   dataUpdatedAt?: number
 }
 
-export const APP_VERSION = 'v335'
+export const APP_VERSION = 'v336'
 export const SERVICE_WORKER_VERSION = 'weijing-shell-v315'
 
 const safe = (value: string | undefined) => value?.trim() || '未设置'

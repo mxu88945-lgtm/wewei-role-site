@@ -1274,3 +1274,10 @@ button { cursor: pointer; }
 .sense-interaction-settings > .settings-group.toggle-row { padding: 2px 0; border-radius: 0; background: transparent; }
 .sense-interaction-settings .sense-options { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 10px 16px; }
 .sense-interaction-settings .sense-options label { display: flex; justify-content: space-between; align-items: center; gap: 8px; font-size: 14px; }
+
+/* v336：分段气泡跟小手机平时的圆角气泡一致，不再是微信那种方块+小尖角。 */
+.phone-chat .wx-row .wx-bubble { border-radius: 16px; padding: 9px 13px; font-size: calc(var(--chat-font-size, 16px) * .94); line-height: 1.55; }
+.phone-chat .wx-row .wx-bubble::before { display: none; }
+.phone-chat .wx-row .wx-follow .wx-bubble { border-top-left-radius: 8px; }
+.phone-chat .wx-row.user .wx-follow .wx-bubble { border-top-left-radius: 16px; border-top-right-radius: 8px; }
+.phone-chat .wx-stack { gap: 6px; }
