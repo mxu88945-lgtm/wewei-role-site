@@ -1281,3 +1281,8 @@ button { cursor: pointer; }
 .phone-chat .wx-row .wx-follow .wx-bubble { border-top-left-radius: 8px; }
 .phone-chat .wx-row.user .wx-follow .wx-bubble { border-top-left-radius: 16px; border-top-right-radius: 8px; }
 .phone-chat .wx-stack { gap: 6px; }
+
+/* v337：长报错不再把小手机页面撑宽、左右乱滑。 */
+.message-list { overflow-x: hidden; }
+.phone-system-notice { overflow-wrap: anywhere; word-break: break-word; border-radius: 14px; }
+.phone-chat .wx-row, .phone-chat .wx-stack { max-width: 100%; min-width: 0; }

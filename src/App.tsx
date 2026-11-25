@@ -47,6 +47,7 @@ import type { Moment } from './moments'
 import { USER_AUTHOR, communityMemberIds, excerptFromMessage } from './moments'
 import { type PhoneArchiveSource, phoneBoundIds, PHONE_MAX_BINDINGS, buildBackstageNote, buildDmGroupPeek, buildGroupDmPeek, parsePhoneForumShare, stripPhoneForumShareTag, phoneDeliveryInstruction, phoneDmRules, phonePromptHistory, PHONE_COMPLETION_TIMEOUT_MS } from './phoneGroup'
 import { PhoneChatInfo } from './PhoneChatInfo'
+import { shortFailReason } from './phoneFailReason'
 import { capPhoneBubbles, readPhoneSplit, splitPhoneBubbles, writePhoneSplit, type PhoneSplitSetting } from './phoneBubbles'
 import { NOTICE_DURATIONS, lurkFallback, activeNotice, noticeRemaining, buildNoticeNote, findAtMentionIds, queueSummons, parsePhoneQuit, parsePhoneKick, parsePhoneVote, kickPassed, findNamedParticipantIds, selectPhoneSpeakers, pickPhoneChatters, cleanPhoneOutput, phoneGroupDisplayTitle, phoneStreamPreview, containsPhoneReasoning, phoneFinalGuard, buildSmartPickPrompt, buildMicPrompt, parseMicAnswer, parseSmartPick, buildPhoneArchive, buildPhoneGroupBackground, phoneBindingCandidates, buildPhoneRealWorldNote, parsePhoneLockCommand, buildPhoneLockBreachNote, type PhoneLockState, type PhoneLockBreach, phoneCharacter, phoneModeRules, stripPhoneQuitTag, stripPhoneKickTag, computeStoryUpdates, resetStorySeenForBindingChanges, storyUpdateNotice, buildStoryUpdateNote } from './phoneGroup'
 import { assignChatGroup, chatGroupNames, groupConversations, setChatGroupMembers } from './chatGroups'
@@ -3574,8 +3575,9 @@ function App() {
           } : item))
           return [...nextMessages, { ...assistantMessage, text: partialOutput, finishReason: 'connection_interrupted' }]
         }
-        if (conversation.phone && !conversation.phone.dm) {
-          const failedMessage: Message = { ...assistantMessage, text: `⚠️ ${speaker.name}这次没连上：${message}`, phoneNotice: true, finishReason: 'request_failed' }
+        const latestPhone = conversationsRef.current.find((item) => item.id === conversationId)?.phone
+        if (conversation.phone && !conversation.phone.dm && !latestPhone?.muteFailNotice) {
+          const failedMessage: Message = { ...assistantMessage, text: `⚠️ ${speaker.name}这次没连上（${shortFailReason(message)}）`, phoneNotice: true, finishReason: 'request_failed' }
           setConversations((current) => current.map((item) => item.id === conversationId ? { ...item, messages: item.messages.map((entry) => entry.id === assistantMessage.id ? failedMessage : entry) } : item))
           return [...nextMessages, failedMessage]
         }
@@ -4191,11 +4193,14 @@ function App() {
     if (!activeConversation || !message.phoneNotice) return
     const id = activeConversation.id
     const failed = message.finishReason === 'request_failed'
-    const sameKind = failed ? activeConversation.messages.filter((entry) => entry.phoneNotice && entry.finishReason === 'request_failed').length : 1
-    const all = sameKind > 1 && window.confirm(`把这 ${sameKind} 条「没连上」提示都删掉？\n点「取消」只删这一条。`)
-    if (!all && sameKind > 1 && !window.confirm('只删这一条提示？')) return
-    if (sameKind <= 1 && !window.confirm('删掉这条提示？')) return
-    setConversations((current) => current.map((item) => item.id !== id ? item : { ...item, messages: item.messages.filter((entry) => all ? !(entry.phoneNotice && entry.finishReason === 'request_failed') : entry.id !== message.id), updatedAt: Date.now() }))
+    // v337：删「没连上」提示 = 全部删掉，并且这个群以后有人连不上就安静跳过，不再反复弹。
+    if (failed) {
+      if (!window.confirm('删掉这个群所有「没连上」提示？\n以后这个群有人连不上就安静跳过，不再插提示。')) return
+      setConversations((current) => current.map((item) => item.id !== id ? item : { ...item, phone: item.phone ? { ...item.phone, muteFailNotice: true } : item.phone, messages: item.messages.filter((entry) => !(entry.phoneNotice && entry.finishReason === 'request_failed')), updatedAt: Date.now() }))
+      return
+    }
+    if (!window.confirm('删掉这条提示？')) return
+    setConversations((current) => current.map((item) => item.id !== id ? item : { ...item, messages: item.messages.filter((entry) => entry.id !== message.id), updatedAt: Date.now() }))
   }
 
   const regenerateMessage = async (message: Message) => {
