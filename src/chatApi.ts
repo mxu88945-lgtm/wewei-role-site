@@ -52,8 +52,10 @@ export type CompletionOptions = {
 // v210：stream_options.include_usage 被某个中转站拒绝后，本次会话不再给这个渠道带。
 const streamOptionsRejected = new Set<string>()
 const streamOptionsKey = (api: Pick<ApiConfig, 'baseUrl' | 'modelName'>) => `${api.baseUrl.trim().replace(/\/+$/, '')}|${api.modelName.trim()}`
+// v338：某渠道某模型拒绝 temperature / top_p 后，本次会话记住，之后直接不带，不再每次先挨一个 400。
+const samplingRejected = new Map<string, { temperature?: boolean; topP?: boolean }>()
 /** Test helper. */
-export function resetStreamOptionsMemory() { streamOptionsRejected.clear() }
+export function resetStreamOptionsMemory() { streamOptionsRejected.clear(); samplingRejected.clear() }
 /** After finish_reason, how long a stream may keep going just to deliver its trailing usage chunk. */
 const USAGE_DRAIN_MS = 2_500
 
@@ -486,7 +488,9 @@ type RequestCompatibility = {
 
 function unsupportedParameter(message: string, parameter: string) {
   const escaped = parameter.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
-  return new RegExp(`(?:unsupported|not supported|invalid|unknown|unrecognized|not allowed)[^\\n]{0,100}${escaped}|${escaped}[^\\n]{0,100}(?:unsupported|not supported|invalid|unknown|unrecognized|not allowed)`, 'i').test(message)
+  // v338：新模型（如 Claude Opus 4.x / 推理模型）回「`temperature` is deprecated for this model」，也算不认这个参数。
+  const words = 'unsupported|not supported|deprecated|invalid|unknown|unrecognized|not allowed|not permitted|cannot be (?:set|used)|只支持|不支持'
+  return new RegExp(`(?:${words})[^\\n]{0,100}${escaped}|${escaped}[^\\n]{0,100}(?:${words})`, 'i').test(message)
 }
 
 function tokenFieldMismatch(message: string) {
@@ -587,8 +591,8 @@ async function completeChatRequest(options: CompletionOptions) {
   let messages = anthropic || promptCacheUnsupported(api) ? stripPromptCache(options.messages) : options.messages
   const compatibility: RequestCompatibility = {
     tokenField: tokenField(api),
-    omitTemperature: false,
-    omitTopP: false,
+    omitTemperature: !!samplingRejected.get(streamOptionsKey(api))?.temperature,
+    omitTopP: !!samplingRejected.get(streamOptionsKey(api))?.topP,
     // Only when someone reads usage, only for OpenAI-compatible streams, and never for a channel that refused it.
     streamOptions: Boolean(onUsage) && streaming && !anthropic && !streamOptionsRejected.has(streamOptionsKey(api)),
   }
@@ -658,10 +662,12 @@ async function completeChatRequest(options: CompletionOptions) {
       }
       if (!compatibility.omitTemperature && unsupportedParameter(message, 'temperature')) {
         compatibility.omitTemperature = true
+        samplingRejected.set(streamOptionsKey(api), { ...samplingRejected.get(streamOptionsKey(api)), temperature: true })
         continue
       }
       if (!compatibility.omitTopP && unsupportedParameter(message, 'top_p')) {
         compatibility.omitTopP = true
+        samplingRejected.set(streamOptionsKey(api), { ...samplingRejected.get(streamOptionsKey(api)), topP: true })
         continue
       }
       // v210：中转站不认 stream_options：去掉重试，本次会话记住这个渠道（只是少了用量读数）。

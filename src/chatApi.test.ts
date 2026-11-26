@@ -1,9 +1,28 @@
 import { afterEach, describe, expect, it, vi } from 'vitest'
-import { completeChat, completeChatWithTools, testApiConnection } from './chatApi'
+import { completeChat, completeChatWithTools, resetStreamOptionsMemory, testApiConnection } from './chatApi'
 
 afterEach(() => { vi.unstubAllGlobals(); vi.useRealTimers() })
 
 describe('chatApi', () => {
+
+  it('v338：模型回「temperature is deprecated」时去掉温度重试，并记住这个渠道模型', async () => {
+    resetStreamOptionsMemory()
+    const bodies: Record<string, unknown>[] = []
+    vi.stubGlobal('fetch', vi.fn(async (_url: string, init?: RequestInit) => {
+      const body = JSON.parse(String(init?.body))
+      bodies.push(body)
+      if ('temperature' in body) return new Response(JSON.stringify({ error: { message: '`temperature` is deprecated for this model. (request id: x)' } }), { status: 400, headers: { 'content-type': 'application/json' } })
+      return new Response(JSON.stringify({ choices: [{ message: { content: '好。' } }] }), { headers: { 'content-type': 'application/json' } })
+    }))
+    const call = () => completeChat({ api: { baseUrl: 'https://relay.example/v1', apiKey: 'test', modelName: 'claude-opus-4-7' }, messages: [{ role: 'user', content: '在吗' }], temperature: 0.95, topP: 1, maxTokens: 100, streaming: false, signal: new AbortController().signal, onDelta: () => undefined })
+    await call()
+    expect(bodies).toHaveLength(2)
+    expect('temperature' in bodies[1]).toBe(false)
+    await call()
+    expect(bodies).toHaveLength(3)
+    expect('temperature' in bodies[2]).toBe(false)
+    resetStreamOptionsMemory()
+  })
   it('总时限结束仍未完成的 JSON 回复，不重试且不显示迟到的内容', async () => {
     vi.useFakeTimers()
     let deliver!: (data: unknown) => void
