@@ -1,4 +1,5 @@
 import type { ApiConfig, ChatApiMessage, ChatToolDefinition, CompletionResult } from './chatApi'
+import { noteSamplingRejection, samplingRejectedFor } from './chatApi'
 import { pushAppUrl, pushDeviceId, pushOn } from './personaPush'
 
 export const RELAY_STORAGE_KEY = 'weijing-local.relay'
@@ -23,11 +24,14 @@ export function clearRelayPending(id: string) { savePending(readRelayPending().f
 function auth(key: string) { return { Authorization: `Bearer ${key}` } }
 function endpoint(api: ApiConfig) { return `${cleanUrl(api.baseUrl)}/${api.protocol === 'anthropic' ? 'messages' : 'chat/completions'}` }
 function requestBody(api: ApiConfig, messages: ChatApiMessage[], temperature: number, topP: number, maxTokens: number, tools?: ChatToolDefinition[]) {
+  // v339：这个渠道+模型已知不认的 temperature / top_p 不再带（和直连共用一份记录）。
+  const rejected = samplingRejectedFor(api)
+  const sampling = { ...(rejected.temperature ? {} : { temperature }), ...(rejected.topP ? {} : { top_p: topP }) }
   if (api.protocol === 'anthropic') {
     const system = messages.filter((item) => item.role === 'system').map((item) => typeof item.content === 'string' ? item.content : '').filter(Boolean).join('\n\n')
-    return { model: api.modelName, ...(system ? { system } : {}), messages: messages.filter((item) => item.role !== 'system'), temperature, top_p: topP, max_tokens: maxTokens, stream: true }
+    return { model: api.modelName, ...(system ? { system } : {}), messages: messages.filter((item) => item.role !== 'system'), ...sampling, max_tokens: maxTokens, stream: true }
   }
-  return { model: api.modelName, messages, temperature, top_p: topP, max_tokens: maxTokens, stream: true, ...(tools?.length ? { tools } : {}) }
+  return { model: api.modelName, messages, ...sampling, max_tokens: maxTokens, stream: true, ...(tools?.length ? { tools } : {}) }
 }
 export async function getRelayResult(id: string): Promise<RelayResult> {
   const config = readRelayConfig(); if (!config.url || !config.key) throw new Error('锁屏中继未配置')
@@ -36,7 +40,7 @@ export async function getRelayResult(id: string): Promise<RelayResult> {
   if (!response.ok) throw new Error(data.error || `中继 HTTP ${response.status}`)
   return data
 }
-export async function startRelay(args: { id: string; conversationId: string; assistantId: number; api: ApiConfig; messages: ChatApiMessage[]; temperature: number; topP: number; maxTokens: number; tools?: ChatToolDefinition[]; signal: AbortSignal; onDelta: (text: string) => void }): Promise<CompletionResult> {
+export async function startRelay(args: { id: string; conversationId: string; assistantId: number; api: ApiConfig; messages: ChatApiMessage[]; temperature: number; topP: number; maxTokens: number; tools?: ChatToolDefinition[]; signal: AbortSignal; onDelta: (text: string) => void; samplingRetried?: boolean }): Promise<CompletionResult> {
   const config = readRelayConfig(); if (!config.enabled || !config.url || !config.key) throw new Error('锁屏中继未配置')
   const pending = [...readRelayPending().filter((item) => item.id !== args.id), { id: args.id, conversationId: args.conversationId, assistantId: args.assistantId, createdAt: Date.now() }]
   savePending(pending)
@@ -69,7 +73,16 @@ export async function startRelay(args: { id: string; conversationId: string; ass
       await new Promise((resolve) => setTimeout(resolve, 2000))
       result = await getRelayResult(args.id)
     }
-    if (result.status === 'error') throw new Error(result.error || '中继生成失败')
+    if (result.status === 'error') {
+      // v339：上游说不认 temperature / top_p：记下来，换个 id 去掉再走一次中继（只重试一次）。
+      if (!args.samplingRetried && noteSamplingRejection(args.api, result.error || shown)) {
+        clearRelayPending(args.id)
+        clearTimeout(overall); if (idle) clearTimeout(idle)
+        args.signal.removeEventListener('abort', abortLocal)
+        return startRelay({ ...args, id: `${args.id}-s`, samplingRetried: true })
+      }
+      throw new Error(result.error || '中继生成失败')
+    }
     if (result.status !== 'done') throw new RelayStalledError(shown)
     if (result.text && !shown) args.onDelta(result.text)
     else if (result.text && result.text.length > shown.length && result.text.startsWith(shown)) args.onDelta(result.text.slice(shown.length))

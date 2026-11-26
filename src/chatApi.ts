@@ -53,9 +53,20 @@ export type CompletionOptions = {
 const streamOptionsRejected = new Set<string>()
 const streamOptionsKey = (api: Pick<ApiConfig, 'baseUrl' | 'modelName'>) => `${api.baseUrl.trim().replace(/\/+$/, '')}|${api.modelName.trim()}`
 // v338：某渠道某模型拒绝 temperature / top_p 后，本次会话记住，之后直接不带，不再每次先挨一个 400。
-const samplingRejected = new Map<string, { temperature?: boolean; topP?: boolean }>()
+const SAMPLING_KEY = 'weijing.samplingRejected'
+const samplingRejected = new Map<string, { temperature?: boolean; topP?: boolean }>((() => { try { const raw = JSON.parse(globalThis.localStorage?.getItem(SAMPLING_KEY) || '{}'); return raw && typeof raw === 'object' ? Object.entries(raw) as [string, { temperature?: boolean; topP?: boolean }][] : [] } catch { return [] } })())
+function saveSamplingRejected() { try { globalThis.localStorage?.setItem(SAMPLING_KEY, JSON.stringify(Object.fromEntries([...samplingRejected].slice(-60)))) } catch { /* private mode */ } }
+/** v339：中继和直连共用。这个渠道+模型已知不认的采样参数。 */
+export function samplingRejectedFor(api: Pick<ApiConfig, 'baseUrl' | 'modelName'>) { return samplingRejected.get(streamOptionsKey(api)) || {} }
+/** v339：从报错文字里认出「不认 temperature / top_p」，记下来；认出了返回 true。 */
+export function noteSamplingRejection(api: Pick<ApiConfig, 'baseUrl' | 'modelName'>, message: string) {
+  const key = streamOptionsKey(api), prev = samplingRejected.get(key) || {}
+  const next = { ...prev, ...(unsupportedParameter(message, 'temperature') ? { temperature: true } : {}), ...(unsupportedParameter(message, 'top_p') ? { topP: true } : {}) }
+  if (next.temperature === prev.temperature && next.topP === prev.topP) return false
+  samplingRejected.set(key, next); saveSamplingRejected(); return true
+}
 /** Test helper. */
-export function resetStreamOptionsMemory() { streamOptionsRejected.clear(); samplingRejected.clear() }
+export function resetStreamOptionsMemory() { streamOptionsRejected.clear(); samplingRejected.clear(); saveSamplingRejected() }
 /** After finish_reason, how long a stream may keep going just to deliver its trailing usage chunk. */
 const USAGE_DRAIN_MS = 2_500
 
@@ -662,12 +673,12 @@ async function completeChatRequest(options: CompletionOptions) {
       }
       if (!compatibility.omitTemperature && unsupportedParameter(message, 'temperature')) {
         compatibility.omitTemperature = true
-        samplingRejected.set(streamOptionsKey(api), { ...samplingRejected.get(streamOptionsKey(api)), temperature: true })
+        samplingRejected.set(streamOptionsKey(api), { ...samplingRejected.get(streamOptionsKey(api)), temperature: true }); saveSamplingRejected()
         continue
       }
       if (!compatibility.omitTopP && unsupportedParameter(message, 'top_p')) {
         compatibility.omitTopP = true
-        samplingRejected.set(streamOptionsKey(api), { ...samplingRejected.get(streamOptionsKey(api)), topP: true })
+        samplingRejected.set(streamOptionsKey(api), { ...samplingRejected.get(streamOptionsKey(api)), topP: true }); saveSamplingRejected()
         continue
       }
       // v210：中转站不认 stream_options：去掉重试，本次会话记住这个渠道（只是少了用量读数）。
